@@ -1,0 +1,204 @@
+#!/usr/bin/env sh
+set -u
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+ROOT_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+ENV_FILE="${SYNAPSE_ENV_FILE:-$ROOT_DIR/config/synapse.env}"
+SYNAPSE_ROOT="$ROOT_DIR"
+export SYNAPSE_ROOT
+if [ -f "$ENV_FILE" ]; then
+    # shellcheck disable=SC1090
+    . "$ENV_FILE"
+fi
+if [ -z "${SYNAPSE_PYTHON:-}" ]; then
+    if [ -n "${VIRTUAL_ENV:-}" ] && [ -x "$VIRTUAL_ENV/bin/python" ]; then
+        SYNAPSE_PYTHON="$VIRTUAL_ENV/bin/python"
+    else
+        SYNAPSE_PYTHON="$ROOT_DIR/.venv/bin/python"
+    fi
+fi
+if [ ! -x "$SYNAPSE_PYTHON" ]; then
+    SYNAPSE_PYTHON="${SYNAPSE_PYTHON_FALLBACK:-python3}"
+fi
+MCP_SSE_URL="${MCP_SSE_URL:-http://127.0.0.1:9876}"
+BURP_MCP_PROXY_JAR="${BURP_MCP_PROXY_JAR:-$ROOT_DIR/MCPS/Burp-Mcp/mcp-proxy.jar}"
+
+ok=0
+strict_tools=0
+
+usage() {
+    cat <<EOF
+Usage: bin/check-setup [--strict-tools]
+
+By default, missing external adapter binaries are warnings so passive Synapse
+workflows can still validate cleanly. Use --strict-tools for a full active
+tooling environment check.
+EOF
+}
+
+case "${1:-}" in
+    --strict-tools)
+        strict_tools=1
+        shift
+        ;;
+    --help|-h)
+        usage
+        exit 0
+        ;;
+    "")
+        ;;
+    *)
+        usage
+        exit 2
+        ;;
+esac
+
+check_cmd() {
+    name="$1"
+    if command -v "$name" >/dev/null 2>&1; then
+        printf 'OK   %s: %s\n' "$name" "$(command -v "$name")"
+    else
+        printf 'MISS %s: not found on PATH\n' "$name"
+        ok=1
+    fi
+}
+
+check_cmd_optional() {
+    name="$1"
+    reason="$2"
+    if command -v "$name" >/dev/null 2>&1; then
+        printf 'OK   optional command %s: %s\n' "$name" "$(command -v "$name")"
+    else
+        printf 'WARN optional command %s: not found on PATH\n' "$name"
+        printf '     %s\n' "$reason"
+    fi
+}
+
+check_external_tool() {
+    name="$1"
+    reason="$2"
+    if command -v "$name" >/dev/null 2>&1; then
+        printf 'OK   external tool %s: %s\n' "$name" "$(command -v "$name")"
+    elif [ "$strict_tools" -eq 1 ]; then
+        printf 'MISS external tool %s: not found on PATH\n' "$name"
+        printf '     %s\n' "$reason"
+        ok=1
+    else
+        printf 'WARN external tool %s: not found on PATH\n' "$name"
+        printf '     %s\n' "$reason"
+    fi
+}
+
+check_python_module_optional() {
+    label="$1"
+    module="$2"
+    if "$SYNAPSE_PYTHON" -c "import $module" >/dev/null 2>&1; then
+        printf 'OK   optional Python module %s: importable with %s\n' "$label" "$SYNAPSE_PYTHON"
+    else
+        printf 'WARN optional Python module %s: not importable with %s\n' "$label" "$SYNAPSE_PYTHON"
+    fi
+}
+
+check_file() {
+    label="$1"
+    path="$2"
+    if [ -f "$path" ]; then
+        printf 'OK   %s: %s\n' "$label" "$path"
+    else
+        printf 'MISS %s: %s\n' "$label" "$path"
+        ok=1
+    fi
+}
+
+check_file_optional() {
+    label="$1"
+    path="$2"
+    reason="$3"
+    if [ -f "$path" ]; then
+        printf 'OK   optional %s: %s\n' "$label" "$path"
+    else
+        printf 'WARN optional %s: %s\n' "$label" "$path"
+        printf '     %s\n' "$reason"
+    fi
+}
+
+printf 'Synapse setup check\n'
+printf 'Repository: %s\n\n' "$ROOT_DIR"
+
+check_cmd python3
+check_external_tool sqlmap "Required only for SQLMap-backed active adapter workflows."
+check_external_tool ffuf "Required only for ffuf content-discovery adapter workflows."
+check_external_tool nmap "Required only for nmap infrastructure adapter workflows."
+check_external_tool nuclei "Required only for Nuclei web scanning adapter workflows."
+if [ -x "$SYNAPSE_PYTHON" ] || command -v "$SYNAPSE_PYTHON" >/dev/null 2>&1; then
+    printf 'OK   Synapse Python: %s\n' "$SYNAPSE_PYTHON"
+else
+    printf 'MISS Synapse Python: %s\n' "$SYNAPSE_PYTHON"
+    ok=1
+fi
+printf 'OK   Shodan API key: runtime-only via shodan.session_key.set\n'
+check_python_module_optional "playwright" "playwright.sync_api"
+check_python_module_optional "selenium" "selenium"
+check_file "env file" "$ENV_FILE"
+check_file "agent instructions" "$ROOT_DIR/AGENTS.md"
+check_file "Synapse MCP launcher" "$ROOT_DIR/MCPS/Synapse-MCP/bin/synapse-mcp"
+
+printf '\nRecommended optional Burp MCP checks:\n'
+check_cmd_optional "java" "Java is needed only when launching the optional PortSwigger Burp MCP proxy jar."
+check_file_optional "Burp MCP proxy jar" "$BURP_MCP_PROXY_JAR" "Burp MCP is recommended for live Burp Suite operations; offline dump analysis and Synapse MCP can run without it."
+
+printf '\nSynapse MCP check:\n'
+if [ -x "$ROOT_DIR/MCPS/Synapse-MCP/bin/synapse-mcp" ]; then
+    response=$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' |
+        PYTHONDONTWRITEBYTECODE=1 \
+        "$ROOT_DIR/MCPS/Synapse-MCP/bin/synapse-mcp" 2>/dev/null)
+    missing_tools=""
+    for tool in \
+        "shodan.session_key.set" \
+        "nmap.run_profile" \
+        "nuclei.run_profile" \
+        "ffuf.run_profile" \
+        "sitemap.from_dump" \
+        "crawler.crawl" \
+        "credentials.set_browser_auth_profile" \
+        "credentials.browser_auth_check_setup" \
+        "credentials.browser_authenticate" \
+        "credentials.validate_session" \
+        "xss.analyze_dump" \
+        "documentation.build_report_context" \
+        "project.start" \
+        "fingerprint.from_dump" \
+        "fingerprint.read_host" \
+        "evidence.host_context"; do
+        case "$response" in
+            *"\"$tool\""*) ;;
+            *) missing_tools="$missing_tools $tool" ;;
+        esac
+    done
+    if [ -z "$missing_tools" ]; then
+        printf 'OK   Synapse MCP starts and exposes expected adapter tools\n'
+    else
+        printf 'WARN Synapse MCP started but missing expected tools:%s\n' "$missing_tools"
+    fi
+else
+    printf 'MISS Synapse MCP launcher is not executable\n'
+    ok=1
+fi
+
+printf '\nOptional Burp MCP endpoint check:\n'
+if command -v curl >/dev/null 2>&1; then
+    if curl --max-time 3 --silent --fail "$MCP_SSE_URL" >/dev/null 2>&1 ||
+       curl --max-time 3 --silent --fail "$MCP_SSE_URL/sse" >/dev/null 2>&1; then
+        printf 'OK   Burp MCP endpoint reachable: %s\n' "$MCP_SSE_URL"
+    else
+        printf 'WARN Burp MCP endpoint not reachable from this shell: %s\n' "$MCP_SSE_URL"
+        printf '     Optional but recommended for live Burp Suite operations. Start Burp, install/enable the PortSwigger MCP extension, and verify host/port when needed.\n'
+    fi
+else
+    printf 'SKIP curl not available; cannot probe optional Burp MCP endpoint.\n'
+fi
+
+printf '\nMCP client config:\n'
+"$ROOT_DIR/bin/print-mcp-config"
+
+exit "$ok"

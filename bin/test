@@ -1,0 +1,90 @@
+#!/usr/bin/env sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+ROOT_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+ENV_FILE="${SYNAPSE_ENV_FILE:-$ROOT_DIR/config/synapse.env}"
+SYNAPSE_ROOT="${SYNAPSE_ROOT:-$ROOT_DIR}"
+export SYNAPSE_ROOT
+if [ -f "$ENV_FILE" ]; then
+    . "$ENV_FILE"
+fi
+if [ -z "${SYNAPSE_PYTHON:-}" ]; then
+    if [ -n "${VIRTUAL_ENV:-}" ] && [ -x "$VIRTUAL_ENV/bin/python" ]; then
+        SYNAPSE_PYTHON="$VIRTUAL_ENV/bin/python"
+    else
+        SYNAPSE_PYTHON="$ROOT_DIR/.venv/bin/python"
+    fi
+fi
+if [ ! -x "$SYNAPSE_PYTHON" ]; then
+    SYNAPSE_PYTHON="${SYNAPSE_PYTHON_FALLBACK:-python3}"
+fi
+
+usage() {
+    cat <<EOF
+Usage: bin/test [--all|--core|--template] [unittest args...]
+
+Defaults to --all.
+
+Examples:
+  bin/test
+  bin/test --core
+  bin/test --template
+  bin/test --core -k access_control
+EOF
+}
+
+mode="all"
+if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
+    usage
+    exit 0
+fi
+case "${1:-}" in
+    --all)
+        mode="all"
+        shift
+        ;;
+    --core)
+        mode="core"
+        shift
+        ;;
+    --template)
+        mode="template"
+        shift
+        ;;
+esac
+
+run_core() {
+    printf 'Running Synapse MCP tests...\n'
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH="$ROOT_DIR/MCPS/Synapse-MCP" \
+    "$SYNAPSE_PYTHON" -m unittest discover "$ROOT_DIR/MCPS/Synapse-MCP/tests" "$@"
+}
+
+run_template() {
+    if [ ! -d "$ROOT_DIR/examples/custom_adapter_template/tests" ]; then
+        printf 'Skipping custom adapter template tests; directory not found.\n'
+        return 0
+    fi
+    printf 'Running custom adapter template tests...\n'
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH="$ROOT_DIR/MCPS/Synapse-MCP:$ROOT_DIR/examples/custom_adapter_template" \
+    "$SYNAPSE_PYTHON" -m unittest discover "$ROOT_DIR/examples/custom_adapter_template/tests" "$@"
+}
+
+case "$mode" in
+    all)
+        run_core "$@"
+        run_template
+        ;;
+    core)
+        run_core "$@"
+        ;;
+    template)
+        run_template "$@"
+        ;;
+    *)
+        usage
+        exit 2
+        ;;
+esac

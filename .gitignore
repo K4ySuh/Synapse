@@ -1,0 +1,53 @@
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Local Python environments and build metadata.
+.venv/
+venv/
+env/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Runtime evidence, credentials, project fingerprints, and engagement-specific
+# context. Keep only directory placeholders in Git.
+DATA/*
+!DATA/.gitkeep
+!DATA/evidence/
+DATA/evidence/*
+!DATA/evidence/.gitkeep
+!DATA/evidence/orgs/
+DATA/evidence/orgs/*
+!DATA/evidence/orgs/.gitkeep
+!DATA/scope/
+DATA/scope/*
+!DATA/scope/.gitkeep
+!DATA/credentials/
+DATA/credentials/*
+!DATA/credentials/.gitkeep
+!DATA/workspaces/
+DATA/workspaces/*
+!DATA/workspaces/.gitkeep
+
+# Legacy runtime locations are not used by current Synapse code, but old local
+# artifacts may still exist on developer machines.
+DATA/sessions/*
+DATA/runs/*
+DUMPS/*
+
+# Mis-rooted/local generated artifacts.
+MCPS/DATA/
+MCPS/*.html
+
+# Machine-specific MCP launch configs (paths differ per clone).
+.mcp.json
+MCPS/Synapse-MCP/examples/claude-mcp-config.json
+
+# Local/private implementation history. Operators may keep their own copy.
+docs/Version-Log.md

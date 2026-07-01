@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "synapse-mcp"
+version = "0.5.0a0"
+description = "Local MCP tooling for authorized security assessment workflows."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Javier Roldán Ortiz" },
+    { name = "Synapse contributors" },
+]
+keywords = ["mcp", "security", "burp", "assessment", "automation"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Security",
+]
+dependencies = [
+    "httpx>=0.28,<1",
+    "pydantic>=2,<3",
+]
+
+[project.optional-dependencies]
+browser = [
+    "playwright>=1.44,<2",
+    "selenium>=4.20,<5",
+]
+
+[project.scripts]
+synapse-mcp = "synapse_mcp.transport.stdio_server:main"
+
+[tool.setuptools.packages.find]
+where = ["MCPS/Synapse-MCP"]
+include = ["synapse_mcp*"]
+
+[tool.setuptools.package-data]
+synapse_mcp = [
+    "core/documentation/html_templates/*.html",
+    "core/documentation/html_templates/*.md",
+]
+
+[tool.synapse]
+core-test-command = "bin/test --core"
+all-test-command = "bin/test"
+setup-check-command = "bin/check-setup"

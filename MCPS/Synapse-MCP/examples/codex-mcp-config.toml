@@ -1,0 +1,4 @@
+[mcp_servers.synapse]
+command = "/path/to/Synapse/MCPS/Synapse-MCP/bin/synapse-mcp"
+args = []
+startup_timeout_sec = 10

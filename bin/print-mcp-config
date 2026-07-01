@@ -1,0 +1,76 @@
+#!/usr/bin/env sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+ROOT_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+BURP_LAUNCHER="$ROOT_DIR/MCPS/Burp-Mcp/bin/portswigger-burp-mcp"
+
+cat <<EOF
+# Add this to your Codex MCP config.
+# - synapse: scope, evidence, dumps, analysis, ffuf, nmap, Shodan, reporting
+# - burp: optional but recommended live Burp Suite connectivity through
+#   PortSwigger's MCP proxy
+#
+# The synapse launcher is venv-aware. It uses SYNAPSE_PYTHON when set,
+# otherwise the active VIRTUAL_ENV, then $ROOT_DIR/.venv/bin/python if present.
+#
+# Shodan keys are runtime-only. Do not put SHODAN_API_KEY here; set it during a
+# session with the Synapse MCP tool shodan.session_key.set.
+
+[mcp_servers.synapse]
+command = "$ROOT_DIR/MCPS/Synapse-MCP/bin/synapse-mcp"
+args = []
+startup_timeout_sec = 10
+EOF
+
+if [ -x "$BURP_LAUNCHER" ]; then
+    cat <<EOF
+
+[mcp_servers.burp]
+command = "$BURP_LAUNCHER"
+args = []
+startup_timeout_sec = 10
+EOF
+else
+    cat <<EOF
+
+# Optional Burp MCP entry. Uncomment after installing the Burp MCP proxy
+# launcher at $BURP_LAUNCHER.
+#
+# [mcp_servers.burp]
+# command = "$BURP_LAUNCHER"
+# args = []
+# startup_timeout_sec = 10
+EOF
+fi
+
+cat <<EOF
+
+# Add this to your local .mcp.json for Claude Code, or merge the "synapse"
+# entry into your existing mcpServers. Do not commit local MCP configuration
+# files because they often contain absolute paths.
+
+{
+  "mcpServers": {
+    "synapse": {
+      "command": "$ROOT_DIR/MCPS/Synapse-MCP/bin/synapse-mcp",
+      "args": []
+EOF
+
+if [ -x "$BURP_LAUNCHER" ]; then
+    cat <<EOF
+    },
+    "burp": {
+      "command": "$BURP_LAUNCHER",
+      "args": []
+    }
+  }
+}
+EOF
+else
+    cat <<EOF
+    }
+  }
+}
+EOF
+fi

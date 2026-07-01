@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oxanium:wght@500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;background:#080b12}
+  ::selection{background:rgba(232,68,60,.3)}
+  @keyframes synCore{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
+  @keyframes synPulseGlow{0%,100%{opacity:.55}50%{opacity:1}}
+  details>summary::-webkit-details-marker{display:none}
+  details[open]>summary>span:first-child{transform:rotate(90deg)}
+  details>summary>span:first-child{transition:transform .15s;display:inline-block}
+  @media(prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+</helmet>
+<div ref="{{ rootRef }}" data-screen-label="Synapse Report" style="--red:#e8443c;--tdpad:10px 14px;--thpad:11px 14px;min-height:100vh;background:#080b12;color:#eef2f8;font-family:'IBM Plex Sans',system-ui,sans-serif;font-size:14px;line-height:1.6;font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased">
+
+  <!-- ============ OPERATOR · CONSOLE ============ -->
+  <sc-if value="{{ isOperator }}" hint-placeholder-val="{{ true }}">
+  <div style="--bg:#080b12;--panel:#0f1521;--panel2:#161e2c;--line:#232d3e;--line2:#1a2230;--ink:#eef2f8;--dim:#9aa6b8;--faint:#646f82;--blue:#4f93d6;--disp:'Oxanium',system-ui,sans-serif;--body:'IBM Plex Sans',system-ui,sans-serif;--mono:'JetBrains Mono',ui-monospace,monospace;min-height:100vh;background:var(--amb-bg-c, radial-gradient(1100px 520px at 6% -12%,rgba(232,68,60,.14),transparent 60%),radial-gradient(950px 520px at 100% -4%,rgba(79,147,214,.09),transparent 55%),var(--bg));padding-bottom:80px">
+
+    <header style="position:relative;width:100%;overflow:hidden;border-bottom:1px solid var(--line)">
+      <img src="assets/banner-operator.png" alt="Synapse — the agentic operations layer for offensive security" style="display:block;width:100%;height:auto;max-height:clamp(220px,30vw,440px);object-fit:cover;object-position:center"/>
+      <div style="position:absolute;left:0;right:0;bottom:0;height:96px;background:linear-gradient(to bottom,transparent,var(--bg));pointer-events:none"></div>
+    </header>
+
+    <div style="max-width:1680px;margin:16px auto 0;padding:0 32px">
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:14px 26px;padding:15px 20px;background:var(--panel);border:1px solid var(--line);border-radius:12px">
+        <span style="display:flex;flex-direction:column;gap:3px"><strong style="font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);font-weight:500">Report</strong><span style="font-size:13.5px;color:var(--ink);font-weight:500">{{ reportName }}</span></span>
+        <span style="display:flex;flex-direction:column;gap:3px"><strong style="font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);font-weight:500">Workspace</strong><span style="font-size:13.5px;color:var(--ink);font-weight:500">{{ workspace }}</span></span>
+        <span style="display:flex;flex-direction:column;gap:3px"><strong style="font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);font-weight:500">Generated</strong><span style="font-size:13.5px;color:var(--ink);font-weight:500">{{ generated }}</span></span>
+        <span style="flex:1 1 auto"></span>
+        <span style="font-family:var(--disp);font-weight:600;letter-spacing:.05em;font-size:11px;text-transform:uppercase;padding:7px 13px;border-radius:999px;border:1px solid var(--red);color:var(--red);background:rgba(232,68,60,.09)">{{ modeBadge }}</span>
+        <div style="display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:3px;background:var(--bg)">
+          <button type="button" onClick="{{ setOp }}" style="font-family:var(--disp);font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#fff;background:var(--red);border:0;padding:7px 14px;border-radius:999px;cursor:pointer;transition:.15s">Operator</button>
+          <button type="button" onClick="{{ setHigh }}" style="font-family:var(--disp);font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--dim);background:transparent;border:0;padding:7px 14px;border-radius:999px;cursor:pointer;transition:.15s">High-Level</button>
+        </div>
+      </div>
+    </div>
+
+    <sc-if value="{{ notLoaded }}" hint-placeholder-val="{{ true }}">
+      <div style="max-width:1680px;margin:40px auto;padding:0 32px;font-family:var(--mono);font-size:13px;color:var(--faint)">Loading report data…</div>
+    </sc-if>
+
+    <sc-if value="{{ loaded }}">
+    <section style="max-width:1680px;margin:24px auto 0;padding:0 32px">
+      <div style="position:relative;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px 24px;overflow:hidden">
+        <span style="position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,var(--red),transparent);opacity:.6"></span>
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:18px">
+          <div style="display:flex;align-items:center;gap:11px">
+            <span style="width:8px;height:8px;border-radius:50%;background:var(--red);box-shadow:0 0 10px var(--red);animation:{{ glowAnim }}"></span>
+            <h2 style="font-family:var(--disp);font-weight:700;font-size:16px;letter-spacing:.16em;text-transform:uppercase;margin:0;color:var(--ink)">Risk Posture</h2>
+          </div>
+          <span style="font-family:var(--mono);font-size:12px;color:var(--dim)">{{ riskSummary }}</span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px">
+          <sc-for list="{{ riskTiles }}" as="t" hint-placeholder-count="5">
+            <div style="position:relative;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:15px 16px;overflow:hidden">
+              <span style="position:absolute;top:0;left:0;right:0;height:3px;background:{{ t.color }};opacity:{{ t.barOpacity }}"></span>
+              <span style="display:block;font-family:var(--disp);font-weight:800;font-size:36px;line-height:1;color:{{ t.numColor }}">{{ t.count }}</span>
+              <span style="display:flex;align-items:center;gap:7px;margin-top:9px;font-family:var(--mono);font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--faint)"><span style="width:7px;height:7px;border-radius:50%;background:{{ t.color }};opacity:{{ t.barOpacity }}"></span>{{ t.label }}</span>
+            </div>
+          </sc-for>
+        </div>
+        <div style="margin-top:18px">
+          <div style="display:flex;height:8px;border-radius:999px;overflow:hidden;background:var(--panel2)">
+            <sc-for list="{{ riskSegs }}" as="s" hint-placeholder-count="4"><span style="width:{{ s.pct }}%;background:{{ s.color }}"></span></sc-for>
+          </div>
+          <div style="display:flex;gap:10px 22px;flex-wrap:wrap;margin-top:13px">
+            <sc-for list="{{ drivers }}" as="d" hint-placeholder-count="5">
+              <span style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--dim)"><span style="width:8px;height:8px;border-radius:2px;background:{{ d.color }}"></span><b style="color:var(--ink);font-weight:700;font-family:var(--disp)">{{ d.n }}</b> {{ d.label }} <span style="color:var(--faint)">· {{ d.layer }}</span></span>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div style="max-width:1680px;margin:36px auto 0;padding:0 32px;display:grid;grid-template-columns:minmax(196px,244px) minmax(0,1fr);gap:44px;align-items:start">
+      <nav aria-label="Contents" style="position:sticky;top:22px">
+        <div style="font-family:var(--mono);font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--faint);margin:0 0 16px 4px">Layer Index</div>
+        <ol style="list-style:none;margin:0;padding:0;position:relative">
+          <span style="position:absolute;left:5px;top:10px;bottom:10px;width:1px;background:var(--line)"></span>
+          <sc-for list="{{ toc }}" as="item" hint-placeholder-count="6">
+            <li style="position:relative;padding:7px 0 7px 24px">
+              <span style="position:absolute;left:0;top:13px;width:11px;height:11px;border-radius:50%;border:1.5px solid {{ item.dotBorder }};background:{{ item.dotBg }};transition:.15s"></span>
+              <a href="#{{ item.id }}" style="display:flex;gap:9px;align-items:baseline;color:{{ item.linkColor }};text-decoration:none;font-size:13px;line-height:1.35;transition:.15s"><span style="font-family:var(--mono);font-size:11px;color:var(--red)">{{ item.idxLabel }}</span><span style="overflow-wrap:anywhere">{{ item.label }}</span></a>
+            </li>
+          </sc-for>
+        </ol>
+      </nav>
+
+      <main style="min-width:0">
+        <sc-for list="{{ layers }}" as="layer" hint-placeholder-count="5">
+          <section id="{{ layer.id }}" style="margin-bottom:56px;scroll-margin-top:18px">
+            <div style="display:flex;align-items:baseline;gap:16px;padding-bottom:14px;border-bottom:1px solid var(--line);margin-bottom:20px">
+              <span style="font-family:var(--disp);font-weight:700;font-size:14px;letter-spacing:.14em;color:var(--red)">{{ layer.idx }}</span>
+              <h2 style="font-family:var(--disp);font-weight:700;font-size:clamp(22px,2.4vw,28px);letter-spacing:.01em;text-transform:uppercase;margin:0;color:#f4f7fb">{{ layer.title }}</h2>
+              <span style="margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--faint);text-transform:uppercase;letter-spacing:.08em">{{ layer.sub }}</span>
+            </div>
+
+            <sc-if value="{{ layer.hasStats }}" hint-placeholder-val="{{ true }}">
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:0 0 18px">
+                <sc-for list="{{ layer.stats }}" as="st" hint-placeholder-count="4">
+                  <div style="position:relative;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 18px;overflow:hidden">
+                    <span style="position:absolute;top:0;left:0;width:38px;height:2px;background:var(--red)"></span>
+                    <span style="display:block;font-family:var(--disp);font-weight:800;font-size:30px;line-height:1;letter-spacing:-.01em;color:#f4f7fb">{{ st.v }}</span>
+                    <span style="display:block;margin-top:8px;font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)">{{ st.l }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ layer.hasMeta }}" hint-placeholder-val="{{ true }}">
+              <ul style="margin:0 0 14px;padding-left:18px;list-style:none">
+                <sc-for list="{{ layer.meta }}" as="m" hint-placeholder-count="1"><li style="margin:4px 0;color:var(--dim)"><strong style="color:var(--ink);font-weight:600">{{ m.strong }}</strong> {{ m.text }}</li></sc-for>
+              </ul>
+            </sc-if>
+
+            <sc-for list="{{ layer.blocks }}" as="block" hint-placeholder-count="3">
+
+              <sc-if value="{{ block.isTable }}" hint-placeholder-val="{{ true }}">
+                <section id="{{ block.id }}" style="margin-top:26px">
+                  <h3 style="display:flex;align-items:center;gap:9px;font-family:var(--mono);font-weight:500;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);margin:0 0 12px"><span style="width:6px;height:6px;border-radius:50%;background:var(--red);box-shadow:0 0 7px var(--red)"></span>{{ block.title }}</h3>
+                  <div style="border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--panel)">
+                    <div style="overflow-x:auto">
+                      <table style="border-collapse:collapse;width:100%;min-width:max-content;font-size:13px">
+                        <thead><tr>
+                          <sc-for list="{{ block.cols }}" as="col" hint-placeholder-count="5"><th style="text-align:left;font-family:var(--mono);font-weight:500;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);padding:var(--thpad);background:var(--panel2);border-bottom:1px solid var(--line);white-space:nowrap">{{ col.l }}</th></sc-for>
+                        </tr></thead>
+                        <tbody>
+                          <sc-for list="{{ block.rows }}" as="row" hint-placeholder-count="3">
+                            <tr style="transition:.12s" style-hover="background:rgba(255,255,255,.022)">
+                              <sc-for list="{{ row }}" as="cell" hint-placeholder-count="5">
+                                <td style="padding:var(--tdpad);border-bottom:1px solid var(--line2);color:var(--ink);vertical-align:top;overflow-wrap:anywhere;line-height:1.5">
+                                  <sc-if value="{{ cell.isBadge }}" hint-placeholder-val="{{ true }}"><span style="display:inline-flex;align-items:center;gap:6px;font-family:var(--disp);font-weight:700;font-size:10px;letter-spacing:.04em;text-transform:uppercase;padding:3px 9px;border-radius:6px;border:1px solid {{ cell.border }};color:{{ cell.color }};background:{{ cell.bg }}"><span style="width:6px;height:6px;border-radius:50%;background:currentColor"></span>{{ cell.text }}</span></sc-if>
+                                  <sc-if value="{{ cell.isText }}" hint-placeholder-val="{{ true }}">{{ cell.text }}</sc-if>
+                                </td>
+                              </sc-for>
+                            </tr>
+                          </sc-for>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </section>
+              </sc-if>
+
+              <sc-if value="{{ block.isCandidateGroups }}" hint-placeholder-val="{{ true }}">
+                <section id="{{ block.id }}" style="margin-top:26px">
+                  <h3 style="display:flex;align-items:center;gap:9px;font-family:var(--mono);font-weight:500;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);margin:0 0 12px"><span style="width:6px;height:6px;border-radius:50%;background:var(--red);box-shadow:0 0 7px var(--red)"></span>{{ block.title }}</h3>
+                  <sc-for list="{{ block.groups }}" as="g" hint-placeholder-count="3">
+                    <div style="margin-top:18px">
+                      <div style="display:flex;align-items:center;gap:11px;margin:0 0 9px">
+                        <span style="font-family:var(--disp);font-weight:700;font-size:12.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink)">{{ g.title }}</span>
+                        <span style="font-family:var(--mono);font-size:10.5px;color:{{ g.sevColor }};border:1px solid {{ g.sevBorder }};background:{{ g.sevBg }};padding:2px 9px;border-radius:999px;white-space:nowrap">{{ g.countLabel }}</span>
+                      </div>
+                      <div style="border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--panel)">
+                        <div style="overflow-x:auto">
+                          <table style="border-collapse:collapse;width:100%;min-width:max-content;font-size:13px">
+                            <thead><tr>
+                              <sc-for list="{{ block.cols }}" as="col" hint-placeholder-count="5"><th style="text-align:left;font-family:var(--mono);font-weight:500;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);padding:var(--thpad);background:var(--panel2);border-bottom:1px solid var(--line);white-space:nowrap">{{ col.l }}</th></sc-for>
+                            </tr></thead>
+                            <tbody>
+                              <sc-for list="{{ g.rows }}" as="row" hint-placeholder-count="3">
+                                <tr style="transition:.12s" style-hover="background:rgba(255,255,255,.022)">
+                                  <sc-for list="{{ row }}" as="cell" hint-placeholder-count="5">
+                                    <td style="padding:var(--tdpad);border-bottom:1px solid var(--line2);color:var(--ink);vertical-align:top;overflow-wrap:anywhere;line-height:1.5">
+                                      <sc-if value="{{ cell.isBadge }}" hint-placeholder-val="{{ true }}"><span style="display:inline-flex;align-items:center;gap:6px;font-family:var(--disp);font-weight:700;font-size:10px;letter-spacing:.04em;text-transform:uppercase;padding:3px 9px;border-radius:6px;border:1px solid {{ cell.border }};color:{{ cell.color }};background:{{ cell.bg }}"><span style="width:6px;height:6px;border-radius:50%;background:currentColor"></span>{{ cell.text }}</span></sc-if>
+                                      <sc-if value="{{ cell.isText }}" hint-placeholder-val="{{ true }}">{{ cell.text }}</sc-if>
+                                    </td>
+                                  </sc-for>
+                                </tr>
+                              </sc-for>
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                  </sc-for>
+                </section>
+              </sc-if>
+
+              <sc-if value="{{ block.isList }}" hint-placeholder-val="{{ true }}">
+                <ul style="margin:14px 0 0;padding-left:18px;list-style:none">
+                  <sc-for list="{{ block.items }}" as="it" hint-placeholder-count="1"><li style="margin:5px 0;color:var(--dim)"><strong style="color:var(--ink);font-weight:600">{{ it.strong }}</strong> {{ it.text }}</li></sc-for>
+                </ul>
+              </sc-if>
+
+              <sc-if value="{{ block.isEmpty }}" hint-placeholder-val="{{ true }}">
+                <section id="{{ block.id }}" style="margin-top:26px">
+                  <h3 style="display:flex;align-items:center;gap:9px;font-family:var(--mono);font-weight:500;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);margin:0 0 12px"><span style="width:6px;height:6px;border-radius:50%;background:var(--faint)"></span>{{ block.title }}</h3>
+                  <div style="display:flex;align-items:center;gap:11px;padding:15px 18px;background:var(--panel);border:1px dashed var(--line);border-radius:10px;color:var(--faint);font-style:italic;font-size:13px"><span style="width:8px;height:8px;border-radius:50%;border:1.5px solid var(--faint)"></span>{{ block.text }}</div>
+                </section>
+              </sc-if>
+
+              <sc-if value="{{ block.isSubhead }}" hint-placeholder-val="{{ true }}">
+                <section id="{{ block.id }}" style="margin-top:30px">
+                  <div style="display:flex;align-items:center;gap:12px;margin:0 0 14px">
+                    <span style="font-family:var(--mono);font-size:12px;color:var(--blue);background:rgba(79,147,214,.1);border:1px solid rgba(79,147,214,.32);padding:5px 11px;border-radius:7px;overflow-wrap:anywhere">{{ block.title }}</span>
+                    <span style="flex:1;height:1px;background:var(--line)"></span>
+                  </div>
+                  <sc-if value="{{ block.hasStats }}" hint-placeholder-val="{{ true }}">
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:0 0 16px">
+                      <sc-for list="{{ block.stats }}" as="st" hint-placeholder-count="2">
+                        <div style="position:relative;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 18px;overflow:hidden">
+                          <span style="position:absolute;top:0;left:0;width:38px;height:2px;background:var(--red)"></span>
+                          <span style="display:block;font-family:var(--disp);font-weight:800;font-size:30px;line-height:1;color:#f4f7fb">{{ st.v }}</span>
+                          <span style="display:block;margin-top:8px;font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)">{{ st.l }}</span>
+                        </div>
+                      </sc-for>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ block.hasGaps }}" hint-placeholder-val="{{ true }}">
+                    <h4 style="display:flex;align-items:center;gap:9px;font-family:var(--mono);font-weight:500;font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);margin:0 0 10px"><span style="width:6px;height:6px;border-radius:50%;background:var(--blue)"></span>Coverage Gaps</h4>
+                    <ul style="margin:0;padding-left:20px">
+                      <sc-for list="{{ block.gaps }}" as="gp" hint-placeholder-count="2"><li style="margin:5px 0;color:var(--dim)">{{ gp }}</li></sc-for>
+                    </ul>
+                  </sc-if>
+                </section>
+              </sc-if>
+
+              <sc-if value="{{ block.isTree }}" hint-placeholder-val="{{ true }}">
+                <section id="{{ block.id }}-section" style="margin-top:28px">
+                  <h3 style="display:flex;align-items:center;gap:9px;font-family:var(--mono);font-weight:500;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);margin:0 0 8px"><span style="width:6px;height:6px;border-radius:50%;background:var(--red);box-shadow:0 0 7px var(--red)"></span>{{ block.title }}</h3>
+                  <p style="margin:0 0 12px;color:var(--faint);font-size:12.5px">{{ block.note }}</p>
+                  <div style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px">
+                    <input type="search" placeholder="Filter tree…" data-tree="{{ block.id }}" onChange="{{ onTreeFilter }}" onInput="{{ onTreeFilter }}" style="font-family:var(--mono);font-size:12.5px;padding:8px 11px;border:1px solid var(--line);border-radius:7px;min-width:260px;background:var(--bg);color:var(--ink);outline:none"/>
+                    <button type="button" data-tree="{{ block.id }}" data-open="1" onClick="{{ onTreeToggle }}" style="font-family:var(--mono);font-size:12px;padding:8px 12px;border:1px solid var(--line);border-radius:7px;background:var(--panel2);color:var(--dim);cursor:pointer">Expand all</button>
+                    <button type="button" data-tree="{{ block.id }}" data-open="0" onClick="{{ onTreeToggle }}" style="font-family:var(--mono);font-size:12px;padding:8px 12px;border:1px solid var(--line);border-radius:7px;background:var(--panel2);color:var(--dim);cursor:pointer">Collapse all</button>
+                  </div>
+                  <div style="border:1px solid var(--line);border-radius:10px;background:var(--panel);padding:10px 12px">{{ block.treeElConsole }}</div>
+                </section>
+              </sc-if>
+
+            </sc-for>
+          </section>
+        </sc-for>
+
+        <section id="next-steps" style="margin-bottom:40px;scroll-margin-top:18px">
+          <div style="display:flex;align-items:baseline;gap:16px;padding-bottom:14px;border-bottom:1px solid var(--line);margin-bottom:18px">
+            <span style="font-family:var(--disp);font-weight:700;font-size:14px;letter-spacing:.14em;color:var(--red)">++</span>
+            <h2 style="font-family:var(--disp);font-weight:700;font-size:clamp(22px,2.4vw,28px);letter-spacing:.01em;text-transform:uppercase;margin:0;color:#f4f7fb">Recommended Next Steps</h2>
+          </div>
+          <ol style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px">
+            <sc-for list="{{ nextSteps }}" as="ns" hint-placeholder-count="5">
+              <li style="display:flex;gap:14px;align-items:flex-start;background:var(--panel);border:1px solid var(--line);border-left:2px solid var(--red);border-radius:10px;padding:14px 18px">
+                <span style="flex:0 0 auto;font-family:var(--disp);font-weight:700;font-size:14px;color:var(--red);min-width:22px">{{ ns.n }}</span>
+                <span style="color:var(--dim)">{{ ns.text }}</span>
+              </li>
+            </sc-for>
+          </ol>
+        </section>
+      </main>
+    </div>
+
+    <footer style="max-width:1680px;margin:36px auto 0;padding:22px 32px 6px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;gap:10px 22px;align-items:center;font-family:var(--mono);font-size:12px;color:var(--faint)">
+      <span>{{ footerLine }}</span>
+      <span style="margin-left:auto;max-width:560px">{{ footNote }}</span>
+    </footer>
+    </sc-if>
+  </div>
+  </sc-if>
+
+  <!-- ============ HIGH-LEVEL · DOSSIER ============ -->
+  <sc-if value="{{ isHighLevel }}" hint-placeholder-val="{{ false }}">
+  <div style="--bg:#0b0e15;--panel:#0e131c;--panel2:#141b27;--line:#26303f;--line2:#1b2330;--ink:#eceff5;--dim:#98a2b3;--faint:#5f6a7c;--blue:#5b9bd8;--disp:'Oxanium',system-ui,sans-serif;--body:'IBM Plex Sans',system-ui,sans-serif;--mono:'JetBrains Mono',ui-monospace,monospace;min-height:100vh;background:var(--amb-bg-d, radial-gradient(900px 460px at 92% -8%,rgba(232,68,60,.08),transparent 58%),var(--bg));padding-bottom:80px">
+
+    <header style="position:relative;width:100%;overflow:hidden">
+      <img src="assets/banner-highlevel.png" alt="Synapse — the agentic operations layer for offensive security" style="display:block;width:100%;height:auto;max-height:clamp(220px,30vw,440px);object-fit:cover;object-position:center"/>
+      <div style="position:absolute;left:0;right:0;bottom:0;height:96px;background:linear-gradient(to bottom,transparent,var(--bg));pointer-events:none"></div>
+    </header>
+    <div style="max-width:1280px;margin:0 auto;padding:18px 36px 0">
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px 26px;padding-bottom:20px;border-bottom:1px solid var(--line)">
+        <span style="font-family:var(--mono);font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--red)">Security Assessment Dossier</span>
+        <span style="flex:1 1 auto"></span>
+        <span style="display:flex;align-items:baseline;gap:8px;font-size:12.5px"><span style="font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)">Report</span><span style="color:var(--ink)">{{ reportName }}</span></span>
+        <span style="display:flex;align-items:baseline;gap:8px;font-size:12.5px"><span style="font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)">Workspace</span><span style="color:var(--ink)">{{ workspace }}</span></span>
+        <span style="display:flex;align-items:baseline;gap:8px;font-size:12.5px"><span style="font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)">Generated</span><span style="color:var(--ink);font-family:var(--mono);font-size:11.5px">{{ generated }}</span></span>
+        <span style="font-family:var(--disp);font-weight:600;letter-spacing:.05em;font-size:11px;text-transform:uppercase;padding:6px 12px;border-radius:3px;border:1px solid var(--blue);color:var(--blue);background:rgba(91,155,216,.1)">{{ modeBadge }}</span>
+        <div style="display:inline-flex;border:1px solid var(--line);border-radius:3px;overflow:hidden">
+          <button type="button" onClick="{{ setOp }}" style="font-family:var(--disp);font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--dim);background:transparent;border:0;padding:7px 13px;cursor:pointer;transition:.15s">Operator</button>
+          <button type="button" onClick="{{ setHigh }}" style="font-family:var(--disp);font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#fff;background:var(--blue);border:0;padding:7px 13px;cursor:pointer;transition:.15s">High-Level</button>
+        </div>
+      </div>
+    </div>
+
+    <sc-if value="{{ notLoaded }}" hint-placeholder-val="{{ true }}">
+      <div style="max-width:1280px;margin:40px auto;padding:0 36px;font-family:var(--mono);font-size:13px;color:var(--faint)">Loading report data…</div>
+    </sc-if>
+
+    <sc-if value="{{ loaded }}">
+    <section style="max-width:1280px;margin:30px auto 0;padding:0 36px">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px">
+        <h2 style="font-family:var(--mono);font-weight:500;font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--red);margin:0">Risk Distribution</h2>
+        <span style="font-family:var(--mono);font-size:12px;color:var(--faint)">{{ riskSummary }}</span>
+      </div>
+      <div style="display:flex;height:38px;border-radius:3px;overflow:hidden;border:1px solid var(--line)">
+        <sc-for list="{{ riskDist }}" as="s" hint-placeholder-count="4">
+          <span style="width:{{ s.pct }}%;background:{{ s.color }};display:flex;align-items:center;justify-content:center;font-family:var(--disp);font-weight:700;font-size:13px;color:#0b0e15;min-width:0;overflow:hidden">{{ s.count }}</span>
+        </sc-for>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px 24px;margin-top:14px">
+        <sc-for list="{{ riskTiles }}" as="t" hint-placeholder-count="5">
+          <span style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--dim)"><span style="width:10px;height:10px;border-radius:2px;background:{{ t.color }};opacity:{{ t.barOpacity }}"></span><b style="color:var(--ink);font-family:var(--disp);font-weight:700">{{ t.count }}</b> {{ t.label }}</span>
+        </sc-for>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px 22px;margin-top:18px;padding-top:16px;border-top:1px solid var(--line2)">
+        <sc-for list="{{ drivers }}" as="d" hint-placeholder-count="5">
+          <span style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--dim)"><span style="width:8px;height:8px;border-radius:50%;background:{{ d.color }}"></span><b style="color:var(--ink);font-weight:700">{{ d.n }}</b> {{ d.label }} <span style="color:var(--faint)">· {{ d.layer }}</span></span>
+        </sc-for>
+      </div>
+    </section>
+
+    <div style="max-width:1280px;margin:40px auto 0;padding:0 36px;display:grid;grid-template-columns:minmax(180px,224px) minmax(0,1fr);gap:48px;align-items:start">
+      <nav aria-label="Contents" style="position:sticky;top:22px">
+        <div style="font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--faint);margin:0 0 14px">Contents</div>
+        <ol style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px">
+          <sc-for list="{{ toc }}" as="item" hint-placeholder-count="6">
+            <li>
+              <a href="#{{ item.id }}" style="display:grid;grid-template-columns:26px 1fr;gap:9px;align-items:baseline;color:{{ item.linkColor }};text-decoration:none;font-size:13px;line-height:1.4;border-left:2px solid {{ item.dotBorder }};padding:7px 0 7px 13px;transition:.15s"><span style="font-family:var(--mono);font-size:11px;color:var(--red)">{{ item.idxLabel }}</span><span style="overflow-wrap:anywhere">{{ item.label }}</span></a>
+            </li>
+          </sc-for>
+        </ol>
+      </nav>
+
+      <main style="min-width:0">
+        <sc-for list="{{ layers }}" as="layer" hint-placeholder-count="5">
+          <section id="{{ layer.id }}" style="margin-bottom:64px;scroll-margin-top:18px">
+            <div style="display:flex;align-items:flex-end;gap:22px;border-bottom:2px solid var(--ink);padding-bottom:14px;margin-bottom:26px">
+              <span style="font-family:var(--disp);font-weight:800;font-size:clamp(54px,8vw,90px);line-height:0.78;color:transparent;-webkit-text-stroke:1.5px var(--red);letter-spacing:.02em">{{ layer.idx }}</span>
+              <div style="flex:1;min-width:0;padding-bottom:5px">
+                <h2 style="font-family:var(--body);font-weight:600;font-size:clamp(22px,2.6vw,30px);margin:0;color:var(--ink);letter-spacing:-.01em;text-wrap:balance">{{ layer.title }}</h2>
+                <span style="font-family:var(--mono);font-size:11.5px;color:var(--faint);text-transform:uppercase;letter-spacing:.1em">{{ layer.sub }}</span>
+              </div>
+            </div>
+
+            <sc-if value="{{ layer.hasStats }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;flex-wrap:wrap;border-top:1px solid var(--line);border-left:1px solid var(--line);margin:0 0 22px">
+                <sc-for list="{{ layer.stats }}" as="st" hint-placeholder-count="4">
+                  <div style="flex:1 1 150px;padding:15px 18px;border-right:1px solid var(--line);border-bottom:1px solid var(--line)">
+                    <span style="display:block;font-family:var(--disp);font-weight:700;font-size:30px;line-height:1;color:var(--ink)">{{ st.v }}</span>
+                    <span style="display:block;margin-top:7px;font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)">{{ st.l }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ layer.hasMeta }}" hint-placeholder-val="{{ true }}">
+              <ul style="margin:0 0 16px;padding:0;list-style:none">
+                <sc-for list="{{ layer.meta }}" as="m" hint-placeholder-count="1"><li style="margin:4px 0;color:var(--dim)"><strong style="color:var(--ink);font-weight:600">{{ m.strong }}</strong> {{ m.text }}</li></sc-for>
+              </ul>
+            </sc-if>
+
+            <sc-for list="{{ layer.blocks }}" as="block" hint-placeholder-count="3">
+
+              <sc-if value="{{ block.isTable }}" hint-placeholder-val="{{ true }}">
+                <section id="{{ block.id }}" style="margin-top:30px">
+                  <h3 style="font-family:var(--mono);font-weight:500;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--red);margin:0 0 12px">{{ block.title }}</h3>
+                  <div style="overflow-x:auto;border-top:1px solid var(--ink)">
+                    <table style="border-collapse:collapse;width:100%;min-width:max-content;font-size:13px">
+                      <thead><tr>
+                        <sc-for list="{{ block.cols }}" as="col" hint-placeholder-count="5"><th style="text-align:left;font-family:var(--mono);font-weight:500;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);padding:var(--thpad);border-bottom:1px solid var(--line);white-space:nowrap">{{ col.l }}</th></sc-for>
+                      </tr></thead>
+                      <tbody>
+                        <sc-for list="{{ block.rows }}" as="row" hint-placeholder-count="3">
+                          <tr style="transition:.12s" style-hover="background:rgba(255,255,255,.025)">
+                            <sc-for list="{{ row }}" as="cell" hint-placeholder-count="5">
+                              <td style="padding:var(--tdpad);border-bottom:1px solid var(--line2);color:var(--ink);vertical-align:top;overflow-wrap:anywhere;line-height:1.5">
+                                <sc-if value="{{ cell.isBadge }}" hint-placeholder-val="{{ true }}"><span style="display:inline-flex;align-items:center;gap:7px;font-family:var(--disp);font-weight:700;font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:{{ cell.color }}"><span style="width:7px;height:7px;border-radius:50%;background:{{ cell.color }}"></span>{{ cell.text }}</span></sc-if>
+                                <sc-if value="{{ cell.isText }}" hint-placeholder-val="{{ true }}">{{ cell.text }}</sc-if>
+                              </td>
+                            </sc-for>
+                          </tr>
+                        </sc-for>
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              </sc-if>
+
+              <sc-if value="{{ block.isCandidateGroups }}" hint-placeholder-val="{{ true }}">
+                <section id="{{ block.id }}" style="margin-top:30px">
+                  <h3 style="font-family:var(--mono);font-weight:500;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--red);margin:0 0 4px">{{ block.title }}</h3>
+                  <sc-for list="{{ block.groups }}" as="g" hint-placeholder-count="3">
+                    <div style="margin-top:22px">
+                      <div style="display:flex;align-items:center;gap:11px;margin:0 0 9px">
+                        <span style="font-family:var(--body);font-weight:600;font-size:14px;color:var(--ink)">{{ g.title }}</span>
+                        <span style="flex:1;height:1px;background:var(--line2)"></span>
+                        <span style="font-family:var(--mono);font-size:10.5px;color:{{ g.sevColor }};white-space:nowrap">{{ g.countLabel }}</span>
+                      </div>
+                      <div style="overflow-x:auto;border-top:1px solid var(--line)">
+                        <table style="border-collapse:collapse;width:100%;min-width:max-content;font-size:13px">
+                          <thead><tr>
+                            <sc-for list="{{ block.cols }}" as="col" hint-placeholder-count="5"><th style="text-align:left;font-family:var(--mono);font-weight:500;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);padding:var(--thpad);border-bottom:1px solid var(--line);white-space:nowrap">{{ col.l }}</th></sc-for>
+                          </tr></thead>
+                          <tbody>
+                            <sc-for list="{{ g.rows }}" as="row" hint-placeholder-count="3">
+                              <tr style="transition:.12s" style-hover="background:rgba(255,255,255,.025)">
+                                <sc-for list="{{ row }}" as="cell" hint-placeholder-count="5">
+                                  <td style="padding:var(--tdpad);border-bottom:1px solid var(--line2);color:var(--ink);vertical-align:top;overflow-wrap:anywhere;line-height:1.5">
+                                    <sc-if value="{{ cell.isBadge }}" hint-placeholder-val="{{ true }}"><span style="display:inline-flex;align-items:center;gap:7px;font-family:var(--disp);font-weight:700;font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:{{ cell.color }}"><span style="width:7px;height:7px;border-radius:50%;background:{{ cell.color }}"></span>{{ cell.text }}</span></sc-if>
+                                    <sc-if value="{{ cell.isText }}" hint-placeholder-val="{{ true }}">{{ cell.text }}</sc-if>
+                                  </td>
+                                </sc-for>
+                              </tr>
+                            </sc-for>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </sc-for>
+                </section>
+              </sc-if>
+
+              <sc-if value="{{ block.isList }}" hint-placeholder-val="{{ true }}">
+                <ul style="margin:16px 0 0;padding:0;list-style:none">
+                  <sc-for list="{{ block.items }}" as="it" hint-placeholder-count="1"><li style="margin:5px 0;color:var(--dim)"><strong style="color:var(--ink);font-weight:600">{{ it.strong }}</strong> {{ it.text }}</li></sc-for>
+                </ul>
+              </sc-if>
+
+              <sc-if value="{{ block.isEmpty }}" hint-placeholder-val="{{ true }}">
+                <section id="{{ block.id }}" style="margin-top:30px">
+                  <h3 style="font-family:var(--mono);font-weight:500;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin:0 0 12px">{{ block.title }}</h3>
+                  <div style="padding:14px 0;border-top:1px solid var(--line2);color:var(--faint);font-style:italic;font-size:13px">{{ block.text }}</div>
+                </section>
+              </sc-if>
+
+              <sc-if value="{{ block.isSubhead }}" hint-placeholder-val="{{ true }}">
+                <section id="{{ block.id }}" style="margin-top:34px">
+                  <div style="display:flex;align-items:center;gap:12px;margin:0 0 16px">
+                    <span style="font-family:var(--mono);font-size:12px;color:var(--blue);overflow-wrap:anywhere">{{ block.title }}</span>
+                    <span style="flex:1;height:1px;background:var(--line)"></span>
+                  </div>
+                  <sc-if value="{{ block.hasStats }}" hint-placeholder-val="{{ true }}">
+                    <div style="display:flex;flex-wrap:wrap;border-top:1px solid var(--line);border-left:1px solid var(--line);margin:0 0 16px">
+                      <sc-for list="{{ block.stats }}" as="st" hint-placeholder-count="2">
+                        <div style="flex:1 1 150px;padding:15px 18px;border-right:1px solid var(--line);border-bottom:1px solid var(--line)">
+                          <span style="display:block;font-family:var(--disp);font-weight:700;font-size:30px;line-height:1;color:var(--ink)">{{ st.v }}</span>
+                          <span style="display:block;margin-top:7px;font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint)">{{ st.l }}</span>
+                        </div>
+                      </sc-for>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ block.hasGaps }}" hint-placeholder-val="{{ true }}">
+                    <h4 style="font-family:var(--mono);font-weight:500;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin:0 0 10px">Coverage Gaps</h4>
+                    <ul style="margin:0;padding-left:20px">
+                      <sc-for list="{{ block.gaps }}" as="gp" hint-placeholder-count="2"><li style="margin:5px 0;color:var(--dim)">{{ gp }}</li></sc-for>
+                    </ul>
+                  </sc-if>
+                </section>
+              </sc-if>
+
+              <sc-if value="{{ block.isTree }}" hint-placeholder-val="{{ true }}">
+                <section id="{{ block.id }}-section" style="margin-top:32px">
+                  <h3 style="font-family:var(--mono);font-weight:500;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--red);margin:0 0 6px">{{ block.title }}</h3>
+                  <p style="margin:0 0 12px;color:var(--faint);font-size:12.5px">{{ block.note }}</p>
+                  <div style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px">
+                    <input type="search" placeholder="Filter tree…" data-tree="{{ block.id }}" onChange="{{ onTreeFilter }}" onInput="{{ onTreeFilter }}" style="font-family:var(--mono);font-size:12.5px;padding:8px 11px;border:1px solid var(--line);border-radius:3px;min-width:260px;background:var(--bg);color:var(--ink);outline:none"/>
+                    <button type="button" data-tree="{{ block.id }}" data-open="1" onClick="{{ onTreeToggle }}" style="font-family:var(--mono);font-size:12px;padding:8px 12px;border:1px solid var(--line);border-radius:3px;background:transparent;color:var(--dim);cursor:pointer">Expand all</button>
+                    <button type="button" data-tree="{{ block.id }}" data-open="0" onClick="{{ onTreeToggle }}" style="font-family:var(--mono);font-size:12px;padding:8px 12px;border:1px solid var(--line);border-radius:3px;background:transparent;color:var(--dim);cursor:pointer">Collapse all</button>
+                  </div>
+                  <div style="border-top:1px solid var(--line);padding:12px 2px">{{ block.treeElDossier }}</div>
+                </section>
+              </sc-if>
+
+            </sc-for>
+          </section>
+        </sc-for>
+
+        <section id="next-steps" style="margin-bottom:40px;scroll-margin-top:18px">
+          <div style="display:flex;align-items:flex-end;gap:22px;border-bottom:2px solid var(--ink);padding-bottom:14px;margin-bottom:22px">
+            <span style="font-family:var(--disp);font-weight:800;font-size:clamp(54px,8vw,90px);line-height:0.78;color:transparent;-webkit-text-stroke:1.5px var(--red)">++</span>
+            <div style="flex:1;padding-bottom:5px">
+              <h2 style="font-family:var(--body);font-weight:600;font-size:clamp(22px,2.6vw,30px);margin:0;color:var(--ink);letter-spacing:-.01em">Recommended Next Steps</h2>
+              <span style="font-family:var(--mono);font-size:11.5px;color:var(--faint);text-transform:uppercase;letter-spacing:.1em">workspace</span>
+            </div>
+          </div>
+          <ol style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:0">
+            <sc-for list="{{ nextSteps }}" as="ns" hint-placeholder-count="5">
+              <li style="display:flex;gap:18px;align-items:flex-start;padding:16px 0;border-bottom:1px solid var(--line2)">
+                <span style="flex:0 0 auto;font-family:var(--disp);font-weight:700;font-size:15px;color:var(--red);min-width:26px">{{ ns.n }}</span>
+                <span style="color:var(--dim)">{{ ns.text }}</span>
+              </li>
+            </sc-for>
+          </ol>
+        </section>
+      </main>
+    </div>
+
+    <footer style="max-width:1280px;margin:36px auto 0;padding:22px 36px 6px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;gap:10px 22px;align-items:center;font-family:var(--mono);font-size:11.5px;color:var(--faint)">
+      <span>{{ footerLine }}</span>
+      <span style="margin-left:auto;max-width:540px">{{ footNote }}</span>
+    </footer>
+    </sc-if>
+  </div>
+  </sc-if>
+
+</div>
+<template id="__bundler_thumbnail"><svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><rect width="100" height="100" fill="#080b12"/><g transform="translate(50,50)" stroke="#e8443c" stroke-width="2.4" fill="none"><line x1="0" y1="0" x2="0" y2="-22"/><line x1="0" y1="0" x2="0" y2="22"/><line x1="0" y1="0" x2="-22" y2="0"/><line x1="0" y1="0" x2="22" y2="0" stroke="#4f93d6"/><circle cx="0" cy="-22" r="4.5" fill="#080b12"/><circle cx="0" cy="22" r="4.5" fill="#080b12"/><circle cx="-22" cy="0" r="4.5" fill="#080b12"/><circle cx="22" cy="0" r="4.5" fill="#080b12" stroke="#4f93d6"/><circle cx="0" cy="0" r="6.5" fill="#e8443c" stroke="none"/></g></svg></template>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1280,&quot;height&quot;:900},&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#e8443c&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;options&quot;:[&quot;#e8443c&quot;,&quot;#d3ea2a&quot;,&quot;#4f93d6&quot;,&quot;#e3b341&quot;]},&quot;density&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;comfortable&quot;,&quot;options&quot;:[&quot;comfortable&quot;,&quot;compact&quot;],&quot;tsType&quot;:&quot;string&quot;},&quot;ambiance&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;Immersive&quot;,&quot;options&quot;:[&quot;Immersive&quot;,&quot;Focused&quot;,&quot;Flat&quot;],&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  state = { loaded: false, mode: 'operator', activeToc: 'summary', treeEls: { console: {}, dossier: {} } };
+
+  SEV = {
+    critical: { color: '#ff5b52', bg: 'rgba(255,91,82,.13)', border: 'rgba(255,91,82,.5)' },
+    high:     { color: '#e8443c', bg: 'rgba(232,68,60,.13)', border: 'rgba(232,68,60,.5)' },
+    medium:   { color: '#e3b341', bg: 'rgba(227,179,65,.13)', border: 'rgba(227,179,65,.5)' },
+    low:      { color: '#57a55a', bg: 'rgba(87,165,90,.15)', border: 'rgba(87,165,90,.5)' },
+    info:     { color: '#4f93d6', bg: 'rgba(79,147,214,.13)', border: 'rgba(79,147,214,.5)' },
+  };
+  RANK = { critical: 5, high: 4, medium: 3, low: 2, info: 1 };
+  IDX = { summary: '00', 'layer-perimeter': '01', 'layer-js': '02', 'layer-auth': '03', 'layer-access-control': '04', 'next-steps': '++' };
+  TREE_VARIANTS = {
+    console: { recBg: 'var(--panel2)', recRadius: '4px', recPad: '5px 10px', recMargin: '3px 0', blue: '#4f93d6' },
+    dossier: { recBg: 'transparent', recRadius: '0', recPad: '5px 12px', recMargin: '2px 0', blue: '#5b9bd8' },
+  };
+
+  async componentDidMount() {
+    try {
+      const m = await import('./report-data.js');
+      this.REPORT = m.REPORT;
+      const treeEls = { console: {}, dossier: {} };
+      this.REPORT.LAYERS.forEach(L => (L.blocks || []).forEach(b => {
+        if (b.type === 'tree') {
+          treeEls.console[b.id] = this.buildTree(b, this.TREE_VARIANTS.console);
+          treeEls.dossier[b.id] = this.buildTree(b, this.TREE_VARIANTS.dossier);
+        }
+      }));
+      this.setState({ loaded: true, treeEls });
+      this.applyTheme();
+      requestAnimationFrame(() => this.initScrollSpy());
+    } catch (e) { console.error('report-data load failed', e); }
+  }
+  componentDidUpdate() { this.applyTheme(); }
+  componentWillUnmount() { if (this._io) this._io.disconnect(); }
+
+  rootRef = (el) => { this._root = el; if (el) this.applyTheme(); };
+  applyTheme() {
+    const r = this._root; if (!r) return; const p = this.props || {};
+    r.style.setProperty('--red', p.accent || '#e8443c');
+    const compact = p.density === 'compact';
+    r.style.setProperty('--tdpad', compact ? '6px 11px' : '10px 14px');
+    r.style.setProperty('--thpad', compact ? '8px 11px' : '11px 14px');
+    const amb = p.ambiance || 'Immersive';
+    r.style.setProperty('--grid-op', amb === 'Immersive' ? '0.4' : amb === 'Focused' ? '0.16' : '0');
+    r.style.setProperty('--mark-glow-c', amb === 'Immersive' ? '18px' : amb === 'Focused' ? '10px' : '0px');
+    r.style.setProperty('--mark-glow-d', amb === 'Immersive' ? '9px' : amb === 'Focused' ? '5px' : '0px');
+    const bgC = amb === 'Flat' ? '#080b12'
+      : amb === 'Focused' ? 'radial-gradient(1100px 520px at 6% -12%,rgba(232,68,60,.07),transparent 60%),#080b12'
+      : 'radial-gradient(1100px 520px at 6% -12%,rgba(232,68,60,.14),transparent 60%),radial-gradient(950px 520px at 100% -4%,rgba(79,147,214,.09),transparent 55%),#080b12';
+    const bgD = amb === 'Flat' ? '#0b0e15'
+      : amb === 'Focused' ? 'radial-gradient(900px 460px at 92% -8%,rgba(232,68,60,.05),transparent 58%),#0b0e15'
+      : 'radial-gradient(900px 460px at 92% -8%,rgba(232,68,60,.08),transparent 58%),#0b0e15';
+    r.style.setProperty('--amb-bg-c', bgC);
+    r.style.setProperty('--amb-bg-d', bgD);
+  }
+
+  setMode = (mode) => () => this.setState({ mode });
+
+  cell(v) {
+    if (v && typeof v === 'object' && v.b) {
+      const s = this.SEV[v.b] || this.SEV.info;
+      return { isBadge: true, isText: false, text: (v.t || v.b), color: s.color, bg: s.bg, border: s.border };
+    }
+    return { isBadge: false, isText: true, text: (v == null ? '' : String(v)), color: '', bg: '', border: '' };
+  }
+  maxSev(rows) {
+    let best = 'info', bestRk = 0;
+    rows.forEach(r => r.forEach(c => { if (c && typeof c === 'object' && c.b) { const rk = this.RANK[c.b] || 0; if (rk > bestRk) { bestRk = rk; best = c.b; } } }));
+    return best;
+  }
+  keepIdx(columns, op) { const idx = []; columns.forEach((c, i) => { if (op || !c.op) idx.push(i); }); return idx; }
+
+  processBlock(b, op) {
+    const out = { id: b.id, title: b.title, isTable: false, isCandidateGroups: false, isList: false, isEmpty: false, isSubhead: false, isTree: false };
+    if (b.type === 'table') {
+      const keep = this.keepIdx(b.columns, op);
+      out.isTable = true;
+      out.cols = keep.map(i => b.columns[i]);
+      out.rows = b.rows.map(r => keep.map(i => this.cell(r[i])));
+    } else if (b.type === 'candidate-groups') {
+      const keep = this.keepIdx(b.columns, op);
+      out.isCandidateGroups = true;
+      out.cols = keep.map(i => b.columns[i]);
+      out.groups = b.groups.map(g => {
+        const sev = this.maxSev(g.rows); const s = this.SEV[sev];
+        return {
+          title: g.title, sevColor: s.color, sevBorder: s.border, sevBg: s.bg,
+          countLabel: g.count + (g.count === 1 ? ' candidate' : ' candidates'),
+          rows: g.rows.map(r => keep.map(i => this.cell(r[i]))),
+        };
+      });
+    } else if (b.type === 'list') {
+      out.isList = true; out.items = b.items;
+    } else if (b.type === 'empty') {
+      out.isEmpty = true; out.text = b.text;
+    } else if (b.type === 'subhead') {
+      out.isSubhead = true; out.title = b.title;
+      out.stats = b.stats || []; out.hasStats = !!(b.stats && b.stats.length);
+      out.gaps = b.gaps || []; out.hasGaps = !!(b.gaps && b.gaps.length);
+    } else if (b.type === 'tree') {
+      out.isTree = true; out.note = b.note;
+      out.treeElConsole = this.state.treeEls.console[b.id] || null;
+      out.treeElDossier = this.state.treeEls.dossier[b.id] || null;
+    }
+    return out;
+  }
+
+  /* ---- tree (recursive), themed per variant ---- */
+  statusColor(s, v) {
+    if (/^2/.test(s)) return { c: '#57a55a', b: 'rgba(87,165,90,.55)' };
+    if (/^3/.test(s)) return { c: v.blue, b: 'rgba(79,147,214,.55)' };
+    if (/^4/.test(s)) return { c: '#e8443c', b: 'rgba(232,68,60,.55)' };
+    if (s === 'observed') return { c: '#9aa6b8', b: 'var(--line)' };
+    return { c: '#646f82', b: 'var(--line)' };
+  }
+  recEl(rec, key, v) {
+    const h = React.createElement; const sc = this.statusColor(rec.s || '', v);
+    return h('div', { key, 'data-rec': '1', style: { display: 'grid', gridTemplateColumns: '50px 78px minmax(190px,1.5fr) 84px minmax(110px,1fr)', gap: '10px', alignItems: 'start', padding: v.recPad, margin: v.recMargin, borderLeft: '2px solid ' + sc.b, background: v.recBg, borderRadius: v.recRadius, fontFamily: 'var(--mono)', fontSize: '12px' } },
+      h('span', { style: { color: 'var(--dim)' } }, rec.m),
+      h('span', { style: { color: sc.c, fontWeight: 600 } }, rec.s || ''),
+      h('code', { title: rec.code, style: { color: 'var(--ink)', wordBreak: 'break-all', background: 'transparent', border: 0, padding: 0, fontFamily: 'var(--mono)' } }, rec.code),
+      h('span', { style: { color: 'var(--blue)' } }, rec.param || ''),
+      h('span', { style: { color: 'var(--faint)' } }, rec.note || rec.src || '')
+    );
+  }
+  nodeEl(node, key, v) {
+    const h = React.createElement;
+    if (node.record) return this.recEl(node.record, key, v);
+    const summary = h('summary', { style: { cursor: 'pointer', padding: '5px 8px', color: 'var(--ink)', listStyle: 'none', display: 'flex', alignItems: 'center', gap: '8px', borderRadius: v.recRadius, fontSize: '13px' } },
+      h('span', { style: { color: 'var(--red)', fontSize: '10px' } }, '\u25B8'),
+      h('span', { style: { fontWeight: 500 } }, node.label),
+      h('span', { style: { color: 'var(--faint)', fontSize: '11px', fontFamily: 'var(--mono)' } }, node.count));
+    const inner = [];
+    (node.children || []).forEach((c, ci) => inner.push(this.nodeEl(c, 'c' + ci, v)));
+    (node.records || []).forEach((r, ri) => inner.push(this.recEl(r, 'r' + ri, v)));
+    return h('details', { key, style: { marginLeft: '12px', borderLeft: '1px solid var(--line2)', paddingLeft: '2px' } }, summary, h('div', { style: { paddingLeft: '6px' } }, inner));
+  }
+  buildTree(block, v) {
+    const h = React.createElement;
+    return h('div', { id: block.id, style: { fontFamily: 'var(--mono)' } }, block.nodes.map((n, i) => this.nodeEl(n, 'n' + i, v)));
+  }
+  onTreeFilter = (e) => {
+    const id = e.target.getAttribute('data-tree'); const q = (e.target.value || '').toLowerCase();
+    const root = document.getElementById(id); if (!root) return;
+    root.querySelectorAll('[data-rec]').forEach(item => {
+      const match = !q || item.textContent.toLowerCase().indexOf(q) > -1;
+      item.style.display = match ? '' : 'none';
+      if (match && q) { let p = item.parentElement; while (p && p !== root) { if (p.tagName === 'DETAILS') p.open = true; p = p.parentElement; } }
+    });
+  };
+  onTreeToggle = (e) => {
+    const id = e.currentTarget.getAttribute('data-tree'); const open = e.currentTarget.getAttribute('data-open') === '1';
+    const root = document.getElementById(id); if (!root) return;
+    root.querySelectorAll('details').forEach(d => { d.open = open; });
+  };
+
+  initScrollSpy() {
+    if (!this.REPORT) return;
+    if (this._io) this._io.disconnect();
+    const ids = this.REPORT.TOC.map(t => t.id);
+    this._io = new IntersectionObserver((entries) => {
+      entries.forEach(e => { if (e.isIntersecting) this.setState({ activeToc: e.target.id }); });
+    }, { rootMargin: '-8% 0px -78% 0px', threshold: 0 });
+    ids.forEach(id => { const el = document.getElementById(id); if (el) this._io.observe(el); });
+  }
+
+  renderVals() {
+    const R = this.REPORT;
+    const amb = (this.props && this.props.ambiance) || 'Immersive';
+    const motion = amb !== 'Flat';
+    const op = this.state.mode === 'operator';
+    const base = {
+      rootRef: this.rootRef,
+      loaded: this.state.loaded, notLoaded: !this.state.loaded,
+      isOperator: op, isHighLevel: !op,
+      markAnim: motion ? 'synCore 4.8s ease-in-out infinite' : 'none',
+      glowAnim: motion ? 'synPulseGlow 3.4s ease-in-out infinite' : 'none',
+      reportName: '', workspace: '', generated: '', modeBadge: '',
+      setOp: this.setMode('operator'), setHigh: this.setMode('high-level'),
+    };
+    if (!R) return base;
+
+    const M = R.META;
+    const idxOf = (id) => this.IDX[id] || '';
+
+    const toc = R.TOC.map(t => ({
+      id: t.id, label: t.label, idxLabel: idxOf(t.id),
+      linkColor: this.state.activeToc === t.id ? 'var(--ink)' : 'var(--dim)',
+      dotBorder: this.state.activeToc === t.id ? 'var(--red)' : (op ? 'var(--faint)' : 'var(--line)'),
+      dotBg: this.state.activeToc === t.id ? 'var(--red)' : 'var(--bg)',
+    }));
+
+    const total = R.RISK.total;
+    const riskTiles = R.RISK.order.map(k => {
+      const n = R.RISK.counts[k]; const zero = n === 0;
+      return { key: k, label: R.RISK.labels[k], count: n, color: this.SEV[k].color, numColor: zero ? 'var(--faint)' : 'var(--ink)', barOpacity: zero ? '0.3' : '1' };
+    });
+    const riskSegs = R.RISK.order.filter(k => R.RISK.counts[k] > 0).map(k => ({ pct: (R.RISK.counts[k] / total * 100).toFixed(2), color: this.SEV[k].color }));
+    const riskDist = R.RISK.order.filter(k => R.RISK.counts[k] > 0).map(k => ({ label: R.RISK.labels[k], count: R.RISK.counts[k], pct: (R.RISK.counts[k] / total * 100).toFixed(2), color: this.SEV[k].color }));
+    const drivers = R.RISK.drivers.map(d => ({ n: d.n, label: d.label, layer: d.layer, color: this.SEV[d.sev].color }));
+
+    const layers = R.LAYERS.map(L => ({
+      id: L.id, idx: L.idx, title: L.title, sub: L.sub,
+      stats: L.stats || [], hasStats: !!(L.stats && L.stats.length),
+      meta: L.meta || [], hasMeta: !!(L.meta && L.meta.length),
+      blocks: (L.blocks || []).map(b => this.processBlock(b, op)),
+    }));
+
+    return Object.assign(base, {
+      reportName: op ? M.report : M.reportHigh,
+      workspace: M.workspace, generated: M.generated,
+      modeBadge: op ? M.badge : M.badgeHigh,
+      riskSummary: total + ' review items \u00B7 4 layers \u00B7 1 target',
+      riskTiles, riskSegs, riskDist, drivers, toc, layers,
+      onTreeFilter: this.onTreeFilter, onTreeToggle: this.onTreeToggle,
+      nextSteps: R.NEXT_STEPS.map((s, i) => ({ n: String(i + 1).padStart(2, '0'), text: s })),
+      footerLine: 'Generated by ' + M.tool + ' \u00B7 ' + M.version + ' \u00B7 workspace ' + M.workspace + ' \u00B7 ' + M.generated + ' \u00B7 ' + M.engagement,
+      footNote: op ? M.footNote : M.footNoteHigh,
+    });
+  }
+}
+</script>
+</body>
+</html>

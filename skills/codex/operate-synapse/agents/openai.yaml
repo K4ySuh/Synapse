@@ -1,0 +1,10 @@
+interface:
+  display_name: "Operate Synapse"
+  short_description: "Operate Synapse MCP safely"
+  default_prompt: "Use $operate-synapse to recover Synapse workspace context and plan the next approved assessment action."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "synapse"
+      description: "Local Synapse MCP server for scope, workspace, evidence, credentials, jobs, adapters, and reports."

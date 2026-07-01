@@ -1,0 +1,76 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SOURCE = ROOT / "assets" / "Offensive-Synapse-Banner.png"
+OUTPUT = ROOT / "assets" / "Offensive-Synapse-Banner-Report.jpg"
+# Crop a horizontal band containing the emblem mid-section, wordmark, tagline,
+# and badge line, then scale uniformly. Never force both dimensions: a
+# non-uniform resize distorts the wordmark.
+CROP_BOX = (0, 180, 1672, 660)
+TARGET_WIDTH = 1600
+QUALITY = 85
+
+
+def main() -> int:
+    if not SOURCE.exists():
+        print(f"missing source banner: {SOURCE}", file=sys.stderr)
+        return 1
+    if _with_pillow():
+        return 0
+    return _with_imagemagick()
+
+
+def _with_pillow() -> bool:
+    try:
+        from PIL import Image
+    except ImportError:
+        return False
+    with Image.open(SOURCE) as image:
+        image = image.convert("RGB").crop(CROP_BOX)
+        height = round(image.height * TARGET_WIDTH / image.width)
+        image = image.resize((TARGET_WIDTH, height), Image.Resampling.LANCZOS)
+        image.save(OUTPUT, format="JPEG", quality=QUALITY, optimize=True, progressive=True)
+    _print_result("Pillow")
+    return True
+
+
+def _with_imagemagick() -> int:
+    convert = shutil.which("convert") or shutil.which("magick")
+    if not convert:
+        print("Pillow is not installed and ImageMagick convert/magick was not found.", file=sys.stderr)
+        return 1
+    crop = f"{CROP_BOX[2] - CROP_BOX[0]}x{CROP_BOX[3] - CROP_BOX[1]}+{CROP_BOX[0]}+{CROP_BOX[1]}"
+    command = [
+        convert,
+        str(SOURCE),
+        "-crop",
+        crop,
+        "+repage",
+        "-resize",
+        f"{TARGET_WIDTH}x",
+        "-strip",
+        "-interlace",
+        "Plane",
+        "-quality",
+        str(QUALITY),
+        str(OUTPUT),
+    ]
+    subprocess.run(command, check=True)
+    _print_result("ImageMagick")
+    return 0
+
+
+def _print_result(tool: str) -> None:
+    size_kb = OUTPUT.stat().st_size / 1024
+    print(f"wrote {OUTPUT} with {tool} ({size_kb:.1f} KB)")
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

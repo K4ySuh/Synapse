@@ -1,0 +1,25 @@
+#!/usr/bin/env sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+ROOT_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+SYNAPSE_ROOT=$(CDPATH= cd -- "$ROOT_DIR/../.." && pwd)
+export SYNAPSE_ROOT
+
+ENV_FILE="${SYNAPSE_ENV_FILE:-$SYNAPSE_ROOT/config/synapse.env}"
+if [ -f "$ENV_FILE" ]; then
+    . "$ENV_FILE"
+fi
+
+SYNAPSE_PYTHON="${SYNAPSE_PYTHON:-}"
+if [ -z "$SYNAPSE_PYTHON" ] && [ -n "${VIRTUAL_ENV:-}" ] && [ -x "$VIRTUAL_ENV/bin/python" ]; then
+    SYNAPSE_PYTHON="$VIRTUAL_ENV/bin/python"
+fi
+if [ -z "$SYNAPSE_PYTHON" ] && [ -x "$SYNAPSE_ROOT/.venv/bin/python" ]; then
+    SYNAPSE_PYTHON="$SYNAPSE_ROOT/.venv/bin/python"
+fi
+SYNAPSE_PYTHON="${SYNAPSE_PYTHON:-python3}"
+export SYNAPSE_PYTHON
+
+cd "$ROOT_DIR"
+exec "$SYNAPSE_PYTHON" -m synapse_mcp.transport.stdio_server

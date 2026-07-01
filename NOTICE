@@ -1,0 +1,15 @@
+# NOTICE
+
+Synapse
+The operational memory layer for AI-assisted offensive security.
+
+Copyright 2026 Javier Roldán Ortiz
+
+This product includes software developed as part of the Synapse project.
+
+Synapse is licensed under the Apache License, Version 2.0.
+
+Synapse is designed for authorized security assessments, research, and defensive/offensive security workflows where the operator remains responsible for authorization, scope validation, and safe usage.
+
+Third-party components, integrations, tools, or referenced projects may be distributed under their own licenses. Users and downstream redistributors are responsible for reviewing and complying with the applicable third-party license terms.
+

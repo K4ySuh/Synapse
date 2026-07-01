@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "synapse": {
+      "command": "/path/to/Synapse/MCPS/Synapse-MCP/bin/synapse-mcp",
+      "args": []
+    }
+  }
+}
