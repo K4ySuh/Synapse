@@ -35,6 +35,10 @@ DATA/credentials/*
 DATA/workspaces/*
 !DATA/workspaces/.gitkeep
 
+# Generated engagement reports and operator review archives contain real target
+# hostnames and evidence; keep them out of version control like other DATA output.
+reports/
+
 # Legacy runtime locations are not used by current Synapse code, but old local
 # artifacts may still exist on developer machines.
 DATA/sessions/*

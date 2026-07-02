@@ -720,6 +720,39 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "workspace.set_entity_reportable",
+        "description": (
+            "Set isReportable on matching workspace entities in any layer (services, endpoints, "
+            "parameters, findings, actions, observations) and archive the disposition. Records "
+            "marked isReportable=false stay in workspace state for later granular analysis but are "
+            "excluded from generated reports. Default is true; flip to false on operator review."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "workspaceId": {"type": "string"},
+                "target": {"type": "string"},
+                "entityType": {
+                    "type": "string",
+                    "enum": ["services", "endpoints", "parameters", "findings", "actions", "observations"],
+                },
+                "isReportable": {"type": "boolean"},
+                "selector": {
+                    "type": "object",
+                    "description": (
+                        "Identity matchers (key, id, findingId, observationId, observationKey, "
+                        "candidateId, actionId) and/or attribute matchers (type, value, valueContains, "
+                        "urlContains). Attribute matchers enable bulk disposition across a layer."
+                    ),
+                    "additionalProperties": True,
+                },
+                "reason": {"type": "string"},
+                "reviewer": {"type": "string", "default": "operator"},
+            },
+            "required": ["workspaceId", "target", "entityType", "isReportable", "selector"],
+        },
+    },
+    {
         "name": "workspace.export_finding_context",
         "description": "Export one finding with linked evidence metadata and markdown report location.",
         "inputSchema": {
@@ -2927,6 +2960,19 @@ def _call_tool_impl(name: str, args: dict[str, Any]) -> str:
                 args.get("status", "confirmed"),
                 args.get("reviewer", "operator"),
                 args.get("notes", ""),
+            ),
+            indent=2,
+        )
+    if name == "workspace.set_entity_reportable":
+        return json.dumps(
+            workspace.set_entity_reportable(
+                args["workspaceId"],
+                args["target"],
+                args["entityType"],
+                args.get("selector", {}),
+                bool(args.get("isReportable", True)),
+                args.get("reason", ""),
+                args.get("reviewer", "operator"),
             ),
             indent=2,
         )

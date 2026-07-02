@@ -58,7 +58,7 @@ def build_report_context(args: dict[str, Any]) -> dict[str, Any]:
     findings = []
     evidence_items = []
     for target in targets:
-        entities = workspace._load_target_entities(wid, target)
+        entities = workspace.load_reportable_target_entities(wid, target)
         if include_findings:
             findings.extend(_finding_items(wid, target, entities["findings"], policy))
         if include_evidence:
@@ -165,7 +165,7 @@ def summarize_coverage(args: dict[str, Any]) -> dict[str, Any]:
     untested: list[str] = []
 
     for target in targets:
-        entities = workspace._load_target_entities(wid, target)
+        entities = workspace.load_reportable_target_entities(wid, target)
         target_passive_modules: set[str] = set()
         if entities["endpoints"] or entities["parameters"]:
             targets_with_traffic.add(target)
@@ -280,7 +280,7 @@ def _target_names(workspace_id: str, target: str = "") -> list[str]:
 
 
 def _target_report_summary(workspace_id: str, target: str, policy: Any) -> dict[str, Any]:
-    entities = workspace._load_target_entities(workspace_id, target)
+    entities = workspace.load_reportable_target_entities(workspace_id, target)
     pending_observations = [
         item
         for item in entities["observations"]

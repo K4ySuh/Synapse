@@ -5,8 +5,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from helpers import isolated_state
-from synapse_mcp.core import cache, evidence, scope, workspace
+from synapse_mcp.core import cache, evidence, perimeter, scope, workspace
 from synapse_mcp.core.errors import McpError
+from synapse_mcp.transport import stdio_server
 
 
 class WorkspaceIngestionTests(unittest.TestCase):
@@ -582,6 +583,187 @@ class WorkspaceIngestionTests(unittest.TestCase):
                 context = workspace.prepare_target_context("engagement", "example.com")
                 self.assertEqual(context["confirmedFindings"][0]["id"], finding_id)
 
+
+
+class ReportabilityTests(unittest.TestCase):
+    OEMBED_URL = "https://example.com/wp-json/oembed/1.0/embed?url=x"
+    GENUINE_URL = "https://example.com/go?next=https://evil.example"
+
+    def _observations_payload(self, observations: list[dict]) -> str:
+        return json.dumps({"entities": {"observations": observations}})
+
+    def _seed(self) -> None:
+        scope.save_scope(["example.com"], "test", "Example Client")
+        workspace.create_workspace("engagement", organization="Example Client", hosts=["example.com"])
+        workspace.ingest_data(
+            "engagement",
+            "example.com",
+            "adapter_result",
+            "tool_output",
+            "json",
+            self._observations_payload(
+                [
+                    {
+                        "type": "open_redirect_candidate",
+                        "candidateId": "cand-oembed",
+                        "value": self.OEMBED_URL,
+                        "parameter": "url",
+                        "method": "GET",
+                        "reason": "WordPress oEmbed URL parameter.",
+                    },
+                    {
+                        "type": "open_redirect_candidate",
+                        "candidateId": "cand-genuine",
+                        "value": self.GENUINE_URL,
+                        "parameter": "next",
+                        "method": "GET",
+                        "reason": "Reflected redirect target.",
+                    },
+                ]
+            ),
+        )
+
+    def _observations_on_disk(self) -> list[dict]:
+        return json.loads(
+            workspace.target_entity_path("engagement", "example.com", "observations").read_text(encoding="utf-8")
+        )
+
+    def test_ingested_entities_default_to_reportable(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                self._seed()
+                observations = self._observations_on_disk()
+                self.assertEqual(len(observations), 2)
+                self.assertTrue(all(item["isReportable"] is True for item in observations))
+
+    def test_set_entity_reportable_excludes_from_reports_but_keeps_state(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                self._seed()
+                result = json.loads(
+                    stdio_server.call_tool(
+                        "workspace.set_entity_reportable",
+                        {
+                            "workspaceId": "engagement",
+                            "target": "example.com",
+                            "entityType": "observations",
+                            "isReportable": False,
+                            "selector": {"candidateId": "cand-oembed"},
+                            "reason": "WordPress oEmbed URL-parameter false positive.",
+                        },
+                    )
+                )
+                self.assertEqual(result["matched"], 1)
+
+                observations = {item["candidateId"]: item for item in self._observations_on_disk()}
+                self.assertIs(observations["cand-oembed"]["isReportable"], False)
+                self.assertEqual(observations["cand-oembed"]["reportableDecision"]["isReportable"], False)
+                self.assertIs(observations["cand-genuine"]["isReportable"], True)
+
+                # Report boundary drops the suppressed candidate but keeps the genuine one.
+                report = stdio_server.call_tool(
+                    "documentation.build_report_context",
+                    {"workspaceId": "engagement"},
+                )
+                self.assertIn(self.GENUINE_URL, report)
+                self.assertNotIn(self.OEMBED_URL, report)
+
+                coverage = stdio_server.call_tool(
+                    "documentation.summarize_coverage",
+                    {"workspaceId": "engagement"},
+                )
+                self.assertIn(self.GENUINE_URL, coverage)
+                self.assertNotIn(self.OEMBED_URL, coverage)
+
+                # Perimeter candidate inventory (report path) excludes it too.
+                inventory = perimeter.candidate_inventory(
+                    workspace.load_reportable_target_entities("engagement", "example.com"), "example.com"
+                )
+                inventory_values = {item.get("value") for item in inventory["items"]}
+                self.assertIn(self.GENUINE_URL, inventory_values)
+                self.assertNotIn(self.OEMBED_URL, inventory_values)
+
+                # Workspace/agent state stays complete: both records remain loadable.
+                full = workspace._load_target_entities("engagement", "example.com")
+                self.assertEqual(len(full["observations"]), 2)
+
+                # Decision is archived compactly.
+                decisions = workspace.read_report_decisions("engagement")
+                self.assertEqual(len(decisions), 1)
+                self.assertEqual(decisions[0]["matched"], 1)
+                self.assertEqual(decisions[0]["entityType"], "observations")
+                self.assertIs(decisions[0]["isReportable"], False)
+
+    def test_reingest_does_not_resurrect_non_reportable_decision(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                self._seed()
+                stdio_server.call_tool(
+                    "workspace.set_entity_reportable",
+                    {
+                        "workspaceId": "engagement",
+                        "target": "example.com",
+                        "entityType": "observations",
+                        "isReportable": False,
+                        "selector": {"candidateId": "cand-oembed"},
+                        "reason": "False positive.",
+                    },
+                )
+                # Re-ingest the identical adapter output; the default True must not clobber the decision.
+                workspace.ingest_data(
+                    "engagement",
+                    "example.com",
+                    "adapter_result",
+                    "tool_output",
+                    "json",
+                    self._observations_payload(
+                        [
+                            {
+                                "type": "open_redirect_candidate",
+                                "candidateId": "cand-oembed",
+                                "value": self.OEMBED_URL,
+                                "parameter": "url",
+                                "method": "GET",
+                                "reason": "WordPress oEmbed URL parameter.",
+                            }
+                        ]
+                    ),
+                )
+                observations = {item["candidateId"]: item for item in self._observations_on_disk()}
+                self.assertIs(observations["cand-oembed"]["isReportable"], False)
+
+    def test_set_entity_reportable_bulk_by_attribute_selector(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                scope.save_scope(["example.com"], "test", "Example Client")
+                workspace.create_workspace("engagement", organization="Example Client", hosts=["example.com"])
+                workspace.ingest_data(
+                    "engagement",
+                    "example.com",
+                    "adapter_result",
+                    "tool_output",
+                    "json",
+                    self._observations_payload(
+                        [
+                            {"type": "open_redirect_candidate", "candidateId": "o1", "value": "https://example.com/a/wp-json/oembed/1.0/embed?url=1"},
+                            {"type": "open_redirect_candidate", "candidateId": "o2", "value": "https://example.com/b/wp-json/oembed/1.0/embed?url=2"},
+                            {"type": "open_redirect_candidate", "candidateId": "o3", "value": "https://example.com/go?next=3"},
+                        ]
+                    ),
+                )
+                result = workspace.set_entity_reportable(
+                    "engagement",
+                    "example.com",
+                    "observations",
+                    {"type": "open_redirect_candidate", "urlContains": "oembed"},
+                    False,
+                    reason="Bulk oEmbed URL-parameter false positives.",
+                )
+                self.assertEqual(result["matched"], 2)
+                flags = {item["candidateId"]: item.get("isReportable") for item in self._observations_on_disk()}
+                self.assertIs(flags["o1"], False)
+                self.assertIs(flags["o2"], False)
+                self.assertIs(flags["o3"], True)
 
 
 if __name__ == "__main__":

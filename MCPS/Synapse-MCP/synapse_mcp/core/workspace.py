@@ -510,6 +510,13 @@ def _merge_entity_fields(merged: dict[str, Any], item: dict[str, Any]) -> None:
             incoming_rank = _SEVERITY_RANK.get(str(value or ""), -1)
             if incoming_rank > current_rank and not merged.get("operatorReviewed"):
                 merged[name] = value
+        elif name == "isReportable":
+            # Reportability is an operator/agent disposition, not adapter data. Every
+            # re-ingest carries the default True; it must never override a stored
+            # decision (especially a False that suppressed a reviewed false positive).
+            # Preserve whatever is already stored; only seed legacy records missing it.
+            if "isReportable" not in merged:
+                merged[name] = value
         elif value not in ("", None, [], {}) and not merged.get(name):
             merged[name] = value
 
@@ -527,6 +534,10 @@ def _merge_entities(path: Path, new_entities: list[dict[str, Any]], evidence_id:
         item.setdefault("firstSeenAt", now_utc())
         item["lastSeenAt"] = now_utc()
         item.setdefault("evidenceIds", [])
+        # Every persisted entity is reportable by default. Operators/agents flip this
+        # to False (via set_entity_reportable) to keep a reviewed record out of the
+        # generated reports without deleting it or weakening workspace state.
+        item.setdefault("isReportable", True)
         if evidence_id and evidence_id not in item["evidenceIds"]:
             item["evidenceIds"].append(evidence_id)
         key = _entity_key(item)
@@ -2029,6 +2040,30 @@ def _load_target_entities(workspace_id: str, target: str) -> dict[str, list[dict
     return {name: _read_json(target_entity_path(workspace_id, target, name), []) for name in ENTITY_FILES}
 
 
+def is_reportable(entity: Any) -> bool:
+    """Return False only when a record was explicitly dispositioned as non-reportable.
+
+    Absent or True -> reportable (the default). Backward compatible: entities stored
+    before the isReportable field existed have no flag and stay reportable.
+    """
+    return not (isinstance(entity, dict) and entity.get("isReportable") is False)
+
+
+def load_reportable_target_entities(workspace_id: str, target: str) -> dict[str, list[dict[str, Any]]]:
+    """Report-boundary view of a target's entities: full workspace state minus records
+    explicitly marked isReportable=False.
+
+    Only report/render/coverage code should call this. Agent- and operator-facing paths
+    (prepare_target_context, workspace_summary, resource reads) must keep using
+    _load_target_entities so workspace state stays rich and complete — reportability
+    filtering belongs only at the report boundary.
+    """
+    return {
+        name: [item for item in items if is_reportable(item)]
+        for name, items in _load_target_entities(workspace_id, target).items()
+    }
+
+
 def prepare_target_context(workspace_id: str, target: str, purpose: str = "next_step_planning", max_tokens: int = 1500) -> dict[str, Any]:
     wid = normalize_workspace_id(workspace_id)
     host = normalize_target(target)
@@ -2481,6 +2516,160 @@ def mark_finding_reviewed(
         {"workspaceId": result["workspaceId"], "target": result["target"], "findingId": finding_id, "status": status, "reviewer": reviewer},
     )
     return result
+
+
+def report_decisions_path(workspace_id: str) -> Path:
+    return workspace_path(workspace_id) / "report_decisions.json"
+
+
+def read_report_decisions(workspace_id: str) -> list[dict[str, Any]]:
+    decisions = _read_json(report_decisions_path(workspace_id), [])
+    return decisions if isinstance(decisions, list) else []
+
+
+def append_report_decision(workspace_id: str, record: dict[str, Any]) -> None:
+    """Append one disposition record to the workspace's small report-decisions archive.
+
+    The archive records *what was decided* (selector, count, reason, affected keys) — not
+    full copies of the discarded records — so it stays a compact, auditable log of the
+    reportability calls taken in the workspace.
+    """
+    path = report_decisions_path(workspace_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    decisions = read_report_decisions(workspace_id)
+    decisions.append(record)
+    _write_json(path, decisions)
+
+
+_SELECTOR_IDENTITY_FIELDS = {
+    "key": ("key",),
+    "id": ("id",),
+    "findingId": ("id", "key"),
+    "observationId": ("id", "candidateId"),
+    "observationKey": ("key",),
+    "candidateId": ("candidateId",),
+    "actionId": ("actionId",),
+}
+
+
+def _entity_matches_selector(entity: dict[str, Any], selector: dict[str, Any]) -> bool:
+    """Match an entity against a disposition selector.
+
+    Identity fields (key/id/findingId/observationId/observationKey/candidateId/actionId)
+    match if any one resolves to this entity. Otherwise an attribute selector is required
+    and every provided attribute constraint must hold: type (exact), value (exact),
+    valueContains (substring of value), urlContains (substring of url/request/path/value).
+    The attribute form enables bulk disposition (e.g. one call to suppress every
+    open_redirect candidate whose URL contains "oembed").
+    """
+    if not isinstance(entity, dict) or not isinstance(selector, dict) or not selector:
+        return False
+    entity_key = _entity_key(entity)
+    for selector_field, entity_fields in _SELECTOR_IDENTITY_FIELDS.items():
+        wanted = str(selector.get(selector_field) or "").strip()
+        if not wanted:
+            continue
+        candidates = {str(entity.get(field) or "") for field in entity_fields}
+        candidates.add(entity_key)
+        if wanted in candidates:
+            return True
+    sel_type = str(selector.get("type") or "").strip()
+    sel_value = str(selector.get("value") or "").strip()
+    value_contains = str(selector.get("valueContains") or "").strip()
+    url_contains = str(selector.get("urlContains") or "").strip()
+    if not any((sel_type, sel_value, value_contains, url_contains)):
+        return False
+    if sel_type and sel_type != str(entity.get("type") or ""):
+        return False
+    if sel_value and sel_value != str(entity.get("value") or ""):
+        return False
+    if value_contains and value_contains.lower() not in str(entity.get("value") or "").lower():
+        return False
+    if url_contains:
+        haystack = " ".join(str(entity.get(field) or "") for field in ("url", "request", "path", "value")).lower()
+        if url_contains.lower() not in haystack:
+            return False
+    return True
+
+
+def set_entity_reportable(
+    workspace_id: str,
+    target: str,
+    entity_type: str,
+    selector: dict[str, Any],
+    is_reportable_value: bool,
+    reason: str = "",
+    reviewer: str = "operator",
+) -> dict[str, Any]:
+    """Set isReportable on every entity of entity_type matching selector, and archive the decision.
+
+    Works across all six entity layers (services, endpoints, parameters, findings, actions,
+    observations). Marking a record non-reportable keeps it in workspace state for later
+    granular analysis while excluding it from generated reports.
+    """
+    wid = normalize_workspace_id(workspace_id)
+    host = normalize_target(target)
+    if entity_type not in ENTITY_FILES:
+        raise McpError(-32602, f"entityType must be one of: {', '.join(sorted(ENTITY_FILES))}.")
+    if not isinstance(selector, dict) or not any(str(value or "").strip() for value in selector.values()):
+        raise McpError(-32602, "selector must be a non-empty object with at least one identity or attribute field.")
+    flag = bool(is_reportable_value)
+    decided_at = now_utc()
+    matched_keys: list[str] = []
+    add_target(wid, host)
+    with workspace_lock(wid):
+        path = target_entity_path(wid, host, entity_type)
+        items = _read_json(path, [])
+        if not isinstance(items, list):
+            items = []
+        for item in items:
+            if not isinstance(item, dict) or not _entity_matches_selector(item, selector):
+                continue
+            item["isReportable"] = flag
+            decision = {"isReportable": flag, "decidedAt": decided_at, "reviewer": reviewer}
+            if reason:
+                decision["reason"] = reason
+            item["reportableDecision"] = decision
+            item["updatedAt"] = decided_at
+            matched_keys.append(_entity_key(item))
+        decision_record = {
+            "decidedAt": decided_at,
+            "reviewer": reviewer,
+            "workspaceId": wid,
+            "target": host,
+            "entityType": entity_type,
+            "isReportable": flag,
+            "reason": reason,
+            "selector": {key: value for key, value in selector.items() if str(value or "").strip()},
+            "matched": len(matched_keys),
+            "entityKeys": matched_keys[:200],
+        }
+        if matched_keys:
+            _write_json(path, items)
+            append_report_decision(wid, decision_record)
+    if matched_keys:
+        evidence.log_event(
+            "workspace.reportability",
+            f"Set isReportable={flag} on {len(matched_keys)} {entity_type} record(s) for {host}.",
+            {
+                "workspaceId": wid,
+                "target": host,
+                "entityType": entity_type,
+                "isReportable": flag,
+                "reason": reason,
+                "reviewer": reviewer,
+                "matched": len(matched_keys),
+            },
+        )
+    return {
+        "workspaceId": wid,
+        "target": host,
+        "entityType": entity_type,
+        "isReportable": flag,
+        "matched": len(matched_keys),
+        "entityKeys": matched_keys,
+        "decision": decision_record if matched_keys else None,
+    }
 
 
 def export_finding_context(workspace_id: str, target: str, finding_id: str) -> dict[str, Any]:

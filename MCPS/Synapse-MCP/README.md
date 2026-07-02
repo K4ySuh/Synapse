@@ -59,6 +59,7 @@ fallback prompt; the repository launcher remains the preferred alpha runtime.
 - `workspace.promote_observation_to_finding`
 - `workspace.link_evidence_to_finding`
 - `workspace.mark_finding_reviewed`
+- `workspace.set_entity_reportable`
 - `workspace.export_finding_context`
 - `credentials.set`
 - `credentials.set_auth_profile`
@@ -601,6 +602,15 @@ operator-reviewed finding by default, while
 `workspace.link_evidence_to_finding`, `workspace.mark_finding_reviewed`, and
 `workspace.export_finding_context` to manage status, evidence IDs, review state,
 impact/remediation fields, and report context.
+
+Every persisted entity (services, endpoints, parameters, findings, actions, and
+observations) carries an `isReportable` flag, `true` by default.
+`workspace.set_entity_reportable` flips it — by identity or by bulk attribute
+selector — so operators can discard reviewed false positives from the generated
+reports while the records stay in workspace state for later granular analysis.
+Non-reportable records are excluded at the report boundary only; agent-facing
+context, counts, and resource reads keep the full state. Each disposition is
+appended to a small per-workspace `report_decisions.json` archive.
 
 Shodan network-touching tools require `confirm=true` because they contact an
 external service; API-backed calls may also consume credits. Set the API key at

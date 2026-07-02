@@ -190,7 +190,7 @@ def _target_names(workspace_id: str, target: str = "") -> list[str]:
 
 def _analyze_target(workspace_id: str, target: str) -> dict[str, Any]:
     host = workspace.normalize_target(target)
-    entities = workspace._load_target_entities(workspace_id, host)
+    entities = workspace.load_reportable_target_entities(workspace_id, host)
     services = [item for item in entities["services"] if isinstance(item, dict)]
     endpoints = [item for item in entities["endpoints"] if isinstance(item, dict)]
     observations = [item for item in entities["observations"] if isinstance(item, dict)]
@@ -785,7 +785,7 @@ def _workspace_perimeter_summary(workspace_id: str, target_reports: list[dict[st
     module_counts: dict[str, int] = {}
     for report in target_reports:
         host = report["target"]
-        inventory = candidate_inventory(workspace._load_target_entities(workspace_id, host), host)
+        inventory = candidate_inventory(workspace.load_reportable_target_entities(workspace_id, host), host)
         target_candidate_counts[host] = int(inventory.get("total", 0) or 0)
         for module, count in inventory.get("byModule", {}).items() if isinstance(inventory.get("byModule"), dict) else []:
             module_counts[str(module)] = module_counts.get(str(module), 0) + int(count or 0)

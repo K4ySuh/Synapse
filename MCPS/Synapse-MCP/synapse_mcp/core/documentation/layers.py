@@ -344,7 +344,7 @@ def _js_layer(args: dict[str, Any]) -> dict[str, Any]:
     steps: list[str] = []
     totals = {"endpointCount": 0, "observedEndpointCount": 0, "jsInferredEndpointCount": 0, "assetCount": 0, "jsSignalCount": 0, "parameterCount": 0}
     for target in targets:
-        entities = workspace._load_target_entities(wid, target)
+        entities = workspace.load_reportable_target_entities(wid, target)
         # Hide SPA-shell phantom asset endpoints (already-stored crawl noise) so the
         # JS request map matches a freshly crawled, de-noised workspace.
         entities = {**entities, "endpoints": [item for item in entities["endpoints"] if not is_phantom_asset_endpoint(item)]}
@@ -414,7 +414,7 @@ def _auth_layer(args: dict[str, Any]) -> dict[str, Any]:
     steps: list[str] = []
     for report in targets:
         target = str(report.get("target", ""))
-        entities = workspace._load_target_entities(wid, target)
+        entities = workspace.load_reportable_target_entities(wid, target)
         target_portals = report.get("loginPortals", []) if isinstance(report.get("loginPortals"), list) else []
         protected = report.get("protectedResources", []) if isinstance(report.get("protectedResources"), list) else []
         boundaries = [item for item in report.get("perimeterObservations", []) if isinstance(item, dict) and item.get("type") in {"auth_boundary", "protected_resource"}]
@@ -483,7 +483,7 @@ def _access_control_layer(args: dict[str, Any]) -> dict[str, Any]:
         contexts = access_control.read_access_control_items(wid, target, "contexts")
         matrix = access_control.read_access_control_items(wid, target, "matrix")
         replays = access_control.read_access_control_items(wid, target, "replays")
-        entities = workspace._load_target_entities(wid, target)
+        entities = workspace.load_reportable_target_entities(wid, target)
         candidates = [
             item
             for item in entities["observations"]
@@ -571,7 +571,7 @@ def _web_vulnerabilities_layer(args: dict[str, Any]) -> dict[str, Any]:
     module_counts: dict[str, int] = {}
     summary = {"targetCount": len(targets), "candidateCount": 0, "findingCount": 0, "moduleCounts": module_counts}
     for target in targets:
-        entities = workspace._load_target_entities(wid, target)
+        entities = workspace.load_reportable_target_entities(wid, target)
         inventory = perimeter.candidate_inventory(entities, target)
         target_candidates = [item for item in inventory.get("items", []) if isinstance(item, dict)]
         target_modules: dict[str, int] = dict(inventory.get("byModule", {})) if isinstance(inventory.get("byModule"), dict) else {}
