@@ -1710,9 +1710,11 @@ class TlsPostureAdapterTests(unittest.TestCase):
                 # TLS posture issues are ingested as confirmed findings, not test candidates.
                 entities = workspace._load_target_entities("engagement", "example.com")
                 self.assertEqual(entities["observations"], [])
-                titles = {finding["title"] for finding in entities["findings"]}
-                self.assertTrue(any("Expired TLS certificate" in title for title in titles))
-                self.assertTrue(any("Deprecated TLS/SSL protocol" in title for title in titles))
+                by_title = {finding["title"]: finding for finding in entities["findings"]}
+                self.assertTrue(any("Expired TLS certificate" in title for title in by_title))
+                self.assertTrue(any("Deprecated TLS/SSL protocol" in title for title in by_title))
+                # Expired cert / deprecated protocol are concrete exposures -> medium severity.
+                self.assertEqual(by_title["Expired TLS certificate"]["severity"], "medium")
                 for finding in entities["findings"]:
                     self.assertEqual(finding["status"], "confirmed")
                     self.assertIs(finding["operatorReviewed"], False)

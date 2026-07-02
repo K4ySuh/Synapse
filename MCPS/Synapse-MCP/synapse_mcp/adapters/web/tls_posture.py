@@ -240,6 +240,14 @@ def build_result(workspace_id: str, target: str, candidates: list[dict[str, Any]
     )
 
 
+def _tls_severity(candidate_type: str, score: int) -> str:
+    # An expired certificate or a deprecated protocol is a concrete exposure, not mere
+    # hygiene, so it is rated medium; identity issues fall back to a score-based low/info.
+    if candidate_type in {"tls_expired_certificate", "tls_deprecated_protocol"}:
+        return "medium"
+    return "low" if score >= 45 else "info"
+
+
 def _finding_from_candidate(host: str, candidate: dict[str, Any]) -> dict[str, Any]:
     # TLS posture issues are confirmed from already-collected certificate/protocol data,
     # so they are findings rather than candidates to actively re-test.
@@ -259,7 +267,7 @@ def _finding_from_candidate(host: str, candidate: dict[str, Any]) -> dict[str, A
     return passive_finding(
         key=f"finding:hygiene:{stable_slug(host)}:{stable_slug(candidate_type)}:{stable_slug(discriminator)}"[:170],
         title=title,
-        severity="low" if int(candidate.get("priorityScore", 0) or 0) >= 45 else "info",
+        severity=_tls_severity(candidate_type, int(candidate.get("priorityScore", 0) or 0)),
         reason=reason,
         host=host,
         affected_urls=[str(candidate.get("value", ""))] if candidate.get("value") else [],
