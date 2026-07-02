@@ -7,7 +7,7 @@ import json
 from typing import Any
 
 from ...core import evidence, workspace
-from ...core.adapters import AdapterResult, WorkspaceEntityBundle, candidate_observation
+from ...core.adapters import AdapterResult, WorkspaceEntityBundle, passive_finding
 from .active_probe import stable_slug
 
 DEPRECATED_PROTOCOLS = {"SSLv2", "SSLv3", "TLSv1.0", "TLSv1.1"}
@@ -46,6 +46,17 @@ def analyze_workspace(args: dict[str, Any]) -> str:
             "json",
             json.dumps(payload, indent=2, ensure_ascii=False),
             {"adapter": "tls_posture", "maxCandidates": max_candidates},
+        )
+        # Passive marker so coverage recognizes the module ran even though it now emits findings.
+        workspace.record_action(
+            workspace_id,
+            target,
+            {
+                "type": "passive_analysis",
+                "tool": "tls_posture.analyze_workspace",
+                "summary": f"Analyzed passive TLS posture ({len(candidates)} finding(s)).",
+            },
+            ingestion.get("evidenceId", ""),
         )
     evidence.log_event(
         "tls_posture.analyze_workspace",
@@ -212,37 +223,48 @@ def _hostname_matches(host: str, pattern: str) -> bool:
 
 
 def build_result(workspace_id: str, target: str, candidates: list[dict[str, Any]], context: dict[str, Any]) -> AdapterResult:
-    observations = [
-        candidate_observation(
-            candidate_type=candidate["type"],
-            value=candidate["value"],
-            confidence=candidate["confidence"],
-            priority=candidate["priority"],
-            priority_score=int(candidate["priorityScore"]),
-            reason=candidate["reasons"][0] if candidate.get("reasons") else "TLS posture issue identified.",
-            tags=["tls-posture", candidate["type"].replace("_", "-")],
-            metadata={
-                "candidateId": candidate["candidateId"],
-                "host": candidate.get("host", ""),
-                "port": candidate.get("port", ""),
-                "protocol": candidate.get("protocol", ""),
-                "subjectCN": candidate.get("subjectCN", ""),
-                "issuerCN": candidate.get("issuerCN", ""),
-                "reasons": candidate.get("reasons", []),
-            },
-        )
-        for candidate in candidates
-    ]
+    host = workspace.normalize_target(target)
+    findings = [_finding_from_candidate(host, candidate) for candidate in candidates]
     return AdapterResult(
         adapter="tls_posture",
         mode="passive_analysis",
         workspace_id=workspace.normalize_workspace_id(workspace_id),
-        target=workspace.normalize_target(target),
-        summary=f"Identified {len(candidates)} TLS posture observations from existing data.",
-        entities=WorkspaceEntityBundle(observations=observations),
+        target=host,
+        summary=f"Recorded {len(findings)} TLS posture findings from existing data.",
+        entities=WorkspaceEntityBundle(findings=findings),
         limitations=[
             "Normalizes TLS data already collected by Shodan/perimeter ingestion; it performs no live TLS handshake.",
             "Deep cipher/protocol scanning belongs to sslscan, testssl, nuclei, or another approved external workflow.",
         ],
-        metadata={"observationCount": len(observations), "contextEndpointCount": context.get("knownEndpoints", {}).get("total", 0)},
+        metadata={"findingCount": len(findings), "contextEndpointCount": context.get("knownEndpoints", {}).get("total", 0)},
+    )
+
+
+def _finding_from_candidate(host: str, candidate: dict[str, Any]) -> dict[str, Any]:
+    # TLS posture issues are confirmed from already-collected certificate/protocol data,
+    # so they are findings rather than candidates to actively re-test.
+    candidate_type = str(candidate.get("type", ""))
+    reason = candidate["reasons"][0] if candidate.get("reasons") else "TLS posture issue identified."
+    if candidate_type == "tls_expired_certificate":
+        title = "Expired TLS certificate"
+    elif candidate_type == "tls_deprecated_protocol":
+        title = f"Deprecated TLS/SSL protocol {candidate.get('protocol', '')}".strip()
+    elif candidate.get("kind") == "mismatch":
+        title = "TLS certificate hostname mismatch"
+    elif candidate.get("kind") == "self_signed":
+        title = "Self-signed TLS certificate"
+    else:
+        title = "TLS posture issue"
+    discriminator = str(candidate.get("protocol") or candidate.get("kind") or candidate.get("port") or "")
+    return passive_finding(
+        key=f"finding:hygiene:{stable_slug(host)}:{stable_slug(candidate_type)}:{stable_slug(discriminator)}"[:170],
+        title=title,
+        severity="low" if int(candidate.get("priorityScore", 0) or 0) >= 45 else "info",
+        reason=reason,
+        host=host,
+        affected_urls=[str(candidate.get("value", ""))] if candidate.get("value") else [],
+        evidence_ids=candidate.get("evidenceIds", []),
+        remediation="Renew/replace the certificate and disable deprecated protocols so the TLS endpoint presents a valid, modern configuration.",
+        tags=["tls-posture", candidate_type.replace("_", "-")],
+        category="TLS posture",
     )

@@ -25,7 +25,7 @@ from synapse_mcp.adapters.web import (
     xss_adapter,
     xxe,
 )
-from synapse_mcp.core import background_jobs, credentials, evidence, scope, workspace
+from synapse_mcp.core import background_jobs, credentials, evidence, perimeter, scope, workspace
 from synapse_mcp.core.errors import McpError
 
 
@@ -1428,15 +1428,28 @@ class HeadersCookiesAdapterTests(unittest.TestCase):
                 self.assertEqual(httponly[0]["priority"], "high")
                 self.assertEqual(httponly[0]["cookie"], "sessionid")
 
-    def test_observations_ingested_and_surfaced(self) -> None:
+    def test_hygiene_issues_ingested_as_findings_not_candidates(self) -> None:
         with TemporaryDirectory() as tmp:
             with isolated_state(Path(tmp)):
                 self._ingest(tmp)
-                headers_cookies.analyze_workspace({"workspaceId": "engagement", "target": "example.com"})
-                observations = workspace._load_target_entities("engagement", "example.com")["observations"]
-                types = {o["type"] for o in observations}
-                self.assertIn("missing_security_header", types)
-                self.assertIn("insecure_cookie_flag", types)
+                result = json.loads(headers_cookies.analyze_workspace({"workspaceId": "engagement", "target": "example.com"}))
+                entities = workspace._load_target_entities("engagement", "example.com")
+                # Header/cookie hygiene is now recorded as findings, not test-candidate observations.
+                self.assertEqual(entities["observations"], [])
+                self.assertGreaterEqual(result["ingestion"]["entitiesCreated"]["findings"], 1)
+                findings = entities["findings"]
+                self.assertTrue(findings)
+                for finding in findings:
+                    self.assertEqual(finding["status"], "confirmed")
+                    self.assertIs(finding["operatorReviewed"], False)
+                    self.assertIn(finding["severity"], {"info", "low"})
+                    self.assertTrue(finding.get("affectedUrls"))
+                titles = " ".join(finding["title"] for finding in findings)
+                self.assertIn("Missing security header", titles)
+                self.assertIn("missing", " ".join(f["title"].lower() for f in findings if "Cookie" in f["title"]))
+                # A confirmed hygiene finding is not surfaced as a perimeter candidate.
+                inventory = perimeter.candidate_inventory(entities, "example.com")
+                self.assertEqual(inventory["byModule"].get("headers_cookies", 0), 0)
 
     def test_default_host_dedupe_collapses_sitewide_header_findings(self) -> None:
         urls = [
@@ -1473,6 +1486,25 @@ class HeadersCookiesAdapterTests(unittest.TestCase):
                     if item["type"] == "missing_security_header" and item.get("header") == "content-security-policy"
                 ]
                 self.assertEqual(len(endpoint_csp), 5)
+
+    def test_sitewide_missing_header_collapses_to_one_finding(self) -> None:
+        urls = [
+            {"url": f"https://example.com/page-{index}", "methods": ["GET"], "statusCodes": [200], "responseHeaders": {"content-type": "text/html"}}
+            for index in range(5)
+        ]
+        raw = json.dumps({"hosts": [{"host": "example.com", "urls": urls}], "summary": {"hostCount": 1, "urlCount": 5}})
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                workspace.ingest_data("engagement", "example.com", "sitemap", "tool_output", "json", raw)
+                headers_cookies.analyze_workspace({"workspaceId": "engagement", "target": "example.com"})
+                entities = workspace._load_target_entities("engagement", "example.com")
+                csp = [finding for finding in entities["findings"] if "content-security-policy" in finding["title"]]
+                # Five endpoints missing CSP collapse to ONE finding listing all five URLs.
+                self.assertEqual(len(csp), 1)
+                self.assertEqual(len(csp[0]["affectedUrls"]), 5)
+                self.assertEqual(csp[0]["affectedAssets"], ["example.com"])
+                # And none of it lands in the candidate flood.
+                self.assertEqual([obs for obs in entities["observations"] if obs.get("type") == "missing_security_header"], [])
 
 
 class InsecureDeserAdapterTests(unittest.TestCase):
@@ -1675,6 +1707,15 @@ class TlsPostureAdapterTests(unittest.TestCase):
                 types = {item["type"]: item for item in result["candidates"]}
                 self.assertEqual(types["tls_expired_certificate"]["priority"], "high")
                 self.assertEqual(types["tls_deprecated_protocol"]["priority"], "medium")
+                # TLS posture issues are ingested as confirmed findings, not test candidates.
+                entities = workspace._load_target_entities("engagement", "example.com")
+                self.assertEqual(entities["observations"], [])
+                titles = {finding["title"] for finding in entities["findings"]}
+                self.assertTrue(any("Expired TLS certificate" in title for title in titles))
+                self.assertTrue(any("Deprecated TLS/SSL protocol" in title for title in titles))
+                for finding in entities["findings"]:
+                    self.assertEqual(finding["status"], "confirmed")
+                    self.assertIs(finding["operatorReviewed"], False)
 
     def test_no_ssl_data_or_modern_cert_emits_no_tls_observations(self) -> None:
         with TemporaryDirectory() as tmp:

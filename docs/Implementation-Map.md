@@ -930,8 +930,11 @@ Passive security-header and cookie-hygiene analyzer. `headers_cookies.analyze_wo
 reads response metadata already in the workspace (captured by crawler/dump
 ingestion) and flags missing or weak `Content-Security-Policy`, HSTS,
 `X-Frame-Options`, `X-Content-Type-Options`, and `Referrer-Policy`, plus insecure
-cookie `HttpOnly`/`Secure`/`SameSite` flags. Cookie analysis uses names and flags
-only; cookie values are never read or stored. Output defaults to host-scoped
+cookie `HttpOnly`/`Secure`/`SameSite` flags. Because these are passively-verified,
+they are recorded as confirmed (not-yet-operator-reviewed) findings — one per host
+and issue, with all affected URLs in `affectedUrls` — rather than test candidates,
+and a passive action is recorded so coverage still credits the module. Cookie
+analysis uses names and flags only; cookie values are never read or stored. Output defaults to host-scoped
 dedupe with `affectedUrls`/`affectedCount`; `dedupeScope="endpoint"` preserves the
 older per-endpoint rows. It sends no traffic.
 
@@ -1009,9 +1012,11 @@ adapters/web/tls_posture.py
 ```
 
 Passive TLS posture normalizer. `tls_posture.analyze_workspace` normalizes
-expired-certificate, deprecated-protocol, and certificate-identity observations
-from SSL data already collected by Shodan/perimeter ingestion. It performs no
-live TLS handshake; deep cipher/protocol scanning belongs to external tools.
+expired-certificate, deprecated-protocol, and certificate-identity issues from
+SSL data already collected by Shodan/perimeter ingestion into confirmed
+(not-yet-operator-reviewed) findings (not test candidates), recording a passive
+action for coverage. It performs no live TLS handshake; deep cipher/protocol
+scanning belongs to external tools.
 
 ```text
 adapters/infra/nmap_adapter.py

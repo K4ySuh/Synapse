@@ -435,7 +435,9 @@ Use `headers_cookies.analyze_workspace` after crawler/dump ingestion to passivel
 flag missing or weak response security headers (Content-Security-Policy,
 Strict-Transport-Security, X-Frame-Options, X-Content-Type-Options,
 Referrer-Policy) and insecure cookie flags (missing HttpOnly/Secure, weak
-SameSite). It reads only response metadata already recorded in the workspace and
+SameSite). These are passively-verified facts, so they are recorded as confirmed
+(not-yet-operator-reviewed) findings — one per host and issue, collapsing every
+affected URL — rather than test candidates. It reads only response metadata already recorded in the workspace and
 uses cookie names and flags only — cookie values are never stored or read.
 
 Use `jwt.analyze` to statically inspect an operator-supplied JWT offline: it
@@ -476,8 +478,9 @@ operations and arguments into workspace endpoints and parameters. It does not
 execute discovered operations or mutations.
 
 Use `tls_posture.analyze_workspace` to normalize expired certificate,
-deprecated protocol, and self-signed/mismatch observations from already-ingested
-SSL summaries. It performs no live TLS handshake or external scanner execution.
+deprecated protocol, and self-signed/mismatch issues from already-ingested SSL
+summaries into confirmed (not-yet-operator-reviewed) findings. It performs no
+live TLS handshake or external scanner execution.
 
 Use `ssrf.analyze_workspace` after sitemap/crawler/Shodan ingestion to passively
 score URL-like parameters, callback/webhook/import/proxy paths, and high-value

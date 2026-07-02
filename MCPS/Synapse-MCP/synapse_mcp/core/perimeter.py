@@ -724,7 +724,10 @@ def _perimeter_observations(host: str, endpoints: list[dict[str, Any]], observat
 def _finding_candidates(host: str, findings: list[dict[str, Any]], observations: list[dict[str, Any]], login_portals: list[dict[str, Any]]) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
     for finding in findings:
-        if finding.get("operatorReviewed") is False or finding.get("status") == "candidate":
+        # Only genuine candidate-status findings are test candidates. Confirmed findings
+        # (e.g. passively-verified header/cookie/TLS hygiene) are real findings pending
+        # operator sign-off, not candidates to test, so they are not re-listed here.
+        if finding.get("status") == "candidate":
             url = _candidate_url(finding)
             candidates.append(
                 {

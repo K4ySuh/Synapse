@@ -492,6 +492,7 @@ _MERGE_UNION_FIELDS = {
     "errorSignals",
     "tags",
     "reasons",
+    "affectedUrls",
 }
 _MERGE_REPLACE_FIELDS = {"updatedAt", "lastSeenAt"}
 _SEVERITY_RANK = {"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
@@ -577,6 +578,7 @@ _ENTITY_LIST_FIELDS = (
     "tags",
     "reasons",
     "affectedAssets",
+    "affectedUrls",
     "reproductionSteps",
     "statusCodes",
     "cookieNames",

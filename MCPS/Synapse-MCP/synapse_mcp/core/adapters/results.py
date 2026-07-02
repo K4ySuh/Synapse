@@ -193,6 +193,50 @@ def candidate_observation(
     return ObservationEntity(**payload)
 
 
+def passive_finding(
+    *,
+    key: str,
+    title: str,
+    severity: RiskTier,
+    reason: str,
+    host: str,
+    affected_urls: list[str] | None = None,
+    evidence_ids: list[str] | None = None,
+    confidence: Confidence = "high",
+    impact: str = "",
+    remediation: str = "",
+    tags: list[str] | None = None,
+    category: str = "",
+) -> dict[str, Any]:
+    """Build a passively-verified finding (not a test candidate).
+
+    For issues that are determinable from data already in the workspace — missing
+    security headers, insecure cookie flags, weak TLS posture — where active testing
+    is not required to confirm them. Emitted as a confirmed but not-yet-operator-reviewed
+    finding, deduped by a stable ``key`` and collapsing affected URLs into ``affectedUrls``.
+    """
+    finding: dict[str, Any] = {
+        "type": "finding",
+        "key": key,
+        "title": title,
+        "status": "confirmed",
+        "severity": severity,
+        "confidence": confidence,
+        "operatorReviewed": False,
+        "description": reason,
+        "reasons": [reason] if reason else [],
+        "affectedAssets": [host] if host else [],
+        "affectedUrls": sorted({str(url) for url in (affected_urls or []) if url}),
+        "evidenceIds": [eid for eid in (evidence_ids or []) if isinstance(eid, str)],
+        "impact": impact,
+        "remediation": remediation,
+        "tags": tags or [],
+    }
+    if category:
+        finding["category"] = category
+    return finding
+
+
 def _dump_entity_list(items: list[Any]) -> list[dict[str, Any]]:
     dumped = []
     for item in items:

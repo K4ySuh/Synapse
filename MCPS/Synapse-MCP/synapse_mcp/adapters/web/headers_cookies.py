@@ -9,7 +9,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from ...core import evidence, workspace
-from ...core.adapters import AdapterResult, WorkspaceEntityBundle, candidate_observation
+from ...core.adapters import AdapterResult, WorkspaceEntityBundle, passive_finding
 from .active_probe import stable_slug
 from .candidate_dedupe import collapse_host_wide
 from .surface_hygiene import is_candidate_noise_url, normalize_surface_url
@@ -68,6 +68,18 @@ def analyze_workspace(args: dict[str, Any]) -> str:
             "json",
             json.dumps(payload, indent=2, ensure_ascii=False),
             {"adapter": "headers_cookies", "maxCandidates": max_candidates, "dedupeScope": dedupe_scope},
+        )
+        # Record a passive action so coverage recognizes this module ran even though it now
+        # emits findings (not observations); no traffic is sent, so it stays passive.
+        workspace.record_action(
+            workspace_id,
+            target,
+            {
+                "type": "passive_analysis",
+                "tool": "headers_cookies.analyze_workspace",
+                "summary": f"Analyzed security headers and cookie hygiene ({len(candidates)} finding(s)).",
+            },
+            ingestion.get("evidenceId", ""),
         )
     evidence.log_event(
         "headers_cookies.analyze_workspace",
@@ -204,44 +216,57 @@ def _with_host_subject(candidate: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_result(workspace_id: str, target: str, candidates: list[dict[str, Any]], context: dict[str, Any]) -> AdapterResult:
-    observations = [
-        candidate_observation(
-            candidate_type=candidate["type"],
-            value=candidate["url"],
-            url=candidate["url"],
-            method=candidate["method"],
-            confidence=candidate["confidence"],
-            priority=candidate["priority"],
-            priority_score=int(candidate["priorityScore"]),
-            reason=candidate["reasons"][0] if candidate.get("reasons") else "Header/cookie hygiene issue identified.",
-            tags=["headers-cookies", candidate["type"].replace("_", "-")],
-            metadata={
-                "candidateId": candidate["candidateId"],
-                "header": candidate.get("header", ""),
-                "cookie": candidate.get("cookie", ""),
-                "flag": candidate.get("flag", ""),
-                "evidenceIds": candidate.get("evidenceIds", []),
-                "dedupeScope": candidate.get("dedupeScope", "endpoint"),
-                "host": candidate.get("host", ""),
-                "subject": candidate.get("subject", ""),
-                "affectedUrls": candidate.get("affectedUrls", []),
-                "affectedCount": candidate.get("affectedCount", 1 if candidate.get("url") else 0),
-            },
-        )
-        for candidate in candidates
-    ]
+    host = workspace.normalize_target(target)
+    findings = [_finding_from_candidate(host, candidate) for candidate in candidates]
     return AdapterResult(
         adapter="headers_cookies",
         mode="passive_analysis",
         workspace_id=workspace.normalize_workspace_id(workspace_id),
-        target=workspace.normalize_target(target),
-        summary=f"Identified {len(candidates)} security-header and cookie-hygiene observations.",
-        entities=WorkspaceEntityBundle(observations=observations),
+        target=host,
+        summary=f"Recorded {len(findings)} security-header and cookie-hygiene findings.",
+        entities=WorkspaceEntityBundle(findings=findings),
         limitations=[
             "Analyzes only response metadata already recorded in the workspace; run a crawl or dump ingest first.",
             "Cookie analysis uses names and flags only; cookie values are never stored or read.",
         ],
-        metadata={"observationCount": len(observations)},
+        metadata={"findingCount": len(findings)},
+    )
+
+
+def _finding_from_candidate(host: str, candidate: dict[str, Any]) -> dict[str, Any]:
+    # An insecure/missing security header or cookie flag is a passively-verified fact,
+    # not a hypothesis to actively test, so it is recorded as a finding (one per
+    # host+issue, collapsing every affected URL) rather than a test candidate.
+    candidate_type = str(candidate.get("type", ""))
+    subject = str(candidate.get("subject") or candidate.get("header") or candidate.get("candidateId") or candidate_type)
+    reason = candidate["reasons"][0] if candidate.get("reasons") else "Header/cookie hygiene issue identified."
+    affected_urls = candidate.get("affectedUrls") or ([candidate["url"]] if candidate.get("url") else [])
+    if candidate_type == "insecure_cookie_flag":
+        cookie = str(candidate.get("cookie", ""))
+        flag = str(candidate.get("flag", ""))
+        title = f"Cookie '{cookie}' missing {flag} attribute"
+        category = "Cookie hygiene"
+        remediation = f"Set the {flag} attribute on cookie '{cookie}' where the browser context allows it."
+    elif candidate_type == "weak_csp":
+        title = "Weak Content-Security-Policy"
+        category = "Security header hygiene"
+        remediation = "Tighten the Content-Security-Policy to remove wildcard and unsafe-inline sources."
+    else:
+        header = str(candidate.get("header", ""))
+        title = f"Missing security header: {header}" if header else "Missing security header"
+        category = "Security header hygiene"
+        remediation = f"Add the {header} response header." if header else "Add the missing security response header."
+    return passive_finding(
+        key=f"finding:hygiene:{stable_slug(host)}:{stable_slug(subject)}"[:170],
+        title=title,
+        severity="low" if int(candidate.get("priorityScore", 0) or 0) >= 45 else "info",
+        reason=reason,
+        host=host,
+        affected_urls=affected_urls,
+        evidence_ids=candidate.get("evidenceIds", []),
+        remediation=remediation,
+        tags=["headers-cookies", candidate_type.replace("_", "-")],
+        category=category,
     )
 
 
