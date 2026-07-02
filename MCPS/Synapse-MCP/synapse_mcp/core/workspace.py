@@ -18,10 +18,13 @@ from xml.etree import ElementTree
 
 from . import evidence, scope
 from .errors import McpError
-from .paths import DATA_DIR
+from .paths import DATA_DIR, REPORTS_DIR as _CONFIGURED_REPORTS_DIR
 
 
 WORKSPACES_DIR = DATA_DIR / "workspaces"
+# Top-level reports root (tests rebind this to a temp dir). Rendered reports and the
+# per-workspace decision archive live here, never inside the workspace state folder.
+REPORTS_DIR = _CONFIGURED_REPORTS_DIR
 DEFAULT_WORKSPACE_LOCK_TIMEOUT_SECONDS = 5.0
 _LOCK_STATE = threading.local()
 ENTITY_FILES = {
@@ -2519,7 +2522,62 @@ def mark_finding_reviewed(
 
 
 def report_decisions_path(workspace_id: str) -> Path:
-    return workspace_path(workspace_id) / "report_decisions.json"
+    # Lives in the top-level reports root (not the workspace folder), so a workspace's
+    # review decisions sit next to the reports they shape and are not duplicated.
+    return REPORTS_DIR / f"{normalize_workspace_id(workspace_id)}.report-decisions.json"
+
+
+def resolve_report_output_path(
+    workspace_id: str,
+    output_path: str,
+    *,
+    extension: str,
+    default_name: str,
+    allow_external: bool = False,
+    artifact: str = "report",
+) -> Path:
+    """Resolve where a rendered report/export is written.
+
+    All reports land in the top-level reports root (REPORTS_DIR), never inside the
+    workspace state folder. An explicit outputPath is interpreted relative to that
+    root; a redundant leading ``reports/`` segment is dropped. Escaping the root
+    requires allow_external=true. Returns a path whose parent directory exists.
+    """
+    reports_root = REPORTS_DIR
+    if output_path:
+        path = Path(str(output_path)).expanduser()
+        if not path.is_absolute():
+            _reject_workspace_relative_output(path)
+            parts = path.parts
+            if parts and parts[0] == "reports":
+                path = Path(*parts[1:]) if len(parts) > 1 else Path(default_name)
+            path = reports_root / path
+        resolved = path.resolve()
+        if not _is_within(resolved, reports_root.resolve()) and allow_external is not True:
+            raise McpError(-32602, f"External {artifact} output paths require allowExternalOutput=true.")
+        resolved.parent.mkdir(parents=True, exist_ok=True)
+        return resolved
+    if not default_name.endswith(f".{extension}"):
+        default_name = f"{default_name}.{extension}"
+    resolved = reports_root / default_name
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    return resolved
+
+
+def _reject_workspace_relative_output(path: Path) -> None:
+    parts = path.parts
+    if parts and parts[0] == "DATA":
+        raise McpError(-32602, "outputPath is workspace-relative; use reports/<file> or an absolute path with allowExternalOutput=true.")
+    if parts[:1] == ("workspaces",):
+        raise McpError(-32602, "outputPath is workspace-relative; do not include DATA/workspaces. Use reports/<file>.")
+
+
+def _is_within(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True
 
 
 def read_report_decisions(workspace_id: str) -> list[dict[str, Any]]:

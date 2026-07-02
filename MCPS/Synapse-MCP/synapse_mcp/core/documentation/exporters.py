@@ -133,24 +133,14 @@ def _context_from_args(args: dict[str, Any], *, default_template: str) -> dict[s
 
 
 def _write_output(args: dict[str, Any], content: str, extension: str, default_name: str) -> Path:
-    workspace_id = workspace.normalize_workspace_id(args["workspaceId"])
-    output_path = args.get("outputPath", "")
-    if output_path:
-        path = Path(str(output_path)).expanduser()
-        if not path.is_absolute():
-            _reject_repo_root_relative_output(path)
-            path = workspace.workspace_path(workspace_id) / path
-        workspace_root = workspace.workspace_path(workspace_id).resolve()
-        resolved = path.resolve()
-        if not _is_within_workspace(resolved, workspace_root) and args.get("allowExternalOutput") is not True:
-            raise McpError(-32602, "External documentation output paths require allowExternalOutput=true.")
-        resolved.parent.mkdir(parents=True, exist_ok=True)
-        resolved.write_text(content, encoding="utf-8")
-        return resolved
-    if not default_name.endswith(f".{extension}"):
-        default_name = f"{default_name}.{extension}"
-    path = workspace.workspace_path(workspace_id) / "reports" / default_name
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path = workspace.resolve_report_output_path(
+        args["workspaceId"],
+        args.get("outputPath", ""),
+        extension=extension,
+        default_name=default_name,
+        allow_external=args.get("allowExternalOutput") is True,
+        artifact="documentation",
+    )
     path.write_text(content, encoding="utf-8")
     return path
 
@@ -159,25 +149,3 @@ def _default_markdown_name(template_id: str) -> str:
     if template_id == "assessment_summary_report":
         return "assessment-summary.md"
     return "report.md"
-
-
-def _reject_repo_root_relative_output(path: Path) -> None:
-    parts = path.parts
-    if parts and parts[0] == "DATA":
-        raise McpError(
-            -32602,
-            "outputPath is workspace-relative; use reports/<file> or an absolute path with allowExternalOutput=true.",
-        )
-    if parts[:1] == ("workspaces",):
-        raise McpError(
-            -32602,
-            "outputPath is workspace-relative; do not include DATA/workspaces. Use reports/<file>.",
-        )
-
-
-def _is_within_workspace(path: Path, workspace_root: Path) -> bool:
-    try:
-        path.relative_to(workspace_root)
-    except ValueError:
-        return False
-    return True

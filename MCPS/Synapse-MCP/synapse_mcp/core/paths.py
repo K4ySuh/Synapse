@@ -29,6 +29,10 @@ def _require_within(path: Path, parent: Path, *, name: str, parent_name: str) ->
 SYNAPSE_ROOT = _configured_path("SYNAPSE_ROOT", ROOT.parents[1], relative_to=ROOT.parents[1])
 DATA_DIR = _configured_path("SYNAPSE_DATA_DIR", SYNAPSE_ROOT / "DATA", relative_to=SYNAPSE_ROOT)
 DUMP_DIR = _configured_path("SYNAPSE_DUMP_DIR", DATA_DIR / "workspaces", relative_to=DATA_DIR)
+# Generated reports and per-workspace review-decision archives live at the top level,
+# not inside DATA/workspaces, so they are easy to find and share and are never
+# duplicated in workspace state. Gitignored like other engagement output.
+REPORTS_DIR = _configured_path("SYNAPSE_REPORTS_DIR", SYNAPSE_ROOT / "reports", relative_to=SYNAPSE_ROOT)
 PROMPT_PATH = _configured_path("SYNAPSE_PROMPT_PATH", SYNAPSE_ROOT / "AGENTS.md", relative_to=SYNAPSE_ROOT)
 
 _require_within(DATA_DIR, SYNAPSE_ROOT, name="SYNAPSE_DATA_DIR", parent_name="SYNAPSE_ROOT")

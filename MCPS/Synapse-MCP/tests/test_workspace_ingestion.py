@@ -693,6 +693,10 @@ class ReportabilityTests(unittest.TestCase):
                 self.assertEqual(decisions[0]["matched"], 1)
                 self.assertEqual(decisions[0]["entityType"], "observations")
                 self.assertIs(decisions[0]["isReportable"], False)
+                # Decision archive lives in the top-level reports root, not the workspace folder.
+                archive = workspace.report_decisions_path("engagement").resolve()
+                self.assertTrue(archive.is_relative_to(workspace.REPORTS_DIR.resolve()))
+                self.assertFalse(archive.is_relative_to(workspace.workspace_path("engagement").resolve()))
 
     def test_reingest_does_not_resurrect_non_reportable_decision(self) -> None:
         with TemporaryDirectory() as tmp:

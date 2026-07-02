@@ -1132,45 +1132,16 @@ def _target_perimeter_path(workspace_id: str, target: str) -> Path:
 
 
 def _write_report_output(workspace_id: str, args: dict[str, Any], content: str, extension: str) -> Path:
-    output_path = args.get("outputPath", "")
-    if output_path:
-        path = Path(str(output_path)).expanduser()
-        if not path.is_absolute():
-            _reject_repo_root_relative_output(path)
-            path = workspace.workspace_path(workspace_id) / path
-        workspace_root = workspace.workspace_path(workspace_id).resolve()
-        resolved = path.resolve()
-        if not _is_within_workspace(resolved, workspace_root) and args.get("allowExternalOutput") is not True:
-            raise McpError(-32602, "External perimeter output paths require allowExternalOutput=true.")
-        resolved.parent.mkdir(parents=True, exist_ok=True)
-        resolved.write_text(content, encoding="utf-8")
-        return resolved
-    path = workspace.workspace_path(workspace_id) / "reports" / f"perimeter.{extension}"
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path = workspace.resolve_report_output_path(
+        workspace_id,
+        args.get("outputPath", ""),
+        extension=extension,
+        default_name=f"perimeter.{extension}",
+        allow_external=args.get("allowExternalOutput") is True,
+        artifact="perimeter",
+    )
     path.write_text(content, encoding="utf-8")
     return path
-
-
-def _reject_repo_root_relative_output(path: Path) -> None:
-    parts = path.parts
-    if parts and parts[0] == "DATA":
-        raise McpError(
-            -32602,
-            "outputPath is workspace-relative; use reports/<file> or an absolute path with allowExternalOutput=true.",
-        )
-    if parts[:1] == ("workspaces",):
-        raise McpError(
-            -32602,
-            "outputPath is workspace-relative; do not include DATA/workspaces. Use reports/<file>.",
-        )
-
-
-def _is_within_workspace(path: Path, workspace_root: Path) -> bool:
-    try:
-        path.relative_to(workspace_root)
-    except ValueError:
-        return False
-    return True
 
 
 def _service_is_web(service: dict[str, Any]) -> bool:

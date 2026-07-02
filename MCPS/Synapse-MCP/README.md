@@ -610,7 +610,9 @@ selector — so operators can discard reviewed false positives from the generate
 reports while the records stay in workspace state for later granular analysis.
 Non-reportable records are excluded at the report boundary only; agent-facing
 context, counts, and resource reads keep the full state. Each disposition is
-appended to a small per-workspace `report_decisions.json` archive.
+appended to a small archive at `reports/<workspace>.report-decisions.json`.
+Rendered reports and this archive live in the top-level `reports/` directory, not
+inside the workspace state folder.
 
 Shodan network-touching tools require `confirm=true` because they contact an
 external service; API-backed calls may also consume credits. Set the API key at

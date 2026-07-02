@@ -9,6 +9,7 @@ from synapse_mcp.core import background_jobs, credentials, dumps, evidence, scop
 @contextmanager
 def isolated_state(tmp_path: Path) -> Iterator[None]:
     old_workspaces_dir = workspace.WORKSPACES_DIR
+    old_reports_dir = workspace.REPORTS_DIR
     old_dump_dir = dumps.DUMP_DIR
     old_scope_file = scope.SCOPE_FILE
     old_credentials_file = credentials.CREDENTIALS_FILE
@@ -16,6 +17,7 @@ def isolated_state(tmp_path: Path) -> Iterator[None]:
     old_evidence_log = evidence.EVIDENCE_LOG
     old_orgs_dir = evidence.ORGS_DIR
     workspace.WORKSPACES_DIR = tmp_path / "workspaces"
+    workspace.REPORTS_DIR = tmp_path / "reports"
     dumps.DUMP_DIR = workspace.WORKSPACES_DIR
     scope.SCOPE_FILE = tmp_path / "scope.json"
     credentials.CREDENTIALS_FILE = tmp_path / "credentials.json"
@@ -26,6 +28,7 @@ def isolated_state(tmp_path: Path) -> Iterator[None]:
         yield
     finally:
         workspace.WORKSPACES_DIR = old_workspaces_dir
+        workspace.REPORTS_DIR = old_reports_dir
         dumps.DUMP_DIR = old_dump_dir
         scope.SCOPE_FILE = old_scope_file
         credentials.CREDENTIALS_FILE = old_credentials_file
