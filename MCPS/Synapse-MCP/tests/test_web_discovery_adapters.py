@@ -1578,43 +1578,11 @@ class HeadersCookiesAdapterTests(unittest.TestCase):
                 inventory = perimeter.candidate_inventory(entities, "example.com")
                 self.assertEqual(inventory["byModule"].get("headers_cookies", 0), 0)
 
-    def test_default_host_dedupe_collapses_sitewide_header_findings(self) -> None:
-        urls = [
-            {
-                "url": f"https://example.com/page-{index}",
-                "methods": ["GET"],
-                "statusCodes": [200],
-                "responseHeaders": {"content-type": "text/html"},
-            }
-            for index in range(5)
-        ]
-        raw = json.dumps({"hosts": [{"host": "example.com", "urls": urls}], "summary": {"hostCount": 1, "urlCount": 5}})
-        with TemporaryDirectory() as tmp:
-            with isolated_state(Path(tmp)):
-                workspace.ingest_data("engagement", "example.com", "sitemap", "tool_output", "json", raw)
-                result = json.loads(headers_cookies.analyze_workspace({"workspaceId": "engagement", "target": "example.com"}))
-                csp = [
-                    item
-                    for item in result["candidates"]
-                    if item["type"] == "missing_security_header" and item.get("header") == "content-security-policy"
-                ]
-                self.assertEqual(len(csp), 1)
-                self.assertEqual(csp[0]["affectedCount"], 5)
-                self.assertEqual(len(csp[0]["affectedUrls"]), 5)
-
-                endpoint = json.loads(
-                    headers_cookies.analyze_workspace(
-                        {"workspaceId": "engagement", "target": "example.com", "dedupeScope": "endpoint", "ingest": False}
-                    )
-                )
-                endpoint_csp = [
-                    item
-                    for item in endpoint["candidates"]
-                    if item["type"] == "missing_security_header" and item.get("header") == "content-security-policy"
-                ]
-                self.assertEqual(len(endpoint_csp), 5)
-
-    def test_sitewide_missing_header_collapses_to_one_finding(self) -> None:
+    def test_sitewide_missing_header_collapses_across_output_and_findings(self) -> None:
+        # Five endpoints missing CSP collapse to a single default-host-scoped result at
+        # both layers: one analyzer candidate (affectedCount/affectedUrls == 5) and one
+        # persisted finding listing all five URLs, with none of it left as a candidate
+        # flood. The endpoint dedupeScope opts back into one result per URL.
         urls = [
             {"url": f"https://example.com/page-{index}", "methods": ["GET"], "statusCodes": [200], "responseHeaders": {"content-type": "text/html"}}
             for index in range(5)
@@ -1623,15 +1591,28 @@ class HeadersCookiesAdapterTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             with isolated_state(Path(tmp)):
                 workspace.ingest_data("engagement", "example.com", "sitemap", "tool_output", "json", raw)
-                headers_cookies.analyze_workspace({"workspaceId": "engagement", "target": "example.com"})
-                entities = workspace._load_target_entities("engagement", "example.com")
-                csp = [finding for finding in entities["findings"] if "content-security-policy" in finding["title"]]
-                # Five endpoints missing CSP collapse to ONE finding listing all five URLs.
+                result = json.loads(headers_cookies.analyze_workspace({"workspaceId": "engagement", "target": "example.com"}))
+
+                # Analyzer output: one host-wide CSP candidate covering all five URLs.
+                csp = [item for item in result["candidates"] if item["type"] == "missing_security_header" and item.get("header") == "content-security-policy"]
                 self.assertEqual(len(csp), 1)
+                self.assertEqual(csp[0]["affectedCount"], 5)
                 self.assertEqual(len(csp[0]["affectedUrls"]), 5)
-                self.assertEqual(csp[0]["affectedAssets"], ["example.com"])
-                # And none of it lands in the candidate flood.
+
+                # Persisted state: one finding listing all five URLs, no candidate flood.
+                entities = workspace._load_target_entities("engagement", "example.com")
+                finding_csp = [finding for finding in entities["findings"] if "content-security-policy" in finding["title"]]
+                self.assertEqual(len(finding_csp), 1)
+                self.assertEqual(len(finding_csp[0]["affectedUrls"]), 5)
+                self.assertEqual(finding_csp[0]["affectedAssets"], ["example.com"])
                 self.assertEqual([obs for obs in entities["observations"] if obs.get("type") == "missing_security_header"], [])
+
+                # Endpoint dedupeScope opts back into one candidate per URL.
+                endpoint = json.loads(
+                    headers_cookies.analyze_workspace({"workspaceId": "engagement", "target": "example.com", "dedupeScope": "endpoint", "ingest": False})
+                )
+                endpoint_csp = [item for item in endpoint["candidates"] if item["type"] == "missing_security_header" and item.get("header") == "content-security-policy"]
+                self.assertEqual(len(endpoint_csp), 5)
 
 
 class InsecureDeserAdapterTests(unittest.TestCase):
