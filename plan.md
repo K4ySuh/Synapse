@@ -18,7 +18,12 @@ Run tests with `bin/test` (uses repo `.venv`). Keep the local, gitignored
 - Phase 2: injection candidates consolidated into one `test_candidate` per surface with
   union-merged `candidateFor`/`candidateDetails` (`results.surface_candidate`, workspace merge,
   perimeter inventory + report candidate, coverage, web-vuln layer, regression tests).
-- **NEXT: Phase 3 (below).**
+- Phase 3 (DONE, expanded per operator): common `validationStatus` lifecycle across the whole
+  DATA model (test_candidate per-class + single-class incl. access-control) via
+  `workspace.record_candidate_validation`; execute_test/execute_matrix_test record outcomes;
+  SQLi handled by multi-param/route sqlmap promotion (no active tester); web-vuln layer
+  justifies findings + high-confidence candidates with evidence-file links.
+- **NEXT: Phase 4 (below).**
 
 ---
 
