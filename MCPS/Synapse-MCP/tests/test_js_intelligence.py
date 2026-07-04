@@ -1,13 +1,15 @@
 import json
-import threading
 import time
 import unittest
-from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
+from urllib.parse import urlsplit
+
+import httpx
 
 from helpers import assert_shared_html_shell, isolated_state, wait_for_job
+from http_stub import stub_httpx
 from synapse_mcp.adapters.web import js_intel
 from synapse_mcp.core import background_jobs, credentials, scope, workspace
 from synapse_mcp.core.js import normalizer
@@ -126,25 +128,16 @@ class JsIntelligenceTests(unittest.TestCase):
     def test_fetch_assets_respects_disabled_http_backend(self) -> None:
         seen_paths: list[str] = []
 
-        class Handler(BaseHTTPRequestHandler):
-            def do_GET(self) -> None:
-                seen_paths.append(self.path)
-                self.send_response(200)
-                self.send_header("Content-Type", "application/javascript")
-                self.end_headers()
-                self.wfile.write(b"fetch('/api/users')")
+        def handler(request: httpx.Request) -> httpx.Response:
+            # Trap: a disabled backend must never build a client, so this is unreachable.
+            seen_paths.append(urlsplit(str(request.url)).path)
+            return httpx.Response(200, text="fetch('/api/users')", headers={"content-type": "application/javascript"})
 
-            def log_message(self, *_: object) -> None:
-                return
-
-        server = HTTPServer(("127.0.0.1", 0), Handler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            with TemporaryDirectory() as tmp:
-                with isolated_state(Path(tmp)):
-                    target = f"http://127.0.0.1:{server.server_port}/"
-                    scope.save_scope([target], "test", "Example Client")
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                target = "http://app.acme-demo.test/"
+                scope.save_scope([target], "test", "Example Client")
+                with stub_httpx(handler):
                     result = json.loads(
                         js_intel.fetch_assets(
                             {
@@ -156,33 +149,20 @@ class JsIntelligenceTests(unittest.TestCase):
                         )
                     )
 
-                    self.assertEqual(seen_paths, [])
-                    self.assertEqual(result["assetCount"], 0)
-                    self.assertEqual(result["errors"][0]["error"], "HTTP traffic disabled by client policy.")
-        finally:
-            server.shutdown()
-            server.server_close()
+                self.assertEqual(seen_paths, [])
+                self.assertEqual(result["assetCount"], 0)
+                self.assertEqual(result["errors"][0]["error"], "HTTP traffic disabled by client policy.")
 
     def test_fetch_assets_stops_at_total_budget(self) -> None:
-        class Handler(BaseHTTPRequestHandler):
-            def do_GET(self) -> None:
-                time.sleep(0.2)
-                self.send_response(200)
-                self.send_header("Content-Type", "application/javascript")
-                self.end_headers()
-                self.wfile.write(b"fetch('/api/users')")
+        def handler(request: httpx.Request) -> httpx.Response:
+            time.sleep(0.2)
+            return httpx.Response(200, text="fetch('/api/users')", headers={"content-type": "application/javascript"})
 
-            def log_message(self, *_: object) -> None:
-                return
-
-        server = HTTPServer(("127.0.0.1", 0), Handler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            with TemporaryDirectory() as tmp:
-                with isolated_state(Path(tmp)):
-                    target = f"http://127.0.0.1:{server.server_port}/"
-                    scope.save_scope([target], "test", "Example Client")
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                target = "http://app.acme-demo.test/"
+                scope.save_scope([target], "test", "Example Client")
+                with stub_httpx(handler):
                     result = json.loads(
                         js_intel.fetch_assets(
                             {
@@ -194,14 +174,11 @@ class JsIntelligenceTests(unittest.TestCase):
                             }
                         )
                     )
-                    # First asset is fetched; the budget trips before the rest,
-                    # which are recorded as skipped instead of orphaning the call.
-                    self.assertTrue(result["budgetExceeded"])
-                    self.assertLess(result["assetCount"], 3)
-                    self.assertTrue(any("budget" in str(err.get("error", "")) for err in result["errors"]))
-        finally:
-            server.shutdown()
-            server.server_close()
+                # First asset is fetched; the budget trips before the rest,
+                # which are recorded as skipped instead of orphaning the call.
+                self.assertTrue(result["budgetExceeded"])
+                self.assertLess(result["assetCount"], 3)
+                self.assertTrue(any("budget" in str(err.get("error", "")) for err in result["errors"]))
 
     def test_fetch_assets_uses_workspace_scope_for_active_assets(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -266,41 +243,25 @@ class JsIntelligenceTests(unittest.TestCase):
                 self.assertLessEqual(seen_timeouts[0], 0.5)
 
     def test_fetch_assets_applies_scoped_credential_for_gated_assets(self) -> None:
-        class Handler(BaseHTTPRequestHandler):
-            def do_GET(self) -> None:
-                # Mirror SSO-gated static assets: unauthenticated requests redirect
-                # to a non-JS login page; an authenticated session returns the JS.
-                if self.path.startswith("/login"):
-                    self.send_response(200)
-                    self.send_header("Content-Type", "text/html")
-                    self.end_headers()
-                    self.wfile.write(b"<html>login</html>")
-                    return
-                if "SID=letmein" in (self.headers.get("Cookie") or ""):
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/javascript")
-                    self.end_headers()
-                    self.wfile.write(b"fetch('/api/users')")
-                    return
-                self.send_response(302)
-                self.send_header("Location", "/login")
-                self.end_headers()
+        def handler(request: httpx.Request) -> httpx.Response:
+            # Mirror SSO-gated static assets: unauthenticated requests redirect to a
+            # non-JS login page; an authenticated session returns the JS.
+            path = urlsplit(str(request.url)).path
+            if path.startswith("/login"):
+                return httpx.Response(200, text="<html>login</html>", headers={"content-type": "text/html"})
+            if "SID=letmein" in (request.headers.get("cookie") or ""):
+                return httpx.Response(200, text="fetch('/api/users')", headers={"content-type": "application/javascript"})
+            return httpx.Response(302, headers={"location": "/login"})
 
-            def log_message(self, *_: object) -> None:
-                return
-
-        server = HTTPServer(("127.0.0.1", 0), Handler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            with TemporaryDirectory() as tmp:
-                with isolated_state(Path(tmp)):
-                    target = f"http://127.0.0.1:{server.server_port}/"
-                    scope.save_scope([target], "test", "Example Client")
-                    credentials.save_credential(
-                        {"id": "web-sess", "type": "cookie", "scopes": ["127.0.0.1"], "secret": "SID=letmein", "confirm": True}
-                    )
-                    asset = f"{target}app.js"
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                target = "http://app.acme-demo.test/"
+                scope.save_scope([target], "test", "Example Client")
+                credentials.save_credential(
+                    {"id": "web-sess", "type": "cookie", "scopes": ["app.acme-demo.test"], "secret": "SID=letmein", "confirm": True}
+                )
+                asset = f"{target}app.js"
+                with stub_httpx(handler):
                     # Without the session, the gated asset returns the HTML login page.
                     anon = json.loads(
                         js_intel.fetch_assets({"workspaceId": "engagement", "target": target, "assets": [asset], "confirm": True})
@@ -312,11 +273,8 @@ class JsIntelligenceTests(unittest.TestCase):
                             {"workspaceId": "engagement", "target": target, "assets": [asset], "credentialId": "web-sess", "confirm": True}
                         )
                     )
-                    self.assertEqual(authed["assetCount"], 1)
-                    self.assertEqual(authed["credential"]["id"], "web-sess")
-        finally:
-            server.shutdown()
-            server.server_close()
+                self.assertEqual(authed["assetCount"], 1)
+                self.assertEqual(authed["credential"]["id"], "web-sess")
 
     def test_extract_from_source_is_linear_on_backslash_heavy_input(self) -> None:
         import signal
@@ -340,34 +298,23 @@ class JsIntelligenceTests(unittest.TestCase):
         self.assertTrue(any("/api/v1/users" in str(e.get("raw", "")) for e in out["endpoints"]))
 
     def test_fetch_analyze_normalize_and_build_app_model(self) -> None:
-        class Handler(BaseHTTPRequestHandler):
-            def do_GET(self) -> None:
-                self.send_response(200)
-                self.send_header("Content-Type", "application/javascript")
-                self.end_headers()
-                self.wfile.write(
-                    (
-                        "const API_BASE = '/api/v1';"
-                        "fetch('/api/v1/users?active=1', {method: 'POST', headers: {'X-CSRF-Token': csrfToken, Authorization: bearer}});"
-                        "axios.get('/graphql');"
-                        "const q = `query GetUser { user { id } }`;"
-                        "const ws = new WebSocket('wss://example.com/socket');"
-                        "localStorage.setItem('session_hint', '1');"
-                        "const tenantId = route.params.tenantId;"
-                    ).encode("utf-8")
-                )
+        def handler(request: httpx.Request) -> httpx.Response:
+            body = (
+                "const API_BASE = '/api/v1';"
+                "fetch('/api/v1/users?active=1', {method: 'POST', headers: {'X-CSRF-Token': csrfToken, Authorization: bearer}});"
+                "axios.get('/graphql');"
+                "const q = `query GetUser { user { id } }`;"
+                "const ws = new WebSocket('wss://example.com/socket');"
+                "localStorage.setItem('session_hint', '1');"
+                "const tenantId = route.params.tenantId;"
+            )
+            return httpx.Response(200, text=body, headers={"content-type": "application/javascript"})
 
-            def log_message(self, *_: object) -> None:
-                return
-
-        server = HTTPServer(("127.0.0.1", 0), Handler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            with TemporaryDirectory() as tmp:
-                with isolated_state(Path(tmp)):
-                    target = f"http://127.0.0.1:{server.server_port}/"
-                    scope.save_scope([target], "test", "Example Client")
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                target = "http://app.acme-demo.test/"
+                scope.save_scope([target], "test", "Example Client")
+                with stub_httpx(handler):
                     fetched = json.loads(
                         js_intel.fetch_assets(
                             {
@@ -378,72 +325,69 @@ class JsIntelligenceTests(unittest.TestCase):
                             }
                         )
                     )
-                    self.assertEqual(fetched["assetCount"], 1)
-                    self.assertTrue(Path(fetched["assets"][0]["localPath"]).exists())
-                    self.assertIn("/outputs/js-intelligence/assets/", fetched["assets"][0]["localPath"])
+                self.assertEqual(fetched["assetCount"], 1)
+                self.assertTrue(Path(fetched["assets"][0]["localPath"]).exists())
+                self.assertIn("/outputs/js-intelligence/assets/", fetched["assets"][0]["localPath"])
 
-                    analysis = json.loads(js_intel.analyze_static({"workspaceId": "engagement", "target": target, "manifestPath": fetched["manifestPath"], "background": False}))
-                    self.assertIn("/outputs/js-intelligence/analysis/", analysis["analysisPath"])
-                    self.assertGreaterEqual(analysis["summary"]["endpointCount"], 2)
-                    signal_types = {item["type"] for item in analysis["signals"]}
-                    self.assertIn("graphql_operation", signal_types)
-                    self.assertIn("websocket_url", signal_types)
-                    self.assertIn("storage_key", signal_types)
-                    self.assertIn("auth_header", signal_types)
-                    self.assertIn("csrf_signal", signal_types)
-                    self.assertIn("object_identifier", signal_types)
+                analysis = json.loads(js_intel.analyze_static({"workspaceId": "engagement", "target": target, "manifestPath": fetched["manifestPath"], "background": False}))
+                self.assertIn("/outputs/js-intelligence/analysis/", analysis["analysisPath"])
+                self.assertGreaterEqual(analysis["summary"]["endpointCount"], 2)
+                signal_types = {item["type"] for item in analysis["signals"]}
+                self.assertIn("graphql_operation", signal_types)
+                self.assertIn("websocket_url", signal_types)
+                self.assertIn("storage_key", signal_types)
+                self.assertIn("auth_header", signal_types)
+                self.assertIn("csrf_signal", signal_types)
+                self.assertIn("object_identifier", signal_types)
 
-                    normalized = json.loads(
-                        js_intel.normalize_endpoints(
-                            {
-                                "workspaceId": "engagement",
-                                "target": target,
-                                "analysisPath": analysis["analysisPath"],
-                                "background": False,
-                            }
-                        )
+                normalized = json.loads(
+                    js_intel.normalize_endpoints(
+                        {
+                            "workspaceId": "engagement",
+                            "target": target,
+                            "analysisPath": analysis["analysisPath"],
+                            "background": False,
+                        }
                     )
-                    self.assertGreaterEqual(normalized["ingestion"]["entitiesCreated"]["endpoints"], 2)
-                    endpoints = json.loads(workspace.target_entity_path("engagement", "127.0.0.1", "endpoints").read_text(encoding="utf-8"))
-                    js_endpoints = [item for item in endpoints if item.get("source") == "js_intelligence"]
-                    self.assertTrue(js_endpoints)
-                    self.assertTrue(all(item.get("sourceAsset") for item in js_endpoints))
-                    self.assertTrue(all(item.get("derived") and item.get("inferred") and item.get("observed") is False for item in js_endpoints))
-                    self.assertTrue(all(item.get("confidence") in {"low", "medium", "high"} for item in js_endpoints))
+                )
+                self.assertGreaterEqual(normalized["ingestion"]["entitiesCreated"]["endpoints"], 2)
+                endpoints = json.loads(workspace.target_entity_path("engagement", "app.acme-demo.test", "endpoints").read_text(encoding="utf-8"))
+                js_endpoints = [item for item in endpoints if item.get("source") == "js_intelligence"]
+                self.assertTrue(js_endpoints)
+                self.assertTrue(all(item.get("sourceAsset") for item in js_endpoints))
+                self.assertTrue(all(item.get("derived") and item.get("inferred") and item.get("observed") is False for item in js_endpoints))
+                self.assertTrue(all(item.get("confidence") in {"low", "medium", "high"} for item in js_endpoints))
 
-                    model = json.loads(js_intel.build_app_model({"workspaceId": "engagement", "target": target, "analysisPath": analysis["analysisPath"]}))
-                    self.assertEqual(model["source"], "js_intelligence")
-                    self.assertIn("operatorNotes", model)
-                    self.assertIn("graphql_operation", model["signals"])
+                model = json.loads(js_intel.build_app_model({"workspaceId": "engagement", "target": target, "analysisPath": analysis["analysisPath"]}))
+                self.assertEqual(model["source"], "js_intelligence")
+                self.assertIn("operatorNotes", model)
+                self.assertIn("graphql_operation", model["signals"])
 
-                    report = json.loads(
-                        js_intel.render_app_map(
-                            {
-                                "workspaceId": "engagement",
-                                "target": target,
-                                "analysisPath": analysis["analysisPath"],
-                            }
-                        )
+                report = json.loads(
+                    js_intel.render_app_map(
+                        {
+                            "workspaceId": "engagement",
+                            "target": target,
+                            "analysisPath": analysis["analysisPath"],
+                        }
                     )
-                    self.assertGreaterEqual(report["summary"]["endpointCount"], 2)
-                    self.assertGreaterEqual(report["summary"]["jsInferredEndpointCount"], 2)
-                    report_path = Path(report["outputPath"])
-                    self.assertTrue(report_path.exists())
-                    report_html = report_path.read_text(encoding="utf-8")
-                    self.assertIn("JavaScript Intelligence Report", report_html)
-                    self.assertIn('class="banner"', report_html)
-                    self.assertIn('class="banner-art"', report_html)
-                    self.assertIn("agentic operations layer", report_html)
-                    self.assertIn("mode-badge", report_html)
-                    assert_shared_html_shell(self, report_html)
-                    self.assertIn("js_inferred", report_html)
-                    self.assertIn("Request Map", report_html)
-                    # The HTML app map is the JS layer report; the flat request
-                    # table must not duplicate the request-map tree.
-                    self.assertNotIn("Observed And JS-Inferred Requests", report_html)
-        finally:
-            server.shutdown()
-            server.server_close()
+                )
+                self.assertGreaterEqual(report["summary"]["endpointCount"], 2)
+                self.assertGreaterEqual(report["summary"]["jsInferredEndpointCount"], 2)
+                report_path = Path(report["outputPath"])
+                self.assertTrue(report_path.exists())
+                report_html = report_path.read_text(encoding="utf-8")
+                self.assertIn("JavaScript Intelligence Report", report_html)
+                self.assertIn('class="banner"', report_html)
+                self.assertIn('class="banner-art"', report_html)
+                self.assertIn("agentic operations layer", report_html)
+                self.assertIn("mode-badge", report_html)
+                assert_shared_html_shell(self, report_html)
+                self.assertIn("js_inferred", report_html)
+                self.assertIn("Request Map", report_html)
+                # The HTML app map is the JS layer report; the flat request
+                # table must not duplicate the request-map tree.
+                self.assertNotIn("Observed And JS-Inferred Requests", report_html)
 
     def test_normalize_uses_observed_scheme_and_port(self) -> None:
         with TemporaryDirectory() as tmp:

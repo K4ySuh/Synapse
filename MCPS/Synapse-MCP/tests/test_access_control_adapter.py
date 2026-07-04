@@ -1,12 +1,14 @@
 import json
-import threading
 import unittest
-from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
+from urllib.parse import urlsplit
+
+import httpx
 
 from helpers import isolated_state
+from http_stub import stub_httpx
 from synapse_mcp.adapters.web import access_control
 from synapse_mcp.core import credentials, scope, workspace
 from synapse_mcp.core.http import compare_http_responses
@@ -187,54 +189,40 @@ class AccessControlAdapterTests(unittest.TestCase):
         self.assertEqual(matrix[0]["requiredContexts"], ["tester1", "tester3"])
 
     def test_access_control_execute_matrix_test_replays_contexts_with_approval(self) -> None:
-        class AccessHandler(BaseHTTPRequestHandler):
-            def do_GET(self) -> None:
-                cookie = self.headers.get("Cookie", "")
-                if "USERA=1" in cookie or "USERB=1" in cookie:
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/json")
-                    self.end_headers()
-                    self.wfile.write(json.dumps({"user_id": 123, "email": "owner@example.com", "role": "user"}).encode("utf-8"))
-                    return
-                self.send_response(403)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(b'{"error":"denied"}')
+        def handler(request: httpx.Request) -> httpx.Response:
+            cookie = request.headers.get("cookie", "")
+            if "USERA=1" in cookie or "USERB=1" in cookie:
+                return httpx.Response(200, json={"user_id": 123, "email": "owner@example.com", "role": "user"})
+            return httpx.Response(403, text='{"error":"denied"}', headers={"content-type": "application/json"})
 
-            def log_message(self, *_: object) -> None:
-                return
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                base = "http://app.acme-demo.test"
+                target = f"{base}/api/users/123"
+                scope.save_scope([base], "test", "Example Client")
+                credentials.save_credential({"id": "user-a", "type": "cookie", "scopes": ["app.acme-demo.test"], "secret": "USERA=1"})
+                credentials.save_credential({"id": "user-b", "type": "cookie", "scopes": ["app.acme-demo.test"], "secret": "USERB=1"})
 
-        server = HTTPServer(("127.0.0.1", 0), AccessHandler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            with TemporaryDirectory() as tmp:
-                with isolated_state(Path(tmp)):
-                    base = f"http://127.0.0.1:{server.server_port}"
-                    target = f"{base}/api/users/123"
-                    scope.save_scope([base], "test", "Example Client")
-                    credentials.save_credential({"id": "user-a", "type": "cookie", "scopes": ["127.0.0.1"], "secret": "USERA=1"})
-                    credentials.save_credential({"id": "user-b", "type": "cookie", "scopes": ["127.0.0.1"], "secret": "USERB=1"})
+                args = {
+                    "workspaceId": "engagement",
+                    "target": "app.acme-demo.test",
+                    "matrixEntry": {
+                        "matrixId": "acm_test",
+                        "endpointPattern": "/api/users/{user_id}",
+                        "method": "GET",
+                        "objectType": "user",
+                        "testClass": "BOLA",
+                    },
+                    "requestUrl": target,
+                    "contexts": [
+                        {"contextId": "user_a", "credentialId": "user-a", "expectedAccess": True},
+                        {"contextId": "user_b", "credentialId": "user-b", "expectedAccess": False},
+                    ],
+                }
+                with self.assertRaisesRegex(Exception, "confirm=true"):
+                    access_control.execute_matrix_test({**args, "confirm": False})
 
-                    args = {
-                        "workspaceId": "engagement",
-                        "target": "127.0.0.1",
-                        "matrixEntry": {
-                            "matrixId": "acm_test",
-                            "endpointPattern": "/api/users/{user_id}",
-                            "method": "GET",
-                            "objectType": "user",
-                            "testClass": "BOLA",
-                        },
-                        "requestUrl": target,
-                        "contexts": [
-                            {"contextId": "user_a", "credentialId": "user-a", "expectedAccess": True},
-                            {"contextId": "user_b", "credentialId": "user-b", "expectedAccess": False},
-                        ],
-                    }
-                    with self.assertRaisesRegex(Exception, "confirm=true"):
-                        access_control.execute_matrix_test({**args, "confirm": False})
-
+                with stub_httpx(handler):
                     result = json.loads(
                         access_control.execute_matrix_test(
                             {
@@ -246,26 +234,23 @@ class AccessControlAdapterTests(unittest.TestCase):
                         )
                     )
 
-                    self.assertEqual(result["replay"]["assessment"], "possible_broken_access_control")
-                    self.assertEqual(result["replay"]["comparisons"][0]["signalsPossibleBrokenAccessControl"], True)
-                    self.assertTrue((workspace.target_path("engagement", "127.0.0.1") / "models" / "access-control" / "replays.json").exists())
-                    serialized = json.dumps(result)
-                    self.assertNotIn("USERA=1", serialized)
-                    self.assertNotIn("USERB=1", serialized)
-                    self.assertNotIn("owner@example.com", serialized)
-                    allowed_exchange = Path(result["replay"]["replays"][0]["exchangeEvidence"]["rawPath"])
-                    self.assertTrue(allowed_exchange.exists())
-                    allowed_raw = allowed_exchange.read_text(encoding="utf-8")
-                    self.assertIn('"Cookie": "<redacted>"', allowed_raw)
-                    self.assertNotIn("USERA=1", allowed_raw)
-                    self.assertIn("owner@example.com", allowed_raw)
-                    context = workspace.prepare_target_context("engagement", "127.0.0.1")
-                    observation_types = {item["type"] for item in context["observations"]}
-                    self.assertIn("possible_broken_access_control", observation_types)
-                    self.assertGreaterEqual(len(context["recentActions"]), 1)
-        finally:
-            server.shutdown()
-            server.server_close()
+                self.assertEqual(result["replay"]["assessment"], "possible_broken_access_control")
+                self.assertEqual(result["replay"]["comparisons"][0]["signalsPossibleBrokenAccessControl"], True)
+                self.assertTrue((workspace.target_path("engagement", "app.acme-demo.test") / "models" / "access-control" / "replays.json").exists())
+                serialized = json.dumps(result)
+                self.assertNotIn("USERA=1", serialized)
+                self.assertNotIn("USERB=1", serialized)
+                self.assertNotIn("owner@example.com", serialized)
+                allowed_exchange = Path(result["replay"]["replays"][0]["exchangeEvidence"]["rawPath"])
+                self.assertTrue(allowed_exchange.exists())
+                allowed_raw = allowed_exchange.read_text(encoding="utf-8")
+                self.assertIn('"Cookie": "<redacted>"', allowed_raw)
+                self.assertNotIn("USERA=1", allowed_raw)
+                self.assertIn("owner@example.com", allowed_raw)
+                context = workspace.prepare_target_context("engagement", "app.acme-demo.test")
+                observation_types = {item["type"] for item in context["observations"]}
+                self.assertIn("possible_broken_access_control", observation_types)
+                self.assertGreaterEqual(len(context["recentActions"]), 1)
 
     def test_access_control_replay_records_under_request_host(self) -> None:
         def fake_send(_request, *, policy):
@@ -459,32 +444,22 @@ class AccessControlAdapterTests(unittest.TestCase):
     def test_access_control_replay_without_valid_credentials_uses_anonymous_when_allowed(self) -> None:
         seen_cookies: list[str] = []
 
-        class AnonymousHandler(BaseHTTPRequestHandler):
-            def do_GET(self) -> None:
-                seen_cookies.append(self.headers.get("Cookie", ""))
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(b'{"public":true}')
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen_cookies.append(request.headers.get("cookie", ""))
+            return httpx.Response(200, text='{"public":true}', headers={"content-type": "application/json"})
 
-            def log_message(self, *_: object) -> None:
-                return
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                base = "http://app.acme-demo.test"
+                target = f"{base}/api/users/123"
+                scope.save_scope([base], "test", "Example Client")
 
-        server = HTTPServer(("127.0.0.1", 0), AnonymousHandler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            with TemporaryDirectory() as tmp:
-                with isolated_state(Path(tmp)):
-                    base = f"http://127.0.0.1:{server.server_port}"
-                    target = f"{base}/api/users/123"
-                    scope.save_scope([base], "test", "Example Client")
-
+                with stub_httpx(handler):
                     result = json.loads(
                         access_control.execute_matrix_test(
                             {
                                 "workspaceId": "engagement",
-                                "target": "127.0.0.1",
+                                "target": "app.acme-demo.test",
                                 "matrixEntry": {
                                     "matrixId": "acm_anon",
                                     "endpointPattern": "/api/users/{user_id}",
@@ -505,17 +480,14 @@ class AccessControlAdapterTests(unittest.TestCase):
                         )
                     )
 
-                    self.assertEqual(seen_cookies, ["", ""])
-                    contexts = result["replay"]["contexts"]
-                    self.assertEqual([item["authState"] for item in contexts], ["anonymous", "anonymous"])
-                    self.assertTrue(all(item["allowAnonymous"] for item in contexts))
-                    self.assertEqual([item["credentialId"] for item in contexts], ["", ""])
-                    self.assertIn("No credentialId", contexts[0]["anonymousReason"])
-                    self.assertIn("could not be used", contexts[1]["anonymousReason"])
-                    self.assertTrue(all("Cookie" not in replay["requestHeaders"] for replay in result["replay"]["replays"]))
-        finally:
-            server.shutdown()
-            server.server_close()
+                self.assertEqual(seen_cookies, ["", ""])
+                contexts = result["replay"]["contexts"]
+                self.assertEqual([item["authState"] for item in contexts], ["anonymous", "anonymous"])
+                self.assertTrue(all(item["allowAnonymous"] for item in contexts))
+                self.assertEqual([item["credentialId"] for item in contexts], ["", ""])
+                self.assertIn("No credentialId", contexts[0]["anonymousReason"])
+                self.assertIn("could not be used", contexts[1]["anonymousReason"])
+                self.assertTrue(all("Cookie" not in replay["requestHeaders"] for replay in result["replay"]["replays"]))
 
     def test_resolve_replay_contexts_requires_credentials_by_default(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -597,42 +569,27 @@ class AccessControlAdapterTests(unittest.TestCase):
         self.assertFalse(access_control.is_success_response({}))
 
     def test_access_control_replay_redirect_to_login_is_not_access_granted(self) -> None:
-        class RedirectHandler(BaseHTTPRequestHandler):
-            def do_GET(self) -> None:
-                if self.path.startswith("/login"):
-                    self.send_response(200)
-                    self.send_header("Content-Type", "text/html")
-                    self.end_headers()
-                    self.wfile.write(b"login page")
-                    return
-                if "USERA=1" in self.headers.get("Cookie", ""):
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/json")
-                    self.end_headers()
-                    return
-                self.send_response(302)
-                self.send_header("Location", "/login")
-                self.end_headers()
+        def handler(request: httpx.Request) -> httpx.Response:
+            path = urlsplit(str(request.url)).path
+            if path.startswith("/login"):
+                return httpx.Response(200, text="login page", headers={"content-type": "text/html"})
+            if "USERA=1" in request.headers.get("cookie", ""):
+                return httpx.Response(200, headers={"content-type": "application/json"})
+            return httpx.Response(302, headers={"location": "/login"})
 
-            def log_message(self, *_: object) -> None:
-                return
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                base = "http://app.acme-demo.test"
+                target = f"{base}/api/users/123"
+                scope.save_scope([base], "test", "Example Client")
+                credentials.save_credential({"id": "user-a", "type": "cookie", "scopes": ["app.acme-demo.test"], "secret": "USERA=1"})
 
-        server = HTTPServer(("127.0.0.1", 0), RedirectHandler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            with TemporaryDirectory() as tmp:
-                with isolated_state(Path(tmp)):
-                    base = f"http://127.0.0.1:{server.server_port}"
-                    target = f"{base}/api/users/123"
-                    scope.save_scope([base], "test", "Example Client")
-                    credentials.save_credential({"id": "user-a", "type": "cookie", "scopes": ["127.0.0.1"], "secret": "USERA=1"})
-
+                with stub_httpx(handler):
                     result = json.loads(
                         access_control.execute_matrix_test(
                             {
                                 "workspaceId": "engagement",
-                                "target": "127.0.0.1",
+                                "target": "app.acme-demo.test",
                                 "matrixEntry": {
                                     "matrixId": "acm_redirect",
                                     "endpointPattern": "/api/users/{user_id}",
@@ -652,15 +609,12 @@ class AccessControlAdapterTests(unittest.TestCase):
                         )
                     )
 
-                    # Both responses have identical empty bodies, so only the
-                    # status classification separates granted from denied here.
-                    denied_replay = result["replay"]["replays"][1]
-                    self.assertEqual(denied_replay["response"]["status"], 302)
-                    self.assertEqual(result["replay"]["assessment"], "inconclusive")
-                    self.assertFalse(result["replay"]["comparisons"][0]["signalsPossibleBrokenAccessControl"])
-        finally:
-            server.shutdown()
-            server.server_close()
+                # Both responses have identical empty bodies, so only the
+                # status classification separates granted from denied here.
+                denied_replay = result["replay"]["replays"][1]
+                self.assertEqual(denied_replay["response"]["status"], 302)
+                self.assertEqual(result["replay"]["assessment"], "inconclusive")
+                self.assertFalse(result["replay"]["comparisons"][0]["signalsPossibleBrokenAccessControl"])
 
     def test_resolve_replay_contexts_baseline_is_identity_derived_not_positional(self) -> None:
         # Contract 3.5: the allowed/denied baseline must come from identity, never from array

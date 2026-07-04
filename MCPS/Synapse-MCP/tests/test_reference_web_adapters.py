@@ -1,12 +1,13 @@
 import json
-import threading
 import unittest
-from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from urllib.parse import parse_qs, urlsplit
 
+import httpx
+
 from helpers import isolated_state
+from http_stub import stub_httpx
 import base64
 import hashlib
 import hmac
@@ -277,38 +278,28 @@ class ReferenceWebAdapterTests(unittest.TestCase):
         self.assertEqual(response["error"]["code"], -32001)
 
     def test_reference_active_tests_are_scoped_approved_and_record_actions(self) -> None:
-        class ReferenceHandler(BaseHTTPRequestHandler):
-            def do_GET(self) -> None:
-                parsed = urlsplit(self.path)
-                params = parse_qs(parsed.query)
-                if parsed.path == "/render":
-                    template = params.get("template", [""])[0]
-                    body = "49" if template == "{{7*7}}" else template
-                elif parsed.path == "/download":
-                    file_value = params.get("file", [""])[0]
-                    body = "public robots" if file_value in {"robots.txt", "./robots.txt"} else "normalized public robots"
-                elif parsed.path == "/ssi":
-                    content = params.get("content", [""])[0]
-                    body = "DATE_LOCAL_VALUE" if content.startswith("<!--#echo") else content
-                else:
-                    body = "ok"
-                self.send_response(200)
-                self.send_header("Content-Type", "text/html")
-                self.end_headers()
-                self.wfile.write(body.encode("utf-8"))
+        def handler(request: httpx.Request) -> httpx.Response:
+            parsed = urlsplit(str(request.url))
+            params = parse_qs(parsed.query)
+            if parsed.path == "/render":
+                template = params.get("template", [""])[0]
+                body = "49" if template == "{{7*7}}" else template
+            elif parsed.path == "/download":
+                file_value = params.get("file", [""])[0]
+                body = "public robots" if file_value in {"robots.txt", "./robots.txt"} else "normalized public robots"
+            elif parsed.path == "/ssi":
+                content = params.get("content", [""])[0]
+                body = "DATE_LOCAL_VALUE" if content.startswith("<!--#echo") else content
+            else:
+                body = "ok"
+            return httpx.Response(200, text=body, headers={"content-type": "text/html"})
 
-            def log_message(self, *_: object) -> None:
-                return
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                base = "http://app.acme-demo.test"
+                scope.save_scope([base], "test")
 
-        server = HTTPServer(("127.0.0.1", 0), ReferenceHandler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            with TemporaryDirectory() as tmp:
-                with isolated_state(Path(tmp)):
-                    base = f"http://127.0.0.1:{server.server_port}"
-                    scope.save_scope([base], "test")
-
+                with stub_httpx(handler):
                     ssti_result = json.loads(
                         ssti.execute_test(
                             {
@@ -376,38 +367,25 @@ class ReferenceWebAdapterTests(unittest.TestCase):
                     self.assertTrue(ssi_exchange.exists())
                     self.assertIn("DATE_LOCAL_VALUE", ssi_exchange.read_text(encoding="utf-8"))
 
-                    context = workspace.prepare_target_context("engagement", "127.0.0.1")
-                    observation_types = {item["type"] for item in context["observations"]}
-                    self.assertIn("possible_ssti", observation_types)
-                    self.assertIn("file_handling_behavior_observed", observation_types)
-                    self.assertIn("possible_ssi", observation_types)
-                    self.assertGreaterEqual(len(context["recentActions"]), 3)
-        finally:
-            server.shutdown()
-            server.server_close()
+                context = workspace.prepare_target_context("engagement", "app.acme-demo.test")
+                observation_types = {item["type"] for item in context["observations"]}
+                self.assertIn("possible_ssti", observation_types)
+                self.assertIn("file_handling_behavior_observed", observation_types)
+                self.assertIn("possible_ssi", observation_types)
+                self.assertGreaterEqual(len(context["recentActions"]), 3)
 
     def test_ssi_execute_test_does_not_flag_non_reflecting_endpoint(self) -> None:
-        class StaticHandler(BaseHTTPRequestHandler):
-            def do_GET(self) -> None:
-                self.send_response(200)
-                self.send_header("Content-Type", "text/html")
-                self.end_headers()
-                # Static page that never renders the parameter: neither the marker
-                # comment nor the echo directive is reflected, so SSI execution is
-                # unprovable and the verdict must stay inconclusive (not possible_ssi).
-                self.wfile.write(b"<html><body>static catalog page</body></html>")
+        def handler(request: httpx.Request) -> httpx.Response:
+            # Static page that never renders the parameter: neither the marker comment
+            # nor the echo directive is reflected, so SSI execution is unprovable and
+            # the verdict must stay inconclusive (not possible_ssi).
+            return httpx.Response(200, text="<html><body>static catalog page</body></html>", headers={"content-type": "text/html"})
 
-            def log_message(self, *_: object) -> None:
-                return
-
-        server = HTTPServer(("127.0.0.1", 0), StaticHandler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            with TemporaryDirectory() as tmp:
-                with isolated_state(Path(tmp)):
-                    base = f"http://127.0.0.1:{server.server_port}"
-                    scope.save_scope([base], "test")
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                base = "http://app.acme-demo.test"
+                scope.save_scope([base], "test")
+                with stub_httpx(handler):
                     result = json.loads(
                         ssi.execute_test(
                             {
@@ -424,10 +402,7 @@ class ReferenceWebAdapterTests(unittest.TestCase):
                             }
                         )
                     )
-                    self.assertEqual(result["test"]["assessment"], "inconclusive")
-        finally:
-            server.shutdown()
-            server.server_close()
+                self.assertEqual(result["test"]["assessment"], "inconclusive")
 
 
 class GraphqlAdapterTests(unittest.TestCase):
@@ -462,73 +437,52 @@ class GraphqlAdapterTests(unittest.TestCase):
     def test_execute_test_requires_confirmation_before_traffic(self) -> None:
         seen: list[str] = []
 
-        class GraphqlHandler(BaseHTTPRequestHandler):
-            def do_POST(self) -> None:
-                seen.append(self.path)
-                self.send_response(200)
-                self.end_headers()
+        def handler(request: httpx.Request) -> httpx.Response:
+            # Trap: execution must be rejected before any traffic is sent.
+            seen.append(urlsplit(str(request.url)).path)
+            return httpx.Response(200)
 
-            def log_message(self, *_: object) -> None:
-                return
-
-        server = HTTPServer(("127.0.0.1", 0), GraphqlHandler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            with TemporaryDirectory() as tmp:
-                with isolated_state(Path(tmp)):
-                    base = f"http://127.0.0.1:{server.server_port}"
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                base = "http://app.acme-demo.test"
+                with stub_httpx(handler):
                     with self.assertRaises(McpError):
                         graphql.execute_test({"url": f"{base}/graphql", "workspaceId": "engagement"})
-                    self.assertEqual(seen, [])
-        finally:
-            server.shutdown()
-            server.server_close()
+                self.assertEqual(seen, [])
 
     def test_execute_test_normalizes_enabled_introspection_schema(self) -> None:
-        class GraphqlHandler(BaseHTTPRequestHandler):
-            def do_POST(self) -> None:
-                self.rfile.read(int(self.headers.get("Content-Length", "0")))
-                body = {
-                    "data": {
-                        "__schema": {
-                            "queryType": {"name": "Query"},
-                            "mutationType": {"name": "Mutation"},
-                            "types": [
-                                {
-                                    "name": "Query",
-                                    "kind": "OBJECT",
-                                    "fields": [
-                                        {"name": "user", "args": [{"name": "id", "type": {"name": "ID", "kind": "SCALAR"}}]}
-                                    ],
-                                },
-                                {
-                                    "name": "Mutation",
-                                    "kind": "OBJECT",
-                                    "fields": [
-                                        {"name": "updateUser", "args": [{"name": "id", "type": {"name": "ID", "kind": "SCALAR"}}]}
-                                    ],
-                                },
-                            ],
-                        }
+        def handler(request: httpx.Request) -> httpx.Response:
+            body = {
+                "data": {
+                    "__schema": {
+                        "queryType": {"name": "Query"},
+                        "mutationType": {"name": "Mutation"},
+                        "types": [
+                            {
+                                "name": "Query",
+                                "kind": "OBJECT",
+                                "fields": [
+                                    {"name": "user", "args": [{"name": "id", "type": {"name": "ID", "kind": "SCALAR"}}]}
+                                ],
+                            },
+                            {
+                                "name": "Mutation",
+                                "kind": "OBJECT",
+                                "fields": [
+                                    {"name": "updateUser", "args": [{"name": "id", "type": {"name": "ID", "kind": "SCALAR"}}]}
+                                ],
+                            },
+                        ],
                     }
                 }
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(json.dumps(body).encode("utf-8"))
+            }
+            return httpx.Response(200, json=body)
 
-            def log_message(self, *_: object) -> None:
-                return
-
-        server = HTTPServer(("127.0.0.1", 0), GraphqlHandler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            with TemporaryDirectory() as tmp:
-                with isolated_state(Path(tmp)):
-                    base = f"http://127.0.0.1:{server.server_port}"
-                    scope.save_scope([base], "test")
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                base = "http://app.acme-demo.test"
+                scope.save_scope([base], "test")
+                with stub_httpx(handler):
                     result = json.loads(
                         graphql.execute_test(
                             {
@@ -539,44 +493,30 @@ class GraphqlAdapterTests(unittest.TestCase):
                             }
                         )
                     )
-                    self.assertEqual(result["test"]["assessment"], "introspection_enabled")
-                    self.assertTrue(result["action"]["created"])
-                    self.assertEqual(result["action"]["action"]["tool"], "graphql.execute_test")
-                    self.assertNotIn("Authorization", result["test"]["requestHeaders"])
-                    graphql_exchange = Path(result["test"]["exchangeEvidence"]["rawPath"])
-                    self.assertTrue(graphql_exchange.exists())
-                    self.assertIn("__schema", graphql_exchange.read_text(encoding="utf-8"))
-                    context = workspace._load_target_entities("engagement", "127.0.0.1")
-                    graphql_endpoints = [item for item in context["endpoints"] if item.get("source") == "graphql"]
-                    graphql_parameters = [item for item in context["parameters"] if item.get("location") == "graphql"]
-                    observation_types = {item["type"] for item in context["observations"]}
-                    self.assertGreaterEqual(len(graphql_endpoints), 2)
-                    self.assertGreaterEqual(len(graphql_parameters), 2)
-                    self.assertIn("graphql_introspection_enabled", observation_types)
-        finally:
-            server.shutdown()
-            server.server_close()
+                self.assertEqual(result["test"]["assessment"], "introspection_enabled")
+                self.assertTrue(result["action"]["created"])
+                self.assertEqual(result["action"]["action"]["tool"], "graphql.execute_test")
+                self.assertNotIn("Authorization", result["test"]["requestHeaders"])
+                graphql_exchange = Path(result["test"]["exchangeEvidence"]["rawPath"])
+                self.assertTrue(graphql_exchange.exists())
+                self.assertIn("__schema", graphql_exchange.read_text(encoding="utf-8"))
+                context = workspace._load_target_entities("engagement", "app.acme-demo.test")
+                graphql_endpoints = [item for item in context["endpoints"] if item.get("source") == "graphql"]
+                graphql_parameters = [item for item in context["parameters"] if item.get("location") == "graphql"]
+                observation_types = {item["type"] for item in context["observations"]}
+                self.assertGreaterEqual(len(graphql_endpoints), 2)
+                self.assertGreaterEqual(len(graphql_parameters), 2)
+                self.assertIn("graphql_introspection_enabled", observation_types)
 
     def test_execute_test_disabled_introspection_creates_no_schema_entities(self) -> None:
-        class DisabledGraphqlHandler(BaseHTTPRequestHandler):
-            def do_POST(self) -> None:
-                self.rfile.read(int(self.headers.get("Content-Length", "0")))
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(b'{"errors":[{"message":"Introspection disabled"}]}')
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, text='{"errors":[{"message":"Introspection disabled"}]}', headers={"content-type": "application/json"})
 
-            def log_message(self, *_: object) -> None:
-                return
-
-        server = HTTPServer(("127.0.0.1", 0), DisabledGraphqlHandler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            with TemporaryDirectory() as tmp:
-                with isolated_state(Path(tmp)):
-                    base = f"http://127.0.0.1:{server.server_port}"
-                    scope.save_scope([base], "test")
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                base = "http://app.acme-demo.test"
+                scope.save_scope([base], "test")
+                with stub_httpx(handler):
                     result = json.loads(
                         graphql.execute_test(
                             {
@@ -587,12 +527,9 @@ class GraphqlAdapterTests(unittest.TestCase):
                             }
                         )
                     )
-                    self.assertEqual(result["test"]["assessment"], "introspection_disabled")
-                    context = workspace._load_target_entities("engagement", "127.0.0.1")
-                    self.assertFalse([item for item in context["endpoints"] if item.get("source") == "graphql"])
-        finally:
-            server.shutdown()
-            server.server_close()
+                self.assertEqual(result["test"]["assessment"], "introspection_disabled")
+                context = workspace._load_target_entities("engagement", "app.acme-demo.test")
+                self.assertFalse([item for item in context["endpoints"] if item.get("source") == "graphql"])
 
 
 
