@@ -17,6 +17,7 @@ from .active_probe import (
     build_manual_replay,
     coerce_candidate,
     priority_for_score,
+    record_surface_test_validation,
     redact_headers,
     response_summary,
     stable_slug,
@@ -367,12 +368,23 @@ def execute_test(args: dict[str, Any]) -> str:
         },
         ingestion.get("evidenceId", ""),
     )
+    validation = record_surface_test_validation(
+        workspace_id,
+        scope_result["host"],
+        vuln_class="ssti",
+        url=target_url,
+        method=method,
+        parameter=parameter,
+        location=location,
+        interesting=possible,
+        evidence_ids=[item["exchangeEvidence"]["evidenceId"] for item in tests if item.get("exchangeEvidence")],
+    )
     evidence.log_event(
         "ssti.execute_test",
         f"Ran approved benign SSTI test against {scope_result['host']} parameter {parameter}.",
         {"workspaceId": workspace_id, "target": target_url, "host": scope_result["host"], "assessment": raw["assessment"], "approval": approval},
     )
-    return json.dumps({"test": raw, "ingestion": ingestion, "action": action}, indent=2)
+    return json.dumps({"test": raw, "ingestion": ingestion, "action": action, "validation": validation}, indent=2)
 
 
 def recommended_tests() -> list[RecommendedTest]:

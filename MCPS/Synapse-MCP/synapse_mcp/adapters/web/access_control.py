@@ -271,6 +271,7 @@ def build_test_matrix(args: dict[str, Any]) -> str:
             reason=item["reason"],
             tags=["access-control", item["testClass"].lower(), item["objectType"]],
             metadata={
+                "candidateId": f"actc_{item['matrixId']}",
                 "matrixId": item["matrixId"],
                 "testClass": item["testClass"],
                 "objectType": item["objectType"],
@@ -567,6 +568,35 @@ def execute_matrix_test(args: dict[str, Any]) -> str:
         },
         ingestion.get("evidenceId", ""),
     )
+    # Feed the shared validation lifecycle: an approved replay confirms broken access,
+    # a clean replay with complete information refutes the candidate, and a replay that
+    # lacked required contexts/objects stays inconclusive. Retained + marked, never deleted.
+    if possible_broken:
+        validation_outcome = "confirmed"
+    elif replay_missing_information:
+        validation_outcome = "inconclusive"
+    else:
+        validation_outcome = "refuted"
+    validation = {"outcome": validation_outcome, "recorded": False}
+    matrix_candidate_id = f"actc_{matrix_entry.get('matrixId', '')}"
+    if matrix_entry.get("matrixId"):
+        try:
+            validation_result = workspace.record_candidate_validation(
+                wid,
+                model_host,
+                {"candidateId": matrix_candidate_id},
+                validation_outcome,
+                evidence_ids=[item["exchangeEvidence"]["evidenceId"] for item in replays if item.get("exchangeEvidence")],
+                notes=assessment_reason,
+            )
+            validation = {
+                "outcome": validation_outcome,
+                "recorded": True,
+                "retired": bool(validation_result.get("retired")),
+                "findingDraft": validation_result.get("findingDraft"),
+            }
+        except McpError:
+            validation["reason"] = "no matching access-control test candidate in workspace state"
     evidence.log_event(
         "access_control.execute_matrix_test",
         f"Ran approved access-control replay for {request_host} with assessment {assessment}.",
@@ -582,7 +612,7 @@ def execute_matrix_test(args: dict[str, Any]) -> str:
             "approval": approval,
         },
     )
-    return json.dumps({"replay": replay_record, "accessControlStore": store, "ingestion": ingestion, "action": action}, indent=2)
+    return json.dumps({"replay": replay_record, "accessControlStore": store, "ingestion": ingestion, "action": action, "validation": validation}, indent=2)
 
 
 def extract_object_identifiers(entities: dict[str, list[dict[str, Any]]], min_score: int) -> list[dict[str, Any]]:

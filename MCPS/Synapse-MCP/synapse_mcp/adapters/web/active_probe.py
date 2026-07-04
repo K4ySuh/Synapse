@@ -32,6 +32,50 @@ def coerce_candidate(args: dict[str, Any], *, required_parameter: bool = True) -
     }
 
 
+def record_surface_test_validation(
+    workspace_id: str,
+    host: str,
+    *,
+    vuln_class: str,
+    url: str,
+    method: str,
+    parameter: str,
+    location: str,
+    interesting: bool = False,
+    outcome: str | None = None,
+    evidence_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    """Record a benign active-test outcome on the consolidated surface test_candidate.
+
+    For in-band tests (LFI/SSTI) pass ``interesting`` — a positive signal confirms the
+    class, a benign run with no signal refutes it (per operator: seeing none work should
+    immediately remove the candidate). For out-of-band tests (SSRF) pass an explicit
+    ``outcome`` since a null in-band response is inconclusive, not a refutation. Tolerant
+    when no surface candidate is present in the workspace — the active test still succeeds.
+    """
+    from ...core.adapters.results import surface_candidate_id
+
+    outcome = outcome or ("confirmed" if interesting else "refuted")
+    selector = {"candidateId": surface_candidate_id(str(method or "GET"), str(url), str(location or "query"), str(parameter))}
+    try:
+        result = workspace.record_candidate_validation(
+            workspace_id,
+            host,
+            selector,
+            outcome,
+            vuln_class=vuln_class,
+            evidence_ids=[eid for eid in (evidence_ids or []) if eid],
+        )
+    except McpError:
+        return {"outcome": outcome, "recorded": False, "reason": "no matching surface candidate in workspace state"}
+    return {
+        "outcome": outcome,
+        "recorded": True,
+        "retired": bool(result.get("retired")),
+        "findingDraft": result.get("findingDraft"),
+    }
+
+
 def build_http_request(url: str, method: str, parameter: str, location: str, payload: str, credential_id: Any = None) -> dict[str, Any]:
     parsed = parse.urlsplit(url if "://" in url else f"https://{url}")
     method = str(method or "GET").upper()

@@ -13,7 +13,7 @@ from ...core import evidence, workspace
 from ...core.errors import McpError
 from ...core.http import HttpClientPolicy, HttpRequest, http_client
 from ..command_utils import approval_metadata, require_confirmed, require_in_scope
-from .active_probe import build_http_request, coerce_candidate, redact_headers, response_summary, store_http_exchange_evidence
+from .active_probe import build_http_request, coerce_candidate, record_surface_test_validation, redact_headers, response_summary, store_http_exchange_evidence
 from .surface_hygiene import is_candidate_noise_url, normalize_surface_url, observation_surface_url
 
 
@@ -342,12 +342,26 @@ def execute_test(args: dict[str, Any]) -> str:
         },
         ingestion.get("evidenceId", ""),
     )
+    # SSRF is confirmed out-of-band: only an in-band fetch signal confirms; otherwise the
+    # class stays inconclusive (a null in-band response does not refute the candidate).
+    ssrf_outcome = "confirmed" if assessment == "possible_ssrf_behavior" else "inconclusive"
+    validation = record_surface_test_validation(
+        workspace_id,
+        scope_result["host"],
+        vuln_class="ssrf",
+        url=target_url,
+        method=method,
+        parameter=parameter,
+        location=location,
+        outcome=ssrf_outcome,
+        evidence_ids=[exchange_evidence.get("evidenceId", "")],
+    )
     evidence.log_event(
         "ssrf.execute_test",
         f"Ran approved SSRF canary probe against {scope_result['host']} parameter {parameter}.",
         {"workspaceId": workspace_id, "target": target_url, "host": scope_result["host"], "assessment": assessment, "approval": approval},
     )
-    return json.dumps({"test": raw, "ingestion": ingestion, "action": action}, indent=2)
+    return json.dumps({"test": raw, "ingestion": ingestion, "action": action, "validation": validation}, indent=2)
 
 
 def active_callback_payloads(args: dict[str, Any], parameter: str) -> list[str]:

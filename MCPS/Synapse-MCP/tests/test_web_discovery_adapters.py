@@ -26,6 +26,7 @@ from synapse_mcp.adapters.web import (
     xxe,
 )
 from synapse_mcp.core import background_jobs, credentials, evidence, perimeter, scope, workspace
+from synapse_mcp.core.adapters import surface_candidate
 from synapse_mcp.core.errors import McpError
 
 
@@ -1197,6 +1198,93 @@ class WebDiscoveryAdapterTests(unittest.TestCase):
                     exchange_path = Path(result["test"]["exchangeEvidence"]["rawPath"])
                     self.assertTrue(exchange_path.exists())
                     self.assertIn("canary.example.test", exchange_path.read_text(encoding="utf-8"))
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def _seed_surface_candidate(self, url: str, vuln_class: str, parameter: str) -> None:
+        observation = surface_candidate(
+            vuln_class=vuln_class, url=url, method="GET", parameter=parameter, location="query",
+            reason=f"{vuln_class} candidate", priority="medium", priority_score=60,
+        )
+        workspace.ingest_data(
+            "engagement", url, "adapter_result", "tool_output", "json",
+            json.dumps({"entities": {"observations": [observation]}}),
+        )
+
+    def _surface_test_candidate(self, host: str) -> dict:
+        entities = workspace._load_target_entities("engagement", host)
+        return next(obs for obs in entities["observations"] if obs.get("type") == "test_candidate")
+
+    def test_lfi_execute_test_with_no_signal_refutes_surface_candidate(self) -> None:
+        class SameHandler(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain")
+                self.end_headers()
+                self.wfile.write(b"identical body for every payload")
+
+            def log_message(self, *_: object) -> None:
+                return
+
+        server = HTTPServer(("127.0.0.1", 0), SameHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with TemporaryDirectory() as tmp:
+                with isolated_state(Path(tmp)):
+                    target = f"http://127.0.0.1:{server.server_port}/download?file=x"
+                    scope.save_scope([target], "test", "Example Client")
+                    host = workspace.normalize_target(target)
+                    self._seed_surface_candidate(target, "lfi", "file")
+                    lfi_rfi.execute_test({
+                        "workspaceId": "engagement", "url": target, "method": "GET",
+                        "parameter": "file", "location": "query", "confirm": True,
+                        "approvalReason": "Unit test benign LFI probe", "riskTier": "low",
+                    })
+                    candidate = self._surface_test_candidate(host)
+                    self.assertEqual(candidate["candidateDetails"]["lfi"]["validationStatus"], "refuted")
+                    self.assertNotIn("lfi", candidate["candidateFor"])
+                    self.assertIs(candidate["isReportable"], False)
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_ssti_execute_test_with_signal_confirms_surface_candidate(self) -> None:
+        class EvalHandler(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                query = parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
+                payload = query.get("name", [""])[0]
+                # Evaluate {{7*7}}-style arithmetic so the response contains 49 without echoing the payload.
+                body = "Hello 49" if "7*7" in payload or "7%2A7" in payload else "Hello guest"
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self.wfile.write(body.encode("utf-8"))
+
+            def log_message(self, *_: object) -> None:
+                return
+
+        server = HTTPServer(("127.0.0.1", 0), EvalHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with TemporaryDirectory() as tmp:
+                with isolated_state(Path(tmp)):
+                    target = f"http://127.0.0.1:{server.server_port}/greet?name=guest"
+                    scope.save_scope([target], "test", "Example Client")
+                    host = workspace.normalize_target(target)
+                    self._seed_surface_candidate(target, "ssti", "name")
+                    result = json.loads(ssti.execute_test({
+                        "workspaceId": "engagement", "url": target, "method": "GET",
+                        "parameter": "name", "location": "query", "confirm": True,
+                        "approvalReason": "Unit test benign SSTI probe", "riskTier": "low",
+                    }))
+                    self.assertEqual(result["validation"]["outcome"], "confirmed")
+                    self.assertIsNotNone(result["validation"]["findingDraft"])
+                    candidate = self._surface_test_candidate(host)
+                    self.assertEqual(candidate["candidateDetails"]["ssti"]["validationStatus"], "confirmed")
+                    self.assertIn("ssti", candidate["candidateFor"])
         finally:
             server.shutdown()
             server.server_close()
