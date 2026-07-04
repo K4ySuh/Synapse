@@ -16,6 +16,11 @@ from .surface_hygiene import is_candidate_noise_url, normalize_surface_url
 from . import sqlmap_analysis
 
 
+# Precision controls (Phase 4): SQLi already gates on a high score; cap how many
+# candidates a single host can produce so passive analysis can't flood the workspace.
+DEFAULT_MIN_SCORE = 55
+MAX_CANDIDATES_PER_HOST = 12
+
 SQLI_PATH_HINTS = ("api", "rest", "search", "login", "products", "product", "users", "user", "orders", "order", "basket", "cart", "items")
 SQLI_NAME_HINTS = tuple(sqlmap_analysis.INTERESTING_NAMES) + ("username", "password", "role", "owner", "basket", "coupon")
 UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", re.I)
@@ -30,8 +35,8 @@ def capabilities(_: dict[str, Any] | None = None) -> str:
 def analyze_workspace(args: dict[str, Any]) -> str:
     workspace_id = str(args["workspaceId"])
     target = str(args["target"])
-    max_candidates = int(args.get("maxCandidates", 50))
-    min_score = int(args.get("minScore", 55))
+    max_candidates = int(args.get("maxCandidates", MAX_CANDIDATES_PER_HOST))
+    min_score = int(args.get("minScore", DEFAULT_MIN_SCORE))
     context = workspace.prepare_target_context(workspace_id, target, purpose="sqli_candidate_analysis", max_tokens=4000)
     entities = workspace._load_target_entities(workspace.normalize_workspace_id(workspace_id), workspace.normalize_target(target))
     candidates = find_workspace_candidates(entities, target=target, min_score=min_score)[:max_candidates]

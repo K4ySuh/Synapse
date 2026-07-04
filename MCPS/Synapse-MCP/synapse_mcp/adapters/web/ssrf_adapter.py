@@ -17,6 +17,11 @@ from .active_probe import build_http_request, coerce_candidate, record_surface_t
 from .surface_hygiene import is_candidate_noise_url, normalize_surface_url, observation_surface_url
 
 
+# Precision controls (Phase 4): only emit candidates with a real signal, and cap how
+# many a single host/class can produce so passive analysis can't flood the workspace.
+DEFAULT_MIN_SCORE = 45
+MAX_CANDIDATES_PER_HOST = 12
+
 URL_PARAM_MARKERS = {
     "url",
     "uri",
@@ -68,8 +73,8 @@ URL_VALUE_RE = re.compile(r"^(?:https?|ftp|file|gopher)://", re.IGNORECASE)
 def analyze_workspace(args: dict[str, Any]) -> str:
     workspace_id = args["workspaceId"]
     target = args["target"]
-    max_candidates = int(args.get("maxCandidates", 25))
-    min_score = int(args.get("minScore", 35))
+    max_candidates = int(args.get("maxCandidates", MAX_CANDIDATES_PER_HOST))
+    min_score = int(args.get("minScore", DEFAULT_MIN_SCORE))
     context = workspace.prepare_target_context(workspace_id, target, purpose="ssrf_candidate_analysis", max_tokens=4000)
     entities = workspace._load_target_entities(workspace.normalize_workspace_id(workspace_id), workspace.normalize_target(target))
     candidates = find_candidates(entities, min_score)[:max_candidates]

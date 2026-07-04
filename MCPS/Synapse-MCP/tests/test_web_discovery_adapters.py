@@ -1202,6 +1202,39 @@ class WebDiscoveryAdapterTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
 
+    def test_lfi_below_threshold_parameter_is_not_auto_candidate(self) -> None:
+        # Path-only signal scores 35 — below the tightened default threshold (45), so it
+        # must not auto-emit; a lower explicit minScore still surfaces it.
+        raw = json.dumps(
+            {
+                "hosts": [
+                    {
+                        "host": "example.com",
+                        "urls": [{"url": "https://example.com/download/report?ref=123", "methods": ["GET"], "statusCodes": [200]}],
+                    }
+                ],
+                "summary": {"hostCount": 1},
+            }
+        )
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                workspace.ingest_data("engagement", "example.com", "sitemap", "tool_output", "json", raw)
+                default = json.loads(lfi_rfi.passive_analyze({"workspaceId": "engagement", "target": "example.com", "ingest": False}))
+                self.assertEqual(default["candidateCount"], 0)
+                relaxed = json.loads(lfi_rfi.passive_analyze({"workspaceId": "engagement", "target": "example.com", "minScore": 30, "ingest": False}))
+                self.assertEqual(relaxed["candidateCount"], 1)
+
+    def test_lfi_candidates_are_capped_per_host(self) -> None:
+        urls = [{"url": f"https://example.com/files/download?file=doc{i}.txt", "methods": ["GET"], "statusCodes": [200]} for i in range(20)]
+        raw = json.dumps({"hosts": [{"host": "example.com", "urls": urls}], "summary": {"hostCount": 1}})
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                workspace.ingest_data("engagement", "example.com", "sitemap", "tool_output", "json", raw)
+                capped = json.loads(lfi_rfi.passive_analyze({"workspaceId": "engagement", "target": "example.com", "ingest": False}))
+                self.assertEqual(capped["candidateCount"], lfi_rfi.MAX_CANDIDATES_PER_HOST)
+                smaller = json.loads(lfi_rfi.passive_analyze({"workspaceId": "engagement", "target": "example.com", "maxCandidates": 5, "ingest": False}))
+                self.assertEqual(smaller["candidateCount"], 5)
+
     def _seed_surface_candidate(self, url: str, vuln_class: str, parameter: str) -> None:
         observation = surface_candidate(
             vuln_class=vuln_class, url=url, method="GET", parameter=parameter, location="query",

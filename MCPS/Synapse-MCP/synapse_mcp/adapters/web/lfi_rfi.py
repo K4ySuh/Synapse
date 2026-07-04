@@ -26,6 +26,11 @@ from .active_probe import (
 from .surface_hygiene import is_candidate_noise_url, normalize_surface_url, observation_surface_url
 
 
+# Precision controls (Phase 4): only emit candidates with a real signal, and cap how
+# many a single host/class can produce so passive analysis can't flood the workspace.
+DEFAULT_MIN_SCORE = 45
+MAX_CANDIDATES_PER_HOST = 12
+
 FILE_PARAM_MARKERS = {
     "file",
     "path",
@@ -62,8 +67,8 @@ def capabilities(_: dict[str, Any] | None = None) -> str:
 def passive_analyze(args: dict[str, Any]) -> str:
     workspace_id = args["workspaceId"]
     target = args["target"]
-    max_candidates = int(args.get("maxCandidates", 25))
-    min_score = int(args.get("minScore", 35))
+    max_candidates = int(args.get("maxCandidates", MAX_CANDIDATES_PER_HOST))
+    min_score = int(args.get("minScore", DEFAULT_MIN_SCORE))
     context = workspace.prepare_target_context(workspace_id, target, purpose="lfi_rfi_candidate_analysis", max_tokens=4000)
     entities = workspace._load_target_entities(workspace.normalize_workspace_id(workspace_id), workspace.normalize_target(target))
     candidates = find_candidates(entities, min_score)[:max_candidates]
