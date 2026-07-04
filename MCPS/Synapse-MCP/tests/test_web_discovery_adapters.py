@@ -1,14 +1,16 @@
 import json
-import threading
-import time
+import threading  # the background-worker crawl test runs out-of-process, so it keeps a real server
 import unittest
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlsplit
+
+import httpx
 
 from helpers import isolated_state, wait_for_job
+from http_stub import stub_httpx
 from synapse_mcp.adapters.web import (
     command_injection_adapter,
     cors,
@@ -63,41 +65,33 @@ class WebDiscoveryAdapterTests(unittest.TestCase):
     def test_crawler_respects_base_href_and_does_not_accumulate_asset_paths(self) -> None:
         seen_paths: list[str] = []
 
-        class CrawlHandler(BaseHTTPRequestHandler):
-            def do_GET(self) -> None:
-                seen_paths.append(self.path)
-                if self.path == "/2fa":
-                    body = (
-                        '<html><head><base href="/"><title>Two Factor</title>'
-                        '<script src="assets/public/app.js"></script></head>'
-                        '<body><a href="rest/order-history">Orders</a></body></html>'
-                    )
-                    content_type = "text/html"
-                elif self.path == "/assets/public/app.js":
-                    body = "const route = '/rest/order-history';"
-                    content_type = "application/javascript"
-                elif self.path == "/rest/order-history":
-                    body = '{"orders":[]}'
-                    content_type = "application/json"
-                else:
-                    body = "<html><head><base href=\"/\"><script src=\"assets/public/app.js\"></script></head></html>"
-                    content_type = "text/html"
-                self.send_response(200 if self.path in {"/2fa", "/assets/public/app.js", "/rest/order-history"} else 404)
-                self.send_header("Content-Type", content_type)
-                self.end_headers()
-                self.wfile.write(body.encode("utf-8"))
+        def handler(request: httpx.Request) -> httpx.Response:
+            path = urlsplit(str(request.url)).path
+            seen_paths.append(path)
+            if path == "/2fa":
+                body = (
+                    '<html><head><base href="/"><title>Two Factor</title>'
+                    '<script src="assets/public/app.js"></script></head>'
+                    '<body><a href="rest/order-history">Orders</a></body></html>'
+                )
+                content_type = "text/html"
+            elif path == "/assets/public/app.js":
+                body = "const route = '/rest/order-history';"
+                content_type = "application/javascript"
+            elif path == "/rest/order-history":
+                body = '{"orders":[]}'
+                content_type = "application/json"
+            else:
+                body = "<html><head><base href=\"/\"><script src=\"assets/public/app.js\"></script></head></html>"
+                content_type = "text/html"
+            status = 200 if path in {"/2fa", "/assets/public/app.js", "/rest/order-history"} else 404
+            return httpx.Response(status, text=body, headers={"content-type": content_type})
 
-            def log_message(self, *_: object) -> None:
-                return
-
-        server = HTTPServer(("127.0.0.1", 0), CrawlHandler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            with TemporaryDirectory() as tmp:
-                with isolated_state(Path(tmp)):
-                    target = f"http://127.0.0.1:{server.server_port}/2fa"
-                    scope.save_scope([target], "test", "Example Client")
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                target = "http://app.acme-demo.test/2fa"
+                scope.save_scope([target], "test", "Example Client")
+                with stub_httpx(handler):
                     crawler_adapter.crawl(
                         {
                             "target": target,
@@ -110,56 +104,44 @@ class WebDiscoveryAdapterTests(unittest.TestCase):
                         }
                     )
 
-                    self.assertIn("/assets/public/app.js", seen_paths)
-                    self.assertIn("/rest/order-history", seen_paths)
-                    self.assertNotIn("/2fa/assets/public/app.js", seen_paths)
-                    self.assertFalse(any("assets/public/assets/public" in path for path in seen_paths))
-                    context = workspace.prepare_target_context("engagement", "127.0.0.1")
-                    endpoint_urls = {item["url"] for item in workspace._load_target_entities("engagement", "127.0.0.1")["endpoints"]}
-                    self.assertTrue(any(url.endswith("/assets/public/app.js") for url in endpoint_urls))
-                    self.assertEqual(context["knownEndpoints"]["total"], len(endpoint_urls))
-        finally:
-            server.shutdown()
-            server.server_close()
+                self.assertIn("/assets/public/app.js", seen_paths)
+                self.assertIn("/rest/order-history", seen_paths)
+                self.assertNotIn("/2fa/assets/public/app.js", seen_paths)
+                self.assertFalse(any("assets/public/assets/public" in path for path in seen_paths))
+                context = workspace.prepare_target_context("engagement", "app.acme-demo.test")
+                endpoint_urls = {item["url"] for item in workspace._load_target_entities("engagement", "app.acme-demo.test")["endpoints"]}
+                self.assertTrue(any(url.endswith("/assets/public/app.js") for url in endpoint_urls))
+                self.assertEqual(context["knownEndpoints"]["total"], len(endpoint_urls))
 
     def test_crawler_resolves_common_spa_assets_from_root_without_base_href(self) -> None:
         seen_paths: list[str] = []
 
-        class CrawlHandler(BaseHTTPRequestHandler):
-            def do_GET(self) -> None:
-                seen_paths.append(self.path)
-                if self.path == "/2fa/enter":
-                    body = '<html><head><script src="assets/public/app.js"></script></head><body>2FA</body></html>'
-                    content_type = "text/html"
-                    status = 200
-                elif self.path == "/assets/public/app.js":
-                    body = "fetch('/rest/user/whoami'); const noise = ['/10', '/160'];"
-                    content_type = "application/javascript"
-                    status = 200
-                elif self.path == "/rest/user/whoami":
-                    body = '{"user":{}}'
-                    content_type = "application/json"
-                    status = 200
-                else:
-                    body = "<html><body>missing</body></html>"
-                    content_type = "text/html"
-                    status = 404
-                self.send_response(status)
-                self.send_header("Content-Type", content_type)
-                self.end_headers()
-                self.wfile.write(body.encode("utf-8"))
+        def handler(request: httpx.Request) -> httpx.Response:
+            path = urlsplit(str(request.url)).path
+            seen_paths.append(path)
+            if path == "/2fa/enter":
+                body = '<html><head><script src="assets/public/app.js"></script></head><body>2FA</body></html>'
+                content_type = "text/html"
+                status = 200
+            elif path == "/assets/public/app.js":
+                body = "fetch('/rest/user/whoami'); const noise = ['/10', '/160'];"
+                content_type = "application/javascript"
+                status = 200
+            elif path == "/rest/user/whoami":
+                body = '{"user":{}}'
+                content_type = "application/json"
+                status = 200
+            else:
+                body = "<html><body>missing</body></html>"
+                content_type = "text/html"
+                status = 404
+            return httpx.Response(status, text=body, headers={"content-type": content_type})
 
-            def log_message(self, *_: object) -> None:
-                return
-
-        server = HTTPServer(("127.0.0.1", 0), CrawlHandler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            with TemporaryDirectory() as tmp:
-                with isolated_state(Path(tmp)):
-                    target = f"http://127.0.0.1:{server.server_port}/2fa/enter"
-                    scope.save_scope([target], "test", "Example Client")
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                target = "http://app.acme-demo.test/2fa/enter"
+                scope.save_scope([target], "test", "Example Client")
+                with stub_httpx(handler):
                     crawler_adapter.crawl(
                         {
                             "target": target,
@@ -172,61 +154,52 @@ class WebDiscoveryAdapterTests(unittest.TestCase):
                         }
                     )
 
-                    self.assertIn("/assets/public/app.js", seen_paths)
-                    self.assertIn("/rest/user/whoami", seen_paths)
-                    self.assertNotIn("/2fa/enter/assets/public/app.js", seen_paths)
-                    self.assertNotIn("/2fa/assets/public/app.js", seen_paths)
-                    self.assertNotIn("/10", seen_paths)
-                    self.assertNotIn("/160", seen_paths)
-                    endpoint_urls = {item["url"] for item in workspace._load_target_entities("engagement", "127.0.0.1")["endpoints"]}
-                    self.assertFalse(any(url.endswith("/10") for url in endpoint_urls))
-                    self.assertFalse(any(url.endswith("/160") for url in endpoint_urls))
-        finally:
-            server.shutdown()
-            server.server_close()
+                self.assertIn("/assets/public/app.js", seen_paths)
+                self.assertIn("/rest/user/whoami", seen_paths)
+                self.assertNotIn("/2fa/enter/assets/public/app.js", seen_paths)
+                self.assertNotIn("/2fa/assets/public/app.js", seen_paths)
+                self.assertNotIn("/10", seen_paths)
+                self.assertNotIn("/160", seen_paths)
+                endpoint_urls = {item["url"] for item in workspace._load_target_entities("engagement", "app.acme-demo.test")["endpoints"]}
+                self.assertFalse(any(url.endswith("/10") for url in endpoint_urls))
+                self.assertFalse(any(url.endswith("/160") for url in endpoint_urls))
 
     def test_crawler_crawl_follows_second_level_navigation_and_get_forms(self) -> None:
         seen_paths: list[str] = []
 
-        class CrawlHandler(BaseHTTPRequestHandler):
-            def do_GET(self) -> None:
-                seen_paths.append(self.path)
-                pages = {
-                    "/": (
-                        '<html><head><title>Root</title></head><body>'
-                        '<a href="/level1">Level 1</a>'
-                        '<script src="/static/app.js"></script>'
-                        '<button onclick="location.href=\'/click-target\'">Open</button>'
-                        '<form method="get" action="/search"><input name="q" value="alpha"></form>'
-                        '<form method="post" action="/login"><input name="username"><input name="password" type="password"></form>'
-                        "</body></html>"
-                    ),
-                    "/level1": '<html><body><div data-href="/level2">Level 2</div></body></html>',
-                    "/level2": '<html><head><meta http-equiv="refresh" content="0; url=/level3"></head><body>Level 2</body></html>',
-                    "/level3": "<html><body>Level 3</body></html>",
-                    "/click-target": "<html><body>Clicked</body></html>",
-                    "/search?q=alpha": "<html><body>Search</body></html>",
-                    "/static/app.js": "const api = '/api/v1/users?active=1';",
-                    "/api/v1/users?active=1": '{"users":[]}',
-                }
-                body = pages.get(self.path, "<html><body>missing</body></html>")
-                self.send_response(200 if self.path in pages else 404)
-                self.send_header("Content-Type", "application/javascript" if self.path.endswith(".js") else "text/html")
-                self.end_headers()
-                self.wfile.write(body.encode("utf-8"))
+        def handler(request: httpx.Request) -> httpx.Response:
+            raw = urlsplit(str(request.url))
+            path = raw.path + (f"?{raw.query}" if raw.query else "")
+            seen_paths.append(path)
+            pages = {
+                "/": (
+                    '<html><head><title>Root</title></head><body>'
+                    '<a href="/level1">Level 1</a>'
+                    '<script src="/static/app.js"></script>'
+                    '<button onclick="location.href=\'/click-target\'">Open</button>'
+                    '<form method="get" action="/search"><input name="q" value="alpha"></form>'
+                    '<form method="post" action="/login"><input name="username"><input name="password" type="password"></form>'
+                    "</body></html>"
+                ),
+                "/level1": '<html><body><div data-href="/level2">Level 2</div></body></html>',
+                "/level2": '<html><head><meta http-equiv="refresh" content="0; url=/level3"></head><body>Level 2</body></html>',
+                "/level3": "<html><body>Level 3</body></html>",
+                "/click-target": "<html><body>Clicked</body></html>",
+                "/search?q=alpha": "<html><body>Search</body></html>",
+                "/static/app.js": "const api = '/api/v1/users?active=1';",
+                "/api/v1/users?active=1": '{"users":[]}',
+            }
+            body = pages.get(path, "<html><body>missing</body></html>")
+            status = 200 if path in pages else 404
+            content_type = "application/javascript" if raw.path.endswith(".js") else "text/html"
+            return httpx.Response(status, text=body, headers={"content-type": content_type})
 
-            def log_message(self, *_: object) -> None:
-                return
-
-        server = HTTPServer(("127.0.0.1", 0), CrawlHandler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            with TemporaryDirectory() as tmp:
-                tmp_path = Path(tmp)
-                with isolated_state(tmp_path):
-                    target = f"http://127.0.0.1:{server.server_port}/"
-                    scope.save_scope([target], "test", "Example Client")
+        with TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            with isolated_state(tmp_path):
+                target = "http://app.acme-demo.test/"
+                scope.save_scope([target], "test", "Example Client")
+                with stub_httpx(handler):
                     result = json.loads(
                         crawler_adapter.crawl(
                             {
@@ -241,41 +214,38 @@ class WebDiscoveryAdapterTests(unittest.TestCase):
                         )
                     )
 
-                    self.assertIn("/level1", seen_paths)
-                    self.assertIn("/level2", seen_paths)
-                    self.assertIn("/level3", seen_paths)
-                    self.assertIn("/click-target", seen_paths)
-                    self.assertIn("/search?q=alpha", seen_paths)
-                    self.assertIn("/static/app.js", seen_paths)
-                    self.assertIn("/api/v1/users?active=1", seen_paths)
-                    self.assertNotIn("/login", seen_paths)
-                    self.assertGreaterEqual(result["crawl"]["visitedCount"], 6)
-                    self.assertTrue(result["crawl"]["analyzeScripts"])
-                    self.assertTrue(result["crawl"]["includeInScopeHosts"])
-                    context = workspace.prepare_target_context("engagement", "127.0.0.1")
-                    self.assertGreaterEqual(context["knownEndpoints"]["total"], 7)
-                    self.assertGreaterEqual(context["parameters"]["total"], 1)
-                    observation_types = {item["type"] for item in context["observations"]}
-                    self.assertIn("form_endpoint", observation_types)
-                    self.assertIn("post_form_candidate", observation_types)
-                    self.assertTrue(context["interestingCandidates"])
-                    candidate_categories = {item["category"] for item in context["interestingCandidates"]}
-                    self.assertIn("high_value_form", candidate_categories)
-                    observations = json.loads(workspace.target_entity_path("engagement", "127.0.0.1", "observations").read_text(encoding="utf-8"))
-                    self.assertTrue(any(item.get("type") == "sitemap_finding_candidate" for item in observations))
-                    graph = result["flowGraph"]
-                    self.assertIn("GET", graph["summary"]["methodCounts"])
-                    self.assertTrue(any(edge["type"] == "navigation" and edge["method"] == "GET" for edge in graph["edges"]))
-                    self.assertTrue(any(edge["type"] == "form_action" and edge["method"] == "POST" and not edge["submitted"] for edge in graph["edges"]))
-                    mermaid_path = Path(graph["mermaidPath"])
-                    self.assertTrue(mermaid_path.exists())
-                    self.assertIn("flowchart LR", mermaid_path.read_text(encoding="utf-8"))
-                    svg_path = Path(graph["svgPath"])
-                    self.assertTrue(svg_path.exists())
-                    self.assertIn("<svg", svg_path.read_text(encoding="utf-8"))
-        finally:
-            server.shutdown()
-            server.server_close()
+                self.assertIn("/level1", seen_paths)
+                self.assertIn("/level2", seen_paths)
+                self.assertIn("/level3", seen_paths)
+                self.assertIn("/click-target", seen_paths)
+                self.assertIn("/search?q=alpha", seen_paths)
+                self.assertIn("/static/app.js", seen_paths)
+                self.assertIn("/api/v1/users?active=1", seen_paths)
+                self.assertNotIn("/login", seen_paths)
+                self.assertGreaterEqual(result["crawl"]["visitedCount"], 6)
+                self.assertTrue(result["crawl"]["analyzeScripts"])
+                self.assertTrue(result["crawl"]["includeInScopeHosts"])
+                context = workspace.prepare_target_context("engagement", "app.acme-demo.test")
+                self.assertGreaterEqual(context["knownEndpoints"]["total"], 7)
+                self.assertGreaterEqual(context["parameters"]["total"], 1)
+                observation_types = {item["type"] for item in context["observations"]}
+                self.assertIn("form_endpoint", observation_types)
+                self.assertIn("post_form_candidate", observation_types)
+                self.assertTrue(context["interestingCandidates"])
+                candidate_categories = {item["category"] for item in context["interestingCandidates"]}
+                self.assertIn("high_value_form", candidate_categories)
+                observations = json.loads(workspace.target_entity_path("engagement", "app.acme-demo.test", "observations").read_text(encoding="utf-8"))
+                self.assertTrue(any(item.get("type") == "sitemap_finding_candidate" for item in observations))
+                graph = result["flowGraph"]
+                self.assertIn("GET", graph["summary"]["methodCounts"])
+                self.assertTrue(any(edge["type"] == "navigation" and edge["method"] == "GET" for edge in graph["edges"]))
+                self.assertTrue(any(edge["type"] == "form_action" and edge["method"] == "POST" and not edge["submitted"] for edge in graph["edges"]))
+                mermaid_path = Path(graph["mermaidPath"])
+                self.assertTrue(mermaid_path.exists())
+                self.assertIn("flowchart LR", mermaid_path.read_text(encoding="utf-8"))
+                svg_path = Path(graph["svgPath"])
+                self.assertTrue(svg_path.exists())
+                self.assertIn("<svg", svg_path.read_text(encoding="utf-8"))
 
     def test_passive_analyzers_normalize_method_prefixed_urls_and_skip_numeric_spa_routes(self) -> None:
         file_candidate = lfi_rfi.candidate_from_observation(
@@ -494,24 +464,16 @@ class WebDiscoveryAdapterTests(unittest.TestCase):
     def test_crawler_crawl_uses_disabled_http_backend_policy(self) -> None:
         seen_paths: list[str] = []
 
-        class CrawlHandler(BaseHTTPRequestHandler):
-            def do_GET(self) -> None:
-                seen_paths.append(self.path)
-                self.send_response(200)
-                self.end_headers()
-                self.wfile.write(b"<html><body>ok</body></html>")
+        def handler(request: httpx.Request) -> httpx.Response:
+            # Trap: a disabled backend must never build a client, so this is unreachable.
+            seen_paths.append(urlsplit(str(request.url)).path)
+            return httpx.Response(200, text="<html><body>ok</body></html>")
 
-            def log_message(self, *_: object) -> None:
-                return
-
-        server = HTTPServer(("127.0.0.1", 0), CrawlHandler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            with TemporaryDirectory() as tmp:
-                with isolated_state(Path(tmp)):
-                    target = f"http://127.0.0.1:{server.server_port}/"
-                    scope.save_scope([target], "test", "Example Client")
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                target = "http://app.acme-demo.test/"
+                scope.save_scope([target], "test", "Example Client")
+                with stub_httpx(handler):
                     result = json.loads(
                         crawler_adapter.crawl(
                             {
@@ -525,58 +487,41 @@ class WebDiscoveryAdapterTests(unittest.TestCase):
                         )
                     )
 
-                    self.assertEqual(seen_paths, [])
-                    self.assertEqual(result["crawl"]["visitedCount"], 1)
-                    self.assertIn("disabled", result["crawl"]["errors"][0]["error"])
-        finally:
-            server.shutdown()
-            server.server_close()
+                self.assertEqual(seen_paths, [])
+                self.assertEqual(result["crawl"]["visitedCount"], 1)
+                self.assertIn("disabled", result["crawl"]["errors"][0]["error"])
 
     def test_crawler_extended_submits_post_forms_with_credentials_and_records_actions(self) -> None:
         seen_gets: list[str] = []
         seen_posts: list[dict[str, object]] = []
 
-        class ExtendedCrawlHandler(BaseHTTPRequestHandler):
-            def do_GET(self) -> None:
-                seen_gets.append(self.path)
-                pages = {
-                    "/": (
-                        '<html><body>'
-                        '<form method="post" action="/advanced-search">'
-                        '<input type="hidden" name="csrf_token" value="token123">'
-                        '<input name="q">'
-                        "</form>"
-                        '<form method="post" action="/admin/delete"><input name="id" value="7"></form>'
-                        "</body></html>"
-                    ),
-                    "/result": "<html><body>Result</body></html>",
-                }
-                body = pages.get(self.path, "<html><body>missing</body></html>")
-                self.send_response(200 if self.path in pages else 404)
-                self.send_header("Content-Type", "text/html")
-                self.end_headers()
-                self.wfile.write(body.encode("utf-8"))
+        def handler(request: httpx.Request) -> httpx.Response:
+            path = urlsplit(str(request.url)).path
+            if request.method == "POST":
+                seen_posts.append({"path": path, "body": request.content.decode("utf-8"), "cookie": request.headers.get("cookie", "")})
+                return httpx.Response(200, text='<html><body><a href="/result">Result</a></body></html>', headers={"content-type": "text/html"})
+            seen_gets.append(path)
+            pages = {
+                "/": (
+                    '<html><body>'
+                    '<form method="post" action="/advanced-search">'
+                    '<input type="hidden" name="csrf_token" value="token123">'
+                    '<input name="q">'
+                    "</form>"
+                    '<form method="post" action="/admin/delete"><input name="id" value="7"></form>'
+                    "</body></html>"
+                ),
+                "/result": "<html><body>Result</body></html>",
+            }
+            body = pages.get(path, "<html><body>missing</body></html>")
+            return httpx.Response(200 if path in pages else 404, text=body, headers={"content-type": "text/html"})
 
-            def do_POST(self) -> None:
-                body = self.rfile.read(int(self.headers.get("Content-Length", "0"))).decode("utf-8")
-                seen_posts.append({"path": self.path, "body": body, "cookie": self.headers.get("Cookie", "")})
-                self.send_response(200)
-                self.send_header("Content-Type", "text/html")
-                self.end_headers()
-                self.wfile.write(b'<html><body><a href="/result">Result</a></body></html>')
-
-            def log_message(self, *_: object) -> None:
-                return
-
-        server = HTTPServer(("127.0.0.1", 0), ExtendedCrawlHandler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            with TemporaryDirectory() as tmp:
-                with isolated_state(Path(tmp)):
-                    target = f"http://127.0.0.1:{server.server_port}/"
-                    scope.save_scope([target], "test", "Example Client")
-                    credentials.save_credential({"id": "auth-cookie", "type": "cookie", "secret": "sid=abc123", "scopes": [target]})
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                target = "http://app.acme-demo.test/"
+                scope.save_scope([target], "test", "Example Client")
+                credentials.save_credential({"id": "auth-cookie", "type": "cookie", "secret": "sid=abc123", "scopes": [target]})
+                with stub_httpx(handler):
                     crawler_adapter.crawl(
                         {
                             "target": target,
@@ -604,26 +549,23 @@ class WebDiscoveryAdapterTests(unittest.TestCase):
                         )
                     )
 
-                    self.assertEqual([item["path"] for item in seen_posts], ["/advanced-search"])
-                    submitted = parse_qs(str(seen_posts[0]["body"]))
-                    self.assertEqual(submitted["csrf_token"], ["token123"])
-                    self.assertEqual(submitted["q"], ["synapse"])
-                    self.assertEqual(seen_posts[0]["cookie"], "sid=abc123")
-                    self.assertIn("/result", seen_gets)
-                    self.assertEqual(result["crawl"]["postSubmissionCount"], 1)
-                    self.assertEqual(result["crawl"]["postSubmissions"][0]["submittedValues"]["csrf_token"], "[REDACTED]")
-                    self.assertTrue(any("Skipped sensitive POST form" in item.get("warning", "") for item in result["crawl"]["errors"]))
-                    actions = json.loads(workspace.target_entity_path("engagement", "127.0.0.1", "actions").read_text(encoding="utf-8"))
-                    post_actions = [item for item in actions if item.get("tool") == "crawler.extended" and item.get("method") == "POST"]
-                    self.assertEqual(len(post_actions), 1)
-                    self.assertEqual(post_actions[0]["parameterNames"], ["csrf_token", "q"])
-                    self.assertEqual(post_actions[0]["submittedValues"]["csrf_token"], "[REDACTED]")
-                    self.assertTrue(any(item.get("tool") == "crawler.extended" and item.get("type") == "tool_run" for item in actions))
-                    graph = result["flowGraph"]
-                    self.assertTrue(any(edge["type"] == "form_action" and edge["method"] == "POST" and edge["submitted"] for edge in graph["edges"]))
-        finally:
-            server.shutdown()
-            server.server_close()
+                self.assertEqual([item["path"] for item in seen_posts], ["/advanced-search"])
+                submitted = parse_qs(str(seen_posts[0]["body"]))
+                self.assertEqual(submitted["csrf_token"], ["token123"])
+                self.assertEqual(submitted["q"], ["synapse"])
+                self.assertEqual(seen_posts[0]["cookie"], "sid=abc123")
+                self.assertIn("/result", seen_gets)
+                self.assertEqual(result["crawl"]["postSubmissionCount"], 1)
+                self.assertEqual(result["crawl"]["postSubmissions"][0]["submittedValues"]["csrf_token"], "[REDACTED]")
+                self.assertTrue(any("Skipped sensitive POST form" in item.get("warning", "") for item in result["crawl"]["errors"]))
+                actions = json.loads(workspace.target_entity_path("engagement", "app.acme-demo.test", "actions").read_text(encoding="utf-8"))
+                post_actions = [item for item in actions if item.get("tool") == "crawler.extended" and item.get("method") == "POST"]
+                self.assertEqual(len(post_actions), 1)
+                self.assertEqual(post_actions[0]["parameterNames"], ["csrf_token", "q"])
+                self.assertEqual(post_actions[0]["submittedValues"]["csrf_token"], "[REDACTED]")
+                self.assertTrue(any(item.get("tool") == "crawler.extended" and item.get("type") == "tool_run" for item in actions))
+                graph = result["flowGraph"]
+                self.assertTrue(any(edge["type"] == "form_action" and edge["method"] == "POST" and edge["submitted"] for edge in graph["edges"]))
 
     def test_crawler_extended_requires_previous_crawl(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -877,52 +819,42 @@ class WebDiscoveryAdapterTests(unittest.TestCase):
             command_injection_adapter.prepare_replay({**args, "payload": "; id"})
 
     def test_command_injection_execute_test_requires_confirmation_and_records_marker(self) -> None:
-        class EchoHandler(BaseHTTPRequestHandler):
-            def do_GET(self) -> None:
-                query = parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
-                value = query.get("host", [""])[0]
-                self.send_response(200)
-                self.end_headers()
-                # Simulate a vulnerable diagnostic endpoint: a "; echo <marker>"
-                # injection is executed by the shell, emitting the marker as command
-                # output (without the literal "echo " prefix) rather than reflecting
-                # the payload verbatim.
-                body = ("ping ok\n" + value.split("; echo ", 1)[1]) if "; echo " in value else value
-                self.wfile.write(body.encode("utf-8"))
+        def handler(request: httpx.Request) -> httpx.Response:
+            query = parse_qs(urlsplit(str(request.url)).query)
+            value = query.get("host", [""])[0]
+            # Simulate a vulnerable diagnostic endpoint: a "; echo <marker>" injection is
+            # executed by the shell, emitting the marker as command output (without the
+            # literal "echo " prefix) rather than reflecting the payload verbatim.
+            body = ("ping ok\n" + value.split("; echo ", 1)[1]) if "; echo " in value else value
+            return httpx.Response(200, text=body)
 
-            def log_message(self, *_: object) -> None:
-                return
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                target = "http://app.acme-demo.test/diag?host=127.0.0.1"
+                scope.save_scope([target], "test", "Example Client")
+                base_args = {
+                    "workspaceId": "engagement",
+                    "url": target,
+                    "method": "GET",
+                    "parameter": "host",
+                    "location": "query",
+                    "osFamily": "unix",
+                    "marker": "SYNAPSE_TEST",
+                }
+                with self.assertRaisesRegex(Exception, "confirm=true"):
+                    command_injection_adapter.execute_test({**base_args, "confirm": False})
+                with self.assertRaisesRegex(Exception, "built-in benign payloads"):
+                    command_injection_adapter.execute_test(
+                        {
+                            **base_args,
+                            "payload": "; id",
+                            "confirm": True,
+                            "approvalReason": "Unit test rejected non-benign payload",
+                            "riskTier": "low",
+                        }
+                    )
 
-        server = HTTPServer(("127.0.0.1", 0), EchoHandler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            with TemporaryDirectory() as tmp:
-                with isolated_state(Path(tmp)):
-                    target = f"http://127.0.0.1:{server.server_port}/diag?host=127.0.0.1"
-                    scope.save_scope([target], "test", "Example Client")
-                    base_args = {
-                        "workspaceId": "engagement",
-                        "url": target,
-                        "method": "GET",
-                        "parameter": "host",
-                        "location": "query",
-                        "osFamily": "unix",
-                        "marker": "SYNAPSE_TEST",
-                    }
-                    with self.assertRaisesRegex(Exception, "confirm=true"):
-                        command_injection_adapter.execute_test({**base_args, "confirm": False})
-                    with self.assertRaisesRegex(Exception, "built-in benign payloads"):
-                        command_injection_adapter.execute_test(
-                            {
-                                **base_args,
-                                "payload": "; id",
-                                "confirm": True,
-                                "approvalReason": "Unit test rejected non-benign payload",
-                                "riskTier": "low",
-                            }
-                        )
-
+                with stub_httpx(handler):
                     result = json.loads(
                         command_injection_adapter.execute_test(
                             {
@@ -934,42 +866,30 @@ class WebDiscoveryAdapterTests(unittest.TestCase):
                         )
                     )
 
-                    self.assertTrue(result["test"]["observedMarker"])
-                    self.assertEqual(result["test"]["assessment"], "possible_command_injection")
-                    self.assertIn("bodySha256", result["test"]["response"])
-                    self.assertNotIn("body", result["test"]["response"])
-                    exchange_path = Path(result["test"]["exchangeEvidence"]["rawPath"])
-                    self.assertTrue(exchange_path.exists())
-                    self.assertIn("SYNAPSE_SYNAPSE_TEST", exchange_path.read_text(encoding="utf-8"))
-                    context = workspace.prepare_target_context("engagement", "127.0.0.1")
-                    observation_types = {item["type"] for item in context["observations"]}
-                    self.assertIn("possible_command_injection", observation_types)
-        finally:
-            server.shutdown()
-            server.server_close()
+                self.assertTrue(result["test"]["observedMarker"])
+                self.assertEqual(result["test"]["assessment"], "possible_command_injection")
+                self.assertIn("bodySha256", result["test"]["response"])
+                self.assertNotIn("body", result["test"]["response"])
+                exchange_path = Path(result["test"]["exchangeEvidence"]["rawPath"])
+                self.assertTrue(exchange_path.exists())
+                self.assertIn("SYNAPSE_SYNAPSE_TEST", exchange_path.read_text(encoding="utf-8"))
+                context = workspace.prepare_target_context("engagement", "app.acme-demo.test")
+                observation_types = {item["type"] for item in context["observations"]}
+                self.assertIn("possible_command_injection", observation_types)
 
     def test_command_injection_execute_test_does_not_flag_pure_reflection(self) -> None:
-        class ReflectHandler(BaseHTTPRequestHandler):
-            def do_GET(self) -> None:
-                query = parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
-                self.send_response(200)
-                self.end_headers()
-                # Reflect the parameter verbatim: the marker appears only as part of
-                # the literal "echo <marker>" payload, which is reflection, not
-                # command execution, and must not be flagged.
-                self.wfile.write(f"searched for: {query.get('host', [''])[0]}".encode("utf-8"))
+        def handler(request: httpx.Request) -> httpx.Response:
+            query = parse_qs(urlsplit(str(request.url)).query)
+            # Reflect the parameter verbatim: the marker appears only as part of the
+            # literal "echo <marker>" payload, which is reflection, not command
+            # execution, and must not be flagged.
+            return httpx.Response(200, text=f"searched for: {query.get('host', [''])[0]}")
 
-            def log_message(self, *_: object) -> None:
-                return
-
-        server = HTTPServer(("127.0.0.1", 0), ReflectHandler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            with TemporaryDirectory() as tmp:
-                with isolated_state(Path(tmp)):
-                    target = f"http://127.0.0.1:{server.server_port}/diag?host=127.0.0.1"
-                    scope.save_scope([target], "test", "Example Client")
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                target = "http://app.acme-demo.test/diag?host=127.0.0.1"
+                scope.save_scope([target], "test", "Example Client")
+                with stub_httpx(handler):
                     result = json.loads(
                         command_injection_adapter.execute_test(
                             {
@@ -986,47 +906,33 @@ class WebDiscoveryAdapterTests(unittest.TestCase):
                             }
                         )
                     )
-                    self.assertFalse(result["test"]["observedMarker"])
-                    self.assertEqual(result["test"]["assessment"], "inconclusive")
-        finally:
-            server.shutdown()
-            server.server_close()
+                self.assertFalse(result["test"]["observedMarker"])
+                self.assertEqual(result["test"]["assessment"], "inconclusive")
 
     def test_xss_execute_test_requires_confirmation_and_records_reflection(self) -> None:
-        class ReflectHandler(BaseHTTPRequestHandler):
-            def do_GET(self) -> None:
-                query = parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
-                body = f"<html><body>{query.get('q', [''])[0]}</body></html>"
-                self.send_response(200)
-                self.send_header("Content-Type", "text/html")
-                self.send_header("Set-Cookie", "returned=server-secret; Path=/")
-                self.end_headers()
-                self.wfile.write(body.encode("utf-8"))
+        def handler(request: httpx.Request) -> httpx.Response:
+            query = parse_qs(urlsplit(str(request.url)).query)
+            body = f"<html><body>{query.get('q', [''])[0]}</body></html>"
+            return httpx.Response(200, text=body, headers={"content-type": "text/html", "set-cookie": "returned=server-secret; Path=/"})
 
-            def log_message(self, *_: object) -> None:
-                return
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                target = "http://app.acme-demo.test/search?q=hello"
+                scope.save_scope([target], "test", "Example Client")
+                credentials.save_credential({"id": "xss-cookie", "type": "cookie", "secret": "sid=xss-secret", "scopes": [target]})
+                base_args = {
+                    "workspaceId": "engagement",
+                    "url": target,
+                    "method": "GET",
+                    "parameter": "q",
+                    "location": "query",
+                    "marker": "UNIT",
+                    "credentialId": "xss-cookie",
+                }
+                with self.assertRaisesRegex(Exception, "confirm=true"):
+                    xss_adapter.execute_test({**base_args, "confirm": False})
 
-        server = HTTPServer(("127.0.0.1", 0), ReflectHandler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            with TemporaryDirectory() as tmp:
-                with isolated_state(Path(tmp)):
-                    target = f"http://127.0.0.1:{server.server_port}/search?q=hello"
-                    scope.save_scope([target], "test", "Example Client")
-                    credentials.save_credential({"id": "xss-cookie", "type": "cookie", "secret": "sid=xss-secret", "scopes": [target]})
-                    base_args = {
-                        "workspaceId": "engagement",
-                        "url": target,
-                        "method": "GET",
-                        "parameter": "q",
-                        "location": "query",
-                        "marker": "UNIT",
-                        "credentialId": "xss-cookie",
-                    }
-                    with self.assertRaisesRegex(Exception, "confirm=true"):
-                        xss_adapter.execute_test({**base_args, "confirm": False})
-
+                with stub_httpx(handler):
                     result = json.loads(
                         xss_adapter.execute_test(
                             {
@@ -1048,13 +954,13 @@ class WebDiscoveryAdapterTests(unittest.TestCase):
                     self.assertIn('"set-cookie": "<redacted>"', exchange_text)
                     self.assertNotIn("xss-secret", exchange_text)
                     self.assertNotIn("server-secret", exchange_text)
-                    context = workspace.prepare_target_context("engagement", "127.0.0.1")
+                    context = workspace.prepare_target_context("engagement", "app.acme-demo.test")
                     action_tools = {item["tool"] for item in context["recentActions"]}
                     self.assertIn("xss.execute_test", action_tools)
 
                     workspace.ingest_data(
                         "engagement",
-                        "127.0.0.1",
+                        "app.acme-demo.test",
                         "adapter_result",
                         "passive_analysis",
                         "json",
@@ -1080,7 +986,7 @@ class WebDiscoveryAdapterTests(unittest.TestCase):
                         xss_adapter.execute_test(
                             {
                                 "workspaceId": "engagement",
-                                "target": "127.0.0.1",
+                                "target": "app.acme-demo.test",
                                 "candidateId": "xss_stored_search_q",
                                 "confirm": True,
                                 "approvalReason": "Unit test benign stored XSS candidate probe",
@@ -1090,43 +996,31 @@ class WebDiscoveryAdapterTests(unittest.TestCase):
                     )
                     self.assertEqual(stored["test"]["candidate"]["candidateId"], "xss_stored_search_q")
                     self.assertEqual(stored["test"]["assessment"], "possible_xss")
-        finally:
-            server.shutdown()
-            server.server_close()
 
     def test_open_redirect_execute_test_captures_external_location_without_following(self) -> None:
-        class RedirectHandler(BaseHTTPRequestHandler):
-            def do_GET(self) -> None:
-                query = parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
-                self.send_response(302)
-                self.send_header("Location", query.get("next", ["/"])[0])
-                self.end_headers()
+        def handler(request: httpx.Request) -> httpx.Response:
+            query = parse_qs(urlsplit(str(request.url)).query)
+            return httpx.Response(302, headers={"location": query.get("next", ["/"])[0]})
 
-            def log_message(self, *_: object) -> None:
-                return
-
-        server = HTTPServer(("127.0.0.1", 0), RedirectHandler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            with TemporaryDirectory() as tmp:
-                with isolated_state(Path(tmp)):
-                    target = f"http://127.0.0.1:{server.server_port}/redirect?next=/home"
-                    scope.save_scope([target], "test", "Example Client")
-                    with self.assertRaisesRegex(Exception, "external host"):
-                        open_redirect_adapter.execute_test(
-                            {
-                                "workspaceId": "engagement",
-                                "url": target,
-                                "method": "GET",
-                                "parameter": "next",
-                                "location": "query",
-                                "externalUrl": "javascript:alert(1)",
-                                "confirm": True,
-                                "approvalReason": "Unit test rejected non-http redirect payload",
-                                "riskTier": "low",
-                            }
-                        )
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                target = "http://app.acme-demo.test/redirect?next=/home"
+                scope.save_scope([target], "test", "Example Client")
+                with self.assertRaisesRegex(Exception, "external host"):
+                    open_redirect_adapter.execute_test(
+                        {
+                            "workspaceId": "engagement",
+                            "url": target,
+                            "method": "GET",
+                            "parameter": "next",
+                            "location": "query",
+                            "externalUrl": "javascript:alert(1)",
+                            "confirm": True,
+                            "approvalReason": "Unit test rejected non-http redirect payload",
+                            "riskTier": "low",
+                        }
+                    )
+                with stub_httpx(handler):
                     result = json.loads(
                         open_redirect_adapter.execute_test(
                             {
@@ -1144,63 +1038,46 @@ class WebDiscoveryAdapterTests(unittest.TestCase):
                         )
                     )
 
-                    self.assertEqual(result["test"]["assessment"], "open_redirect_observed")
-                    self.assertEqual(result["test"]["response"]["status"], 302)
-                    self.assertEqual(result["test"]["response"]["headers"]["location"], "https://example.org/")
-                    context = workspace.prepare_target_context("engagement", "127.0.0.1")
-                    action_tools = {item["tool"] for item in context["recentActions"]}
-                    self.assertIn("open_redirect.execute_test", action_tools)
-        finally:
-            server.shutdown()
-            server.server_close()
+                self.assertEqual(result["test"]["assessment"], "open_redirect_observed")
+                self.assertEqual(result["test"]["response"]["status"], 302)
+                self.assertEqual(result["test"]["response"]["headers"]["location"], "https://example.org/")
+                context = workspace.prepare_target_context("engagement", "app.acme-demo.test")
+                action_tools = {item["tool"] for item in context["recentActions"]}
+                self.assertIn("open_redirect.execute_test", action_tools)
 
     def test_ssrf_execute_test_requires_external_callback_and_records_probe(self) -> None:
-        class FetchHandler(BaseHTTPRequestHandler):
-            def do_GET(self) -> None:
-                query = parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
-                target_url = query.get("url", [""])[0]
-                body = f"fetch failed getaddrinfo {target_url}"
-                self.send_response(200)
-                self.send_header("Content-Type", "text/plain")
-                self.end_headers()
-                self.wfile.write(body.encode("utf-8"))
+        def handler(request: httpx.Request) -> httpx.Response:
+            query = parse_qs(urlsplit(str(request.url)).query)
+            target_url = query.get("url", [""])[0]
+            return httpx.Response(200, text=f"fetch failed getaddrinfo {target_url}", headers={"content-type": "text/plain"})
 
-            def log_message(self, *_: object) -> None:
-                return
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                target = "http://app.acme-demo.test/fetch?url=https://initial.example/"
+                scope.save_scope([target], "test", "Example Client")
+                base_args = {
+                    "workspaceId": "engagement",
+                    "url": target,
+                    "method": "GET",
+                    "parameter": "url",
+                    "location": "query",
+                    "confirm": True,
+                    "approvalReason": "Unit test SSRF canary probe",
+                    "riskTier": "low",
+                }
+                with self.assertRaisesRegex(Exception, "callbackBaseUrl or callbackUrl"):
+                    ssrf_adapter.execute_test(base_args)
+                with self.assertRaisesRegex(Exception, "private or special-purpose"):
+                    ssrf_adapter.execute_test({**base_args, "callbackBaseUrl": "http://127.0.0.1/cb"})
 
-        server = HTTPServer(("127.0.0.1", 0), FetchHandler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            with TemporaryDirectory() as tmp:
-                with isolated_state(Path(tmp)):
-                    target = f"http://127.0.0.1:{server.server_port}/fetch?url=https://initial.example/"
-                    scope.save_scope([target], "test", "Example Client")
-                    base_args = {
-                        "workspaceId": "engagement",
-                        "url": target,
-                        "method": "GET",
-                        "parameter": "url",
-                        "location": "query",
-                        "confirm": True,
-                        "approvalReason": "Unit test SSRF canary probe",
-                        "riskTier": "low",
-                    }
-                    with self.assertRaisesRegex(Exception, "callbackBaseUrl or callbackUrl"):
-                        ssrf_adapter.execute_test(base_args)
-                    with self.assertRaisesRegex(Exception, "private or special-purpose"):
-                        ssrf_adapter.execute_test({**base_args, "callbackBaseUrl": "http://127.0.0.1/cb"})
-
+                with stub_httpx(handler):
                     result = json.loads(ssrf_adapter.execute_test({**base_args, "callbackBaseUrl": "https://canary.example.test/base"}))
 
-                    self.assertEqual(result["test"]["assessment"], "possible_ssrf_behavior")
-                    self.assertIn("verificationRequired", result["test"])
-                    exchange_path = Path(result["test"]["exchangeEvidence"]["rawPath"])
-                    self.assertTrue(exchange_path.exists())
-                    self.assertIn("canary.example.test", exchange_path.read_text(encoding="utf-8"))
-        finally:
-            server.shutdown()
-            server.server_close()
+                self.assertEqual(result["test"]["assessment"], "possible_ssrf_behavior")
+                self.assertIn("verificationRequired", result["test"])
+                exchange_path = Path(result["test"]["exchangeEvidence"]["rawPath"])
+                self.assertTrue(exchange_path.exists())
+                self.assertIn("canary.example.test", exchange_path.read_text(encoding="utf-8"))
 
     def test_lfi_below_threshold_parameter_is_not_auto_candidate(self) -> None:
         # Path-only signal scores 35 — below the tightened default threshold (45), so it
@@ -1250,100 +1127,62 @@ class WebDiscoveryAdapterTests(unittest.TestCase):
         return next(obs for obs in entities["observations"] if obs.get("type") == "test_candidate")
 
     def test_lfi_execute_test_with_no_signal_refutes_surface_candidate(self) -> None:
-        class SameHandler(BaseHTTPRequestHandler):
-            def do_GET(self) -> None:
-                self.send_response(200)
-                self.send_header("Content-Type", "text/plain")
-                self.end_headers()
-                self.wfile.write(b"identical body for every payload")
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, text="identical body for every payload", headers={"content-type": "text/plain"})
 
-            def log_message(self, *_: object) -> None:
-                return
-
-        server = HTTPServer(("127.0.0.1", 0), SameHandler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            with TemporaryDirectory() as tmp:
-                with isolated_state(Path(tmp)):
-                    target = f"http://127.0.0.1:{server.server_port}/download?file=x"
-                    scope.save_scope([target], "test", "Example Client")
-                    host = workspace.normalize_target(target)
-                    self._seed_surface_candidate(target, "lfi", "file")
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                target = "http://app.acme-demo.test/download?file=x"
+                scope.save_scope([target], "test", "Example Client")
+                host = workspace.normalize_target(target)
+                self._seed_surface_candidate(target, "lfi", "file")
+                with stub_httpx(handler):
                     lfi_rfi.execute_test({
                         "workspaceId": "engagement", "url": target, "method": "GET",
                         "parameter": "file", "location": "query", "confirm": True,
                         "approvalReason": "Unit test benign LFI probe", "riskTier": "low",
                     })
-                    candidate = self._surface_test_candidate(host)
-                    self.assertEqual(candidate["candidateDetails"]["lfi"]["validationStatus"], "refuted")
-                    self.assertNotIn("lfi", candidate["candidateFor"])
-                    self.assertIs(candidate["isReportable"], False)
-        finally:
-            server.shutdown()
-            server.server_close()
+                candidate = self._surface_test_candidate(host)
+                self.assertEqual(candidate["candidateDetails"]["lfi"]["validationStatus"], "refuted")
+                self.assertNotIn("lfi", candidate["candidateFor"])
+                self.assertIs(candidate["isReportable"], False)
 
     def test_ssti_execute_test_with_signal_confirms_surface_candidate(self) -> None:
-        class EvalHandler(BaseHTTPRequestHandler):
-            def do_GET(self) -> None:
-                query = parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
-                payload = query.get("name", [""])[0]
-                # Evaluate {{7*7}}-style arithmetic so the response contains 49 without echoing the payload.
-                body = "Hello 49" if "7*7" in payload or "7%2A7" in payload else "Hello guest"
-                self.send_response(200)
-                self.send_header("Content-Type", "text/html")
-                self.end_headers()
-                self.wfile.write(body.encode("utf-8"))
+        def handler(request: httpx.Request) -> httpx.Response:
+            payload = parse_qs(urlsplit(str(request.url)).query).get("name", [""])[0]
+            # Evaluate {{7*7}}-style arithmetic so the response contains 49 without echoing the payload.
+            body = "Hello 49" if "7*7" in payload or "7%2A7" in payload else "Hello guest"
+            return httpx.Response(200, text=body, headers={"content-type": "text/html"})
 
-            def log_message(self, *_: object) -> None:
-                return
-
-        server = HTTPServer(("127.0.0.1", 0), EvalHandler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            with TemporaryDirectory() as tmp:
-                with isolated_state(Path(tmp)):
-                    target = f"http://127.0.0.1:{server.server_port}/greet?name=guest"
-                    scope.save_scope([target], "test", "Example Client")
-                    host = workspace.normalize_target(target)
-                    self._seed_surface_candidate(target, "ssti", "name")
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                target = "http://app.acme-demo.test/greet?name=guest"
+                scope.save_scope([target], "test", "Example Client")
+                host = workspace.normalize_target(target)
+                self._seed_surface_candidate(target, "ssti", "name")
+                with stub_httpx(handler):
                     result = json.loads(ssti.execute_test({
                         "workspaceId": "engagement", "url": target, "method": "GET",
                         "parameter": "name", "location": "query", "confirm": True,
                         "approvalReason": "Unit test benign SSTI probe", "riskTier": "low",
                     }))
-                    self.assertEqual(result["validation"]["outcome"], "confirmed")
-                    self.assertIsNotNone(result["validation"]["findingDraft"])
-                    candidate = self._surface_test_candidate(host)
-                    self.assertEqual(candidate["candidateDetails"]["ssti"]["validationStatus"], "confirmed")
-                    self.assertIn("ssti", candidate["candidateFor"])
-        finally:
-            server.shutdown()
-            server.server_close()
+                self.assertEqual(result["validation"]["outcome"], "confirmed")
+                self.assertIsNotNone(result["validation"]["findingDraft"])
+                candidate = self._surface_test_candidate(host)
+                self.assertEqual(candidate["candidateDetails"]["ssti"]["validationStatus"], "confirmed")
+                self.assertIn("ssti", candidate["candidateFor"])
 
     def test_xxe_execute_test_uses_benign_in_band_entity_payload(self) -> None:
-        class XmlHandler(BaseHTTPRequestHandler):
-            def do_POST(self) -> None:
-                length = int(self.headers.get("Content-Length", "0") or "0")
-                body = self.rfile.read(length).decode("utf-8")
-                response = "SYNAPSE_XXE_UNIT" if "<!ENTITY synapse" in body else "ok"
-                self.send_response(200)
-                self.send_header("Content-Type", "application/xml")
-                self.end_headers()
-                self.wfile.write(response.encode("utf-8"))
+        def handler(request: httpx.Request) -> httpx.Response:
+            body = request.content.decode("utf-8")
+            response = "SYNAPSE_XXE_UNIT" if "<!ENTITY synapse" in body else "ok"
+            return httpx.Response(200, text=response, headers={"content-type": "application/xml"})
 
-            def log_message(self, *_: object) -> None:
-                return
-
-        server = HTTPServer(("127.0.0.1", 0), XmlHandler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            with TemporaryDirectory() as tmp:
-                with isolated_state(Path(tmp)):
-                    target = f"http://127.0.0.1:{server.server_port}/xml"
-                    scope.save_scope([target], "test", "Example Client")
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                target = "http://app.acme-demo.test/xml"
+                scope.save_scope([target], "test", "Example Client")
+                with stub_httpx(handler):
                     result = json.loads(
                         xxe.execute_test(
                             {
@@ -1358,15 +1197,12 @@ class WebDiscoveryAdapterTests(unittest.TestCase):
                         )
                     )
 
-                    self.assertEqual(result["test"]["assessment"], "xml_entity_expansion_observed")
-                    exchange_path = Path(result["test"]["exchangeEvidence"]["rawPath"])
-                    self.assertTrue(exchange_path.exists())
-                    exchange_text = exchange_path.read_text(encoding="utf-8")
-                    self.assertIn("<!ENTITY synapse", exchange_text)
-                    self.assertNotIn("/etc/passwd", exchange_text)
-        finally:
-            server.shutdown()
-            server.server_close()
+                self.assertEqual(result["test"]["assessment"], "xml_entity_expansion_observed")
+                exchange_path = Path(result["test"]["exchangeEvidence"]["rawPath"])
+                self.assertTrue(exchange_path.exists())
+                exchange_text = exchange_path.read_text(encoding="utf-8")
+                self.assertIn("<!ENTITY synapse", exchange_text)
+                self.assertNotIn("/etc/passwd", exchange_text)
 
 
 class SpecImportAdapterTests(unittest.TestCase):
@@ -1978,29 +1814,20 @@ class CorsAdapterTests(unittest.TestCase):
                     cors.execute_test({"url": "https://example.com/api", "workspaceId": "engagement"})
 
     def test_execute_test_detects_origin_reflection(self) -> None:
-        class ReflectingHandler(BaseHTTPRequestHandler):
-            def do_GET(self) -> None:
-                origin = self.headers.get("Origin", "")
-                self.send_response(200)
-                if self.path == "/reflect":
-                    self.send_header("Access-Control-Allow-Origin", origin)
-                    self.send_header("Access-Control-Allow-Credentials", "true")
-                else:
-                    self.send_header("Access-Control-Allow-Origin", "https://trusted.example")
-                self.end_headers()
-                self.wfile.write(b"ok")
+        def handler(request: httpx.Request) -> httpx.Response:
+            origin = request.headers.get("origin", "")
+            path = urlsplit(str(request.url)).path
+            if path == "/reflect":
+                headers = {"access-control-allow-origin": origin, "access-control-allow-credentials": "true"}
+            else:
+                headers = {"access-control-allow-origin": "https://trusted.example"}
+            return httpx.Response(200, text="ok", headers=headers)
 
-            def log_message(self, *_: object) -> None:
-                return
-
-        server = HTTPServer(("127.0.0.1", 0), ReflectingHandler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            with TemporaryDirectory() as tmp:
-                with isolated_state(Path(tmp)):
-                    base = f"http://127.0.0.1:{server.server_port}"
-                    scope.save_scope([base], "test")
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                base = "http://app.acme-demo.test"
+                scope.save_scope([base], "test")
+                with stub_httpx(handler):
                     reflected = json.loads(
                         cors.execute_test(
                             {
@@ -2029,14 +1856,11 @@ class CorsAdapterTests(unittest.TestCase):
                             }
                         )
                     )
-                    self.assertEqual(fixed["test"]["assessment"], "inconclusive")
-                    observation_types = {
-                        o["type"] for o in workspace._load_target_entities("engagement", "127.0.0.1")["observations"]
-                    }
-                    self.assertIn("possible_cors_misconfiguration", observation_types)
-        finally:
-            server.shutdown()
-            server.server_close()
+                self.assertEqual(fixed["test"]["assessment"], "inconclusive")
+                observation_types = {
+                    o["type"] for o in workspace._load_target_entities("engagement", "app.acme-demo.test")["observations"]
+                }
+                self.assertIn("possible_cors_misconfiguration", observation_types)
 
 
 if __name__ == "__main__":
