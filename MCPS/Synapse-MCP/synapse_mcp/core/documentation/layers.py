@@ -34,6 +34,42 @@ def _short_local_path(path: Any) -> str:
     return normalized.rsplit("/", 1)[-1] if "/" in normalized else normalized
 
 
+def _evidence_path_map(workspace_id: str, target: str) -> dict[str, str]:
+    """Map evidenceId -> stored raw-evidence path for one target (best-effort)."""
+    evidence_dir = workspace.target_path(workspace_id, target) / "evidence"
+    mapping: dict[str, str] = {}
+    if not evidence_dir.exists():
+        return mapping
+    for meta_path in sorted(evidence_dir.glob("ev_*.json")):
+        record = workspace._read_json(meta_path, {})
+        if isinstance(record, dict) and record.get("evidenceId"):
+            mapping[str(record["evidenceId"])] = str(record.get("rawPath", "") or "")
+    return mapping
+
+
+def _evidence_paths(evidence_ids: Any, path_map: dict[str, str]) -> str:
+    """Workspace-relative evidence file link(s). Operator-only via the Local Path column."""
+    ids = evidence_ids if isinstance(evidence_ids, list) else []
+    paths = [_short_local_path(path_map[str(eid)]) for eid in ids if str(eid) in path_map and path_map[str(eid)]]
+    return _join(_dedupe_strings(paths), limit=3) or "not linked"
+
+
+def _finding_justification(finding: dict[str, Any]) -> str:
+    """Why this is a finding: description/reason plus impact, so a reviewer can acknowledge it."""
+    parts: list[str] = []
+    description = str(finding.get("description") or finding.get("reason") or "").strip()
+    if not description:
+        reasons = finding.get("reasons")
+        if isinstance(reasons, list) and reasons:
+            description = "; ".join(str(item) for item in reasons[:2] if str(item).strip())
+    if description:
+        parts.append(description)
+    impact = str(finding.get("impact") or "").strip()
+    if impact:
+        parts.append(f"Impact: {impact}")
+    return " — ".join(parts) or "No justification recorded."
+
+
 def list_layers(_: dict[str, Any] | None = None) -> dict[str, Any]:
     return {
         "layers": [
@@ -566,6 +602,7 @@ def _web_vulnerabilities_layer(args: dict[str, Any]) -> dict[str, Any]:
     target_contexts = []
     candidate_rows: list[list[Any]] = []
     finding_rows: list[list[Any]] = []
+    high_confidence_rows: list[list[Any]] = []
     gaps: list[str] = []
     steps: list[str] = []
     module_counts: dict[str, int] = {}
@@ -586,8 +623,13 @@ def _web_vulnerabilities_layer(args: dict[str, Any]) -> dict[str, Any]:
             for module in modules:
                 target_candidates_by_module.setdefault(module, []).append(observation)
         candidate_rows.extend(_web_vulnerability_summary_rows(target, target_candidates_by_module))
+        path_map = _evidence_path_map(wid, target)
         target_findings = [item for item in entities["findings"] if isinstance(item, dict)]
         for finding in target_findings:
+            evidence_id_list = finding.get("evidenceIds", [])
+            evidence_label = _join(evidence_id_list, limit=3) or "not recorded"
+            if finding.get("missingEvidenceIds"):
+                evidence_label = f"{evidence_label} (missing: {_join(finding['missingEvidenceIds'], limit=2)})"
             finding_rows.append(
                 [
                     target,
@@ -595,9 +637,12 @@ def _web_vulnerabilities_layer(args: dict[str, Any]) -> dict[str, Any]:
                     finding.get("title", ""),
                     finding.get("status", ""),
                     _join(finding.get("affectedAssets", []), limit=4) or target,
-                    _join(finding.get("evidenceIds", []), limit=3) or "not recorded",
+                    _finding_justification(finding),
+                    evidence_label,
+                    _evidence_paths(evidence_id_list, path_map),
                 ]
             )
+        high_confidence_rows.extend(_high_confidence_candidate_rows(target, target_candidates, path_map))
         target_gaps = _web_vulnerability_gaps(target, entities, target_modules)
         target_steps = _web_vulnerability_steps(target, target_modules, target_gaps)
         gaps.extend(target_gaps)
@@ -630,7 +675,14 @@ def _web_vulnerabilities_layer(args: dict[str, Any]) -> dict[str, Any]:
                 candidate_rows,
                 group_by="Module",
             ),
-            _section("reviewed_findings", "Workspace Findings", "table", headers=["Host", "Severity", "Title", "Status", "Affected Assets", "Evidence"], rows=finding_rows),
+            _section(
+                "confirmed_high_confidence_candidates",
+                "Confirmed & High-Confidence Candidates",
+                "table",
+                headers=["Host", "Surface", "Candidate For", "Priority", "Confidence", "Validation", "Why", "Evidence", "Local Path"],
+                rows=high_confidence_rows,
+            ),
+            _section("reviewed_findings", "Workspace Findings", "table", headers=["Host", "Severity", "Title", "Status", "Affected Assets", "Why", "Evidence", "Local Path"], rows=finding_rows),
         ],
         gaps=_dedupe_strings(gaps),
         recommended_next_steps=_dedupe_strings(steps),
@@ -830,6 +882,47 @@ def _web_vulnerability_summary_rows(target: str, candidates_by_module: dict[str,
                 _join(_dedupe_strings(candidate_for), limit=6) or module,
                 _join(_dedupe_strings([str(item) for item in evidence_ids]), limit=3) or "not recorded",
                 _candidate_report_reason(top),
+            ]
+        )
+    return rows
+
+
+def _candidate_validation_summary(candidate: dict[str, Any]) -> str:
+    details = candidate.get("candidateDetails")
+    if isinstance(details, dict) and details:
+        parts = [f"{cls}:{detail.get('validationStatus', 'proposed')}" for cls, detail in details.items() if isinstance(detail, dict)]
+        return ", ".join(sorted(parts)) if parts else str(candidate.get("validationStatus", "proposed"))
+    return str(candidate.get("validationStatus", "proposed"))
+
+
+def _candidate_is_high_confidence(candidate: dict[str, Any]) -> bool:
+    if str(candidate.get("confidence", "")).strip().lower() == "high":
+        return True
+    if _candidate_priority(candidate) in {"high", "critical"}:
+        return True
+    details = candidate.get("candidateDetails")
+    if isinstance(details, dict):
+        return any(isinstance(detail, dict) and detail.get("validationStatus") == "confirmed" for detail in details.values())
+    return str(candidate.get("validationStatus", "")) == "confirmed"
+
+
+def _high_confidence_candidate_rows(target: str, candidates: list[dict[str, Any]], path_map: dict[str, str]) -> list[list[Any]]:
+    rows: list[list[Any]] = []
+    for candidate in sorted((item for item in candidates if isinstance(item, dict)), key=_candidate_report_sort_key):
+        if not _candidate_is_high_confidence(candidate):
+            continue
+        classes = candidate.get("candidateModules") or ([candidate.get("candidateModule")] if candidate.get("candidateModule") else [])
+        rows.append(
+            [
+                target,
+                _candidate_surface_label(candidate),
+                _join(_dedupe_strings([str(cls) for cls in classes if str(cls)]), limit=6) or "—",
+                _candidate_priority(candidate),
+                str(candidate.get("confidence", "")) or "—",
+                _candidate_validation_summary(candidate),
+                _candidate_report_reason(candidate) or "No justification recorded.",
+                _join(candidate.get("evidenceIds", []), limit=3) or "not recorded",
+                _evidence_paths(candidate.get("evidenceIds", []), path_map),
             ]
         )
     return rows

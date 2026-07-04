@@ -192,6 +192,61 @@ class DocumentationTests(unittest.TestCase):
                 candidate_section = next(section for section in report["sections"] if section["sectionId"] == "web_vulnerability_candidates")
                 self.assertEqual({group["category"] for group in candidate_section["metadata"]["groups"]}, {"xss", "sqli"})
 
+    def test_web_vulnerability_layer_justifies_findings_and_high_confidence_candidates(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                from synapse_mcp.core.adapters import surface_candidate
+
+                candidate = surface_candidate(
+                    vuln_class="ssrf", url="https://app.example.com/fetch?target=1", method="GET",
+                    parameter="target", location="query", reason="URL-fetch parameter reaches internal metadata service.",
+                    priority="high", priority_score=85,
+                )
+                ingestion = workspace.ingest_data(
+                    "engagement", "app.example.com", "adapter_result", "passive_analysis", "json",
+                    json.dumps({"entities": {
+                        "observations": [candidate],
+                        "findings": [{
+                            "type": "finding", "title": "Reflected XSS in search", "status": "confirmed",
+                            "severity": "high", "description": "The q parameter is reflected without encoding.",
+                            "impact": "Session theft via crafted link.", "affectedAssets": ["app.example.com"],
+                        }],
+                    }}),
+                )
+                evidence_id = ingestion["evidenceId"]
+                # Confirm the ssrf class so the candidate is high-confidence.
+                workspace.record_candidate_validation(
+                    "engagement", "app.example.com", {"candidateId": candidate["candidateId"]}, "confirmed", vuln_class="ssrf",
+                )
+
+                context = json.loads(
+                    stdio_server.call_tool(
+                        "documentation.build_layer_report_context",
+                        {"workspaceId": "engagement", "target": "app.example.com", "layer": "web_vulnerabilities", "redactionMode": "internal"},
+                    )
+                )
+                report = context["layerReport"]
+                sections = {section["sectionId"]: section for section in report["sections"]}
+
+                findings_section = sections["reviewed_findings"]
+                self.assertIn("Why", findings_section["headers"])
+                self.assertIn("Local Path", findings_section["headers"])
+                finding_row = findings_section["rows"][0]
+                self.assertIn("reflected without encoding", " ".join(str(cell) for cell in finding_row))
+                self.assertIn("Session theft", " ".join(str(cell) for cell in finding_row))
+                self.assertIn(evidence_id, str(finding_row[6]))  # Evidence column carries the id
+                self.assertNotEqual(str(finding_row[7]), "not linked")  # Local Path resolved to the evidence file
+
+                high_conf = sections["confirmed_high_confidence_candidates"]
+                self.assertTrue(high_conf["rows"])
+                hc_row = " ".join(str(cell) for cell in high_conf["rows"][0])
+                self.assertIn("ssrf:confirmed", hc_row)
+                self.assertIn("metadata service", hc_row)
+
+                # Operator HTML shows the evidence file path; high-level marks it operator-only (CSS-hidden).
+                operator_html = render_layer_report(report, "html")
+                self.assertIn("operator-only", operator_html)
+
     def test_web_vulnerability_layer_drops_static_asset_phantom_candidates(self) -> None:
         with TemporaryDirectory() as tmp:
             with isolated_state(Path(tmp)):
