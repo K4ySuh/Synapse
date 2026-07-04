@@ -180,6 +180,9 @@ def candidate_observation(
         "reason": reason,
         "reasons": [reason] if reason else [],
         "tags": tags or [],
+        # Every candidate joins the common validation lifecycle at "proposed"; the
+        # workspace validation call moves it to confirmed/refuted/inconclusive.
+        "validation_status": "proposed",
     }
     if parameter:
         payload["parameter"] = parameter
@@ -279,6 +282,7 @@ def surface_candidate(
         "priority": priority,
         "priorityScore": score,
         "confidence": confidence,
+        "validationStatus": "proposed",
     }
     if test_plan_summary:
         detail["testPlanSummary"] = test_plan_summary

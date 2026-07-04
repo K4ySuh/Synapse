@@ -827,5 +827,128 @@ class SurfaceCandidateConsolidationTests(unittest.TestCase):
                     self.assertIn(module, coverage["passiveOnlyModules"])
 
 
+class CandidateValidationLifecycleTests(unittest.TestCase):
+    URL = "https://example.com/fetch?target=1"
+
+    def _ingest_surface(self, vuln_class: str, priority: str = "low", priority_score: int = 40) -> None:
+        observation = surface_candidate(
+            vuln_class=vuln_class,
+            url=self.URL,
+            method="GET",
+            parameter="target",
+            location="query",
+            reason=f"{vuln_class} candidate",
+            priority=priority,
+            priority_score=priority_score,
+        )
+        workspace.ingest_data(
+            "engagement",
+            "example.com",
+            "adapter_result",
+            "tool_output",
+            "json",
+            json.dumps({"entities": {"observations": [observation]}}),
+        )
+
+    def _seed_multi(self) -> None:
+        scope.save_scope(["example.com"], "test", "Example Client")
+        workspace.create_workspace("engagement", organization="Example Client", hosts=["example.com"])
+        self._ingest_surface("lfi", "low", 40)
+        self._ingest_surface("ssrf", "high", 80)
+        self._ingest_surface("sqli", "medium", 60)
+
+    def _surface_selector(self) -> dict:
+        entities = workspace._load_target_entities("engagement", "example.com")
+        candidate = next(obs for obs in entities["observations"] if obs.get("type") == "test_candidate")
+        return {"candidateId": candidate["candidateId"]}
+
+    def test_refute_one_of_three_classes_drops_only_that_class(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                self._seed_multi()
+                result = workspace.record_candidate_validation(
+                    "engagement", "example.com", self._surface_selector(), "refuted", vuln_class="lfi"
+                )
+                self.assertFalse(result["retired"])
+                obs = result["observation"]
+                self.assertEqual(sorted(obs["candidateFor"]), ["sqli", "ssrf"])
+                self.assertEqual(obs["candidateDetails"]["lfi"]["validationStatus"], "refuted")
+                self.assertIs(obs.get("isReportable", True), True)
+                inventory = perimeter.candidate_inventory(
+                    workspace.load_reportable_target_entities("engagement", "example.com"), "example.com"
+                )
+                self.assertEqual(inventory["byModule"], {"sqli": 1, "ssrf": 1})
+
+    def test_refute_last_class_retires_surface_but_retains_record(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                scope.save_scope(["example.com"], "test", "Example Client")
+                workspace.create_workspace("engagement", organization="Example Client", hosts=["example.com"])
+                self._ingest_surface("lfi", "low", 40)
+                result = workspace.record_candidate_validation(
+                    "engagement", "example.com", self._surface_selector(), "refuted", vuln_class="lfi"
+                )
+                self.assertTrue(result["retired"])
+                self.assertIs(result["observation"]["isReportable"], False)
+                self.assertEqual(result["observation"]["candidateFor"], [])
+                # Retained in workspace state even though it is no longer reportable.
+                entities = workspace._load_target_entities("engagement", "example.com")
+                self.assertTrue(any(obs.get("type") == "test_candidate" for obs in entities["observations"]))
+                reportable = workspace.load_reportable_target_entities("engagement", "example.com")
+                self.assertFalse(any(obs.get("type") == "test_candidate" for obs in reportable["observations"]))
+
+    def test_refuted_class_not_resurrected_by_rescan(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                self._seed_multi()
+                workspace.record_candidate_validation(
+                    "engagement", "example.com", self._surface_selector(), "refuted", vuln_class="lfi"
+                )
+                # A later re-scan re-emits the lfi class for the same surface.
+                self._ingest_surface("lfi", "low", 40)
+                entities = workspace._load_target_entities("engagement", "example.com")
+                candidate = next(obs for obs in entities["observations"] if obs.get("type") == "test_candidate")
+                self.assertNotIn("lfi", candidate["candidateFor"])
+                self.assertEqual(candidate["candidateDetails"]["lfi"]["validationStatus"], "refuted")
+
+    def test_confirm_returns_draft_and_keeps_reportable(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                self._seed_multi()
+                result = workspace.record_candidate_validation(
+                    "engagement", "example.com", self._surface_selector(), "confirmed", vuln_class="ssrf"
+                )
+                self.assertIsNotNone(result["findingDraft"])
+                self.assertEqual(result["findingDraft"]["vulnClass"], "ssrf")
+                self.assertIn("SSRF", result["findingDraft"]["suggestedTitle"])
+                self.assertIn("ssrf", result["observation"]["candidateFor"])
+                self.assertIs(result["observation"].get("isReportable", True), True)
+
+    def test_single_class_candidate_refute_retires(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                scope.save_scope(["example.com"], "test", "Example Client")
+                workspace.create_workspace("engagement", organization="Example Client", hosts=["example.com"])
+                workspace.ingest_data(
+                    "engagement",
+                    "example.com",
+                    "adapter_result",
+                    "tool_output",
+                    "json",
+                    json.dumps({"entities": {"observations": [{
+                        "type": "access_control_object_candidate",
+                        "value": "https://example.com/api/orders/1",
+                        "candidateId": "acobj_1",
+                        "validationStatus": "proposed",
+                    }]}}),
+                )
+                result = workspace.record_candidate_validation(
+                    "engagement", "example.com", {"candidateId": "acobj_1"}, "refuted"
+                )
+                self.assertTrue(result["retired"])
+                self.assertEqual(result["observation"]["validationStatus"], "refuted")
+                self.assertIs(result["observation"]["isReportable"], False)
+
+
 if __name__ == "__main__":
     unittest.main()

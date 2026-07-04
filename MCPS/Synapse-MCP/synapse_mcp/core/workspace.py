@@ -540,6 +540,13 @@ def _merge_entity_fields(merged: dict[str, Any], item: dict[str, Any]) -> None:
                 merged[name] = value
         elif value not in ("", None, [], {}) and not merged.get(name):
             merged[name] = value
+    # A class refuted by the validation lifecycle must not be resurrected by a later
+    # re-scan: keep candidateFor free of classes marked refuted in candidateDetails.
+    if merged.get("type") == "test_candidate" and isinstance(merged.get("candidateFor"), list):
+        details = merged.get("candidateDetails") if isinstance(merged.get("candidateDetails"), dict) else {}
+        refuted = {cls for cls, detail in details.items() if isinstance(detail, dict) and detail.get("validationStatus") == "refuted"}
+        if refuted:
+            merged["candidateFor"] = [cls for cls in merged["candidateFor"] if cls not in refuted]
 
 
 def _merge_entities(path: Path, new_entities: list[dict[str, Any]], evidence_id: str) -> tuple[list[dict[str, Any]], int]:
@@ -612,6 +619,10 @@ _ENTITY_LIST_FIELDS = (
     "errorSignals",
 )
 OBSERVATION_PRIORITIES = {"info", "low", "medium", "high", "critical"}
+# Common candidate validation lifecycle, shared by every layer of the DATA model.
+# A candidate observation (consolidated web test_candidate or any single-class
+# *_candidate) moves through these states as tests/decisions accumulate.
+CANDIDATE_VALIDATION_OUTCOMES = {"proposed", "testing", "confirmed", "refuted", "inconclusive"}
 
 
 def _normalize_entity_structure(entity: dict[str, Any], entity_name: str) -> dict[str, Any]:
@@ -2747,6 +2758,146 @@ def set_entity_reportable(
         "matched": len(matched_keys),
         "entityKeys": matched_keys,
         "decision": decision_record if matched_keys else None,
+    }
+
+
+def _priority_to_severity(priority: str) -> str:
+    value = str(priority or "").strip().lower()
+    return value if value in _SEVERITY_RANK else "info"
+
+
+def _candidate_finding_draft(observation: dict[str, Any], vuln_class: str, host: str) -> dict[str, Any]:
+    """Suggest — never create — a finding for a confirmed candidate.
+
+    Keeps the operator/agent in the loop: promotion still goes through
+    promote_observation_to_finding with the returned selector.
+    """
+    obs_type = str(observation.get("type", "") or "")
+    if obs_type == "test_candidate" and vuln_class:
+        detail = observation.get("candidateDetails", {}).get(vuln_class, {}) if isinstance(observation.get("candidateDetails"), dict) else {}
+        priority = str(detail.get("priority") or observation.get("priority") or "info")
+        reasons = detail.get("reasons") if isinstance(detail.get("reasons"), list) else []
+        title = f"Confirmed {vuln_class.upper()} on {observation.get('parameter') or observation.get('url') or host}"
+    else:
+        priority = str(observation.get("priority") or observation.get("severity") or "info")
+        reasons = observation.get("reasons") if isinstance(observation.get("reasons"), list) else []
+        title = f"Confirmed {obs_type.replace('_', ' ')} on {observation.get('value') or host}".strip()
+    return {
+        "suggestedTitle": title,
+        "suggestedSeverity": _priority_to_severity(priority),
+        "confidence": "high",
+        "vulnClass": vuln_class,
+        "reasons": [str(item) for item in reasons if str(item).strip()],
+        "evidenceIds": [str(item) for item in observation.get("evidenceIds", []) if str(item).strip()],
+        "promoteSelector": {"observationKey": _entity_key(observation)},
+    }
+
+
+def record_candidate_validation(
+    workspace_id: str,
+    target: str,
+    selector: dict[str, Any],
+    outcome: str,
+    vuln_class: str = "",
+    evidence_ids: list[str] | None = None,
+    notes: str = "",
+    reviewer: str = "operator",
+) -> dict[str, Any]:
+    """Record a validation outcome on a candidate observation (any DATA-model layer).
+
+    Common to every layer: works on the consolidated web ``test_candidate`` (per
+    ``vuln_class`` inside ``candidateDetails``) and on any single-class ``*_candidate``
+    observation (top-level ``validationStatus``), including access-control candidates.
+    Per operator decision, a refuted candidate is retained and marked, never deleted:
+    when nothing reportable remains it is flagged ``isReportable=False`` + ``retired``.
+    A confirmed candidate stays reportable and yields a finding draft (not auto-created).
+    """
+    wid = normalize_workspace_id(workspace_id)
+    host = normalize_target(target)
+    status = str(outcome or "").strip().lower()
+    if status not in CANDIDATE_VALIDATION_OUTCOMES:
+        raise McpError(-32602, f"outcome must be one of: {', '.join(sorted(CANDIDATE_VALIDATION_OUTCOMES))}.")
+    if not isinstance(selector, dict) or not any(str(value or "").strip() for value in selector.values()):
+        raise McpError(-32602, "selector must be a non-empty object with at least one identity or attribute field.")
+    decided_at = now_utc()
+    new_evidence = [str(item) for item in (evidence_ids or []) if str(item).strip()]
+    draft: dict[str, Any] | None = None
+    with workspace_lock(wid):
+        path = target_entity_path(wid, host, "observations")
+        observations = _read_json(path, [])
+        if not isinstance(observations, list):
+            observations = []
+        matched = next((item for item in observations if isinstance(item, dict) and _entity_matches_selector(item, selector)), None)
+        if matched is None:
+            raise McpError(-32602, "No candidate observation matched the provided selector.")
+        obs_type = str(matched.get("type", "") or "")
+        classes_updated: list[str] = []
+        if obs_type == "test_candidate":
+            details = matched.get("candidateDetails") if isinstance(matched.get("candidateDetails"), dict) else {}
+            targets = [vuln_class] if vuln_class else list(details.keys())
+            targets = [cls for cls in targets if cls in details] or ([vuln_class] if vuln_class else [])
+            if not targets:
+                raise McpError(-32602, "vuln_class does not match any candidateFor class on this surface candidate.")
+            for cls in targets:
+                detail = details.setdefault(cls, {})
+                detail["validationStatus"] = status
+                detail["decidedAt"] = decided_at
+                if notes:
+                    detail["validationNotes"] = notes
+                classes_updated.append(cls)
+            matched["candidateDetails"] = details
+            if status == "refuted":
+                remaining = [cls for cls in matched.get("candidateFor", []) if cls not in classes_updated]
+                matched["candidateFor"] = remaining
+                if not remaining:
+                    matched["isReportable"] = False
+                    matched["retired"] = True
+        else:
+            matched["validationStatus"] = status
+            matched["validationDecidedAt"] = decided_at
+            if notes:
+                matched["validationNotes"] = notes
+            if status == "refuted":
+                matched["isReportable"] = False
+                matched["retired"] = True
+        if new_evidence:
+            existing_ev = matched.get("evidenceIds") if isinstance(matched.get("evidenceIds"), list) else []
+            matched["evidenceIds"] = existing_ev + [eid for eid in new_evidence if eid not in existing_ev]
+        matched["updatedAt"] = decided_at
+        if status == "confirmed":
+            draft = _candidate_finding_draft(matched, vuln_class, host)
+        entity_key = _entity_key(matched)
+        _write_json(path, observations)
+        decision_record = {
+            "decidedAt": decided_at,
+            "reviewer": reviewer,
+            "workspaceId": wid,
+            "target": host,
+            "entityType": "observations",
+            "action": "candidate_validation",
+            "outcome": status,
+            "vulnClass": vuln_class,
+            "classesUpdated": classes_updated,
+            "notes": notes,
+            "selector": {key: value for key, value in selector.items() if str(value or "").strip()},
+            "entityKey": entity_key,
+            "retired": bool(matched.get("retired")),
+        }
+        append_report_decision(wid, decision_record)
+    evidence.log_event(
+        "workspace.candidate.validation",
+        f"Recorded {status} validation on candidate {entity_key} for {host}.",
+        {"workspaceId": wid, "target": host, "outcome": status, "vulnClass": vuln_class, "retired": bool(matched.get("retired"))},
+    )
+    return {
+        "workspaceId": wid,
+        "target": host,
+        "outcome": status,
+        "vulnClass": vuln_class,
+        "classesUpdated": classes_updated,
+        "observation": matched,
+        "retired": bool(matched.get("retired")),
+        "findingDraft": draft,
     }
 
 

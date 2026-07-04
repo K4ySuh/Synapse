@@ -60,6 +60,7 @@ fallback prompt; the repository launcher remains the preferred alpha runtime.
 - `workspace.link_evidence_to_finding`
 - `workspace.mark_finding_reviewed`
 - `workspace.set_entity_reportable`
+- `workspace.record_candidate_validation`
 - `workspace.export_finding_context`
 - `credentials.set`
 - `credentials.set_auth_profile`
@@ -605,6 +606,16 @@ operator-reviewed finding by default, while
 `workspace.link_evidence_to_finding`, `workspace.mark_finding_reviewed`, and
 `workspace.export_finding_context` to manage status, evidence IDs, review state,
 impact/remediation fields, and report context.
+
+Every candidate observation joins a common validation lifecycle
+(`proposed → testing → confirmed | refuted | inconclusive`) shared across all
+DATA-model layers. `workspace.record_candidate_validation` records the outcome —
+per `vulnClass` on a consolidated web `test_candidate`, or top-level on any
+single-class `*_candidate` (including access-control candidates). A refuted
+candidate is retained but marked `retired`/non-reportable once nothing reportable
+remains, and a refuted class is never resurrected by a later re-scan. A confirmed
+candidate stays reportable and returns a finding draft to promote via
+`workspace.promote_observation_to_finding`.
 
 Every persisted entity (services, endpoints, parameters, findings, actions, and
 observations) carries an `isReportable` flag, `true` by default.

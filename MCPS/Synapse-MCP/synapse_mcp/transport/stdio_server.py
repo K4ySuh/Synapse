@@ -753,6 +753,44 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "workspace.record_candidate_validation",
+        "description": (
+            "Record a validation outcome on a candidate observation, common to every DATA-model "
+            "layer. Works on the consolidated web test_candidate (per vulnClass inside "
+            "candidateDetails) and on any single-class *_candidate observation (e.g. access-control "
+            "candidates). outcome=refuted retains the record but marks it retired/non-reportable "
+            "when nothing reportable remains; outcome=confirmed keeps it reportable and returns a "
+            "finding draft (promote it via workspace.promote_observation_to_finding)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "workspaceId": {"type": "string"},
+                "target": {"type": "string"},
+                "selector": {
+                    "type": "object",
+                    "description": (
+                        "Identity matchers (key, id, observationId, observationKey, candidateId) "
+                        "and/or attribute matchers (type, value, valueContains, urlContains)."
+                    ),
+                    "additionalProperties": True,
+                },
+                "outcome": {
+                    "type": "string",
+                    "enum": ["proposed", "testing", "confirmed", "refuted", "inconclusive"],
+                },
+                "vulnClass": {
+                    "type": "string",
+                    "description": "For a test_candidate, the class to update (sqli/ssrf/lfi/ssti). Omit to apply to all classes on the surface.",
+                },
+                "evidenceIds": {"type": "array", "items": {"type": "string"}},
+                "notes": {"type": "string"},
+                "reviewer": {"type": "string", "default": "operator"},
+            },
+            "required": ["workspaceId", "target", "selector", "outcome"],
+        },
+    },
+    {
         "name": "workspace.export_finding_context",
         "description": "Export one finding with linked evidence metadata and markdown report location.",
         "inputSchema": {
@@ -2972,6 +3010,20 @@ def _call_tool_impl(name: str, args: dict[str, Any]) -> str:
                 args.get("selector", {}),
                 bool(args.get("isReportable", True)),
                 args.get("reason", ""),
+                args.get("reviewer", "operator"),
+            ),
+            indent=2,
+        )
+    if name == "workspace.record_candidate_validation":
+        return json.dumps(
+            workspace.record_candidate_validation(
+                args["workspaceId"],
+                args["target"],
+                args.get("selector", {}),
+                args["outcome"],
+                args.get("vulnClass", ""),
+                args.get("evidenceIds", []),
+                args.get("notes", ""),
                 args.get("reviewer", "operator"),
             ),
             indent=2,

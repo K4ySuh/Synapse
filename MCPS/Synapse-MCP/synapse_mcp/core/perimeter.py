@@ -93,6 +93,10 @@ def candidate_inventory(entities: dict[str, list[dict[str, Any]]], target: str =
             continue
         if _candidate_targets_noise_surface(observation):
             continue
+        # A candidate refuted/retired by the validation lifecycle is retained in
+        # workspace state but excluded from the reportable candidate inventory.
+        if observation.get("retired") or str(observation.get("validationStatus", "")) == "refuted":
+            continue
         if str(observation.get("type", "")) == "test_candidate":
             # One consolidated surface candidate contributes to every vuln class it is a
             # candidate for; the surface is counted once in total, once per class in byModule.
