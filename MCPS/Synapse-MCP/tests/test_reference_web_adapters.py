@@ -76,6 +76,47 @@ class ReferenceWebAdapterTests(unittest.TestCase):
                         sqli_classes.update(item.get("candidateFor", []))
                 self.assertIn("sqli", sqli_classes)
 
+    def test_sqlmap_build_command_promotes_all_interesting_params_and_routes(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                scope.save_scope(["example.com"], "test", "Example Client")
+                raw = json.dumps(
+                    {
+                        "hosts": [
+                            {
+                                "host": "example.com",
+                                "urls": [
+                                    {"url": "https://example.com/rest/products/search?id=1&owner=2", "methods": ["GET"], "statusCodes": [200], "contentTypes": ["application/json"]},
+                                    {"url": "https://example.com/orders?order=5", "methods": ["GET"], "statusCodes": [200], "contentTypes": ["application/json"]},
+                                ],
+                            }
+                        ],
+                        "summary": {"hostCount": 1},
+                    }
+                )
+                workspace.ingest_data("engagement", "example.com", "sitemap", "tool_output", "json", raw)
+                # Create the surface test_candidates so promotion can mark them under testing.
+                sqlmap_adapter.analyze_workspace({"workspaceId": "engagement", "target": "example.com"})
+
+                result = json.loads(sqlmap_adapter.build_command({"workspaceId": "engagement", "target": "example.com", "level": 2, "risk": 1}))
+
+                # Multiple routes are promoted, and the multi-parameter route lists all its params.
+                self.assertGreaterEqual(result["targetCount"], 2)
+                by_url = {t["url"]: t for t in result["targets"]}
+                multi = next(t for t in result["targets"] if t["url"].endswith("id=1&owner=2"))
+                self.assertEqual(sorted(multi["parameters"]), ["id", "owner"])
+                self.assertIn("-p", multi["command"])
+                self.assertIn("id,owner", multi["shellCommand"])
+                self.assertGreater(result["promotedCandidates"], 0)
+                # Promoted sqli candidates are recorded as under testing.
+                entities = workspace._load_target_entities("engagement", "example.com")
+                statuses = [
+                    obs["candidateDetails"]["sqli"]["validationStatus"]
+                    for obs in entities["observations"]
+                    if obs.get("type") == "test_candidate" and "sqli" in obs.get("candidateDetails", {})
+                ]
+                self.assertIn("testing", statuses)
+
     def test_ssti_template_error_signal_ignores_common_words(self) -> None:
         # Regression: the SSTI error signal must not fire on ordinary prose that
         # merely contains words like "template", "velocity", or "liquid", or

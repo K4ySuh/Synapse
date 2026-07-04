@@ -1087,13 +1087,24 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "sqli.build_sqlmap_command",
-        "description": "Build a validated sqlmap command without executing it.",
+        "description": (
+            "Build validated sqlmap command(s) without executing them. Given workspaceId+target, "
+            "promotes every interesting candidate surface — all injectable parameters grouped per "
+            "route, not just one parameter of one URL — into targeted sqlmap invocations and marks "
+            "each promoted sqli candidate as under testing. Without workspace context, returns one "
+            "generic command."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "level": {"type": "integer", "minimum": 1, "maximum": 5},
                 "risk": {"type": "integer", "minimum": 1, "maximum": 3},
                 "options": {"type": "object", "additionalProperties": True},
+                "workspaceId": {"type": "string"},
+                "target": {"type": "string"},
+                "minScore": {"type": "integer", "minimum": 0, "maximum": 100, "default": 55},
+                "maxTargets": {"type": "integer", "minimum": 1, "default": 25},
+                "recordPromotion": {"type": "boolean", "default": True},
             },
             "required": ["level", "risk"],
         },

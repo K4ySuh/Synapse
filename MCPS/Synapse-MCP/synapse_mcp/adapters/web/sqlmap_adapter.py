@@ -101,8 +101,98 @@ def analyze_dump(args: dict[str, Any]) -> str:
 
 
 def build_command(args: dict[str, Any]) -> str:
-    cmd = sqlmap_analysis.build_sqlmap_command(int(args["level"]), int(args["risk"]), args.get("options"))
-    return json.dumps({"command": cmd, "shellCommand": sqlmap_analysis.stringify_command(cmd)}, indent=2)
+    """Build validated sqlmap command(s) without executing them.
+
+    Without workspace context this returns a single generic command (back-compat).
+    With workspaceId+target it promotes *every* interesting candidate surface — all
+    injectable parameters grouped per route, not just one parameter of one URL — into a
+    targeted sqlmap invocation, and marks each promoted sqli candidate as under testing.
+    """
+    level = int(args["level"])
+    risk = int(args["risk"])
+    base = sqlmap_analysis.build_sqlmap_command(level, risk, args.get("options"))
+    workspace_id = args.get("workspaceId")
+    target = args.get("target")
+    if not workspace_id or not target:
+        return json.dumps({"command": base, "shellCommand": sqlmap_analysis.stringify_command(base)}, indent=2)
+
+    wid = workspace.normalize_workspace_id(workspace_id)
+    host = workspace.normalize_target(target)
+    min_score = int(args.get("minScore", 55))
+    max_targets = int(args.get("maxTargets", 25))
+    entities = workspace._load_target_entities(wid, host)
+    candidates = find_workspace_candidates(entities, target=host, min_score=min_score)
+
+    grouped: dict[tuple[str, str], dict[str, Any]] = {}
+    for candidate in candidates:
+        url = str(candidate.get("url", ""))
+        method = str(candidate.get("method", "GET")).upper()
+        if not url:
+            continue
+        group = grouped.setdefault(
+            (url, method),
+            {"url": url, "method": method, "parameters": [], "locations": set(), "candidateIds": [], "priorityScore": 0},
+        )
+        name = str(candidate.get("parameter", ""))
+        if name and name not in group["parameters"]:
+            group["parameters"].append(name)
+        group["locations"].add(str(candidate.get("location", "query")))
+        group["candidateIds"].append(str(candidate.get("candidateId", "")))
+        group["priorityScore"] = max(group["priorityScore"], int(candidate.get("priorityScore", 0) or 0))
+
+    ordered = sorted(grouped.values(), key=lambda item: item["priorityScore"], reverse=True)[:max_targets]
+    targets: list[dict[str, Any]] = []
+    for group in ordered:
+        cmd = list(base) + ["-u", group["url"]]
+        if group["method"] not in {"GET", "HEAD"}:
+            cmd += ["--method", group["method"]]
+            body_params = [name for name in group["parameters"] if name]
+            if body_params and group["locations"] & {"body", "form", "json"}:
+                cmd += ["--data", "&".join(f"{name}=1" for name in body_params)]
+        if group["parameters"]:
+            cmd += ["-p", ",".join(group["parameters"])]
+        targets.append(
+            {
+                "url": group["url"],
+                "method": group["method"],
+                "parameters": group["parameters"],
+                "candidateIds": [cid for cid in group["candidateIds"] if cid],
+                "priorityScore": group["priorityScore"],
+                "command": cmd,
+                "shellCommand": sqlmap_analysis.stringify_command(cmd),
+            }
+        )
+
+    promoted = 0
+    if args.get("recordPromotion", True) is not False:
+        from ...core.adapters.results import surface_candidate_id
+
+        promoted_surfaces = {(group["url"], group["method"]) for group in ordered}
+        for candidate in candidates:
+            url = str(candidate.get("url", ""))
+            method = str(candidate.get("method", "GET")).upper()
+            parameter = str(candidate.get("parameter", ""))
+            if not parameter or (url, method) not in promoted_surfaces:
+                continue
+            selector = {"candidateId": surface_candidate_id(method, url, str(candidate.get("location", "query")), parameter)}
+            try:
+                workspace.record_candidate_validation(wid, host, selector, "testing", vuln_class="sqli")
+                promoted += 1
+            except McpError:
+                continue
+
+    return json.dumps(
+        {
+            "command": base,
+            "shellCommand": sqlmap_analysis.stringify_command(base),
+            "targetCount": len(targets),
+            "targets": targets,
+            "bulkTargetUrls": [group["url"] for group in ordered],
+            "promotedCandidates": promoted,
+            "minScore": min_score,
+        },
+        indent=2,
+    )
 
 
 def find_workspace_candidates(entities: dict[str, list[dict[str, Any]]], *, target: str = "", min_score: int = 55) -> list[dict[str, Any]]:
