@@ -6,6 +6,8 @@ from tempfile import TemporaryDirectory
 
 from helpers import isolated_state
 from synapse_mcp.core import cache, evidence, perimeter, scope, workspace
+from synapse_mcp.core.adapters import surface_candidate
+from synapse_mcp.core.documentation import builder as documentation_builder
 from synapse_mcp.core.errors import McpError
 from synapse_mcp.transport import stdio_server
 
@@ -768,6 +770,61 @@ class ReportabilityTests(unittest.TestCase):
                 self.assertIs(flags["o1"], False)
                 self.assertIs(flags["o2"], False)
                 self.assertIs(flags["o3"], True)
+
+
+class SurfaceCandidateConsolidationTests(unittest.TestCase):
+    URL = "https://example.com/fetch?target=1"
+
+    def _ingest_surface(self, **kwargs) -> None:
+        observation = surface_candidate(url=self.URL, method="GET", parameter="target", location="query", **kwargs)
+        workspace.ingest_data(
+            "engagement",
+            "example.com",
+            "adapter_result",
+            "tool_output",
+            "json",
+            json.dumps({"entities": {"observations": [observation]}}),
+        )
+
+    def _seed(self) -> None:
+        scope.save_scope(["example.com"], "test", "Example Client")
+        workspace.create_workspace("engagement", organization="Example Client", hosts=["example.com"])
+        # Three injection adapters flag the SAME surface, one class each.
+        self._ingest_surface(vuln_class="lfi", reason="path param", priority="low", priority_score=40)
+        self._ingest_surface(vuln_class="ssrf", reason="url fetch param", priority="high", priority_score=80)
+        self._ingest_surface(vuln_class="sqli", reason="numeric id param", priority="medium", priority_score=60)
+
+    def test_three_adapters_collapse_into_one_surface_candidate(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                self._seed()
+                entities = workspace._load_target_entities("engagement", "example.com")
+                candidates = [obs for obs in entities["observations"] if obs.get("type") == "test_candidate"]
+                self.assertEqual(len(candidates), 1)
+                candidate = candidates[0]
+                self.assertEqual(sorted(candidate["candidateFor"]), ["lfi", "sqli", "ssrf"])
+                self.assertEqual(set(candidate["candidateDetails"]), {"lfi", "ssrf", "sqli"})
+                self.assertEqual(candidate["priorityScore"], 80)
+                self.assertEqual(candidate["priority"], "high")
+
+    def test_candidate_inventory_counts_surface_once_per_class(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                self._seed()
+                entities = workspace.load_reportable_target_entities("engagement", "example.com")
+                inventory = perimeter.candidate_inventory(entities, "example.com")
+                self.assertEqual(inventory["total"], 1)
+                self.assertEqual(inventory["byModule"], {"lfi": 1, "sqli": 1, "ssrf": 1})
+                self.assertEqual(sorted(inventory["items"][0]["candidateModules"]), ["lfi", "sqli", "ssrf"])
+
+    def test_coverage_credits_every_class_of_a_surface_candidate(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                self._seed()
+                coverage = documentation_builder.summarize_coverage({"workspaceId": "engagement"})["coverage"]
+                for module in ("lfi", "ssrf", "sqli"):
+                    self.assertIn(module, coverage["adaptersUsed"])
+                    self.assertIn(module, coverage["passiveOnlyModules"])
 
 
 if __name__ == "__main__":

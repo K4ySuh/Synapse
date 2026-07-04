@@ -691,7 +691,13 @@ class WebDiscoveryAdapterTests(unittest.TestCase):
                 self.assertIn("source_url", parameters)
                 context = workspace.prepare_target_context("engagement", "example.com")
                 observation_types = {item["type"] for item in context["observations"]}
-                self.assertIn("ssrf_candidate", observation_types)
+                self.assertIn("test_candidate", observation_types)
+                ssrf_surfaces = [
+                    item
+                    for item in context["observations"]
+                    if item.get("type") == "test_candidate" and "ssrf" in item.get("candidateFor", [])
+                ]
+                self.assertTrue(ssrf_surfaces)
                 self.assertGreaterEqual(result["ingestion"]["entitiesCreated"]["observations"], 1)
 
     def test_open_redirect_analyze_workspace_ingests_candidates(self) -> None:

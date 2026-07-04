@@ -9,7 +9,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from ...core import evidence, workspace
-from ...core.adapters import AdapterResult, RecommendedTest, WorkspaceEntityBundle, candidate_observation
+from ...core.adapters import AdapterResult, RecommendedTest, WorkspaceEntityBundle, surface_candidate
 from ...core.errors import McpError
 from ...core.http import HttpClientPolicy, HttpRequest, http_client
 from ..command_utils import approval_metadata, require_confirmed, require_in_scope
@@ -206,9 +206,8 @@ def classify_candidate(parameter: str, value_preview: str) -> str:
 
 def build_result(workspace_id: str, target: str, candidates: list[dict[str, Any]], context: dict[str, Any]) -> AdapterResult:
     observations = [
-        candidate_observation(
-            candidate_type=candidate["type"],
-            value=candidate["url"],
+        surface_candidate(
+            vuln_class="lfi",
             url=candidate["url"],
             method=candidate["method"],
             parameter=candidate["parameter"],
@@ -217,12 +216,9 @@ def build_result(workspace_id: str, target: str, candidates: list[dict[str, Any]
             priority=candidate["priority"],
             priority_score=int(candidate["priorityScore"]),
             reason=candidate["reasons"][0] if candidate.get("reasons") else "File-handling candidate identified.",
+            subtype=candidate.get("type", ""),
             tags=candidate.get("tags", []),
-            metadata={
-                "candidateId": candidate["candidateId"],
-                "reasons": candidate.get("reasons", []),
-                "testPlanSummary": candidate.get("testPlanSummary", ""),
-            },
+            test_plan_summary=candidate.get("testPlanSummary", ""),
         )
         for candidate in candidates
     ]

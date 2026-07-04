@@ -17,6 +17,7 @@ from urllib.parse import parse_qsl, urlsplit, urlunsplit
 from xml.etree import ElementTree
 
 from . import evidence, scope
+from .adapters.results import surface_candidate
 from .errors import McpError
 from .paths import DATA_DIR, REPORTS_DIR as _CONFIGURED_REPORTS_DIR
 
@@ -493,6 +494,7 @@ _MERGE_UNION_FIELDS = {
     "tags",
     "reasons",
     "affectedUrls",
+    "candidateFor",
 }
 _MERGE_REPLACE_FIELDS = {"updatedAt", "lastSeenAt"}
 _SEVERITY_RANK = {"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
@@ -520,6 +522,21 @@ def _merge_entity_fields(merged: dict[str, Any], item: dict[str, Any]) -> None:
             # decision (especially a False that suppressed a reviewed false positive).
             # Preserve whatever is already stored; only seed legacy records missing it.
             if "isReportable" not in merged:
+                merged[name] = value
+        elif name == "candidateDetails" and isinstance(value, dict):
+            # One consolidated test_candidate accumulates per-vuln-class detail as each
+            # injection adapter contributes its class; keep the first detail per class.
+            current = merged.get("candidateDetails")
+            current = current if isinstance(current, dict) else {}
+            for vuln_class, detail in value.items():
+                current.setdefault(vuln_class, detail)
+            merged["candidateDetails"] = current
+        elif name == "priorityScore" and merged.get("type") == "test_candidate":
+            merged[name] = max(int(merged.get(name, 0) or 0), int(value or 0))
+        elif name == "priority" and merged.get("type") == "test_candidate":
+            current_rank = _SEVERITY_RANK.get(str(merged.get("priority", "") or ""), -1)
+            incoming_rank = _SEVERITY_RANK.get(str(value or ""), -1)
+            if incoming_rank > current_rank:
                 merged[name] = value
         elif value not in ("", None, [], {}) and not merged.get(name):
             merged[name] = value
@@ -579,6 +596,7 @@ _ENTITY_LIST_FIELDS = (
     "reasons",
     "affectedAssets",
     "affectedUrls",
+    "candidateFor",
     "reproductionSteps",
     "statusCodes",
     "cookieNames",
@@ -1424,20 +1442,20 @@ def parse_ssrf_analysis(raw_data: str, metadata: dict[str, Any] | None = None) -
     for candidate in payload.get("candidates", []):
         if not isinstance(candidate, dict):
             continue
+        reasons = candidate.get("reasons", []) if isinstance(candidate.get("reasons"), list) else []
         entities["observations"].append(
-            {
-                "type": "ssrf_candidate",
-                "value": candidate.get("url", ""),
-                "candidateId": candidate.get("candidateId", ""),
-                "parameter": candidate.get("parameter", ""),
-                "method": candidate.get("method", ""),
-                "location": candidate.get("location", ""),
-                "priority": candidate.get("priority", "low"),
-                "priorityScore": candidate.get("priorityScore", 0),
-                "confidence": candidate.get("confidence", "low"),
-                "reasons": candidate.get("reasons", []),
-                "testPlanSummary": candidate.get("testPlanSummary", ""),
-            }
+            surface_candidate(
+                vuln_class="ssrf",
+                url=str(candidate.get("url", "")),
+                method=str(candidate.get("method", "GET")),
+                parameter=str(candidate.get("parameter", "")),
+                location=str(candidate.get("location", "query")),
+                reason=str(reasons[0]) if reasons else "SSRF candidate identified.",
+                priority=str(candidate.get("priority", "low")),
+                priority_score=int(candidate.get("priorityScore", 0) or 0),
+                confidence=str(candidate.get("confidence", "low")),
+                test_plan_summary=str(candidate.get("testPlanSummary", "")),
+            )
         )
     return entities
 

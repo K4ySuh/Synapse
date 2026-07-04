@@ -19,6 +19,7 @@ from .results import (
     WorkspaceEntityBundle,
     candidate_observation,
     passive_finding,
+    surface_candidate,
 )
 
 __all__ = [
@@ -39,5 +40,6 @@ __all__ = [
     "ActionEntity",
     "candidate_observation",
     "passive_finding",
+    "surface_candidate",
     "default_registry",
 ]

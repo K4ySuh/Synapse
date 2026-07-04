@@ -9,7 +9,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from ...core import evidence, workspace
-from ...core.adapters import AdapterResult, WorkspaceEntityBundle, candidate_observation
+from ...core.adapters import AdapterResult, WorkspaceEntityBundle, surface_candidate
 from ...core.errors import McpError
 from .active_probe import priority_for_score, redact_value_preview, stable_slug
 from .surface_hygiene import is_candidate_noise_url, normalize_surface_url
@@ -198,9 +198,8 @@ def _looks_numeric(value: str) -> bool:
 
 def build_workspace_adapter_result(workspace_id: str, target: str, candidates: list[dict[str, Any]], context: dict[str, Any]) -> AdapterResult:
     observations = [
-        candidate_observation(
-            candidate_type="sqli_candidate",
-            value=f"{candidate['method']} {candidate['url']}",
+        surface_candidate(
+            vuln_class="sqli",
             url=str(candidate.get("url", "")),
             method=str(candidate.get("method", "")),
             parameter=str(candidate.get("parameter", "")),
@@ -210,11 +209,6 @@ def build_workspace_adapter_result(workspace_id: str, target: str, candidates: l
             priority_score=int(candidate.get("priorityScore", 0) or 0),
             reason=str(candidate.get("reason", "Workspace parameter is a candidate SQL injection input.")),
             tags=["sqli", "workspace-candidate"],
-            metadata={
-                "candidateId": candidate.get("candidateId", ""),
-                "path": candidate.get("path", ""),
-                "valuePreview": candidate.get("valuePreview", ""),
-            },
         )
         for candidate in candidates
     ]
@@ -247,9 +241,9 @@ def build_adapter_result(workspace_id: str, target: str, analysis: dict[str, Any
                 continue
             score = int(candidate.get("score", 0) or 0)
             observations.append(
-                candidate_observation(
-                    candidate_type="sqli_candidate",
-                    value=item.get("requestLine", ""),
+                surface_candidate(
+                    vuln_class="sqli",
+                    url=str(item.get("requestLine", "")),
                     method=method,
                     parameter=str(candidate.get("name", "")),
                     location=str(candidate.get("location", "")),
@@ -258,16 +252,6 @@ def build_adapter_result(workspace_id: str, target: str, analysis: dict[str, Any
                     priority_score=score,
                     reason=str(candidate.get("reason", "SQL injection candidate identified from offline request analysis.")),
                     tags=["sqli", "sqlmap-candidate"],
-                    metadata={
-                        "candidateId": f"sqli_{item.get('id')}_{candidate.get('location', '')}_{candidate.get('name', '')}",
-                        "historyId": item.get("id"),
-                        "host": item.get("host", ""),
-                        "requestFile": item.get("requestFile", ""),
-                        "requestLine": item.get("requestLine", ""),
-                        "valuePreview": candidate.get("valuePreview", ""),
-                        "suggestedBuildArguments": candidate.get("suggestedBuildArguments", {}),
-                        "suggestedShellCommand": candidate.get("suggestedShellCommand", ""),
-                    },
                 )
             )
     return AdapterResult(

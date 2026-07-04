@@ -86,7 +86,13 @@ class DumpAnalysisTests(unittest.TestCase):
                 observation_types = {item["type"] for item in context["observations"]}
 
                 self.assertIn("ingestion", result)
-                self.assertIn("sqli_candidate", observation_types)
+                self.assertIn("test_candidate", observation_types)
+                sqli_surfaces = [
+                    item
+                    for item in context["observations"]
+                    if item.get("type") == "test_candidate" and "sqli" in item.get("candidateFor", [])
+                ]
+                self.assertTrue(sqli_surfaces)
 
     def test_xss_generate_test_code_returns_payloads(self) -> None:
         result = json.loads(xss_analysis.generate_test_code({"parameter": "q", "context": "html"}))

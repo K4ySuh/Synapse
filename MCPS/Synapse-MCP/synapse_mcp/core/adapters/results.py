@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -235,6 +236,72 @@ def passive_finding(
     if category:
         finding["category"] = category
     return finding
+
+
+def _surface_slug(value: Any) -> str:
+    slug = re.sub(r"[^a-zA-Z0-9._-]+", "-", str(value).strip().lower()).strip("-")
+    return slug or "candidate"
+
+
+def surface_candidate_id(method: str, url: str, location: str, parameter: str) -> str:
+    return f"tc_{_surface_slug(method)}_{_surface_slug(url)}_{_surface_slug(location)}_{_surface_slug(parameter)}"[:170]
+
+
+def surface_candidate(
+    *,
+    vuln_class: str,
+    url: str,
+    reason: str,
+    method: str = "GET",
+    parameter: str = "",
+    location: str = "query",
+    priority: Priority = "low",
+    priority_score: int = 0,
+    confidence: Confidence = "low",
+    test_plan_summary: str = "",
+    subtype: str = "",
+    tags: list[str] | None = None,
+    evidence_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    """Build one consolidated ``test_candidate`` observation for an injectable surface.
+
+    Different injection adapters that flag the SAME (method, url, parameter, location) produce
+    the SAME ``candidateId``, so ingestion merges them into a single observation whose
+    ``candidateFor`` unions the vuln classes and whose ``candidateDetails`` keeps per-class
+    context — replacing one separate ``*_candidate`` observation per adapter and collapsing
+    duplicate stored evidence. Returned as a plain dict (camelCase), like ``passive_finding``.
+    """
+    method = (method or "GET").upper()
+    score = int(priority_score or 0)
+    prefixed_reason = f"[{vuln_class}] {reason}" if reason else ""
+    detail: dict[str, Any] = {
+        "reasons": [reason] if reason else [],
+        "priority": priority,
+        "priorityScore": score,
+        "confidence": confidence,
+    }
+    if test_plan_summary:
+        detail["testPlanSummary"] = test_plan_summary
+    if subtype:
+        detail["subtype"] = subtype
+    return {
+        "type": "test_candidate",
+        "candidateId": surface_candidate_id(method, url, location, parameter),
+        "value": url,
+        "url": url,
+        "method": method,
+        "parameter": parameter,
+        "location": location,
+        "candidateFor": [vuln_class],
+        "candidateDetails": {vuln_class: detail},
+        "priority": priority,
+        "priorityScore": score,
+        "confidence": confidence,
+        "reason": prefixed_reason,
+        "reasons": [prefixed_reason] if prefixed_reason else [],
+        "tags": list(tags or []) + ["test-candidate", vuln_class],
+        "evidenceIds": [eid for eid in (evidence_ids or []) if isinstance(eid, str)],
+    }
 
 
 def _dump_entity_list(items: list[Any]) -> list[dict[str, Any]]:

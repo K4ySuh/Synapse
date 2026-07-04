@@ -15,7 +15,10 @@ Run tests with `bin/test` (uses repo `.venv`). Keep the local, gitignored
 - `ca5d78d` Phase 0: reports + `<wid>.report-decisions.json` write to top-level `reports/` (paths.REPORTS_DIR).
 - `8fdd0ea` Phase 1: headers_cookies + tls_posture emit findings via `results.passive_finding()`.
 - `57c2e44` Phase 1 follow-up: expired/deprecated TLS findings = medium severity.
-- **NEXT: Phase 2 (below).**
+- Phase 2: injection candidates consolidated into one `test_candidate` per surface with
+  union-merged `candidateFor`/`candidateDetails` (`results.surface_candidate`, workspace merge,
+  perimeter inventory + report candidate, coverage, web-vuln layer, regression tests).
+- **NEXT: Phase 3 (below).**
 
 ---
 

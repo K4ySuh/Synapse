@@ -579,8 +579,11 @@ def _web_vulnerabilities_layer(args: dict[str, Any]) -> dict[str, Any]:
         for module, count in target_modules.items():
             module_counts[module] = module_counts.get(module, 0) + int(count or 0)
         for observation in target_candidates:
-            module = str(observation.get("candidateModule", ""))
-            if module:
+            modules = [str(m) for m in observation.get("candidateModules", []) if str(m)]
+            if not modules:
+                module = str(observation.get("candidateModule", ""))
+                modules = [module] if module else []
+            for module in modules:
                 target_candidates_by_module.setdefault(module, []).append(observation)
         candidate_rows.extend(_web_vulnerability_summary_rows(target, target_candidates_by_module))
         target_findings = [item for item in entities["findings"] if isinstance(item, dict)]
@@ -623,7 +626,7 @@ def _web_vulnerabilities_layer(args: dict[str, Any]) -> dict[str, Any]:
             _candidate_section(
                 "web_vulnerability_candidates",
                 "High-Value Candidate Surface",
-                ["Host", "Module", "Top Surface", "Parameter", "Priority", "Count", "Evidence", "Reason"],
+                ["Host", "Module", "Top Surface", "Parameter", "Priority", "Count", "Candidate For", "Evidence", "Reason"],
                 candidate_rows,
                 group_by="Module",
             ),
@@ -812,8 +815,10 @@ def _web_vulnerability_summary_rows(target: str, candidates_by_module: dict[str,
             continue
         top = sorted(filtered, key=_candidate_report_sort_key)[0]
         evidence_ids: list[Any] = []
+        candidate_for: list[str] = []
         for candidate in filtered:
             evidence_ids.extend(candidate.get("evidenceIds", []) if isinstance(candidate.get("evidenceIds"), list) else [])
+            candidate_for.extend(str(cls) for cls in candidate.get("candidateModules", []) if str(cls))
         rows.append(
             [
                 target,
@@ -822,6 +827,7 @@ def _web_vulnerability_summary_rows(target: str, candidates_by_module: dict[str,
                 _candidate_parameter_label(top),
                 _candidate_priority(top),
                 len(filtered),
+                _join(_dedupe_strings(candidate_for), limit=6) or module,
                 _join(_dedupe_strings([str(item) for item in evidence_ids]), limit=3) or "not recorded",
                 _candidate_report_reason(top),
             ]

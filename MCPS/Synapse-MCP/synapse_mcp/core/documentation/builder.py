@@ -193,12 +193,21 @@ def summarize_coverage(args: dict[str, Any]) -> dict[str, Any]:
                 }
             )
         for observation in entities["observations"]:
-            module = _module_for_observation(str(observation.get("type", "")))
+            observation_type = str(observation.get("type", ""))
+            module = _module_for_observation(observation_type)
             if module:
                 passive_modules.add(module)
                 target_passive_modules.add(module)
-            if str(observation.get("type", "")).endswith("_candidate"):
-                follow_up.append(f"Review {observation.get('type')} on {target}: {observation.get('value', '')}.")
+            if observation_type == "test_candidate":
+                # A consolidated surface candidate credits passive coverage for every
+                # vuln class it is a candidate for.
+                for vuln_class in observation.get("candidateFor", []):
+                    module_name = str(vuln_class)
+                    if module_name:
+                        passive_modules.add(module_name)
+                        target_passive_modules.add(module_name)
+            if observation_type.endswith("_candidate"):
+                follow_up.append(f"Review {observation_type} on {target}: {observation.get('value', '')}.")
         if not entities["endpoints"]:
             untested.append(f"No endpoints or imported traffic are recorded for {target}.")
         if not any(is_active_action(item) for item in entities["actions"]):

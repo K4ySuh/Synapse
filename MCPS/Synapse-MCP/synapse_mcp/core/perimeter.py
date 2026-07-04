@@ -91,11 +91,27 @@ def candidate_inventory(entities: dict[str, list[dict[str, Any]]], target: str =
             continue
         if target_host and not _candidate_belongs_to_host(observation, target_host):
             continue
+        if _candidate_targets_noise_surface(observation):
+            continue
+        if str(observation.get("type", "")) == "test_candidate":
+            # One consolidated surface candidate contributes to every vuln class it is a
+            # candidate for; the surface is counted once in total, once per class in byModule.
+            modules = [str(cls) for cls in observation.get("candidateFor", []) if str(cls)]
+            if not modules:
+                continue
+            item = dict(observation)
+            item["candidateModules"] = modules
+            item["candidateModule"] = modules[0]
+            items.append(item)
+            for module in modules:
+                by_module[module] = by_module.get(module, 0) + 1
+            continue
         module = candidate_module(str(observation.get("type", "")))
-        if not module or _candidate_targets_noise_surface(observation):
+        if not module:
             continue
         item = dict(observation)
         item["candidateModule"] = module
+        item["candidateModules"] = [module]
         items.append(item)
         by_module[module] = by_module.get(module, 0) + 1
     return {"total": len(items), "byModule": dict(sorted(by_module.items())), "items": items}
@@ -1397,8 +1413,15 @@ def _observation_report_candidate(host: str, observation_type: str, observation:
     sample_values = [str(item) for item in [value, observation.get("pageUrl", ""), observation.get("formAction", "")] if str(item).strip()]
     request = _candidate_request(observation)
     title = observation_type.replace("_", " ").title()
+    category = _candidate_category(observation_type)
 
-    if observation_type in {"missing_security_header", "weak_csp"}:
+    if observation_type == "test_candidate":
+        classes = [str(cls) for cls in observation.get("candidateFor", []) if str(cls)]
+        class_label = ", ".join(classes) if classes else "injection"
+        title = f"Injection test candidate ({class_label})"
+        category = f"Injection candidate: {class_label}"
+        value = value or url
+    elif observation_type in {"missing_security_header", "weak_csp"}:
         header_label = _security_header_label(header)
         issue = "weak" if observation_type == "weak_csp" else "missing"
         title = f"{header_label} header {issue}" if header_label else "Security header hygiene issue"
@@ -1444,7 +1467,7 @@ def _observation_report_candidate(host: str, observation_type: str, observation:
         "severity": _severity_for_observation(observation),
         "confidence": observation.get("confidence", "low"),
         "source": "observation",
-        "category": _candidate_category(observation_type),
+        "category": category,
         "reason": observation.get("reason") or observation.get("testPlanSummary") or "Candidate observation requires review.",
         "url": url,
         "method": method,
@@ -1455,6 +1478,8 @@ def _observation_report_candidate(host: str, observation_type: str, observation:
         "sampleValues": sample_values[:5],
         "occurrenceCount": 1,
         "evidenceIds": observation.get("evidenceIds", []),
+        "candidateFor": [str(cls) for cls in observation.get("candidateFor", []) if str(cls)],
+        "candidateDetails": observation.get("candidateDetails", {}),
     }
 
 

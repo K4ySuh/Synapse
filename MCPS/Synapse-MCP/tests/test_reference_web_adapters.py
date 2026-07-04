@@ -69,7 +69,12 @@ class ReferenceWebAdapterTests(unittest.TestCase):
                 context = workspace.prepare_target_context("engagement", "example.com")
                 observation_types = {item["type"] for item in context["observations"]}
                 self.assertIn("xss_candidate", observation_types)
-                self.assertIn("sqli_candidate", observation_types)
+                self.assertIn("test_candidate", observation_types)
+                sqli_classes = set()
+                for item in context["observations"]:
+                    if item.get("type") == "test_candidate":
+                        sqli_classes.update(item.get("candidateFor", []))
+                self.assertIn("sqli", sqli_classes)
 
     def test_ssti_template_error_signal_ignores_common_words(self) -> None:
         # Regression: the SSTI error signal must not fire on ordinary prose that
@@ -130,9 +135,14 @@ class ReferenceWebAdapterTests(unittest.TestCase):
 
                 context = workspace.prepare_target_context("engagement", "example.com")
                 observation_types = {item["type"] for item in context["observations"]}
-                self.assertIn("ssti_candidate", observation_types)
-                self.assertTrue({"lfi_candidate", "file_download_candidate"} & observation_types)
+                self.assertIn("test_candidate", observation_types)
                 self.assertIn("ssi_candidate", observation_types)
+                candidate_classes: set[str] = set()
+                for item in context["observations"]:
+                    if item.get("type") == "test_candidate":
+                        candidate_classes.update(item.get("candidateFor", []))
+                self.assertIn("ssti", candidate_classes)
+                self.assertIn("lfi", candidate_classes)
 
                 ssti_plan = json.loads(ssti.plan_tests({"candidate": ssti_result["candidates"][0]}))
                 self.assertTrue(ssti_plan["recommendedTests"][0]["requiresConfirmation"])
