@@ -791,6 +791,34 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "workspace.curate_candidate",
+        "description": (
+            "Agent curation of a surface test_candidate: precisely add or remove vulnerability "
+            "classes instead of adapters blanketing every parameter. Identify the surface by "
+            "candidateId or by url (with optional method/parameter/location); a url also lets a "
+            "not-yet-existing candidate be created for add. Removing a class marks it refuted and "
+            "drops it from candidateFor (retained + marked); the surface is retired when nothing "
+            "reportable remains."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "workspaceId": {"type": "string"},
+                "target": {"type": "string"},
+                "surfaceSelector": {
+                    "type": "object",
+                    "description": "candidateId, or url (+ optional method/parameter/location) identifying the surface.",
+                    "additionalProperties": True,
+                },
+                "add": {"type": "array", "items": {"type": "string"}, "description": "Vuln classes to add (e.g. sqli, ssrf, lfi, ssti)."},
+                "remove": {"type": "array", "items": {"type": "string"}, "description": "Vuln classes to remove/refute."},
+                "reason": {"type": "string"},
+                "reviewer": {"type": "string", "default": "agent"},
+            },
+            "required": ["workspaceId", "target", "surfaceSelector"],
+        },
+    },
+    {
         "name": "workspace.export_finding_context",
         "description": "Export one finding with linked evidence metadata and markdown report location.",
         "inputSchema": {
@@ -3036,6 +3064,19 @@ def _call_tool_impl(name: str, args: dict[str, Any]) -> str:
                 args.get("evidenceIds", []),
                 args.get("notes", ""),
                 args.get("reviewer", "operator"),
+            ),
+            indent=2,
+        )
+    if name == "workspace.curate_candidate":
+        return json.dumps(
+            workspace.curate_candidate(
+                args["workspaceId"],
+                args["target"],
+                args.get("surfaceSelector", {}),
+                args.get("add", []),
+                args.get("remove", []),
+                args.get("reason", ""),
+                args.get("reviewer", "agent"),
             ),
             indent=2,
         )

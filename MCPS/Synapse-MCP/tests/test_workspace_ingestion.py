@@ -950,5 +950,64 @@ class CandidateValidationLifecycleTests(unittest.TestCase):
                 self.assertIs(result["observation"]["isReportable"], False)
 
 
+class CurateCandidateTests(unittest.TestCase):
+    URL = "https://example.com/fetch?target=1"
+
+    def _seed(self) -> None:
+        scope.save_scope(["example.com"], "test", "Example Client")
+        workspace.create_workspace("engagement", organization="Example Client", hosts=["example.com"])
+
+    def _surface(self) -> dict:
+        entities = workspace._load_target_entities("engagement", "example.com")
+        return next(obs for obs in entities["observations"] if obs.get("type") == "test_candidate")
+
+    def test_curate_add_creates_surface_candidate_from_observation(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                self._seed()
+                result = workspace.curate_candidate(
+                    "engagement", "example.com",
+                    {"url": self.URL, "method": "GET", "parameter": "target", "location": "query"},
+                    add=["sqli"], reason="Numeric id reaches an ORDER BY clause.",
+                )
+                self.assertTrue(result["created"])
+                candidate = self._surface()
+                self.assertEqual(candidate["candidateFor"], ["sqli"])
+                self.assertEqual(candidate["candidateDetails"]["sqli"]["validationStatus"], "proposed")
+                self.assertEqual(candidate["candidateDetails"]["sqli"]["curatedBy"], "agent")
+
+    def test_curate_add_and_remove_updates_existing_surface(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                self._seed()
+                selector = {"url": self.URL, "method": "GET", "parameter": "target", "location": "query"}
+                workspace.curate_candidate("engagement", "example.com", selector, add=["sqli"])
+                added = workspace.curate_candidate("engagement", "example.com", selector, add=["ssrf"])
+                self.assertFalse(added["created"])
+                self.assertEqual(sorted(added["observation"]["candidateFor"]), ["sqli", "ssrf"])
+                removed = workspace.curate_candidate("engagement", "example.com", selector, remove=["sqli"], reason="Not database-backed after all.")
+                self.assertEqual(removed["observation"]["candidateFor"], ["ssrf"])
+                self.assertEqual(removed["observation"]["candidateDetails"]["sqli"]["validationStatus"], "refuted")
+                self.assertFalse(removed["retired"])
+
+    def test_curate_remove_last_class_retires_surface(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                self._seed()
+                selector = {"url": self.URL, "method": "GET", "parameter": "target", "location": "query"}
+                workspace.curate_candidate("engagement", "example.com", selector, add=["sqli"])
+                result = workspace.curate_candidate("engagement", "example.com", selector, remove=["sqli"])
+                self.assertTrue(result["retired"])
+                self.assertIs(result["observation"]["isReportable"], False)
+                self.assertEqual(result["observation"]["candidateFor"], [])
+
+    def test_curate_requires_add_or_remove(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                self._seed()
+                with self.assertRaises(McpError):
+                    workspace.curate_candidate("engagement", "example.com", {"url": self.URL}, add=[], remove=[])
+
+
 if __name__ == "__main__":
     unittest.main()

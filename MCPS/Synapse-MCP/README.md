@@ -61,6 +61,7 @@ fallback prompt; the repository launcher remains the preferred alpha runtime.
 - `workspace.mark_finding_reviewed`
 - `workspace.set_entity_reportable`
 - `workspace.record_candidate_validation`
+- `workspace.curate_candidate`
 - `workspace.export_finding_context`
 - `credentials.set`
 - `credentials.set_auth_profile`
@@ -616,6 +617,14 @@ candidate is retained but marked `retired`/non-reportable once nothing reportabl
 remains, and a refuted class is never resurrected by a later re-scan. A confirmed
 candidate stays reportable and returns a finding draft to promote via
 `workspace.promote_observation_to_finding`.
+
+Passive analyzers stay deliberately conservative (score thresholds plus a per
+host/class cap) so they cannot flood the workspace with low-signal candidates.
+`workspace.curate_candidate` lets the agent add or remove vulnerability classes on a
+surface `test_candidate` precisely — identifying it by `candidateId` or by
+`url`/`method`/`parameter`/`location`, creating it if needed — so accurate candidates
+can be built from normal observations instead of adapters blanketing every parameter.
+Removing a class marks it refuted and drops it from `candidateFor`.
 
 Every persisted entity (services, endpoints, parameters, findings, actions, and
 observations) carries an `isReportable` flag, `true` by default.

@@ -1076,6 +1076,9 @@ Evidence, ingestion, and finding lifecycle:
 - `workspace.promote_observation_to_finding`
 - `workspace.link_evidence_to_finding`
 - `workspace.mark_finding_reviewed`
+- `workspace.set_entity_reportable`
+- `workspace.record_candidate_validation`
+- `workspace.curate_candidate`
 - `workspace.export_finding_context`
 - `evidence.log_event`
 - `evidence.tail`

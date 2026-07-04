@@ -17,7 +17,7 @@ from urllib.parse import parse_qsl, urlsplit, urlunsplit
 from xml.etree import ElementTree
 
 from . import evidence, scope
-from .adapters.results import surface_candidate
+from .adapters.results import surface_candidate, surface_candidate_id
 from .errors import McpError
 from .paths import DATA_DIR, REPORTS_DIR as _CONFIGURED_REPORTS_DIR
 
@@ -2898,6 +2898,134 @@ def record_candidate_validation(
         "observation": matched,
         "retired": bool(matched.get("retired")),
         "findingDraft": draft,
+    }
+
+
+def curate_candidate(
+    workspace_id: str,
+    target: str,
+    surface_selector: dict[str, Any],
+    add: list[str] | None = None,
+    remove: list[str] | None = None,
+    reason: str = "",
+    reviewer: str = "agent",
+) -> dict[str, Any]:
+    """Agent curation of a surface ``test_candidate``: add/remove vuln classes precisely.
+
+    Lets the agent build accurate candidates from normal observations instead of adapters
+    blanketing every parameter. ``surface_selector`` identifies the surface by
+    ``candidateId`` or by ``url``/``method``/``parameter``/``location`` (the latter also
+    lets a not-yet-existing candidate be created for ``add``). Removing a class marks it
+    refuted and drops it from ``candidateFor`` (retain + mark, consistent with the
+    validation lifecycle); when nothing reportable remains the surface is retired.
+    """
+    wid = normalize_workspace_id(workspace_id)
+    host = normalize_target(target)
+    add_classes = [str(cls).strip() for cls in (add or []) if str(cls).strip()]
+    remove_classes = [str(cls).strip() for cls in (remove or []) if str(cls).strip()]
+    if not add_classes and not remove_classes:
+        raise McpError(-32602, "Provide at least one class to add or remove.")
+    if not isinstance(surface_selector, dict):
+        raise McpError(-32602, "surface_selector must be an object.")
+    url = str(surface_selector.get("url", "") or "")
+    method = str(surface_selector.get("method", "GET") or "GET").upper()
+    parameter = str(surface_selector.get("parameter", "") or "")
+    location = str(surface_selector.get("location", "query") or "query")
+    candidate_id = str(surface_selector.get("candidateId", "") or "")
+    if not candidate_id and url:
+        candidate_id = surface_candidate_id(method, url, location, parameter)
+    if not candidate_id:
+        raise McpError(-32602, "surface_selector needs a candidateId or a url (with optional method/parameter/location).")
+    decided_at = now_utc()
+    created = False
+    with workspace_lock(wid):
+        path = target_entity_path(wid, host, "observations")
+        observations = _read_json(path, [])
+        if not isinstance(observations, list):
+            observations = []
+        matched = next(
+            (item for item in observations if isinstance(item, dict) and _entity_matches_selector(item, {"candidateId": candidate_id})),
+            None,
+        )
+        if matched is None:
+            if not add_classes:
+                raise McpError(-32602, "No matching surface candidate to remove classes from.")
+            if not url:
+                raise McpError(-32602, "Creating a candidate requires url in surface_selector.")
+            matched = surface_candidate(
+                vuln_class=add_classes[0],
+                url=url,
+                method=method,
+                parameter=parameter,
+                location=location,
+                reason=reason or "Agent-curated candidate.",
+                confidence="medium",
+                tags=["agent-curated"],
+            )
+            matched.setdefault("firstSeenAt", decided_at)
+            matched["lastSeenAt"] = decided_at
+            matched.setdefault("evidenceIds", [])
+            matched["isReportable"] = True
+            observations.append(matched)
+            created = True
+        details = matched.get("candidateDetails") if isinstance(matched.get("candidateDetails"), dict) else {}
+        candidate_for = [str(cls) for cls in matched.get("candidateFor", []) if str(cls)]
+        for cls in add_classes:
+            if cls not in candidate_for:
+                candidate_for.append(cls)
+            detail = details.setdefault(cls, {"reasons": [], "priority": matched.get("priority", "low"), "priorityScore": int(matched.get("priorityScore", 0) or 0), "confidence": "medium"})
+            detail["validationStatus"] = detail.get("validationStatus", "proposed")
+            detail["curatedBy"] = reviewer
+            if reason:
+                detail["curationReason"] = reason
+        for cls in remove_classes:
+            candidate_for = [existing for existing in candidate_for if existing != cls]
+            detail = details.setdefault(cls, {})
+            detail["validationStatus"] = "refuted"
+            detail["decidedAt"] = decided_at
+            detail["curatedBy"] = reviewer
+            if reason:
+                detail["curationReason"] = reason
+        matched["candidateDetails"] = details
+        matched["candidateFor"] = candidate_for
+        matched["updatedAt"] = decided_at
+        if not candidate_for:
+            matched["isReportable"] = False
+            matched["retired"] = True
+        entity_key = _entity_key(matched)
+        _write_json(path, observations)
+        add_target(wid, host)
+        append_report_decision(
+            wid,
+            {
+                "decidedAt": decided_at,
+                "reviewer": reviewer,
+                "workspaceId": wid,
+                "target": host,
+                "entityType": "observations",
+                "action": "curate_candidate",
+                "added": add_classes,
+                "removed": remove_classes,
+                "reason": reason,
+                "created": created,
+                "entityKey": entity_key,
+                "candidateId": candidate_id,
+            },
+        )
+    evidence.log_event(
+        "workspace.candidate.curate",
+        f"Curated candidate {candidate_id} for {host}: +{add_classes} -{remove_classes}.",
+        {"workspaceId": wid, "target": host, "added": add_classes, "removed": remove_classes, "created": created},
+    )
+    return {
+        "workspaceId": wid,
+        "target": host,
+        "candidateId": candidate_id,
+        "created": created,
+        "added": add_classes,
+        "removed": remove_classes,
+        "retired": bool(matched.get("retired")),
+        "observation": matched,
     }
 
 
