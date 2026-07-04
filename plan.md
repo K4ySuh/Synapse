@@ -23,7 +23,10 @@ Run tests with `bin/test` (uses repo `.venv`). Keep the local, gitignored
   `workspace.record_candidate_validation`; execute_test/execute_matrix_test record outcomes;
   SQLi handled by multi-param/route sqlmap promotion (no active tester); web-vuln layer
   justifies findings + high-confidence candidates with evidence-file links.
-- **NEXT: Phase 4 (below).**
+- Phase 4 (DONE): tightened passive thresholds (`DEFAULT_MIN_SCORE`) + per-host/class caps
+  (`MAX_CANDIDATES_PER_HOST`); agent `workspace.curate_candidate` add/remove classes on a
+  surface test_candidate (creates from url/param if absent; remove refutes + drops class).
+- **ALL PHASES (0–4) COMPLETE. Branch Beta ready for review/merge.**
 
 ---
 
