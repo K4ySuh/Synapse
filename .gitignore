@@ -55,3 +55,4 @@ MCPS/Synapse-MCP/examples/claude-mcp-config.json
 
 # Local/private implementation history. Operators may keep their own copy.
 docs/Version-Log.md
+docs/Codex-Tasks.md
