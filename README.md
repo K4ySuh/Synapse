@@ -130,7 +130,8 @@ prior assessment knowledge available through MCP tools and resources.
   signals, authentication boundaries, state-changing methods, and error
   signals.
 - Workspace fingerprinting into structured technology components with name,
-  version, layer, confidence, and evidence sources.
+  version, layer, confidence, evidence sources, and synthesized CPEs with
+  explicit version precision.
 - External-perimeter inventory: host assets, web applications, technology
   matrix, canonical login portals, protected resources, and request-aware
   review candidates.
@@ -159,6 +160,15 @@ prior assessment knowledge available through MCP tools and resources.
   introspection, plus approved access-control matrix replay across credential
   contexts. Every active probe is scope-checked, `confirm=true` gated, and
   benign by construction.
+- CVE intelligence and verification: approval-gated correlation of
+  fingerprinted components against multiple online sources (NVD, CISA KEV,
+  public PoC indexes, Shodan) into candidate CVEs with applicability confidence
+  and exploit maturity (known-exploited / public PoC / referenced / none);
+  one-click confirmed benign replay or delegation to a Nuclei template to
+  verify a candidate; and bounded active version probing to raise fingerprint
+  precision. Source endpoints are config-driven and can be re-pointed at
+  runtime, and only product/version/CPE/CVE identifiers ever leave the
+  workspace.
 - Long-running tools run as workspace-scoped background jobs by default with
   durable `jobs.list` / `jobs.status` / `jobs.cancel` records that survive MCP
   restarts; lazy finalization ingests completed output into the workspace.
@@ -168,8 +178,8 @@ prior assessment knowledge available through MCP tools and resources.
 ### Reporting and documentation
 
 - Normalized passive report layers (perimeter, JavaScript, authentication,
-  access control) with a shared structure: summary, sections, per-target
-  context, coverage gaps, and recommended next steps.
+  access control, and CVE exposure) with a shared structure: summary, sections,
+  per-target context, coverage gaps, and recommended next steps.
 - Single-layer and all-layer workspace reports as Markdown, JSON context, or
   portable self-contained HTML with the shared Synapse visual identity.
 - Report, finding-draft, evidence-pack, coverage, and assessment-summary
@@ -332,6 +342,9 @@ Synapse exposes tools for:
   redirect, command injection, SSTI, LFI/RFI, SSI, access control, CSRF, CORS,
   XXE, GraphQL, insecure deserialization, security headers/cookies, JWT, TLS
   posture, and OpenAPI/Swagger/Postman spec import.
+- CVE intelligence and verification: `cve.correlate`, `cve.plan_tests`,
+  `cve.prepare_replay`, `cve.execute_test`, runtime source-endpoint recovery
+  (`cve.sources`, `cve.set_source_endpoint`), and `fingerprint.probe_versions`.
 - Infrastructure and OSINT adapters: nmap and Shodan.
 
 Representative entity and event schemas are documented in the

@@ -5,6 +5,19 @@ human-in-the-loop offensive security work. Synapse gives agents structured
 workspace memory, scope state, evidence, credentials by reference, normalized
 application context, adapters, jobs, and internal reporting.
 
+"Local-first" describes where engagement memory lives and who owns it: durable
+state (workspace, scope, evidence, fingerprints, findings) is stored on local
+disk as inspectable JSON, and every adapter's output is normalized into that
+local model. It does not restrict network egress and does not forbid online
+research. Agents may use online tools — querying CVE databases, retrieving
+public PoCs, checking current exploitation techniques — the same way the Shodan
+and nuclei adapters already reach external services. Whatever comes back is
+treated as external intelligence: scope-checked, recorded as evidence, and
+normalized into the local workspace, never trusted or executed blindly. The one
+narrow self-contained-at-runtime requirement is report rendering (reports embed
+their assets so they open without external CDNs); that is a report concern, not
+a limit on what the agent may reach during an engagement.
+
 This file is the durable operating policy for agents using this repository and
 MCP server. It should remain target-neutral. Do not store engagement-specific
 hosts, credentials, routes, parameters, client names, or assumptions here. Store
@@ -435,6 +448,33 @@ Use nmap and Shodan tools only within authorization and policy gates.
 Shodan API-backed operations require explicit approval where the tool requires
 it. Treat Shodan output as external intelligence that should be normalized into
 workspace context before driving conclusions.
+
+## CVE Intelligence And Verification
+
+The `cve` adapter correlates fingerprinted technology components with known
+CVEs and helps verify them under operator control.
+
+- Fingerprint first. Components need versions and CPEs to correlate well; run
+  `fingerprint.probe_versions` (approved, in-scope, bounded) when version
+  precision is low.
+- `cve.correlate` requires `confirm=true` because it queries third-party
+  intelligence. It sends only product, version, CPE, and CVE identifiers — never
+  target hostnames, paths, or secrets. Results are `cve_candidate` observations,
+  not findings.
+- Keep the two signals distinct: `confidence` is applicability (does this CVE
+  apply to this component, from version precision); `exploitMaturity` is
+  exploitability (`in_the_wild` from CISA KEV > `public_poc` > `exploit_referenced`
+  > `none`). A known-exploited (KEV) candidate is still a candidate until verified.
+- Treat public PoCs and exploit references as read-only intelligence. Never
+  fetch, clone, compile, or execute PoC code. Verification is a single bounded
+  benign request via `cve.execute_test`, or delegation to an existing Nuclei
+  template — nothing more without a new explicit operator request.
+- If a source endpoint fails or moves, use `cve.sources` to inspect resolved
+  endpoints and per-source status, re-point with `cve.set_source_endpoint`, and
+  re-run with `refresh=true`. Provider API keys are set only at runtime with
+  `cve.session_key.set`.
+- Promote a confirmed CVE to a finding only after operator review with
+  `workspace.promote_observation_to_finding`.
 
 ## Findings And Candidate Semantics
 

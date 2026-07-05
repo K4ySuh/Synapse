@@ -68,9 +68,13 @@ report is a point-in-time, presentation-scoped projection of that state.
 ## Internal Presentation Rules
 
 Report tables may mark high-detail columns such as `Credential ID`, `Approval
-ID`, `Local Path`, `Replay ID`, and similar operational references as
-`operator-only`. High-Level view hides those columns for readability, but the
-values remain in the HTML source and in workspace state.
+ID`, `Local Path`, `Replay ID`, `Exploit Reference`, and similar operational
+references as `operator-only`. High-Level view hides those columns for
+readability, but the values remain in the HTML source and in workspace state.
+The set of `operator-only` headers is defined in
+`layer_renderer._is_operator_only_header()`; hide a column there rather than
+stripping data from the layer context (reports are internal, not client
+deliverables).
 
 Candidate / review items render as compact tables grouped by category (one
 table per analyzer category such as open redirect, command injection, SSRF),
@@ -90,9 +94,12 @@ redaction later as a separate feature.
 ## Layer Report Contract
 
 Normalized passive layers (perimeter, JavaScript, authentication, access
-control) share one shape: they read existing workspace state and model
-artifacts, apply the redaction policy, and expose summary / sections / gaps /
-recommended next steps. They render HTML by default and send no active traffic.
+control, and CVE exposure) share one shape: they read existing workspace state
+and model artifacts, apply the redaction policy, and expose summary / sections /
+gaps / recommended next steps. They render HTML by default and send no active
+traffic. The CVE layer ("Suggested CVEs & Exploitability") ranks
+known-exploited (KEV) candidates first and keeps raw exploit/PoC URLs in an
+`operator-only` column, consistent with the presentation-only rules above.
 
 Consolidated workspace reports span every layer and **never truncate or skip
 sections**. Each layer's full canonical section set always renders in a fixed

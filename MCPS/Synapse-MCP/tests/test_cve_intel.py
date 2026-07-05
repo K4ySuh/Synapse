@@ -143,6 +143,49 @@ class CveIntelTests(unittest.TestCase):
                 self.assertEqual(len(cve_candidates), 1)
                 self.assertEqual(cve_candidates[0]["candidateId"], "cve_CVE-2021-41773_apache-httpd_2.4.49")
 
+    def test_discover_nvd_parses_2_0_reference_list_exploit_tags(self) -> None:
+        # Exercises the real _discover_nvd/_references_from_nvd path (not stubbed) against the
+        # NVD 2.0 schema, where cve.references is a list (not the 1.0 references.referenceData
+        # dict). An Exploit-tagged reference must surface and drive exploitMaturity.
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                seed_component()
+                nvd_payload = {
+                    "vulnerabilities": [
+                        {
+                            "cve": {
+                                "id": "CVE-2021-41773",
+                                "published": "2021-10-05T00:00:00.000",
+                                "descriptions": [{"lang": "en", "value": "Apache path traversal."}],
+                                "metrics": {"cvssMetricV31": [{"cvssData": {"baseScore": 7.5, "baseSeverity": "HIGH"}}]},
+                                "references": [
+                                    {"url": "https://exploit.example/poc", "tags": ["Exploit"]},
+                                    {"url": "https://vendor.example/advisory", "tags": ["Vendor Advisory"]},
+                                ],
+                            }
+                        }
+                    ]
+                }
+                with patch.object(cve_intel, "_fetch_nvd", return_value=nvd_payload), patch.object(
+                    cve_intel, "_enrich_cisa_kev", return_value={}
+                ), patch.object(cve_intel, "_enrich_poc_github_index", return_value={}):
+                    result = json.loads(
+                        cve_intel.correlate(
+                            {
+                                "workspaceId": "engagement",
+                                "target": "app.example.com",
+                                "sources": ["nvd", "cisa_kev", "poc_github_index"],
+                                "confirm": True,
+                            }
+                        )
+                    )
+                candidate = result["candidates"][0]
+                self.assertEqual(candidate["cvssScore"], 7.5)
+                exploit_urls = [ref.get("url") for ref in candidate["exploitReferences"]]
+                self.assertIn("https://exploit.example/poc", exploit_urls)
+                self.assertNotIn("https://vendor.example/advisory", exploit_urls)
+                self.assertEqual(candidate["exploitMaturity"], "exploit_referenced")
+
     def test_public_poc_bumps_priority_without_kev(self) -> None:
         with TemporaryDirectory() as tmp:
             with isolated_state(Path(tmp)):

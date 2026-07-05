@@ -115,6 +115,13 @@ config/synapse.env
 
 Use it to override local paths and binaries. Keep secrets out of this file.
 Shodan keys are set only at runtime with `shodan.session_key.set`.
+The `SYNAPSE_CVE_*` variables set the default CVE intelligence source endpoints
+(`SYNAPSE_CVE_NVD_URL`, `SYNAPSE_CVE_KEV_URL`, `SYNAPSE_CVE_POC_GITHUB_URL`,
+`SYNAPSE_CVE_GITHUB_SEARCH_URL`) and the default enabled source set
+(`SYNAPSE_CVE_SOURCES`). Each endpoint resolves as runtime override → env var →
+baked default, so a moved source URL can be re-pointed at runtime with
+`cve.set_source_endpoint` without editing this file. CVE provider API keys (NVD,
+GitHub) are set only at runtime with `cve.session_key.set`.
 `SYNAPSE_PYTHON` may be set here when you need to override the console's active
 `VIRTUAL_ENV` or `$SYNAPSE_ROOT/.venv`.
 The `SYNAPSE_MCP_*_TIMEOUT_SECONDS` values bound individual stdio
@@ -924,6 +931,39 @@ background jobs and use the same `jobs.status(jobId=...)` polling path. Crawler
 jobs run through an internal Python worker subprocess, preserve the same
 scope/workspace/evidence paths, and finalize the worker result through
 `jobs.status`.
+
+## CVE Intelligence And Verification
+
+The `cve` adapter turns fingerprinted technology components into candidate CVEs
+and helps verify them under operator control. It never sends target traffic
+during correlation and never fetches or executes public PoC code.
+
+Typical flow:
+
+1. Fingerprint the target so components carry versions and CPEs. Run
+   `fingerprint.probe_versions` (confirm-gated, in-scope, bounded benign GETs)
+   first when components are version-imprecise.
+2. `cve.correlate` (requires `confirm=true`) queries the enabled sources and
+   records one `cve_candidate` observation per component/CVE. Discovery uses NVD
+   and Shodan; enrichment adds CISA KEV (known-exploited), a public PoC index,
+   and optionally GitHub search or local `searchsploit`. Each candidate carries
+   an applicability `confidence` (from version precision) and an
+   `exploitMaturity` (`in_the_wild` > `public_poc` > `exploit_referenced` >
+   `none`). Only product/version/CPE/CVE identifiers leave the workspace.
+3. `cve.plan_tests` and `cve.prepare_replay` produce a no-traffic verification
+   plan and a benign replay request; PoC references are surfaced as read-only
+   intelligence.
+4. `cve.execute_test` (requires `confirm=true`, in-scope) sends one bounded
+   benign request, or returns a `nuclei.build_command` delegation when a safe
+   template exists. Promote to a finding only after review with
+   `workspace.promote_observation_to_finding`.
+
+Sources are selectable per call with `sources`, and their endpoints are
+config-driven. When a source URL changes or fails, inspect
+`cve.sources` (resolved endpoints plus last per-source status, including the URL
+tried and HTTP status), re-point it with `cve.set_source_endpoint`, and re-run
+`cve.correlate` with `refresh=true`. A single failing or rate-limited source
+degrades to a recorded status and never fails the run.
 
 ## Scope And Cleanup
 

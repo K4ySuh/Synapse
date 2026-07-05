@@ -20,7 +20,7 @@ DEFAULT_LAYERS = ("perimeter", "js", "auth", "access_control", "web_vulnerabilit
 # HTML reports are internal artifacts, so these columns stay in the report
 # source and the renderer marks them for presentation-only CSS hiding in the
 # High-Level view. This is not a security or client-deliverable redaction layer.
-SAFE_OMITTED_COLUMNS = ("Credential ID", "Approval ID", "Local Path", "Exploit Reference")
+SAFE_OMITTED_COLUMNS = ("Credential ID", "Approval ID", "Local Path")
 
 def _short_local_path(path: Any) -> str:
     # Show stored assets as a workspace-relative path rather than an absolute one:
@@ -747,8 +747,8 @@ def _cve_layer(args: dict[str, Any]) -> dict[str, Any]:
                     "knownExploitedCount": kev_count,
                     "highConfidenceCandidateCount": high_confidence,
                 },
-                observations=redact(_cve_candidates_for_audience(candidates, policy), policy),
-                candidates=redact(_cve_candidates_for_audience(candidates, policy), policy),
+                observations=redact(candidates, policy),
+                candidates=redact(candidates, policy),
                 evidence_ids=_evidence_ids({"observations": candidates, "findings": findings}),
                 gaps=target_gaps,
                 recommended_next_steps=target_steps,
@@ -756,8 +756,6 @@ def _cve_layer(args: dict[str, Any]) -> dict[str, Any]:
         )
     candidate_headers = ["Host", "Severity", "Component", "Version", "CVE", "CVSS", "Confidence", "Exploit Maturity", "KEV", "PoCs", "Testable", "Evidence", "Exploit Reference", "Reason"]
     finding_headers = ["Host", "Severity", "CVE", "Component", "Status", "Evidence"]
-    display_candidate_headers, display_candidate_rows = _cve_audience_columns(candidate_headers, candidate_rows, policy)
-    display_finding_headers, display_finding_rows = _cve_audience_columns(finding_headers, finding_rows, policy)
     context = LayerReportContext(
         workspace_id=wid,
         layer="cve",
@@ -769,16 +767,16 @@ def _cve_layer(args: dict[str, Any]) -> dict[str, Any]:
             _candidate_section(
                 "suggested_cves",
                 "Suggested CVEs (Candidate Exposure)",
-                display_candidate_headers,
-                display_candidate_rows,
+                candidate_headers,
+                candidate_rows,
                 group_by="Severity",
             ),
             _section(
                 "confirmed_cve_findings",
                 "Confirmed CVE Findings",
                 "table",
-                headers=display_finding_headers,
-                rows=display_finding_rows,
+                headers=finding_headers,
+                rows=finding_rows,
             ),
         ],
         gaps=_dedupe_strings(gaps),
@@ -811,25 +809,6 @@ def _cve_candidate_rows(target: str, candidates: list[dict[str, Any]], path_map:
             ]
         )
     return rows
-
-
-def _cve_candidates_for_audience(candidates: list[dict[str, Any]], policy: Any) -> list[dict[str, Any]]:
-    if str(getattr(policy, "mode", "") or "").lower() not in {"safe", "high_level"}:
-        return candidates
-    stripped = []
-    for candidate in candidates:
-        item = dict(candidate)
-        for key in ("pocReferences", "exploitReferences", "references", "sourceStatus"):
-            item.pop(key, None)
-        stripped.append(item)
-    return stripped
-
-
-def _cve_audience_columns(headers: list[str], rows: list[list[Any]], policy: Any) -> tuple[list[str], list[list[Any]]]:
-    if str(getattr(policy, "mode", "") or "").lower() not in {"safe", "high_level"}:
-        return headers, rows
-    keep_indexes = [index for index, header in enumerate(headers) if header not in SAFE_OMITTED_COLUMNS]
-    return [headers[index] for index in keep_indexes], [[row[index] for index in keep_indexes if index < len(row)] for row in rows]
 
 
 def _cve_finding_rows(target: str, findings: list[dict[str, Any]]) -> list[list[Any]]:

@@ -128,10 +128,13 @@ remain organized by operating domain: `adapters/web/` owns web application
 crawling, content discovery, offline web analysis, passive API/spec import
 (`spec_import`), and web candidate analyzers such as SSRF, open redirect,
 command injection, security headers/cookies, JWT, CSRF, CORS, XXE, insecure
-deserialization, GraphQL, and TLS posture. Several web candidate analyzers
-(`cors`, `graphql`, `xss`, `xxe`, `ssrf`, `open_redirect`, `command_injection`,
-`ssti`, `lfi`, `ssi`, and `access_control`) expose bounded, operator-approved
-active probes. `adapters/infra/`
+deserialization, GraphQL, and TLS posture. It also owns multi-source CVE
+correlation and verification (`cve`), which maps fingerprinted components to
+candidate CVEs through online intelligence (NVD, CISA KEV, public PoC indexes,
+Shodan) and verifies them through bounded, approved replay. Several web
+candidate analyzers (`cors`, `graphql`, `xss`, `xxe`, `ssrf`, `open_redirect`,
+`command_injection`, `ssti`, `lfi`, `ssi`, `cve`, and `access_control`) expose
+bounded, operator-approved active probes. `adapters/infra/`
 owns network/service enumeration and external exposure/OSINT adapters such as
 nmap and Shodan. Shared active-tool guardrails live in
 `adapters/command_utils.py`, and shared active HTTP execution policy lives in
@@ -216,10 +219,10 @@ Adapters produce workspace entities and evidence; `core/documentation/` owns
 delivery-oriented presentation. The shared report styling and banner assets
 live in `core/documentation/assets.py` and are reused by every HTML export,
 including the perimeter report and the JS app map. Normalized
-passive report layers for perimeter, JavaScript, authentication, and
-access-control data share the same top-level behavior: read existing workspace
-state and model artifacts, expose summary/sections/gaps/next steps, and render
-HTML by default without sending active traffic.
+passive report layers for perimeter, JavaScript, authentication,
+access-control, and CVE-exposure data share the same top-level behavior: read
+existing workspace state and model artifacts, expose summary/sections/gaps/next
+steps, and render HTML by default without sending active traffic.
 
 See [Reporting Model](Reporting-Model.md) for the internal Operator /
 High-Level view rules, the presentation-density toggle, and the contract that

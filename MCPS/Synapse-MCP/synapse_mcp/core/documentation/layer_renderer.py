@@ -1134,6 +1134,7 @@ def _is_operator_only_header(header: Any) -> bool:
         "source",
         "username/profile",
         "id",
+        "exploit reference",
     }
 
 

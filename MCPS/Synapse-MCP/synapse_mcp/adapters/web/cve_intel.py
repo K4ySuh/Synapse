@@ -808,7 +808,10 @@ def _cvss_from_nvd(cve: dict[str, Any]) -> tuple[float | None, str]:
 def _references_from_nvd(cve: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     refs = []
     exploit_refs = []
-    ref_data = cve.get("references", {}).get("referenceData", []) if isinstance(cve.get("references"), dict) else []
+    raw = cve.get("references", [])
+    if isinstance(raw, dict):  # legacy NVD 1.0 shape
+        raw = raw.get("referenceData", [])
+    ref_data = raw if isinstance(raw, list) else []
     for ref in ref_data:
         if not isinstance(ref, dict):
             continue
