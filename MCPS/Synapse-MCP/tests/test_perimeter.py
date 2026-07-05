@@ -2,10 +2,31 @@ import json
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from helpers import assert_shared_html_shell, isolated_state
 from synapse_mcp.core import fingerprint, perimeter, workspace
+from synapse_mcp.core.errors import McpError
+from synapse_mcp.core.http.models import HttpResponse
 from synapse_mcp.transport import stdio_server
+
+
+class FakeSession:
+    def __init__(self, responses: list[HttpResponse]):
+        self.responses = list(responses)
+        self.requests = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        return None
+
+    def send(self, request):
+        self.requests.append(request)
+        if self.responses:
+            return self.responses.pop(0)
+        return HttpResponse(status=200, headers={}, body="")
 
 
 class PerimeterTests(unittest.TestCase):
@@ -545,6 +566,107 @@ class PerimeterTests(unittest.TestCase):
                 self.assertIn(("OWASP Juice Shop", ""), matrix_names)
                 self.assertNotIn("http", {item["name"] for item in report["technologyComponents"]})
 
+    def test_component_gets_synthesized_cpe_and_exact_precision(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                workspace.ingest_data(
+                    "engagement",
+                    "app.example.com",
+                    "adapter_result",
+                    "adapter_result",
+                    "json",
+                    json.dumps(
+                        {
+                            "entities": {
+                                "services": [
+                                    {
+                                        "type": "service",
+                                        "host": "app.example.com",
+                                        "port": 8080,
+                                        "protocol": "tcp",
+                                        "name": "http",
+                                        "product": "Apache httpd",
+                                        "version": "2.4.49",
+                                    }
+                                ]
+                            }
+                        }
+                    ),
+                )
+
+                fp = fingerprint.analyze_workspace({"workspaceId": "engagement", "target": "app.example.com", "ingest": True})
+                component = next(item for item in fp["fingerprint"]["technologyComponents"] if item["name"] == "Apache httpd")
+                expected_cpe = "cpe:2.3:a:apache:http_server:2.4.49:*:*:*:*:*:*:*"
+                self.assertEqual(component["cpe"], expected_cpe)
+                self.assertEqual(component["versionPrecision"], "exact")
+
+                observations = workspace._load_target_entities("engagement", "app.example.com")["observations"]
+                observed = next(item for item in observations if item.get("type") == "technology_component" and item.get("name") == "Apache httpd")
+                self.assertEqual(observed["cpe"], expected_cpe)
+                self.assertEqual(observed["versionPrecision"], "exact")
+
+    def test_versionless_component_gets_wildcard_cpe_and_unknown_precision(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                workspace.ingest_data(
+                    "engagement",
+                    "app.example.com",
+                    "adapter_result",
+                    "adapter_result",
+                    "json",
+                    json.dumps(
+                        {
+                            "entities": {
+                                "endpoints": [
+                                    {
+                                        "type": "endpoint",
+                                        "url": "https://app.example.com/wp-content/themes/site/style.css",
+                                        "path": "/wp-content/themes/site/style.css",
+                                        "method": "GET",
+                                    }
+                                ]
+                            }
+                        }
+                    ),
+                )
+
+                fp = fingerprint.analyze_workspace({"workspaceId": "engagement", "target": "app.example.com", "ingest": True})
+                component = next(item for item in fp["fingerprint"]["technologyComponents"] if item["name"] == "WordPress")
+                self.assertEqual(component["cpe"], "cpe:2.3:a:wordpress:wordpress:*:*:*:*:*:*:*:*")
+                self.assertEqual(component["versionPrecision"], "unknown")
+
+    def test_unknown_product_has_empty_cpe(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                workspace.ingest_data(
+                    "engagement",
+                    "app.example.com",
+                    "adapter_result",
+                    "adapter_result",
+                    "json",
+                    json.dumps(
+                        {
+                            "entities": {
+                                "services": [
+                                    {
+                                        "type": "service",
+                                        "host": "app.example.com",
+                                        "port": 9443,
+                                        "protocol": "tcp",
+                                        "name": "https",
+                                        "product": "Unmapped Product",
+                                    }
+                                ]
+                            }
+                        }
+                    ),
+                )
+
+                fp = fingerprint.analyze_workspace({"workspaceId": "engagement", "target": "app.example.com", "ingest": True})
+                component = next(item for item in fp["fingerprint"]["technologyComponents"] if item["name"] == "Unmapped Product")
+                self.assertEqual(component["cpe"], "")
+                self.assertEqual(component["versionPrecision"], "unknown")
+
     def test_perimeter_merges_versionless_and_cross_layer_technology_duplicates(self) -> None:
         with TemporaryDirectory() as tmp:
             with isolated_state(Path(tmp)):
@@ -611,6 +733,114 @@ class PerimeterTests(unittest.TestCase):
 
                 fp = fingerprint.analyze_workspace({"workspaceId": "engagement", "target": "app.example.com"})
                 self.assertNotIn("ppp", {item["name"] for item in fp["fingerprint"]["technologyComponents"]})
+
+    def test_probe_versions_requires_confirm_and_scope(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                workspace.create_workspace("engagement", organization="Example Client", hosts=["app.example.com"])
+                workspace.ingest_data(
+                    "engagement",
+                    "app.example.com",
+                    "adapter_result",
+                    "adapter_result",
+                    "json",
+                    json.dumps({"entities": {"observations": [{"type": "technology_component", "name": "Apache httpd", "layer": "web_server", "source": "response_header", "confidence": "high"}]}}),
+                )
+
+                with patch.object(fingerprint.http_client, "session") as session:
+                    with self.assertRaisesRegex(McpError, "confirm=true"):
+                        fingerprint.probe_versions({"workspaceId": "engagement", "target": "https://app.example.com/"})
+                    session.assert_not_called()
+
+                with patch.object(fingerprint.http_client, "session") as session:
+                    with self.assertRaisesRegex(McpError, "not in authorized scope"):
+                        fingerprint.probe_versions({"workspaceId": "engagement", "target": "https://other.example.com/", "confirm": True})
+                    session.assert_not_called()
+
+    def test_probe_versions_upgrades_precision(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                workspace.create_workspace("engagement", organization="Example Client", hosts=["app.example.com"])
+                workspace.ingest_data(
+                    "engagement",
+                    "app.example.com",
+                    "adapter_result",
+                    "adapter_result",
+                    "json",
+                    json.dumps(
+                        {
+                            "entities": {
+                                "observations": [
+                                    {
+                                        "type": "technology_component",
+                                        "name": "Apache httpd",
+                                        "version": "",
+                                        "layer": "web_server",
+                                        "source": "response_header",
+                                        "confidence": "high",
+                                    }
+                                ]
+                            }
+                        }
+                    ),
+                )
+                fake_session = FakeSession([HttpResponse(status=200, headers={"Server": "Apache/2.4.49"}, body="")])
+
+                with patch.object(fingerprint.http_client, "session", return_value=fake_session):
+                    result = fingerprint.probe_versions({"workspaceId": "engagement", "target": "https://app.example.com/", "confirm": True})
+
+                expected_cpe = "cpe:2.3:a:apache:http_server:2.4.49:*:*:*:*:*:*:*"
+                self.assertEqual(len(fake_session.requests), 1)
+                self.assertEqual(result["requestCount"], 1)
+                upgraded = result["upgradedComponents"][0]
+                self.assertEqual(upgraded["name"], "Apache httpd")
+                self.assertEqual(upgraded["version"], "2.4.49")
+                self.assertEqual(upgraded["versionPrecision"], "exact")
+                self.assertEqual(upgraded["cpe"], expected_cpe)
+                self.assertTrue(result["probes"][0]["exchangeEvidence"]["evidenceId"])
+
+                observations = workspace._load_target_entities("engagement", "app.example.com")["observations"]
+                active = [item for item in observations if item.get("source") == "active_fingerprint_probe" and item.get("name") == "Apache httpd"]
+                self.assertEqual(active[0]["version"], "2.4.49")
+                self.assertEqual(active[0]["cpe"], expected_cpe)
+
+                components = result["fingerprint"]["technologyComponents"]
+                exact = next(item for item in components if item["name"] == "Apache httpd" and item.get("version") == "2.4.49")
+                self.assertEqual(exact["versionPrecision"], "exact")
+                self.assertEqual(exact["cpe"], expected_cpe)
+
+                actions = workspace._load_target_entities("engagement", "app.example.com")["actions"]
+                self.assertTrue(any(item.get("tool") == "fingerprint.probe_versions" for item in actions))
+
+    def test_probe_versions_respects_request_budget(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                workspace.create_workspace("engagement", organization="Example Client", hosts=["app.example.com"])
+                workspace.ingest_data(
+                    "engagement",
+                    "app.example.com",
+                    "adapter_result",
+                    "adapter_result",
+                    "json",
+                    json.dumps(
+                        {
+                            "entities": {
+                                "observations": [
+                                    {"type": "technology_component", "name": "WordPress", "layer": "web_application", "source": "endpoint", "confidence": "medium"},
+                                    {"type": "technology_component", "name": "Drupal", "layer": "web_application", "source": "endpoint", "confidence": "medium"},
+                                ]
+                            }
+                        }
+                    ),
+                )
+                fake_session = FakeSession([HttpResponse(status=200, headers={}, body="")])
+
+                with patch.object(fingerprint.http_client, "session", return_value=fake_session):
+                    result = fingerprint.probe_versions({"workspaceId": "engagement", "target": "https://app.example.com/", "confirm": True, "maxRequests": 1})
+
+                self.assertEqual(len(fake_session.requests), 1)
+                self.assertEqual(result["requestCount"], 1)
+                self.assertTrue(fake_session.requests[0].url.endswith("/"))
 
     def test_candidate_category_labels_injection_and_missing_header_findings(self) -> None:
         # SQLi/XSS candidates must not fall through to the generic "Candidate finding"

@@ -9,13 +9,21 @@ import time
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qsl, urlsplit
+from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 from . import dumps, evidence, scope, workspace
+from .http import HttpClientPolicy, HttpRequest, http_client
 
 
 SENSITIVE_COOKIE_RE = re.compile(r"(session|token|auth|jwt|saml|shib|wwv|sid)", re.I)
 PROTOCOL_ONLY_SERVICES = {"http", "https", "ssl/http", "http-proxy", "tcpwrapped"}
+DEFAULT_VERSION_PROBE_LIMIT = 8
+VERSION_PROBE_PATHS = {
+    "default": ["/"],
+    "wordpress": ["/readme.html"],
+    "drupal": ["/CHANGELOG.txt"],
+    "joomla": ["/administrator/manifests/files/joomla.xml"],
+}
 
 
 def _split_http(raw: str) -> tuple[str, dict[str, list[str]], str]:
@@ -190,6 +198,35 @@ def _normalize_technology_name(name: str) -> str:
     return normalized
 
 
+_CPE_PRODUCT_MAP = {
+    "apache httpd": ("apache", "http_server"),
+    "nginx": ("nginx", "nginx"),
+    "microsoft iis": ("microsoft", "internet_information_services"),
+    "php": ("php", "php"),
+    "asp.net": ("microsoft", "asp.net"),
+    "wordpress": ("wordpress", "wordpress"),
+    "drupal": ("drupal", "drupal"),
+    "joomla": ("joomla", "joomla\\!"),
+    "jquery": ("jquery", "jquery"),
+    "angular": ("angular", "angular"),
+    "express": ("expressjs", "express"),
+    "node.js": ("nodejs", "node.js"),
+    "oracle apex": ("oracle", "application_express"),
+    "oracle apex/ords": ("oracle", "application_express"),
+    "java servlet": ("oracle", "java_servlet"),
+}
+
+
+def _synthesize_cpe(name: str, version: str) -> str:
+    normalized = _normalize_technology_name(name)
+    vendor_product = _CPE_PRODUCT_MAP.get(normalized.lower())
+    if not vendor_product:
+        return ""
+    vendor, product = vendor_product
+    cpe_version = " ".join(str(version).split()) or "*"
+    return f"cpe:2.3:a:{vendor}:{product}:{cpe_version}:*:*:*:*:*:*:*"
+
+
 def _technology_layer(name: str) -> str:
     lowered = name.lower()
     if any(marker in lowered for marker in ("cloudflare", "akamai", "fastly", "netscaler", "citrix")):
@@ -228,12 +265,16 @@ def _add_component(
         return
     layer = layer or _technology_layer(name)
     key = _component_key(name, version, layer)
+    cpe = _synthesize_cpe(name, version)
+    version_precision = "exact" if version else "unknown"
     record = components.setdefault(
         key,
         {
             "type": "technology_component",
             "name": name,
             "version": version,
+            "cpe": cpe,
+            "versionPrecision": version_precision,
             "layer": layer,
             "sources": [],
             "confidence": confidence,
@@ -361,6 +402,27 @@ def _workspace_components(services: list[dict[str, Any]], endpoints: list[dict[s
     for observation in observations:
         if observation.get("type") == "cpe_observed":
             _add_component(components, name=str(observation.get("value", "")), layer="component_cpe", source="observation", confidence="medium", reason="CPE observed in external exposure metadata.", evidence_ids=observation.get("evidenceIds", []))
+        elif observation.get("type") == "technology_component":
+            source = str(observation.get("source") or ",".join(observation.get("sources", []) if isinstance(observation.get("sources"), list) else []) or "observation")
+            confidence = str(observation.get("confidence") or "medium")
+            name = str(observation.get("name") or observation.get("value") or "").strip()
+            version = str(observation.get("version") or "").strip()
+            if not version and name:
+                name, version = _split_product_version(name)
+            if source == "service" and confidence == "low" and not version:
+                continue
+            reasons = observation.get("reasons", []) if isinstance(observation.get("reasons"), list) else []
+            reason = str(observation.get("reason") or "; ".join(str(item) for item in reasons[:2]) or "Technology component observation recorded in workspace.")
+            _add_component(
+                components,
+                name=name,
+                version=version,
+                layer=str(observation.get("layer") or ""),
+                source=source,
+                confidence=confidence,
+                reason=reason,
+                evidence_ids=observation.get("evidenceIds", []),
+            )
     return sorted(components.values(), key=lambda item: (item["layer"], item["name"], item.get("version", "")))
 
 
@@ -443,6 +505,8 @@ def analyze_workspace(args: dict[str, Any]) -> dict[str, Any]:
                     "layer": item.get("layer", "component"),
                     "source": ",".join(item.get("sources", [])),
                     "confidence": item.get("confidence", "low"),
+                    "cpe": item.get("cpe", ""),
+                    "versionPrecision": item.get("versionPrecision", "unknown"),
                     "reasons": item.get("reasons", []),
                     "evidenceIds": item.get("evidenceIds", []),
                     "reason": "; ".join(item.get("reasons", [])[:2]),
@@ -496,6 +560,210 @@ def refresh_workspace_target(
 
         result["perimeter"] = perimeter.analyze_workspace({"workspaceId": result["workspaceId"], "target": result["target"]})
     return result
+
+
+def _target_base_url(value: str) -> str:
+    parsed = urlsplit(value if "://" in str(value) else f"https://{value}")
+    if not parsed.netloc:
+        return ""
+    return urlunsplit((parsed.scheme or "https", parsed.netloc, "/", "", ""))
+
+
+def _probe_paths_for_components(components: list[dict[str, Any]], max_requests: int) -> list[str]:
+    if not components:
+        return []
+    paths: list[str] = []
+    for path in VERSION_PROBE_PATHS["default"]:
+        if path not in paths:
+            paths.append(path)
+    for component in components:
+        name = str(component.get("name", "")).lower()
+        for marker, marker_paths in VERSION_PROBE_PATHS.items():
+            if marker == "default" or marker not in name:
+                continue
+            for path in marker_paths:
+                if path not in paths:
+                    paths.append(path)
+    return paths[: max(max_requests, 0)]
+
+
+def _response_header_map(response: dict[str, Any]) -> dict[str, str]:
+    headers = response.get("headers", {})
+    if not isinstance(headers, dict):
+        return {}
+    return {str(name).lower(): str(value) for name, value in headers.items() if str(value)}
+
+
+def _meta_generator_values(body: str) -> list[str]:
+    values: list[str] = []
+    for match in re.finditer(r"<meta\b[^>]*>", body[:20000], re.I):
+        tag = match.group(0)
+        if not re.search(r"\bname\s*=\s*['\"]?generator['\"]?", tag, re.I):
+            continue
+        content = re.search(r"\bcontent\s*=\s*['\"]([^'\"]+)['\"]", tag, re.I)
+        if content:
+            values.append(content.group(1).strip())
+    return values
+
+
+def _version_signals_from_response(response: dict[str, Any]) -> list[dict[str, str]]:
+    signals: list[dict[str, str]] = []
+    headers = _response_header_map(response)
+    for header_name in ("server", "x-powered-by", "x-generator"):
+        value = headers.get(header_name, "")
+        if not value:
+            continue
+        name, version = _split_product_version(value)
+        name = _normalize_technology_name(name)
+        if name and version:
+            signals.append({"name": name, "version": version, "source": header_name, "raw": value})
+    body = str(response.get("body", "") or "")
+    for value in _meta_generator_values(body):
+        name, version = _split_product_version(value)
+        name = _normalize_technology_name(name)
+        if name and version:
+            signals.append({"name": name, "version": version, "source": "meta_generator", "raw": value})
+    return signals
+
+
+def _matching_component(signal: dict[str, str], components: list[dict[str, Any]]) -> dict[str, Any] | None:
+    signal_name = _normalize_technology_name(signal.get("name", ""))
+    for component in components:
+        component_name = _normalize_technology_name(str(component.get("name", "")))
+        if component_name.lower() != signal_name.lower():
+            continue
+        if str(component.get("versionPrecision", "")) == "exact" and str(component.get("version", "")) == signal.get("version"):
+            return None
+        return component
+    return None
+
+
+def probe_versions(args: dict[str, Any]) -> dict[str, Any]:
+    from synapse_mcp.adapters.command_utils import approval_metadata, require_confirmed, require_in_scope
+    from synapse_mcp.adapters.web.active_probe import response_summary, store_http_exchange_evidence
+
+    require_confirmed(args, "fingerprint.probe_versions sends active HTTP GET requests and requires confirm=true.")
+    workspace_id = workspace.normalize_workspace_id(args["workspaceId"])
+    target_input = str(args["target"])
+    max_requests = max(int(args.get("maxRequests", DEFAULT_VERSION_PROBE_LIMIT) or 0), 0)
+    scope_result = require_in_scope(target_input, workspace_id)
+    target = scope_result["host"]
+    base_url = _target_base_url(target_input) or f"https://{target}/"
+
+    entities = workspace._load_target_entities(workspace_id, target)
+    services = [item for item in entities.get("services", []) if isinstance(item, dict)]
+    endpoints = [item for item in entities.get("endpoints", []) if isinstance(item, dict)]
+    observations = [item for item in entities.get("observations", []) if isinstance(item, dict)]
+    components = _workspace_components(services, endpoints, observations)
+    paths = _probe_paths_for_components(components, max_requests)
+    approval = approval_metadata(args)
+    policy = HttpClientPolicy.from_args(args, timeout_seconds=float(args.get("requestTimeout", 10)))
+    probes: list[dict[str, Any]] = []
+    enriched_observations: list[dict[str, Any]] = []
+    seen_enrichments: set[tuple[str, str, str]] = set()
+
+    with http_client.session(policy) as session:
+        for path in paths:
+            url = urlunsplit((urlsplit(base_url).scheme, urlsplit(base_url).netloc, path or "/", "", ""))
+            request = {"url": url, "method": "GET", "headers": {"User-Agent": "Synapse-MCP/0.1"}, "body": ""}
+            response = session.send(HttpRequest(url=url, method="GET", headers=request["headers"])).as_dict()
+            exchange = store_http_exchange_evidence(
+                workspace_id,
+                target,
+                "fingerprint_version_probe",
+                request=request,
+                response=response,
+                metadata={"adapter": "fingerprint", "tool": "fingerprint.probe_versions", "path": path, "approval": approval},
+            )
+            signals = _version_signals_from_response(response)
+            probe_record = {
+                "url": url,
+                "method": "GET",
+                "response": response_summary(response, body_preview_bytes=0),
+                "signals": signals,
+                "exchangeEvidence": exchange,
+            }
+            probes.append(probe_record)
+            for signal in signals:
+                component = _matching_component(signal, components)
+                if not component:
+                    continue
+                name = _normalize_technology_name(signal["name"])
+                version = " ".join(str(signal["version"]).split())
+                layer = str(component.get("layer") or _technology_layer(name))
+                key = (name.lower(), version.lower(), layer)
+                if key in seen_enrichments:
+                    continue
+                seen_enrichments.add(key)
+                enriched_observations.append(
+                    {
+                        "type": "technology_component",
+                        "value": f"{name} {version}",
+                        "name": name,
+                        "version": version,
+                        "cpe": _synthesize_cpe(name, version),
+                        "versionPrecision": "exact",
+                        "layer": layer,
+                        "source": "active_fingerprint_probe",
+                        "confidence": "high",
+                        "reason": f"Approved benign GET {path or '/'} observed {signal['source']} version signal: {signal['raw']}",
+                        "evidenceIds": [exchange.get("evidenceId", "")],
+                    }
+                )
+
+    raw = {
+        "adapter": "fingerprint",
+        "mode": "active_version_probe",
+        "workspaceId": workspace_id,
+        "target": target,
+        "requestCount": len(probes),
+        "maxRequests": max_requests,
+        "probes": probes,
+        "approval": approval,
+        "entities": {"observations": enriched_observations},
+    }
+    ingestion = workspace.ingest_data(
+        workspace_id,
+        target,
+        "adapter_result",
+        "active_version_probe",
+        "json",
+        json.dumps(raw, indent=2, ensure_ascii=False),
+        {"adapter": "fingerprint", "tool": "fingerprint.probe_versions", "target": target, "approval": approval},
+    )
+    action = workspace.record_action(
+        workspace_id,
+        target,
+        {
+            "type": "active_validation",
+            "tool": "fingerprint.probe_versions",
+            "target": target,
+            "requestCount": len(probes),
+            "upgradedComponentCount": len(enriched_observations),
+            "exchangeEvidenceIds": [probe["exchangeEvidence"].get("evidenceId", "") for probe in probes],
+            "approval": approval,
+            "evidenceId": ingestion.get("evidenceId", ""),
+        },
+        ingestion.get("evidenceId", ""),
+    )
+    refreshed = analyze_workspace({"workspaceId": workspace_id, "target": target, "ingest": True})
+    evidence.log_event(
+        "fingerprint.probe_versions",
+        f"Ran approved bounded version probes for {target}.",
+        {"workspaceId": workspace_id, "target": target, "requestCount": len(probes), "upgradedComponentCount": len(enriched_observations), "approval": approval},
+    )
+    return {
+        "probed": True,
+        "workspaceId": workspace_id,
+        "target": target,
+        "requestCount": len(probes),
+        "maxRequests": max_requests,
+        "upgradedComponents": enriched_observations,
+        "probes": probes,
+        "ingestion": ingestion,
+        "action": action,
+        "fingerprint": refreshed["fingerprint"],
+    }
 
 
 def _classify_endpoint(path: str) -> str:

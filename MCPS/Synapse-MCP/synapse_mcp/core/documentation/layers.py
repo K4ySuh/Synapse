@@ -14,13 +14,13 @@ from .redaction import policy_from_args, redact
 
 
 LayerProvider = Callable[[dict[str, Any]], dict[str, Any]]
-DEFAULT_LAYERS = ("perimeter", "js", "auth", "access_control", "web_vulnerabilities")
+DEFAULT_LAYERS = ("perimeter", "js", "auth", "access_control", "web_vulnerabilities", "cve")
 
 # Table columns that carry high-detail operational identifiers. Current alpha
 # HTML reports are internal artifacts, so these columns stay in the report
 # source and the renderer marks them for presentation-only CSS hiding in the
 # High-Level view. This is not a security or client-deliverable redaction layer.
-SAFE_OMITTED_COLUMNS = ("Credential ID", "Approval ID", "Local Path")
+SAFE_OMITTED_COLUMNS = ("Credential ID", "Approval ID", "Local Path", "Exploit Reference")
 
 def _short_local_path(path: Any) -> str:
     # Show stored assets as a workspace-relative path rather than an absolute one:
@@ -108,6 +108,13 @@ def list_layers(_: dict[str, Any] | None = None) -> dict[str, Any]:
                 "sendsTraffic": False,
                 "refreshable": False,
             },
+            {
+                "layer": "cve",
+                "title": "Suggested CVEs & Exploitability",
+                "description": "Candidate CVE exposure intelligence from fingerprinted components, exploit maturity, KEV status, PoC references, and confirmed CVE findings.",
+                "sendsTraffic": False,
+                "refreshable": False,
+            },
         ]
     }
 
@@ -170,6 +177,7 @@ def _providers() -> dict[str, LayerProvider]:
         "auth": _auth_layer,
         "access_control": _access_control_layer,
         "web_vulnerabilities": _web_vulnerabilities_layer,
+        "cve": _cve_layer,
     }
 
 
@@ -183,6 +191,8 @@ def _normalize_layer(value: Any) -> str:
         return "access_control"
     if layer in {"web_vulns", "vulns", "vulnerabilities", "web_vulnerability"}:
         return "web_vulnerabilities"
+    if layer in {"cves", "vulnerability_intel", "cve_intel"}:
+        return "cve"
     return layer
 
 
@@ -691,6 +701,229 @@ def _web_vulnerabilities_layer(args: dict[str, Any]) -> dict[str, Any]:
     return context.as_dict()
 
 
+def _cve_layer(args: dict[str, Any]) -> dict[str, Any]:
+    wid = workspace.normalize_workspace_id(args["workspaceId"])
+    policy = policy_from_args(args)
+    targets = _target_names(wid, str(args.get("target", "") or ""))
+    target_contexts = []
+    candidate_rows: list[list[Any]] = []
+    finding_rows: list[list[Any]] = []
+    gaps: list[str] = []
+    steps: list[str] = []
+    summary = {
+        "targetCount": len(targets),
+        "candidateCount": 0,
+        "findingCount": 0,
+        "knownExploitedCount": 0,
+        "highConfidenceCandidateCount": 0,
+    }
+    for target in targets:
+        entities = workspace.load_reportable_target_entities(wid, target)
+        observations = [item for item in entities["observations"] if isinstance(item, dict)]
+        candidates = [item for item in observations if item.get("type") == "cve_candidate"]
+        candidates = sorted(candidates, key=_cve_candidate_sort_key)
+        findings = [item for item in entities["findings"] if isinstance(item, dict) and _is_cve_finding(item)]
+        path_map = _evidence_path_map(wid, target)
+        target_candidate_rows = _cve_candidate_rows(target, candidates, path_map)
+        target_finding_rows = _cve_finding_rows(target, findings)
+        candidate_rows.extend(target_candidate_rows)
+        finding_rows.extend(target_finding_rows)
+        kev_count = sum(1 for item in candidates if bool(item.get("knownExploited")))
+        high_confidence = sum(1 for item in candidates if str(item.get("confidence", "")).lower() == "high")
+        summary["candidateCount"] += len(candidates)
+        summary["findingCount"] += len(findings)
+        summary["knownExploitedCount"] += kev_count
+        summary["highConfidenceCandidateCount"] += high_confidence
+        target_gaps = _cve_gaps(target, candidates, kev_count, high_confidence)
+        target_steps = _cve_steps(target, candidates, kev_count, high_confidence)
+        gaps.extend(target_gaps)
+        steps.extend(target_steps)
+        target_contexts.append(
+            LayerTargetContext(
+                target=target,
+                summary={
+                    "candidateCount": len(candidates),
+                    "findingCount": len(findings),
+                    "knownExploitedCount": kev_count,
+                    "highConfidenceCandidateCount": high_confidence,
+                },
+                observations=redact(_cve_candidates_for_audience(candidates, policy), policy),
+                candidates=redact(_cve_candidates_for_audience(candidates, policy), policy),
+                evidence_ids=_evidence_ids({"observations": candidates, "findings": findings}),
+                gaps=target_gaps,
+                recommended_next_steps=target_steps,
+            )
+        )
+    candidate_headers = ["Host", "Severity", "Component", "Version", "CVE", "CVSS", "Confidence", "Exploit Maturity", "KEV", "PoCs", "Testable", "Evidence", "Exploit Reference", "Reason"]
+    finding_headers = ["Host", "Severity", "CVE", "Component", "Status", "Evidence"]
+    display_candidate_headers, display_candidate_rows = _cve_audience_columns(candidate_headers, candidate_rows, policy)
+    display_finding_headers, display_finding_rows = _cve_audience_columns(finding_headers, finding_rows, policy)
+    context = LayerReportContext(
+        workspace_id=wid,
+        layer="cve",
+        title="Suggested CVEs & Exploitability",
+        generated_at=workspace.now_utc(),
+        summary=redact(summary, policy),
+        targets=target_contexts,
+        sections=[
+            _candidate_section(
+                "suggested_cves",
+                "Suggested CVEs (Candidate Exposure)",
+                display_candidate_headers,
+                display_candidate_rows,
+                group_by="Severity",
+            ),
+            _section(
+                "confirmed_cve_findings",
+                "Confirmed CVE Findings",
+                "table",
+                headers=display_finding_headers,
+                rows=display_finding_rows,
+            ),
+        ],
+        gaps=_dedupe_strings(gaps),
+        recommended_next_steps=_dedupe_strings(steps),
+        redaction=policy,
+    )
+    return context.as_dict()
+
+
+def _cve_candidate_rows(target: str, candidates: list[dict[str, Any]], path_map: dict[str, str]) -> list[list[Any]]:
+    rows: list[list[Any]] = []
+    for candidate in candidates:
+        poc_refs = candidate.get("pocReferences", []) if isinstance(candidate.get("pocReferences"), list) else []
+        rows.append(
+            [
+                target,
+                _candidate_priority(candidate),
+                str(candidate.get("component", "") or "not recorded"),
+                str(candidate.get("version", "") or "not recorded"),
+                str(candidate.get("cveId") or candidate.get("value") or ""),
+                _cve_cvss_label(candidate),
+                str(candidate.get("confidence", "") or "not recorded"),
+                str(candidate.get("exploitMaturity", "") or "none"),
+                "yes" if candidate.get("knownExploited") else "no",
+                int(candidate.get("pocCount", len(poc_refs)) or 0),
+                "yes" if candidate.get("testable") else "no",
+                _join(candidate.get("evidenceIds", []), limit=3) or "not recorded",
+                _cve_exploit_reference(candidate),
+                _candidate_report_reason(candidate) or str(candidate.get("summary", "") or "No rationale recorded."),
+            ]
+        )
+    return rows
+
+
+def _cve_candidates_for_audience(candidates: list[dict[str, Any]], policy: Any) -> list[dict[str, Any]]:
+    if str(getattr(policy, "mode", "") or "").lower() not in {"safe", "high_level"}:
+        return candidates
+    stripped = []
+    for candidate in candidates:
+        item = dict(candidate)
+        for key in ("pocReferences", "exploitReferences", "references", "sourceStatus"):
+            item.pop(key, None)
+        stripped.append(item)
+    return stripped
+
+
+def _cve_audience_columns(headers: list[str], rows: list[list[Any]], policy: Any) -> tuple[list[str], list[list[Any]]]:
+    if str(getattr(policy, "mode", "") or "").lower() not in {"safe", "high_level"}:
+        return headers, rows
+    keep_indexes = [index for index, header in enumerate(headers) if header not in SAFE_OMITTED_COLUMNS]
+    return [headers[index] for index in keep_indexes], [[row[index] for index in keep_indexes if index < len(row)] for row in rows]
+
+
+def _cve_finding_rows(target: str, findings: list[dict[str, Any]]) -> list[list[Any]]:
+    rows = []
+    for finding in sorted(findings, key=lambda item: (_severity_rank(item.get("severity")), str(item.get("title", "")))):
+        rows.append(
+            [
+                target,
+                finding.get("severity", ""),
+                str(finding.get("cveId") or _cve_id_from_text(finding.get("title", "")) or _cve_id_from_text(finding.get("description", "")) or "not recorded"),
+                str(finding.get("component", "") or finding.get("affectedComponent", "") or "not recorded"),
+                finding.get("status", ""),
+                _join(finding.get("evidenceIds", []), limit=3) or "not recorded",
+            ]
+        )
+    return rows
+
+
+def _cve_candidate_sort_key(candidate: dict[str, Any]) -> tuple[int, int, int, str]:
+    maturity = str(candidate.get("exploitMaturity", "") or "")
+    maturity_rank = 0 if candidate.get("knownExploited") or maturity == "in_the_wild" else (1 if maturity == "public_poc" else 2)
+    return (
+        maturity_rank,
+        _severity_rank(_candidate_priority(candidate)),
+        -int(candidate.get("priorityScore", 0) or 0),
+        str(candidate.get("cveId") or candidate.get("value") or ""),
+    )
+
+
+def _cve_cvss_label(candidate: dict[str, Any]) -> str:
+    score = candidate.get("cvssScore")
+    if score in (None, ""):
+        return "not recorded"
+    try:
+        return f"{float(score):.1f}"
+    except (TypeError, ValueError):
+        return str(score)
+
+
+def _cve_exploit_reference(candidate: dict[str, Any]) -> str:
+    for field in ("pocReferences", "exploitReferences", "references"):
+        refs = candidate.get(field)
+        if not isinstance(refs, list):
+            continue
+        for ref in refs:
+            if isinstance(ref, dict) and ref.get("url"):
+                return str(ref["url"])
+            if isinstance(ref, str) and ref:
+                return ref
+    return ""
+
+
+def _is_cve_finding(finding: dict[str, Any]) -> bool:
+    if finding.get("cveId"):
+        return True
+    tags = finding.get("tags", [])
+    if isinstance(tags, list) and any(str(tag).lower() == "cve" for tag in tags):
+        return True
+    return bool(_cve_id_from_text(finding.get("title", "")) or _cve_id_from_text(finding.get("description", "")))
+
+
+def _cve_id_from_text(value: Any) -> str:
+    text = str(value or "").upper()
+    marker = "CVE-"
+    index = text.find(marker)
+    if index == -1:
+        return ""
+    tail = text[index:].split()[0].strip(".,;:)")
+    parts = tail.split("-")
+    if len(parts) >= 3 and parts[1].isdigit() and parts[2].isdigit():
+        return "-".join(parts[:3])
+    return ""
+
+
+def _cve_gaps(target: str, candidates: list[dict[str, Any]], kev_count: int, high_confidence: int) -> list[str]:
+    if not candidates:
+        return [f"No CVE correlation has been recorded for {target}."]
+    gaps = []
+    if high_confidence:
+        gaps.append(f"{high_confidence} high-confidence CVE candidate(s) on {target} are awaiting verification.")
+    if kev_count:
+        gaps.append(f"{kev_count} KEV-listed CVE candidate(s) on {target} require prioritized operator review.")
+    return gaps
+
+
+def _cve_steps(target: str, candidates: list[dict[str, Any]], kev_count: int, high_confidence: int) -> list[str]:
+    steps = []
+    if kev_count or high_confidence:
+        steps.append(f"Verify KEV-listed or high-confidence CVE candidates on {target} with cve.prepare_replay and cve.execute_test before promotion.")
+    elif candidates:
+        steps.append(f"Review {len(candidates)} suggested CVE candidate(s) on {target}; prioritize exact-version matches and public exploitation signals.")
+    return steps
+
+
 def _target_names(workspace_id: str, target: str = "") -> list[str]:
     workspace.ensure_workspace(workspace_id)
     if target:
@@ -763,6 +996,13 @@ def _workspace_recommended_next_steps(layer_contexts: list[dict[str, Any]], gaps
             candidate_count = int(summary.get("candidateCount", 0) or 0)
             if candidate_count:
                 steps.append(f"Review the {candidate_count} passive web vulnerability candidate observation(s) before requesting active validation or promoting findings.")
+        elif name == "cve":
+            kev_count = int(summary.get("knownExploitedCount", 0) or 0)
+            high_confidence = int(summary.get("highConfidenceCandidateCount", 0) or 0)
+            if kev_count:
+                steps.append(f"Prioritize verification of the {kev_count} KEV-listed CVE candidate(s) before any finding promotion.")
+            elif high_confidence:
+                steps.append(f"Review and verify the {high_confidence} high-confidence CVE candidate(s) before promotion.")
     if not steps:
         steps.extend(fallback_steps)
     if not steps and gaps:
@@ -1003,12 +1243,7 @@ def _target_has_module_action(entities: dict[str, list[dict[str, Any]]], module:
 
 
 def _audience_columns(headers: list[str], rows: list[list[Any]], policy: Any) -> tuple[list[str], list[list[Any]]]:
-    """Preserve table columns for internal HTML presentation switching.
-
-    Older redaction-oriented reports omitted columns here. Current alpha
-    reports are internal operator artifacts, so high-level mode reduces noise
-    with CSS in the renderer rather than removing source values.
-    """
+    """Preserve table columns for internal HTML presentation switching."""
     return headers, rows
 
 

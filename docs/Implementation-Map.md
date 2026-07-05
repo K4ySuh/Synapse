@@ -461,10 +461,15 @@ possible OS family hints, and representative request lines. `analyze_workspace`
 reads normalized workspace services, endpoints, response headers, response
 cookie names, body-derived technology signals, and observations to produce
 structured technology components with separate `name`, `version`, `layer`,
-`confidence`, and evidence fields. Protocol-only service names such as `http`
-and `https` are ignored unless a real product signal exists. Both paths save
-`fingerprint.json` per organization/host; workspace analysis can also ingest
-`technology_component` observations and refresh perimeter state.
+`confidence`, `cpe`, `versionPrecision`, and evidence fields. Protocol-only
+service names such as `http` and `https` are ignored unless a real product
+signal exists. `probe_versions` is the confirm-gated active precision booster:
+it sends a bounded allowlist of benign GET requests for already-identified
+components, stores each exchange as evidence, and ingests exact-version
+`technology_component` observations when headers or generator metadata expose
+versions. Dump and workspace analysis save `fingerprint.json` per
+organization/host; workspace analysis can also ingest `technology_component`
+observations and refresh perimeter state.
 
 ```text
 core/workspace.py
@@ -628,6 +633,7 @@ mode). The current registered set, by registry name, is:
 - `crawler`
 - `ffuf`
 - `nuclei`
+- `cve`
 - `sqli`
 - `xss`
 - `headers_cookies`
@@ -1048,6 +1054,22 @@ observations, IP leakage candidates, CPEs, and possible CVEs. Ingested Shodan
 data refreshes workspace fingerprinting and perimeter summaries for the
 affected target.
 
+```text
+adapters/web/cve_intel.py
+```
+
+Correlates workspace `technology_component` observations with multi-source CVE
+intelligence. The adapter resolves source endpoints at call time from runtime
+overrides, environment variables, or baked defaults; stores provider API keys
+only in process memory; and records per-source status so failed or moved
+sources can be diagnosed without failing the whole run. `cve.correlate`
+requires `confirm=true` because it can query third-party sources, sends only
+component/CPE/CVE identifiers, and ingests `cve_candidate` observations with
+applicability confidence and exploit maturity. `cve.plan_tests` and
+`cve.prepare_replay` send no traffic. `cve.execute_test` sends one bounded
+benign in-scope request or delegates to the existing nuclei tool when a
+template id is available; it never fetches or executes PoC code.
+
 ## Tool Surface By Workflow
 
 Adapter and documentation discovery:
@@ -1086,7 +1108,14 @@ Evidence, ingestion, and finding lifecycle:
 - `evidence.host_context`
 - `fingerprint.from_dump`
 - `fingerprint.analyze_workspace`
+- `fingerprint.probe_versions`
 - `fingerprint.read_host`
+- `cve.sources`
+- `cve.session_key.status`
+- `cve.correlate`
+- `cve.plan_tests`
+- `cve.prepare_replay`
+- `cve.execute_test`
 
 Credentials:
 

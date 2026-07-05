@@ -292,6 +292,97 @@ class DocumentationTests(unittest.TestCase):
                 self.assertNotIn("chunk-ABCD.js", json.dumps(report))
                 self.assertIn("/profile", json.dumps(report))
 
+    def test_cve_layer_ranks_kev_and_hides_exploit_refs_in_safe_view(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                workspace.ingest_data(
+                    "engagement",
+                    "app.example.com",
+                    "adapter_result",
+                    "passive_analysis",
+                    "json",
+                    json.dumps(
+                        {
+                            "entities": {
+                                "observations": [
+                                    {
+                                        "type": "cve_candidate",
+                                        "candidateId": "cve_CVE-2024-0002_nginx_1.22.1",
+                                        "value": "CVE-2024-0002",
+                                        "cveId": "CVE-2024-0002",
+                                        "component": "nginx",
+                                        "version": "1.22.1",
+                                        "priority": "medium",
+                                        "priorityScore": 50,
+                                        "confidence": "high",
+                                        "cvssScore": 5.0,
+                                        "exploitMaturity": "none",
+                                        "knownExploited": False,
+                                        "pocReferences": [],
+                                        "pocCount": 0,
+                                        "testable": True,
+                                        "reason": "Exact nginx version maps to an NVD CVE.",
+                                    },
+                                    {
+                                        "type": "cve_candidate",
+                                        "candidateId": "cve_CVE-2021-41773_apache-httpd_2.4.49",
+                                        "value": "CVE-2021-41773",
+                                        "cveId": "CVE-2021-41773",
+                                        "component": "Apache httpd",
+                                        "version": "2.4.49",
+                                        "priority": "critical",
+                                        "priorityScore": 95,
+                                        "confidence": "high",
+                                        "cvssScore": 7.5,
+                                        "exploitMaturity": "in_the_wild",
+                                        "knownExploited": True,
+                                        "pocReferences": [{"source": "poc_github_index", "url": "https://github.example/apache-poc", "stars": 20}],
+                                        "pocCount": 1,
+                                        "testable": True,
+                                        "reason": "KEV-listed Apache path traversal candidate.",
+                                    },
+                                ],
+                                "findings": [
+                                    {
+                                        "type": "finding",
+                                        "title": "CVE-2021-41773 confirmed on Apache httpd",
+                                        "status": "confirmed",
+                                        "severity": "critical",
+                                        "confidence": "high",
+                                        "cveId": "CVE-2021-41773",
+                                        "component": "Apache httpd",
+                                    }
+                                ],
+                            }
+                        }
+                    ),
+                )
+
+                operator = json.loads(
+                    stdio_server.call_tool(
+                        "documentation.build_layer_report_context",
+                        {"workspaceId": "engagement", "target": "app.example.com", "layer": "cve", "redactionMode": "internal"},
+                    )
+                )["layerReport"]
+                safe = json.loads(
+                    stdio_server.call_tool(
+                        "documentation.build_layer_report_context",
+                        {"workspaceId": "engagement", "target": "app.example.com", "layer": "cve", "redactionMode": "high_level"},
+                    )
+                )["layerReport"]
+
+                operator_candidates = next(section for section in operator["sections"] if section["sectionId"] == "suggested_cves")
+                safe_candidates = next(section for section in safe["sections"] if section["sectionId"] == "suggested_cves")
+                self.assertEqual(operator_candidates["rows"][0][4], "CVE-2021-41773")
+                self.assertIn("Exploit Reference", operator_candidates["headers"])
+                self.assertIn("https://github.example/apache-poc", json.dumps(operator_candidates))
+                self.assertNotIn("Exploit Reference", safe_candidates["headers"])
+                self.assertNotIn("https://github.example/apache-poc", json.dumps(safe))
+                self.assertIn("CVE-2021-41773", json.dumps(safe))
+                self.assertIn("in_the_wild", json.dumps(safe))
+                findings = next(section for section in operator["sections"] if section["sectionId"] == "confirmed_cve_findings")
+                self.assertEqual(findings["rows"][0][2], "CVE-2021-41773")
+
     def test_report_candidate_counts_single_source(self) -> None:
         with TemporaryDirectory() as tmp:
             with isolated_state(Path(tmp)):
@@ -1203,7 +1294,7 @@ class DocumentationTests(unittest.TestCase):
                 )
 
                 layers = json.loads(stdio_server.call_tool("documentation.list_layers", {}))
-                self.assertEqual({item["layer"] for item in layers["layers"]}, {"perimeter", "js", "auth", "access_control", "web_vulnerabilities"})
+                self.assertEqual({item["layer"] for item in layers["layers"]}, {"perimeter", "js", "auth", "access_control", "web_vulnerabilities", "cve"})
 
                 templates = json.loads(stdio_server.call_tool("documentation.list_templates", {"contextType": "layer_report"}))
                 self.assertIn("standard_layer_report", {item["templateId"] for item in templates["templates"]})

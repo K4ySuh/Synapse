@@ -17,6 +17,7 @@ from ..adapters.web import (
     command_injection_adapter,
     cors,
     crawler_adapter,
+    cve_intel,
     csrf,
     ffuf_adapter,
     graphql,
@@ -82,6 +83,9 @@ FAST_TOOLS = {
     "nuclei.profiles",
     "nmap.profiles",
     "shodan.session_key.status",
+    "cve.capabilities",
+    "cve.sources",
+    "cve.session_key.status",
     "shodan.company_queries",
     "evidence.tail",
     "fingerprint.read_host",
@@ -319,7 +323,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "properties": {
                 "workspaceId": {"type": "string"},
                 "target": {"type": "string"},
-                "layer": {"type": "string", "enum": ["perimeter", "js", "auth", "access_control", "web_vulnerabilities"]},
+                "layer": {"type": "string", "enum": ["perimeter", "js", "auth", "access_control", "web_vulnerabilities", "cve"]},
                 "refresh": {"type": "boolean", "default": False},
                 "redactionMode": {"type": "string", "default": "high_level"},
             },
@@ -436,7 +440,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "properties": {
                 "workspaceId": {"type": "string"},
                 "target": {"type": "string"},
-                "layer": {"type": "string", "enum": ["perimeter", "js", "auth", "access_control", "web_vulnerabilities"]},
+                "layer": {"type": "string", "enum": ["perimeter", "js", "auth", "access_control", "web_vulnerabilities", "cve"]},
                 "refresh": {"type": "boolean", "default": False},
                 "format": {"type": "string", "enum": ["html", "markdown"], "default": "html"},
                 "redactionMode": {"type": "string", "default": "high_level"},
@@ -1712,6 +1716,173 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "cve.capabilities",
+        "description": "Return CVE intelligence adapter capability and safety metadata.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "cve.sources",
+        "description": "Report configured CVE source endpoints, enabled sources, and last per-source status.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "sources": {
+                    "description": "Optional comma-separated source list or array to evaluate as enabled for this view.",
+                    "oneOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}],
+                },
+            },
+        },
+    },
+    {
+        "name": "cve.set_source_endpoint",
+        "description": "Set an unpersisted runtime endpoint override for a known CVE source. Requires confirm=true.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "source": {"type": "string", "enum": ["nvd", "cisa_kev", "poc_github_index", "github_search", "searchsploit"]},
+                "url": {"type": "string"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["source", "url", "confirm"],
+        },
+    },
+    {
+        "name": "cve.reset_source_endpoint",
+        "description": "Clear an unpersisted runtime endpoint override for a known CVE source. Requires confirm=true.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "source": {"type": "string", "enum": ["nvd", "cisa_kev", "poc_github_index", "github_search", "searchsploit"]},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["source", "confirm"],
+        },
+    },
+    {
+        "name": "cve.session_key.set",
+        "description": "Set a runtime-only CVE provider API key for this MCP process. Key values are never echoed or persisted. Requires confirm=true.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "provider": {"type": "string", "enum": ["nvd", "github"]},
+                "apiKey": {"type": "string"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["provider", "apiKey", "confirm"],
+        },
+    },
+    {
+        "name": "cve.session_key.clear",
+        "description": "Clear a runtime-only CVE provider API key for this MCP process. Requires confirm=true.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "provider": {"type": "string", "enum": ["nvd", "github"]},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["provider", "confirm"],
+        },
+    },
+    {
+        "name": "cve.session_key.status",
+        "description": "Show which CVE provider session keys are configured without revealing key values.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "cve.correlate",
+        "description": "Correlate fingerprinted technology components with selected CVE intelligence sources and ingest cve_candidate observations. Requires confirm=true because it can touch third-party sources.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "workspaceId": {"type": "string"},
+                "target": {"type": "string"},
+                "sources": {
+                    "description": "Comma-separated source list or array. Defaults to SYNAPSE_CVE_SOURCES.",
+                    "oneOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}],
+                },
+                "refresh": {"type": "boolean", "default": False},
+                "minCvss": {"type": "number", "minimum": 0, "maximum": 10},
+                "ingest": {"type": "boolean", "default": True},
+                "requestTimeout": {"type": "integer", "minimum": 1, "default": 20},
+                **HTTP_POLICY_PROPERTIES,
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["workspaceId", "target", "confirm"],
+        },
+    },
+    {
+        "name": "cve.plan_tests",
+        "description": "Build a no-traffic CVE verification plan from a cve_candidate.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "workspaceId": {"type": "string"},
+                "target": {"type": "string"},
+                "candidate": {"type": "object", "additionalProperties": True},
+                "candidateId": {"type": "string"},
+                "cveId": {"type": "string"},
+                "component": {"type": "string"},
+                "version": {"type": "string"},
+                "pocReferences": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+                "knownExploited": {"type": "boolean"},
+                "exploitMaturity": {"type": "string"},
+                "nucleiTemplate": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "cve.prepare_replay",
+        "description": "Build a no-traffic manual replay request for one benign CVE verification marker.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "workspaceId": {"type": "string"},
+                "target": {"type": "string"},
+                "candidate": {"type": "object", "additionalProperties": True},
+                "candidateId": {"type": "string"},
+                "cveId": {"type": "string"},
+                "component": {"type": "string"},
+                "version": {"type": "string"},
+                "url": {"type": "string"},
+                "method": {"type": "string"},
+                "parameter": {"type": "string"},
+                "location": {"type": "string", "default": "query"},
+                "payload": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "cve.execute_test",
+        "description": "Run one approved benign CVE verification request against an in-scope HTTP target, or return a delegateToNuclei payload when a nuclei template is present. Requires confirm=true.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "workspaceId": {"type": "string"},
+                "target": {"type": "string"},
+                "candidate": {"type": "object", "additionalProperties": True},
+                "candidateId": {"type": "string"},
+                "cveId": {"type": "string"},
+                "component": {"type": "string"},
+                "version": {"type": "string"},
+                "url": {"type": "string"},
+                "method": {"type": "string"},
+                "parameter": {"type": "string"},
+                "location": {"type": "string", "default": "query"},
+                "payload": {"type": "string"},
+                "nucleiTemplate": {"type": "string"},
+                "forceDirectReplay": {"type": "boolean", "default": False},
+                "credentialId": {"type": "string"},
+                "requestTimeout": {"type": "integer", "minimum": 1, "default": 10},
+                **HTTP_POLICY_PROPERTIES,
+                "approvalId": {"type": "string"},
+                "approvalReason": {"type": "string"},
+                "riskTier": {"type": "string"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["confirm"],
+        },
+    },
+    {
         "name": "ssti.capabilities",
         "description": "Return SSTI adapter capability and safety metadata.",
         "inputSchema": {"type": "object", "properties": {}},
@@ -2691,6 +2862,25 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "fingerprint.probe_versions",
+        "description": "Run approved bounded benign GET probes to enrich known workspace technology components with exact versions.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "workspaceId": {"type": "string"},
+                "target": {"type": "string"},
+                "maxRequests": {"type": "integer", "minimum": 0, "default": 8},
+                "requestTimeout": {"type": "integer", "minimum": 1, "default": 10},
+                **HTTP_POLICY_PROPERTIES,
+                "confirm": {"type": "boolean"},
+                "approvalId": {"type": "string"},
+                "approvalReason": {"type": "string"},
+                "riskTier": {"type": "string"},
+            },
+            "required": ["workspaceId", "target", "confirm"],
+        },
+    },
+    {
         "name": "fingerprint.read_host",
         "description": "Read the saved fingerprint.json for a hostname or URL.",
         "inputSchema": {
@@ -3210,6 +3400,28 @@ def _call_tool_impl(name: str, args: dict[str, Any]) -> str:
         return command_injection_adapter.prepare_replay(args)
     if name == "command_injection.execute_test":
         return command_injection_adapter.execute_test(args)
+    if name == "cve.capabilities":
+        return cve_intel.capabilities(args)
+    if name == "cve.sources":
+        return cve_intel.sources(args)
+    if name == "cve.set_source_endpoint":
+        return cve_intel.set_source_endpoint(args)
+    if name == "cve.reset_source_endpoint":
+        return cve_intel.reset_source_endpoint(args)
+    if name == "cve.session_key.set":
+        return cve_intel.set_session_key(args)
+    if name == "cve.session_key.clear":
+        return cve_intel.clear_session_key(args)
+    if name == "cve.session_key.status":
+        return cve_intel.session_key_status(args)
+    if name == "cve.correlate":
+        return cve_intel.correlate(args)
+    if name == "cve.plan_tests":
+        return cve_intel.plan_tests(args)
+    if name == "cve.prepare_replay":
+        return cve_intel.prepare_replay(args)
+    if name == "cve.execute_test":
+        return cve_intel.execute_test(args)
     if name == "ssti.capabilities":
         return ssti.capabilities(args)
     if name == "ssti.passive_analyze":
@@ -3345,6 +3557,8 @@ def _call_tool_impl(name: str, args: dict[str, Any]) -> str:
         )
     if name == "fingerprint.analyze_workspace":
         return json.dumps(fingerprint.analyze_workspace(args), indent=2)
+    if name == "fingerprint.probe_versions":
+        return json.dumps(fingerprint.probe_versions(args), indent=2)
     if name == "fingerprint.read_host":
         return json.dumps(
             fingerprint.read_host_fingerprint(args["target"], args.get("organization", "unknown-org")),

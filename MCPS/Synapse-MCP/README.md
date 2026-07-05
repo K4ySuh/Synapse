@@ -120,6 +120,17 @@ fallback prompt; the repository launcher remains the preferred alpha runtime.
 - `command_injection.generate_test_plan`
 - `command_injection.prepare_replay`
 - `command_injection.execute_test`
+- `cve.capabilities`
+- `cve.sources`
+- `cve.set_source_endpoint`
+- `cve.reset_source_endpoint`
+- `cve.session_key.set`
+- `cve.session_key.clear`
+- `cve.session_key.status`
+- `cve.correlate`
+- `cve.plan_tests`
+- `cve.prepare_replay`
+- `cve.execute_test`
 - `ssti.capabilities`
 - `ssti.passive_analyze`
 - `ssti.plan_tests`
@@ -182,6 +193,7 @@ fallback prompt; the repository launcher remains the preferred alpha runtime.
 - `evidence.host_context`
 - `fingerprint.from_dump`
 - `fingerprint.analyze_workspace`
+- `fingerprint.probe_versions`
 - `fingerprint.read_host`
 - `project.start`
 
