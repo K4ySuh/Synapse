@@ -443,6 +443,26 @@ class JsIntelligenceTests(unittest.TestCase):
         self.assertEqual(extractors.detect_libraries("var x=1;", "https://app.example.com/js/reaction-tracker.js"), [])
         self.assertEqual(extractors.detect_libraries("console.log('hi')", "https://app.example.com/js/app.bundle.js"), [])
 
+    def test_analyze_static_emits_library_component_observation(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                scope.save_scope(["example.com"], "test", "Example Client")
+                asset = Path(tmp) / "jquery-3.4.1.min.js"
+                asset.write_text("/*! jQuery v3.4.1 */ fetch('/api/x')", encoding="utf-8")
+                analysis = json.loads(js_intel.analyze_static({"workspaceId": "engagement", "target": "example.com", "assetPaths": [str(asset)], "background": False}))
+                self.assertEqual(analysis["summary"]["libraryCount"], 1)
+                self.assertEqual(analysis["libraries"][0]["name"], "jQuery")
+
+                normalized = json.loads(js_intel.normalize_endpoints({"workspaceId": "engagement", "target": "example.com", "analysisPath": analysis["analysisPath"], "background": False}))
+                components = [item for item in normalized["entities"]["observations"] if item.get("type") == "technology_component"]
+                self.assertEqual(len(components), 1)
+                self.assertEqual(components[0]["name"], "jQuery")
+                self.assertEqual(components[0]["version"], "3.4.1")
+                self.assertEqual(components[0]["versionPrecision"], "exact")
+                self.assertEqual(components[0]["source"], "js_asset")
+                observations = workspace._load_target_entities("engagement", "example.com")["observations"]
+                self.assertTrue(any(o.get("type") == "technology_component" and o.get("name") == "jQuery" for o in observations))
+
     def test_normalize_does_not_downgrade_observed_endpoint_to_inferred(self) -> None:
         with TemporaryDirectory() as tmp:
             with isolated_state(Path(tmp)):

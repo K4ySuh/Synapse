@@ -231,6 +231,7 @@ def analyze_static(args: dict[str, Any]) -> str:
     all_endpoints: list[dict[str, Any]] = []
     all_parameters: list[dict[str, Any]] = []
     all_signals: list[dict[str, Any]] = []
+    all_libraries: list[dict[str, Any]] = []
     analyzed_assets = []
     errors = []
     for asset in assets:
@@ -245,17 +246,21 @@ def analyze_static(args: dict[str, Any]) -> str:
         all_endpoints.extend(extracted["endpoints"])
         all_parameters.extend(extracted["parameters"])
         all_signals.extend(extracted["signals"])
+        all_libraries.extend(extracted.get("libraries", []))
         analyzed_assets.append(asset)
+    libraries = _collapse_libraries(all_libraries)
     result = JsAnalysisResult(
         assets=analyzed_assets,
         endpoints=_dedupe_dicts(all_endpoints, ("raw", "method", "sourceAsset")),
         parameters=_dedupe_dicts(all_parameters, ("name", "endpointRaw", "location", "sourceAsset")),
         signals=_dedupe_dicts(all_signals, ("type", "value", "sourceAsset")),
+        libraries=libraries,
         summary={
             "assetCount": len(analyzed_assets),
             "endpointCount": len(_dedupe_dicts(all_endpoints, ("raw", "method", "sourceAsset"))),
             "parameterCount": len(_dedupe_dicts(all_parameters, ("name", "endpointRaw", "location", "sourceAsset"))),
             "signalCount": len(_dedupe_dicts(all_signals, ("type", "value", "sourceAsset"))),
+            "libraryCount": len(libraries),
             "errors": errors,
         },
     ).as_dict()
@@ -845,6 +850,28 @@ def _dedupe_dicts(items: list[dict[str, Any]], keys: tuple[str, ...]) -> list[di
             continue
         seen.add(marker)
         result.append(item)
+    return result
+
+
+def _collapse_libraries(libraries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Collapse per-asset library detections to one component per (name, version). When a
+    version was recovered for a library anywhere, drop the version-less duplicates for that
+    library so a single bundle without a version banner does not spawn a second component."""
+    versioned_names = {str(lib.get("name")) for lib in libraries if str(lib.get("version") or "")}
+    seen: set[tuple[str, str]] = set()
+    result: list[dict[str, Any]] = []
+    for lib in libraries:
+        name = str(lib.get("name") or "")
+        version = str(lib.get("version") or "")
+        if not name:
+            continue
+        if not version and name in versioned_names:
+            continue
+        key = (name, version)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(lib)
     return result
 
 

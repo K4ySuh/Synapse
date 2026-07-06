@@ -247,6 +247,33 @@ def build_entities(
             }
         )
 
+    for library in analysis.get("libraries", []) if isinstance(analysis.get("libraries"), list) else []:
+        if not isinstance(library, dict):
+            continue
+        name = str(library.get("name") or "")
+        if not name:
+            continue
+        version = str(library.get("version") or "")
+        entities["observations"].append(
+            {
+                "type": "technology_component",
+                "value": " ".join([name, version]).strip(),
+                "name": name,
+                "version": version,
+                "cpe": str(library.get("cpe") or ""),
+                "versionPrecision": str(library.get("versionPrecision") or "unknown"),
+                "layer": "javascript_library",
+                "source": "js_asset",
+                "target": target,
+                "sourceAsset": str(library.get("sourceAsset") or ""),
+                "confidence": str(library.get("confidence") or "low"),
+                "reason": str(library.get("reason") or f"Client-side library {name} detected in JavaScript asset."),
+                "evidenceIds": [],
+                "derived": True,
+                "inferred": True,
+            }
+        )
+
     entities["parameters"] = _dedupe(entities["parameters"], ("method", "url", "location", "name", "sourceAsset"))
     entities["observations"] = _dedupe(entities["observations"], ("type", "value", "method", "sourceAsset"))
     return entities
