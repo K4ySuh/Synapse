@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -177,14 +178,16 @@ def correlate(args: dict[str, Any]) -> str:
     workspace_id = workspace.normalize_workspace_id(args["workspaceId"])
     target = workspace.normalize_target(args["target"])
     entities = workspace._load_target_entities(workspace_id, target)
-    components = _technology_components(entities)
     observations = [item for item in entities.get("observations", []) if isinstance(item, dict)]
     selected = _enabled_sources(args)
     source_status: dict[str, dict[str, Any]] = {}
     discovery_records: list[dict[str, Any]] = []
     discovery_returned = False
+    filter_stats = {"unreachable": 0, "productMismatch": 0, "notAffected": 0, "nonWeb": 0, "unconfirmedSuppressed": 0}
+    http_surface = bool(entities.get("endpoints"))
+    components = _filter_web_reachable(_technology_components(entities), http_surface, filter_stats)
 
-    discovery_args = {**args, "_workspaceId": workspace_id, "_target": target, "_observations": observations}
+    discovery_args = {**args, "_workspaceId": workspace_id, "_target": target, "_observations": observations, "_filterStats": filter_stats}
     for source in selected:
         if source not in DISCOVERY_SOURCES:
             continue
@@ -201,21 +204,29 @@ def correlate(args: dict[str, Any]) -> str:
         data = _run_enrichment_source(source, ENRICHMENT_SOURCES[source], cve_ids, {**args, "_workspaceId": workspace_id, "_target": target}, source_status)
         _merge_enrichment(enrichment, data)
 
+    merged = _apply_breadth_gate(merged, enrichment, filter_stats)
     candidates = [_candidate_from_record(item, enrichment.get(item["cveId"], {}), source_status) for item in merged]
     result = AdapterResult(
         adapter="cve",
         mode="passive_analysis",
         workspace_id=workspace_id,
         target=target,
-        summary=f"Correlated {len(candidates)} CVE candidate exposure(s) from {len(selected)} source(s).",
+        summary=(
+            f"Correlated {len(candidates)} web-exploitable CVE candidate(s) from {len(selected)} source(s) "
+            f"(dropped {filter_stats['productMismatch']} product-mismatch, {filter_stats['notAffected']} out-of-version, "
+            f"{filter_stats['nonWeb']} non-web, {filter_stats['unreachable']} unreachable-component; "
+            f"suppressed {filter_stats['unconfirmedSuppressed']} low-severity version-unknown)."
+        ),
         entities=WorkspaceEntityBundle(observations=[item["observation"] for item in candidates]),
         recommended_tests=recommended_tests(),
         limitations=[
             "CVE presence in public intelligence does not prove exploitability on this target.",
+            "Candidates are filtered to web-pentest-relevant classes (network-reachable, web-exploitable CWE) on components attributable to the crawled HTTP surface; non-web and out-of-version CVEs are dropped.",
+            "Version-unknown components keep only High/Critical or KEV/PoC-corroborated CVEs, so the list is actionable rather than exhaustive.",
             "PoC references are stored as read-only evidence and are never fetched or executed by Synapse.",
             "Online lookups send only product, version, CPE, and CVE identifiers to third-party sources.",
         ],
-        metadata={"sourceStatus": source_status, "sources": selected, "cveDataAvailable": discovery_returned},
+        metadata={"sourceStatus": source_status, "sources": selected, "cveDataAvailable": discovery_returned, "filtered": filter_stats},
     )
     payload = {
         **result.as_ingest_payload(),
@@ -224,6 +235,7 @@ def correlate(args: dict[str, Any]) -> str:
         "sourceStatus": source_status,
         "sources": selected,
         "cveDataAvailable": discovery_returned,
+        "filtered": filter_stats,
     }
     ingestion = None
     if args.get("ingest", True):
@@ -246,7 +258,7 @@ def correlate(args: dict[str, Any]) -> str:
 
 def _technology_components(entities: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
     components = []
-    seen = set()
+    seen: dict[tuple[str, str, str], dict[str, Any]] = {}
     for observation in entities.get("observations", []):
         if not isinstance(observation, dict) or observation.get("type") != "technology_component":
             continue
@@ -255,20 +267,50 @@ def _technology_components(entities: dict[str, list[dict[str, Any]]]) -> list[di
             continue
         version = str(observation.get("version", "") or "").strip()
         key = (name.lower(), version.lower(), str(observation.get("cpe", "")).lower())
+        http_sourced = _is_http_sourced(observation)
         if key in seen:
+            if http_sourced:
+                seen[key]["httpSourced"] = True
             continue
-        seen.add(key)
-        components.append(
-            {
-                "name": name,
-                "version": version,
-                "cpe": str(observation.get("cpe", "") or ""),
-                "versionPrecision": str(observation.get("versionPrecision", "unknown") or "unknown"),
-                "confidence": str(observation.get("confidence", "low") or "low"),
-                "evidenceIds": observation.get("evidenceIds", []),
-            }
-        )
+        component = {
+            "name": name,
+            "version": version,
+            "cpe": str(observation.get("cpe", "") or ""),
+            "versionPrecision": str(observation.get("versionPrecision", "unknown") or "unknown"),
+            "confidence": str(observation.get("confidence", "low") or "low"),
+            "source": str(observation.get("source", "") or ""),
+            "layer": str(observation.get("layer", "") or ""),
+            "httpSourced": http_sourced,
+            "evidenceIds": observation.get("evidenceIds", []),
+        }
+        seen[key] = component
+        components.append(component)
     return components
+
+
+# Component sources that describe infrastructure/service banners rather than a crawled HTTP
+# surface. A component reachable only through these is not a web-pentest target.
+_INFRA_SOURCES = {"service_metadata", "service", "port_scan", "nmap", "shodan", "internetdb", "workspace"}
+
+
+def _is_http_sourced(observation: dict[str, Any]) -> bool:
+    raw = str(observation.get("source", "") or "").strip().lower()
+    if not raw:
+        return True  # fingerprint/HTTP-derived components default to reachable
+    parts = {part.strip() for part in raw.split(",") if part.strip()}
+    return bool(parts - _INFRA_SOURCES)
+
+
+def _filter_web_reachable(components: list[dict[str, Any]], http_surface: bool, filter_stats: dict[str, int]) -> list[dict[str, Any]]:
+    """Keep only components attributable to the crawled HTTP surface (a route/endpoint exists,
+    or the component itself was observed on an HTTP response). Infra-only banners are dropped."""
+    kept = []
+    for component in components:
+        if http_surface or component.get("httpSourced", True):
+            kept.append(component)
+        else:
+            filter_stats["unreachable"] += 1
+    return kept
 
 
 def _run_discovery_source(
@@ -444,12 +486,15 @@ def _fetch_github_search(cve_id: str, args: dict[str, Any]) -> Any:
 def _discover_nvd(components: list[dict[str, Any]], args: dict[str, Any]) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     min_cvss = float(args.get("minCvss", 0) or 0)
+    stats = args.get("_filterStats")
     for component in components:
         name = str(component.get("name", "")).strip()
         version = str(component.get("version", "")).strip()
         cpe = str(component.get("cpe", "")).strip()
         if not name:
             continue
+        comp_vendor, comp_tokens = _component_product_tokens(component)
+        has_cpe = bool(comp_tokens) and bool(_cpe_fields(cpe)[1])
         query = {"cvssV3Severity": "", "resultsPerPage": int(args.get("nvdResultsPerComponent", 20))}
         if cpe and "*" not in cpe.split(":")[5:6]:
             query["cpeName"] = cpe
@@ -467,6 +512,18 @@ def _discover_nvd(components: list[dict[str, Any]], args: dict[str, Any]) -> lis
             cvss, severity = _cvss_from_nvd(cve)
             if cvss is not None and cvss < min_cvss:
                 continue
+            applicability = _classify_applicability(cve, comp_vendor, comp_tokens, has_cpe, version)
+            if applicability in {"not_affected", "product_mismatch"}:
+                if isinstance(stats, dict):
+                    stats["notAffected" if applicability == "not_affected" else "productMismatch"] += 1
+                continue
+            cwes = _cwes_from_nvd(cve)
+            attack_vector = _attack_vector_from_nvd(cve)
+            web_relevant, vuln_class = _web_relevance(cwes, attack_vector)
+            if not web_relevant:
+                if isinstance(stats, dict):
+                    stats["nonWeb"] += 1
+                continue
             references, exploit_refs = _references_from_nvd(cve)
             records.append(
                 {
@@ -481,12 +538,183 @@ def _discover_nvd(components: list[dict[str, Any]], args: dict[str, Any]) -> lis
                     "version": version,
                     "cpe": cpe,
                     "versionPrecision": component.get("versionPrecision", "unknown"),
+                    "applicability": applicability,
+                    "cwes": cwes,
+                    "attackVector": attack_vector,
+                    "vulnClass": vuln_class,
                     "source": "nvd",
                     "discoverySources": ["nvd"],
                     "evidenceIds": component.get("evidenceIds", []),
                 }
             )
     return records
+
+
+def _component_product_tokens(component: dict[str, Any]) -> tuple[str, set[str]]:
+    """Return (vendor, product-tokens) used to match a CVE's affected CPEs to this component.
+
+    When the component carries a CPE, matching is exact on (vendor, product). Otherwise we
+    derive normalized tokens from the component name so keyword-discovered CVEs can still be
+    checked against the product they actually affect.
+    """
+    vendor, product, _ = _cpe_fields(str(component.get("cpe", "")))
+    if product:
+        return vendor, {product}
+    name = str(component.get("name", "")).lower()
+    tokens = {tok for tok in re.split(r"[^a-z0-9]+", name) if len(tok) > 2}
+    joined = re.sub(r"[^a-z0-9]+", "_", name).strip("_")
+    if joined:
+        tokens.add(joined)
+    return "", tokens
+
+
+def _cpe_fields(cpe: str) -> tuple[str, str, str]:
+    parts = str(cpe or "").split(":")
+    if len(parts) >= 6 and parts[0] == "cpe" and parts[1] == "2.3":
+        return parts[3].lower(), parts[4].lower(), parts[5].lower()
+    return "", "", ""
+
+
+def _affected_cpes_from_nvd(cve: dict[str, Any]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+
+    def _walk_nodes(nodes: Any) -> None:
+        for node in nodes if isinstance(nodes, list) else []:
+            if not isinstance(node, dict):
+                continue
+            for match in node.get("cpeMatch", []) if isinstance(node.get("cpeMatch"), list) else []:
+                if not isinstance(match, dict) or not match.get("vulnerable", False):
+                    continue
+                vendor, product, ver = _cpe_fields(match.get("criteria", ""))
+                if not product:
+                    continue
+                out.append(
+                    {
+                        "vendor": vendor,
+                        "product": product,
+                        "version": ver,
+                        "startIncl": match.get("versionStartIncluding"),
+                        "startExcl": match.get("versionStartExcluding"),
+                        "endIncl": match.get("versionEndIncluding"),
+                        "endExcl": match.get("versionEndExcluding"),
+                    }
+                )
+            _walk_nodes(node.get("children"))
+
+    configs = cve.get("configurations", [])
+    if isinstance(configs, dict):
+        configs = configs.get("nodes") and [configs] or configs.get("configurations", [])
+    for config in configs if isinstance(configs, list) else []:
+        if isinstance(config, dict):
+            _walk_nodes(config.get("nodes"))
+    return out
+
+
+def _cpe_matches_component(cpe: dict[str, Any], comp_vendor: str, comp_tokens: set[str], has_cpe: bool) -> bool:
+    product = str(cpe.get("product", ""))
+    vendor = str(cpe.get("vendor", ""))
+    if has_cpe:
+        comp_product = next(iter(comp_tokens), "")
+        if product != comp_product:
+            return False
+        return not (comp_vendor and vendor and vendor != comp_vendor)
+    return product in comp_tokens or vendor in comp_tokens
+
+
+def _classify_applicability(cve: dict[str, Any], comp_vendor: str, comp_tokens: set[str], has_cpe: bool, version: str) -> str:
+    affected_cpes = _affected_cpes_from_nvd(cve)
+    product_cpes = [cpe for cpe in affected_cpes if _cpe_matches_component(cpe, comp_vendor, comp_tokens, has_cpe)]
+    if affected_cpes and not product_cpes:
+        return "product_mismatch"
+    if not product_cpes:
+        return "unconfirmed"
+    if not version:
+        return "unconfirmed"
+    results = [_version_in_cpe(version, cpe) for cpe in product_cpes]
+    if any(result is True for result in results):
+        return "affected"
+    if results and all(result is False for result in results):
+        return "not_affected"
+    return "unconfirmed"
+
+
+def _parse_version(value: Any) -> list[int] | None:
+    text = str(value or "").strip()
+    if not text or text in {"*", "-"}:
+        return None
+    parts = re.split(r"[.\-_]", text)
+    numbers: list[int] = []
+    for part in parts:
+        if not part.isdigit():
+            return None
+        numbers.append(int(part))
+    return numbers or None
+
+
+def _cmp_versions(left: list[int], right: list[int]) -> int:
+    for a, b in zip(left, right):
+        if a != b:
+            return -1 if a < b else 1
+    return (len(left) > len(right)) - (len(left) < len(right))
+
+
+def _version_in_cpe(version: str, cpe: dict[str, Any]) -> bool | None:
+    """True/False if the detected version is (not) in the CPE's affected range; None if indeterminate."""
+    detected = _parse_version(version)
+    cpe_version = str(cpe.get("version") or "")
+    bounds = (cpe.get("startIncl"), cpe.get("startExcl"), cpe.get("endIncl"), cpe.get("endExcl"))
+    if cpe_version and cpe_version not in {"*", "-"}:
+        pinned = _parse_version(cpe_version)
+        if detected is None or pinned is None:
+            return None
+        return _cmp_versions(detected, pinned) == 0
+    if not any(bound for bound in bounds):
+        return True  # CPE covers all versions of the product
+    if detected is None:
+        return None
+    start_incl, start_excl, end_incl, end_excl = bounds
+    for bound, relation in ((start_incl, "ge"), (start_excl, "gt"), (end_incl, "le"), (end_excl, "lt")):
+        if bound is None:
+            continue
+        parsed = _parse_version(bound)
+        if parsed is None:
+            return None
+        comparison = _cmp_versions(detected, parsed)
+        if relation == "ge" and comparison < 0:
+            return False
+        if relation == "gt" and comparison <= 0:
+            return False
+        if relation == "le" and comparison > 0:
+            return False
+        if relation == "lt" and comparison >= 0:
+            return False
+    return True
+
+
+_UNKNOWN_VERSION_MIN_CVSS = 7.0
+
+
+def _apply_breadth_gate(
+    records: list[dict[str, Any]],
+    enrichment: dict[str, dict[str, Any]],
+    filter_stats: dict[str, int],
+) -> list[dict[str, Any]]:
+    """For version-confirmed CVEs, keep all (already web-relevant + applicable). For
+    version-unknown CVEs, keep only High/Critical (CVSS >= 7.0) or KEV/PoC-corroborated ones,
+    so breadth across route-identified components stays actionable rather than exhaustive."""
+    kept: list[dict[str, Any]] = []
+    for record in records:
+        if record.get("applicability") != "unconfirmed":
+            kept.append(record)
+            continue
+        enr = enrichment.get(record.get("cveId", ""), {})
+        corroborated = bool(enr.get("knownExploited")) or bool(enr.get("pocReferences")) or bool(record.get("exploitReferences"))
+        high_severity = record.get("cvss") is not None and float(record.get("cvss") or 0) >= _UNKNOWN_VERSION_MIN_CVSS
+        if corroborated or high_severity:
+            kept.append(record)
+        else:
+            filter_stats["unconfirmedSuppressed"] += 1
+    return kept
 
 
 def _discover_shodan(components: list[dict[str, Any]], args: dict[str, Any]) -> list[dict[str, Any]]:
@@ -642,15 +870,21 @@ def _merge_discovery_records(records: list[dict[str, Any]]) -> list[dict[str, An
                 "references": [],
                 "exploitReferences": [],
                 "evidenceIds": [],
+                "cwes": [],
             },
         )
         for source in record.get("discoverySources", [record.get("source", "")]):
             if source and source not in existing["discoverySources"]:
                 existing["discoverySources"].append(source)
-        for field in ("references", "exploitReferences", "evidenceIds"):
+        for field in ("references", "exploitReferences", "evidenceIds", "cwes"):
             for value in record.get(field, []):
                 if value and value not in existing[field]:
                     existing[field].append(value)
+        if record.get("vulnClass") and not existing.get("vulnClass"):
+            existing["vulnClass"] = record["vulnClass"]
+        if record.get("attackVector") and not existing.get("attackVector"):
+            existing["attackVector"] = record["attackVector"]
+        existing["applicability"] = _stronger_applicability(existing.get("applicability"), record.get("applicability"))
         if record.get("cvss") is not None and (existing.get("cvss") is None or float(record["cvss"]) > float(existing.get("cvss") or 0)):
             existing["cvss"] = float(record["cvss"])
             existing["severity"] = record.get("severity", "")
@@ -691,11 +925,14 @@ def _candidate_from_record(record: dict[str, Any], enrichment: dict[str, Any], s
         if ref not in exploit_refs:
             exploit_refs.append(ref)
     exploit_maturity = _exploit_maturity(known_exploited, poc_refs, exploit_refs)
-    priority, priority_score, tags = _priority(cvss_score, known_exploited, bool(poc_refs))
+    vuln_class = str(record.get("vulnClass", "") or "")
+    cwes = list(record.get("cwes", []))
+    priority, priority_score, tags = _priority(cvss_score, known_exploited, bool(poc_refs), vuln_class)
     confidence = _applicability_confidence(record)
     candidate_id = f"cve_{cve_id}_{stable_slug(component)}_{stable_slug(version)}"
-    reason = _candidate_reason(cve_id, component, version, confidence, exploit_maturity)
+    reason = _candidate_reason(cve_id, component, version, confidence, exploit_maturity, vuln_class)
     summary = str(record.get("summary", ""))[:300]
+    class_tags = [stable_slug(vuln_class)] if vuln_class else []
     metadata = {
         "candidateId": candidate_id,
         "cveId": cve_id,
@@ -705,6 +942,10 @@ def _candidate_from_record(record: dict[str, Any], enrichment: dict[str, Any], s
         "version": version,
         "cpe": record.get("cpe", ""),
         "versionPrecision": record.get("versionPrecision", "unknown"),
+        "vulnClass": vuln_class,
+        "cwes": cwes,
+        "attackVector": record.get("attackVector", ""),
+        "webExploitable": bool(vuln_class),
         "discoverySources": sorted(record.get("discoverySources", [])),
         "knownExploited": known_exploited,
         "pocReferences": poc_refs,
@@ -718,7 +959,7 @@ def _candidate_from_record(record: dict[str, Any], enrichment: dict[str, Any], s
         "sourceStatus": source_status,
         "references": record.get("references", []),
         "validationStatus": "proposed",
-        "tags": ["cve", exploit_maturity, *tags],
+        "tags": ["cve", exploit_maturity, *class_tags, *tags],
     }
     observation = candidate_observation(
         candidate_type="cve_candidate",
@@ -734,21 +975,34 @@ def _candidate_from_record(record: dict[str, Any], enrichment: dict[str, Any], s
     return {"candidate": candidate, "observation": observation}
 
 
-def _candidate_reason(cve_id: str, component: str, version: str, confidence: str, maturity: str) -> str:
+def _candidate_reason(cve_id: str, component: str, version: str, confidence: str, maturity: str, vuln_class: str = "") -> str:
     subject = " ".join([component, version]).strip()
-    return f"{cve_id} is associated with {subject}; applicability confidence={confidence}; exploitMaturity={maturity}."
+    class_clause = f" web class={vuln_class};" if vuln_class else ""
+    return f"{cve_id} is associated with {subject};{class_clause} applicability confidence={confidence}; exploitMaturity={maturity}."
+
+
+_APPLICABILITY_RANK = {"affected": 2, "unconfirmed": 1}
+
+
+def _stronger_applicability(left: Any, right: Any) -> Any:
+    return left if _APPLICABILITY_RANK.get(left, 0) >= _APPLICABILITY_RANK.get(right, 0) else right
 
 
 def _applicability_confidence(record: dict[str, Any]) -> str:
     sources = set(record.get("discoverySources", []))
     if sources == {"shodan"}:
         return "medium"
+    applicability = record.get("applicability")
+    if applicability == "affected":
+        return "high"
+    if applicability == "unconfirmed":
+        return "low"
     if str(record.get("versionPrecision", "")) == "exact":
         return "high"
     return "low"
 
 
-def _priority(cvss: float, known_exploited: bool, public_poc: bool) -> tuple[str, int, list[str]]:
+def _priority(cvss: float, known_exploited: bool, public_poc: bool, vuln_class: str = "") -> tuple[str, int, list[str]]:
     if cvss >= 9.0:
         priority = "critical"
     elif cvss >= 7.0:
@@ -763,10 +1017,15 @@ def _priority(cvss: float, known_exploited: bool, public_poc: bool) -> tuple[str
     tags = []
     if known_exploited:
         return "critical", max(score, 95), ["known-exploited"]
+    high_value = vuln_class in _HIGH_VALUE_CLASSES
     if public_poc:
         tags.append("public-poc")
         priority = _bump_priority(priority)
         score = max(score, 70 if priority == "high" else 50)
+    if high_value:
+        tags.append("high-value-class")
+        priority = _bump_priority(priority)
+        score = max(score, 60)
     return priority, score, tags
 
 
@@ -803,6 +1062,112 @@ def _cvss_from_nvd(cve: dict[str, Any]) -> tuple[float | None, str]:
         if score is not None:
             return float(score), str(severity).lower()
     return None, ""
+
+
+# CWE → web-pentest vulnerability class. These are the classes an operator can exercise over
+# HTTP against the crawled surface; a CVE must map to one of these (and be network-reachable)
+# to survive the web-relevance filter.
+_WEB_CWE_CLASS: dict[str, str] = {
+    "CWE-89": "SQL Injection",
+    "CWE-564": "SQL Injection",
+    "CWE-78": "OS Command Injection",
+    "CWE-77": "Command Injection",
+    "CWE-74": "Injection",
+    "CWE-94": "Code Injection",
+    "CWE-95": "Code Injection",
+    "CWE-98": "File Inclusion",
+    "CWE-73": "File Path Injection",
+    "CWE-22": "Path Traversal",
+    "CWE-23": "Path Traversal",
+    "CWE-36": "Path Traversal",
+    "CWE-434": "Unrestricted File Upload",
+    "CWE-502": "Insecure Deserialization",
+    "CWE-611": "XML External Entity",
+    "CWE-776": "XML External Entity",
+    "CWE-918": "Server-Side Request Forgery",
+    "CWE-1336": "Template Injection",
+    "CWE-917": "Expression Language Injection",
+    "CWE-90": "LDAP Injection",
+    "CWE-91": "XML Injection",
+    "CWE-79": "Cross-Site Scripting",
+    "CWE-80": "Cross-Site Scripting",
+    "CWE-352": "Cross-Site Request Forgery",
+    "CWE-601": "Open Redirect",
+    "CWE-287": "Authentication Bypass",
+    "CWE-306": "Missing Authentication",
+    "CWE-288": "Authentication Bypass",
+    "CWE-862": "Missing Authorization",
+    "CWE-863": "Incorrect Authorization",
+    "CWE-639": "Insecure Direct Object Reference",
+    "CWE-284": "Improper Access Control",
+    "CWE-425": "Forced Browsing",
+    "CWE-538": "Sensitive Data Exposure",
+    "CWE-540": "Sensitive Data Exposure",
+    "CWE-200": "Information Disclosure",
+}
+
+# Web-exploitable classes that typically yield code execution / high-impact footholds. Used to
+# lift priority so an operator sees the RCE-grade candidates first.
+_HIGH_VALUE_CLASSES = {
+    "SQL Injection",
+    "OS Command Injection",
+    "Command Injection",
+    "Code Injection",
+    "File Inclusion",
+    "Unrestricted File Upload",
+    "Insecure Deserialization",
+    "Template Injection",
+    "Expression Language Injection",
+    "XML External Entity",
+    "Server-Side Request Forgery",
+    "Authentication Bypass",
+}
+
+_NON_WEB_ATTACK_VECTORS = {"LOCAL", "PHYSICAL", "ADJACENT_NETWORK", "ADJACENT"}
+
+
+def _cwes_from_nvd(cve: dict[str, Any]) -> list[str]:
+    cwes: list[str] = []
+    for weakness in cve.get("weaknesses", []) if isinstance(cve.get("weaknesses"), list) else []:
+        if not isinstance(weakness, dict):
+            continue
+        for description in weakness.get("description", []) if isinstance(weakness.get("description"), list) else []:
+            if not isinstance(description, dict):
+                continue
+            value = str(description.get("value", "")).strip().upper()
+            if value.startswith("CWE-") and value not in cwes:
+                cwes.append(value)
+    return cwes
+
+
+def _attack_vector_from_nvd(cve: dict[str, Any]) -> str:
+    metrics = cve.get("metrics", {}) if isinstance(cve.get("metrics"), dict) else {}
+    for key in ("cvssMetricV31", "cvssMetricV30", "cvssMetricV2"):
+        values = metrics.get(key)
+        if not isinstance(values, list) or not values:
+            continue
+        metric = values[0] if isinstance(values[0], dict) else {}
+        data = metric.get("cvssData", {}) if isinstance(metric.get("cvssData"), dict) else {}
+        vector = data.get("attackVector") or data.get("accessVector")
+        if vector:
+            return str(vector).strip().upper()
+        vector_string = str(data.get("vectorString", ""))
+        match = re.search(r"A[VC]?:([NALP])", vector_string) or re.search(r"AV:([NALP])", vector_string)
+        if match:
+            return {"N": "NETWORK", "A": "ADJACENT_NETWORK", "L": "LOCAL", "P": "PHYSICAL"}.get(match.group(1), "")
+    return ""
+
+
+def _web_relevance(cwes: list[str], attack_vector: str) -> tuple[bool, str]:
+    """Return (is_web_pentest_relevant, vuln_class). Requires a web-exploitable CWE and a
+    network-reachable attack vector; local/physical/adjacent and non-web CWEs are dropped."""
+    if attack_vector in _NON_WEB_ATTACK_VECTORS:
+        return False, ""
+    for cwe in cwes:
+        vuln_class = _WEB_CWE_CLASS.get(cwe)
+        if vuln_class:
+            return True, vuln_class
+    return False, ""
 
 
 def _references_from_nvd(cve: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:

@@ -59,6 +59,69 @@ def nvd_record() -> dict[str, object]:
     }
 
 
+def seed_named_component(name: str, *, version: str = "", cpe: str = "", precision: str = "unknown", source: str = "") -> None:
+    workspace.create_workspace("engagement", organization="Example", hosts=["app.example.com"])
+    workspace.ingest_data(
+        "engagement",
+        "app.example.com",
+        "adapter_result",
+        "adapter_result",
+        "json",
+        json.dumps(
+            {
+                "entities": {
+                    "observations": [
+                        {
+                            "type": "technology_component",
+                            "value": f"{name} {version}".strip(),
+                            "name": name,
+                            "version": version,
+                            "cpe": cpe,
+                            "versionPrecision": precision,
+                            "source": source,
+                            "confidence": "high",
+                        }
+                    ]
+                }
+            }
+        ),
+    )
+
+
+def nvd_config(product: str, *, vendor: str = "vendor", cpe_version: str = "*", **bounds: str) -> list[dict[str, object]]:
+    match: dict[str, object] = {"vulnerable": True, "criteria": f"cpe:2.3:a:{vendor}:{product}:{cpe_version}:*:*:*:*:*:*:*"}
+    match.update(bounds)
+    return [{"nodes": [{"cpeMatch": [match]}]}]
+
+
+def nvd_item(
+    cve_id: str,
+    configurations: list[dict[str, object]],
+    *,
+    base_score: float = 7.5,
+    references: list[dict[str, object]] | None = None,
+    cwe: str = "CWE-89",
+    attack_vector: str = "NETWORK",
+) -> dict[str, object]:
+    cvss_data: dict[str, object] = {"baseScore": base_score, "baseSeverity": "HIGH", "attackVector": attack_vector}
+    weaknesses = [{"description": [{"lang": "en", "value": cwe}]}] if cwe else []
+    return {
+        "cve": {
+            "id": cve_id,
+            "published": "2021-10-05T00:00:00.000",
+            "descriptions": [{"lang": "en", "value": "desc"}],
+            "metrics": {"cvssMetricV31": [{"cvssData": cvss_data}]},
+            "weaknesses": weaknesses,
+            "references": references or [],
+            "configurations": configurations,
+        }
+    }
+
+
+def nvd_payload(cve_id: str, configurations: list[dict[str, object]], **kwargs: object) -> dict[str, object]:
+    return {"vulnerabilities": [nvd_item(cve_id, configurations, **kwargs)]}
+
+
 class FakeSession:
     def __init__(self, response: HttpResponse):
         self.response = response
@@ -150,14 +213,16 @@ class CveIntelTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             with isolated_state(Path(tmp)):
                 seed_component()
-                nvd_payload = {
+                nvd_response = {
                     "vulnerabilities": [
                         {
                             "cve": {
                                 "id": "CVE-2021-41773",
                                 "published": "2021-10-05T00:00:00.000",
                                 "descriptions": [{"lang": "en", "value": "Apache path traversal."}],
-                                "metrics": {"cvssMetricV31": [{"cvssData": {"baseScore": 7.5, "baseSeverity": "HIGH"}}]},
+                                "metrics": {"cvssMetricV31": [{"cvssData": {"baseScore": 7.5, "baseSeverity": "HIGH", "attackVector": "NETWORK"}}]},
+                                "weaknesses": [{"description": [{"lang": "en", "value": "CWE-22"}]}],
+                                "configurations": nvd_config("http_server", vendor="apache", cpe_version="2.4.49"),
                                 "references": [
                                     {"url": "https://exploit.example/poc", "tags": ["Exploit"]},
                                     {"url": "https://vendor.example/advisory", "tags": ["Vendor Advisory"]},
@@ -166,7 +231,7 @@ class CveIntelTests(unittest.TestCase):
                         }
                     ]
                 }
-                with patch.object(cve_intel, "_fetch_nvd", return_value=nvd_payload), patch.object(
+                with patch.object(cve_intel, "_fetch_nvd", return_value=nvd_response), patch.object(
                     cve_intel, "_enrich_cisa_kev", return_value={}
                 ), patch.object(cve_intel, "_enrich_poc_github_index", return_value={}):
                     result = json.loads(
@@ -185,6 +250,153 @@ class CveIntelTests(unittest.TestCase):
                 self.assertIn("https://exploit.example/poc", exploit_urls)
                 self.assertNotIn("https://vendor.example/advisory", exploit_urls)
                 self.assertEqual(candidate["exploitMaturity"], "exploit_referenced")
+
+    def test_out_of_range_version_is_dropped(self) -> None:
+        # Apache httpd 2.4.49 detected; a CVE that only affects < 2.4.0 must be filtered out.
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                seed_component()
+                payload = nvd_payload("CVE-2000-1234", nvd_config("http_server", vendor="apache", versionEndExcluding="2.4.0"))
+                with patch.object(cve_intel, "_fetch_nvd", return_value=payload), patch.object(
+                    cve_intel, "_enrich_cisa_kev", return_value={}
+                ), patch.object(cve_intel, "_enrich_poc_github_index", return_value={}):
+                    result = json.loads(
+                        cve_intel.correlate({"workspaceId": "engagement", "target": "app.example.com", "sources": ["nvd", "cisa_kev", "poc_github_index"], "confirm": True})
+                    )
+                self.assertEqual(result["candidateCount"], 0)
+                self.assertEqual(result["filtered"]["notAffected"], 1)
+
+    def test_in_range_version_is_kept_high_confidence(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                seed_component()
+                payload = nvd_payload(
+                    "CVE-2021-41773",
+                    nvd_config("http_server", vendor="apache", versionStartIncluding="2.4.0", versionEndExcluding="2.4.50"),
+                )
+                with patch.object(cve_intel, "_fetch_nvd", return_value=payload), patch.object(
+                    cve_intel, "_enrich_cisa_kev", return_value={}
+                ), patch.object(cve_intel, "_enrich_poc_github_index", return_value={}):
+                    result = json.loads(
+                        cve_intel.correlate({"workspaceId": "engagement", "target": "app.example.com", "sources": ["nvd", "cisa_kev", "poc_github_index"], "confirm": True})
+                    )
+                self.assertEqual(result["candidateCount"], 1)
+                self.assertEqual(result["candidates"][0]["confidence"], "high")
+                self.assertEqual(result["candidates"][0]["versionPrecision"], "exact")
+
+    def test_product_mismatch_is_dropped(self) -> None:
+        # Keyword search surfaces a CVE whose only affected product is a different package.
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                seed_component()
+                payload = nvd_payload("CVE-2022-9999", nvd_config("some_plugin", vendor="thirdparty"))
+                with patch.object(cve_intel, "_fetch_nvd", return_value=payload), patch.object(
+                    cve_intel, "_enrich_cisa_kev", return_value={}
+                ), patch.object(cve_intel, "_enrich_poc_github_index", return_value={}):
+                    result = json.loads(
+                        cve_intel.correlate({"workspaceId": "engagement", "target": "app.example.com", "sources": ["nvd", "cisa_kev", "poc_github_index"], "confirm": True})
+                    )
+                self.assertEqual(result["candidateCount"], 0)
+                self.assertEqual(result["filtered"]["productMismatch"], 1)
+
+    def test_version_unknown_kept_when_high_severity_or_corroborated(self) -> None:
+        # Drupal detected with no recoverable version. Version-unknown web-exploitable CVEs
+        # survive when High/Critical (>=7.0) or KEV/PoC-corroborated; a low-severity
+        # uncorroborated one is suppressed.
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                seed_named_component("Drupal")
+                payload = {
+                    "vulnerabilities": [
+                        nvd_item("CVE-2014-1111", nvd_config("drupal", vendor="drupal"), base_score=4.0),  # low sev, no corroboration -> suppressed
+                        nvd_item("CVE-2019-2222", nvd_config("drupal", vendor="drupal"), base_score=9.8),  # high sev -> kept
+                        nvd_item("CVE-2018-7600", nvd_config("drupal", vendor="drupal"), base_score=3.0),  # low sev but KEV -> kept
+                    ]
+                }
+                with patch.object(cve_intel, "_fetch_nvd", return_value=payload), patch.object(
+                    cve_intel, "_enrich_cisa_kev", return_value={"CVE-2018-7600": {"knownExploited": True, "source": "cisa_kev"}}
+                ), patch.object(cve_intel, "_enrich_poc_github_index", return_value={}):
+                    result = json.loads(
+                        cve_intel.correlate({"workspaceId": "engagement", "target": "app.example.com", "sources": ["nvd", "cisa_kev", "poc_github_index"], "confirm": True})
+                    )
+                kept = {candidate["cveId"] for candidate in result["candidates"]}
+                self.assertEqual(kept, {"CVE-2019-2222", "CVE-2018-7600"})
+                self.assertEqual(result["filtered"]["unconfirmedSuppressed"], 1)
+                self.assertTrue(all(candidate["webExploitable"] for candidate in result["candidates"]))
+
+    def test_non_web_cve_is_dropped(self) -> None:
+        # A DoS-class / non-web CWE on the right product+version is still dropped.
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                seed_component()
+                payload = nvd_payload(
+                    "CVE-2020-3333",
+                    nvd_config("http_server", vendor="apache", versionStartIncluding="2.4.0", versionEndExcluding="2.4.50"),
+                    cwe="CWE-400",
+                )
+                with patch.object(cve_intel, "_fetch_nvd", return_value=payload), patch.object(
+                    cve_intel, "_enrich_cisa_kev", return_value={}
+                ), patch.object(cve_intel, "_enrich_poc_github_index", return_value={}):
+                    result = json.loads(
+                        cve_intel.correlate({"workspaceId": "engagement", "target": "app.example.com", "sources": ["nvd", "cisa_kev", "poc_github_index"], "confirm": True})
+                    )
+                self.assertEqual(result["candidateCount"], 0)
+                self.assertEqual(result["filtered"]["nonWeb"], 1)
+
+    def test_local_attack_vector_is_dropped(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                seed_component()
+                payload = nvd_payload(
+                    "CVE-2020-4444",
+                    nvd_config("http_server", vendor="apache", versionStartIncluding="2.4.0", versionEndExcluding="2.4.50"),
+                    cwe="CWE-89",
+                    attack_vector="LOCAL",
+                )
+                with patch.object(cve_intel, "_fetch_nvd", return_value=payload), patch.object(
+                    cve_intel, "_enrich_cisa_kev", return_value={}
+                ), patch.object(cve_intel, "_enrich_poc_github_index", return_value={}):
+                    result = json.loads(
+                        cve_intel.correlate({"workspaceId": "engagement", "target": "app.example.com", "sources": ["nvd", "cisa_kev", "poc_github_index"], "confirm": True})
+                    )
+                self.assertEqual(result["candidateCount"], 0)
+                self.assertEqual(result["filtered"]["nonWeb"], 1)
+
+    def test_infra_only_component_without_http_surface_is_unreachable(self) -> None:
+        # A component seen only via an nmap service banner, with no crawled HTTP surface,
+        # is not a web-pentest target and yields no CVE lookups.
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                seed_named_component("OpenSSH", version="8.2", source="service_metadata")
+                with patch.object(cve_intel, "_fetch_nvd") as fetch, patch.object(
+                    cve_intel, "_enrich_cisa_kev", return_value={}
+                ), patch.object(cve_intel, "_enrich_poc_github_index", return_value={}):
+                    result = json.loads(
+                        cve_intel.correlate({"workspaceId": "engagement", "target": "app.example.com", "sources": ["nvd", "cisa_kev", "poc_github_index"], "confirm": True})
+                    )
+                fetch.assert_not_called()
+                self.assertEqual(result["candidateCount"], 0)
+                self.assertEqual(result["filtered"]["unreachable"], 1)
+
+    def test_high_value_class_tag_and_priority(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                seed_component()
+                payload = nvd_payload(
+                    "CVE-2021-41773",
+                    nvd_config("http_server", vendor="apache", versionStartIncluding="2.4.0", versionEndExcluding="2.4.50"),
+                    cwe="CWE-78",
+                )
+                with patch.object(cve_intel, "_fetch_nvd", return_value=payload), patch.object(
+                    cve_intel, "_enrich_cisa_kev", return_value={}
+                ), patch.object(cve_intel, "_enrich_poc_github_index", return_value={}):
+                    result = json.loads(
+                        cve_intel.correlate({"workspaceId": "engagement", "target": "app.example.com", "sources": ["nvd", "cisa_kev", "poc_github_index"], "confirm": True})
+                    )
+                candidate = result["candidates"][0]
+                self.assertEqual(candidate["vulnClass"], "OS Command Injection")
+                self.assertIn("CWE-78", candidate["cwes"])
+                self.assertIn("high-value-class", candidate["tags"])
 
     def test_public_poc_bumps_priority_without_kev(self) -> None:
         with TemporaryDirectory() as tmp:
