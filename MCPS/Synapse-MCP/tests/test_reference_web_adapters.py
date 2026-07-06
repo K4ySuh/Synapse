@@ -19,6 +19,20 @@ from synapse_mcp.transport import stdio_server
 
 
 class ReferenceWebAdapterTests(unittest.TestCase):
+    def test_split_product_version_parses_generator_style_values(self) -> None:
+        # Server-style "name/version" and trailing "name version" already worked; the
+        # generator style embeds the version mid-string with a trailing URL/comment.
+        self.assertEqual(fingerprint._split_product_version("Apache/2.4.49 (Ubuntu)"), ("Apache", "2.4.49"))
+        self.assertEqual(fingerprint._split_product_version("nginx 1.18.0"), ("nginx", "1.18.0"))
+        self.assertEqual(fingerprint._split_product_version("Drupal 10 (https://www.drupal.org)"), ("Drupal", "10"))
+        self.assertEqual(fingerprint._split_product_version("Drupal 7 (http://drupal.org)"), ("Drupal", "7"))
+        self.assertEqual(fingerprint._split_product_version("WordPress 6.2 (https://wordpress.org)"), ("WordPress", "6.2"))
+        self.assertEqual(fingerprint._split_product_version("Drupal"), ("Drupal", ""))
+
+    def test_generator_header_yields_versioned_component_with_cpe(self) -> None:
+        version_name, version = fingerprint._split_product_version("Drupal 10 (https://www.drupal.org)")
+        self.assertEqual(fingerprint._synthesize_cpe(version_name, version), "cpe:2.3:a:drupal:drupal:10:*:*:*:*:*:*:*")
+
     def test_xss_and_sqli_workspace_analyzers_ingest_passive_candidates(self) -> None:
         with TemporaryDirectory() as tmp:
             with isolated_state(Path(tmp)):

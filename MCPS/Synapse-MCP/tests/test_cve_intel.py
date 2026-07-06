@@ -324,6 +324,56 @@ class CveIntelTests(unittest.TestCase):
                 self.assertEqual(result["filtered"]["unconfirmedSuppressed"], 1)
                 self.assertTrue(all(candidate["webExploitable"] for candidate in result["candidates"]))
 
+    def test_major_only_version_matches_range_and_refutes_ancient(self) -> None:
+        # Drupal detected as major "10". A 10.x-range CVE is affected; an ancient <4.7 CVE and a
+        # 7.x CVE are refuted (not_affected), even though the version is only a bare major.
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                seed_named_component("Drupal", version="10", cpe="cpe:2.3:a:drupal:drupal:10:*:*:*:*:*:*:*", precision="exact")
+                payload = {
+                    "vulnerabilities": [
+                        nvd_item("CVE-2023-1010", nvd_config("drupal", vendor="drupal", versionStartIncluding="10.0.0", versionEndExcluding="10.1.5")),
+                        nvd_item("CVE-2005-1921", nvd_config("drupal", vendor="drupal", versionEndExcluding="4.7.0")),
+                        nvd_item("CVE-2018-7600", nvd_config("drupal", vendor="drupal", versionStartIncluding="7.0", versionEndExcluding="8.0")),
+                    ]
+                }
+                with patch.object(cve_intel, "_fetch_nvd", return_value=payload), patch.object(
+                    cve_intel, "_enrich_cisa_kev", return_value={}
+                ), patch.object(cve_intel, "_enrich_poc_github_index", return_value={}):
+                    result = json.loads(
+                        cve_intel.correlate({"workspaceId": "engagement", "target": "app.example.com", "sources": ["nvd", "cisa_kev", "poc_github_index"], "confirm": True})
+                    )
+                kept = {c["cveId"] for c in result["candidates"]}
+                self.assertEqual(kept, {"CVE-2023-1010"})
+                self.assertEqual(result["candidates"][0]["confidence"], "high")
+                self.assertEqual(result["filtered"]["notAffected"], 2)
+
+    def test_versionless_component_collapsed_when_versioned_present(self) -> None:
+        # Two Drupal components (bare "Drupal" and "Drupal 10"): the version-less one is dropped
+        # so its keyword lookup cannot resurrect out-of-version CVEs.
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                workspace.create_workspace("engagement", organization="Example", hosts=["app.example.com"])
+                workspace.ingest_data(
+                    "engagement",
+                    "app.example.com",
+                    "adapter_result",
+                    "adapter_result",
+                    "json",
+                    json.dumps(
+                        {
+                            "entities": {
+                                "observations": [
+                                    {"type": "technology_component", "name": "Drupal", "version": "", "cpe": "cpe:2.3:a:drupal:drupal:*:*:*:*:*:*:*:*", "versionPrecision": "unknown"},
+                                    {"type": "technology_component", "name": "Drupal", "version": "10", "cpe": "cpe:2.3:a:drupal:drupal:10:*:*:*:*:*:*:*", "versionPrecision": "exact"},
+                                ]
+                            }
+                        }
+                    ),
+                )
+                components = cve_intel._technology_components(workspace._load_target_entities("engagement", "app.example.com"))
+                self.assertEqual([(c["name"], c["version"]) for c in components], [("Drupal", "10")])
+
     def test_non_web_cve_is_dropped(self) -> None:
         # A DoS-class / non-web CWE on the right product+version is still dropped.
         with TemporaryDirectory() as tmp:

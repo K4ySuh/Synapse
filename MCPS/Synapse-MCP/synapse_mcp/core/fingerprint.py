@@ -183,6 +183,12 @@ def _split_product_version(value: str) -> tuple[str, str]:
     space_match = re.match(r"^(.+?)\s+([0-9][A-Za-z0-9._+-]*)$", value)
     if space_match:
         return space_match.group(1).strip(), space_match.group(2).strip()
+    # Generator-style values embed the version mid-string with trailing noise, e.g.
+    # "Drupal 10 (https://www.drupal.org)" -> ("Drupal", "10"). Take the first dotted-numeric
+    # token after the product name and discard the trailing URL/comment.
+    mid_match = re.match(r"^([A-Za-z][A-Za-z0-9 ._+-]*?)\s+v?([0-9]+(?:\.[0-9]+){0,3})\b", value)
+    if mid_match:
+        return mid_match.group(1).strip(" .-"), mid_match.group(2).strip()
     return value, ""
 
 

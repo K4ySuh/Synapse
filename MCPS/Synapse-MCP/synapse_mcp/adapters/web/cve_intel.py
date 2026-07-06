@@ -285,7 +285,22 @@ def _technology_components(entities: dict[str, list[dict[str, Any]]]) -> list[di
         }
         seen[key] = component
         components.append(component)
-    return components
+    return _collapse_versionless_components(components)
+
+
+def _component_product_id(component: dict[str, Any]) -> tuple[str, str]:
+    vendor, product, _ = _cpe_fields(str(component.get("cpe", "")))
+    if product:
+        return (vendor, product)
+    return ("", str(component.get("name", "")).strip().lower())
+
+
+def _collapse_versionless_components(components: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """When a product is detected at a concrete version, drop the version-less duplicate of the
+    same product so its keyword lookup cannot resurrect out-of-version (e.g. ancient) CVEs the
+    versioned component would refute."""
+    versioned = {_component_product_id(c) for c in components if str(c.get("version") or "")}
+    return [c for c in components if str(c.get("version") or "") or _component_product_id(c) not in versioned]
 
 
 # Component sources that describe infrastructure/service banners rather than a crawled HTTP
@@ -658,36 +673,50 @@ def _cmp_versions(left: list[int], right: list[int]) -> int:
     return (len(left) > len(right)) - (len(left) < len(right))
 
 
+def _increment_version(value: list[int]) -> list[int]:
+    return value[:-1] + [value[-1] + 1] if value else [1]
+
+
 def _version_in_cpe(version: str, cpe: dict[str, Any]) -> bool | None:
-    """True/False if the detected version is (not) in the CPE's affected range; None if indeterminate."""
+    """True/False if the detected version overlaps the CPE's affected range; None if indeterminate.
+
+    The detected version is treated as the half-open interval [v, next(v)) so a partial version
+    like "10" spans all of 10.x. Applicability holds when that interval intersects the affected
+    interval, which handles exact versions ("2.4.49") and imprecise majors ("10") uniformly."""
     detected = _parse_version(version)
-    cpe_version = str(cpe.get("version") or "")
-    bounds = (cpe.get("startIncl"), cpe.get("startExcl"), cpe.get("endIncl"), cpe.get("endExcl"))
-    if cpe_version and cpe_version not in {"*", "-"}:
-        pinned = _parse_version(cpe_version)
-        if detected is None or pinned is None:
-            return None
-        return _cmp_versions(detected, pinned) == 0
-    if not any(bound for bound in bounds):
-        return True  # CPE covers all versions of the product
     if detected is None:
         return None
-    start_incl, start_excl, end_incl, end_excl = bounds
-    for bound, relation in ((start_incl, "ge"), (start_excl, "gt"), (end_incl, "le"), (end_excl, "lt")):
-        if bound is None:
-            continue
-        parsed = _parse_version(bound)
-        if parsed is None:
+    det_low, det_high = detected, _increment_version(detected)
+
+    cpe_version = str(cpe.get("version") or "")
+    if cpe_version and cpe_version not in {"*", "-"}:
+        pinned = _parse_version(cpe_version)
+        if pinned is None:
             return None
-        comparison = _cmp_versions(detected, parsed)
-        if relation == "ge" and comparison < 0:
-            return False
-        if relation == "gt" and comparison <= 0:
-            return False
-        if relation == "le" and comparison > 0:
-            return False
-        if relation == "lt" and comparison >= 0:
-            return False
+        aff_low, aff_high = pinned, _increment_version(pinned)
+        return _cmp_versions(aff_low, det_high) < 0 and _cmp_versions(det_low, aff_high) < 0
+
+    start_incl, start_excl, end_incl, end_excl = cpe.get("startIncl"), cpe.get("startExcl"), cpe.get("endIncl"), cpe.get("endExcl")
+    if not any(bound for bound in (start_incl, start_excl, end_incl, end_excl)):
+        return True  # CPE covers all versions of the product
+
+    aff_low = _parse_version(start_incl if start_incl is not None else start_excl)
+    if (start_incl is not None or start_excl is not None) and aff_low is None:
+        return None
+    if end_excl is not None:
+        aff_high = _parse_version(end_excl)
+    elif end_incl is not None:
+        parsed_end = _parse_version(end_incl)
+        aff_high = _increment_version(parsed_end) if parsed_end is not None else None
+    else:
+        aff_high = None
+    if (end_incl is not None or end_excl is not None) and aff_high is None:
+        return None
+
+    if aff_low is not None and _cmp_versions(aff_low, det_high) >= 0:
+        return False
+    if aff_high is not None and _cmp_versions(det_low, aff_high) >= 0:
+        return False
     return True
 
 
