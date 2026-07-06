@@ -127,6 +127,7 @@ class JsAnalysisResult:
     endpoints: list[dict[str, Any]] = field(default_factory=list)
     parameters: list[dict[str, Any]] = field(default_factory=list)
     signals: list[dict[str, Any]] = field(default_factory=list)
+    libraries: list[dict[str, Any]] = field(default_factory=list)
     summary: dict[str, Any] = field(default_factory=dict)
     source: str = SOURCE
 
@@ -137,5 +138,6 @@ class JsAnalysisResult:
             "endpoints": self.endpoints,
             "parameters": self.parameters,
             "signals": self.signals,
+            "libraries": self.libraries,
             "summary": self.summary,
         }

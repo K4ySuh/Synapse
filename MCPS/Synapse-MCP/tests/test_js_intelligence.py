@@ -12,7 +12,7 @@ from helpers import assert_shared_html_shell, isolated_state, wait_for_job
 from http_stub import stub_httpx
 from synapse_mcp.adapters.web import js_intel
 from synapse_mcp.core import background_jobs, credentials, scope, workspace
-from synapse_mcp.core.js import normalizer
+from synapse_mcp.core.js import extractors, normalizer
 from synapse_mcp.core.http.models import HttpResponse
 from synapse_mcp.transport import stdio_server
 
@@ -416,6 +416,32 @@ class JsIntelligenceTests(unittest.TestCase):
                 endpoint_urls = {item["url"] for item in normalized["entities"]["endpoints"]}
                 self.assertIn("http://localhost:3000/rest/admin", endpoint_urls)
                 self.assertFalse(any(url.startswith("https://localhost/") for url in endpoint_urls))
+
+    def test_detect_libraries_from_filename_and_banner(self) -> None:
+        # Version in the filename → exact/high; version in a source banner → exact/high;
+        # library present but version-less → unknown/low.
+        from_filename = extractors.detect_libraries("(function(){})();", "https://app.example.com/assets/jquery-3.5.1.min.js")
+        self.assertEqual(len(from_filename), 1)
+        self.assertEqual(from_filename[0]["name"], "jQuery")
+        self.assertEqual(from_filename[0]["version"], "3.5.1")
+        self.assertEqual(from_filename[0]["versionPrecision"], "exact")
+        self.assertEqual(from_filename[0]["cpe"], "cpe:2.3:a:jquery:jquery:3.5.1:*:*:*:*:*:*:*")
+
+        from_banner = extractors.detect_libraries("/*! Bootstrap v4.5.0 (https://getbootstrap.com/) */", "https://app.example.com/vendor.js")
+        names = {lib["name"]: lib for lib in from_banner}
+        self.assertIn("Bootstrap", names)
+        self.assertEqual(names["Bootstrap"]["version"], "4.5.0")
+        self.assertEqual(names["Bootstrap"]["cpe"], "cpe:2.3:a:getbootstrap:bootstrap:4.5.0:*:*:*:*:*:*:*")
+
+        versionless = extractors.detect_libraries("var x=1;", "https://app.example.com/js/jquery.min.js")
+        self.assertEqual(versionless[0]["name"], "jQuery")
+        self.assertEqual(versionless[0]["version"], "")
+        self.assertEqual(versionless[0]["versionPrecision"], "unknown")
+        self.assertEqual(versionless[0]["confidence"], "low")
+
+    def test_detect_libraries_ignores_unrelated_tokens(self) -> None:
+        self.assertEqual(extractors.detect_libraries("var x=1;", "https://app.example.com/js/reaction-tracker.js"), [])
+        self.assertEqual(extractors.detect_libraries("console.log('hi')", "https://app.example.com/js/app.bundle.js"), [])
 
     def test_normalize_does_not_downgrade_observed_endpoint_to_inferred(self) -> None:
         with TemporaryDirectory() as tmp:

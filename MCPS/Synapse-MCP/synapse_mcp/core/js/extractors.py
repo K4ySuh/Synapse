@@ -36,6 +36,89 @@ OBJECT_ID_RE = re.compile(
 )
 
 
+LIBRARY_BANNER_SCAN_BYTES = 200_000
+_VER = r"(\d+\.\d+(?:\.\d+){0,2})"
+
+
+class LibrarySignature:
+    """A curated client-side library: how to recognize it (in the asset filename and in a
+    source banner/license comment) and its NVD CPE vendor:product for accurate CVE matching."""
+
+    __slots__ = ("name", "vendor", "product", "filename", "banner")
+
+    def __init__(self, name: str, vendor: str, product: str, filename: str, banner: str) -> None:
+        self.name = name
+        self.vendor = vendor
+        self.product = product
+        self.filename = re.compile(filename, re.IGNORECASE)
+        self.banner = re.compile(banner, re.IGNORECASE)
+
+
+def _filename_pattern(aliases: list[str]) -> str:
+    alt = "|".join(aliases)
+    # <alias>[-.@ ]<version>? optionally followed by min/slim/prod markers, then a .js/.mjs suffix.
+    return rf"(?:^|[/._@-])(?:{alt})(?:[.@_-]v?{_VER})?(?:[._-](?:min|slim|bundle|prod|production|dev|development|common|umd|esm|cjs))*\.(?:js|mjs)"
+
+
+# Ordered curated registry. Kept intentionally small and high-confidence: each entry maps to a
+# real NVD CPE product with web-exploitable CVE history (XSS, prototype pollution, ReDoS, etc.).
+JS_LIBRARY_SIGNATURES: list[LibrarySignature] = [
+    LibrarySignature("jQuery UI", "jquery", "jquery_ui", _filename_pattern(["jquery-ui", "jquery.ui"]), rf"jquery\s+ui[\s-]+v?{_VER}"),
+    LibrarySignature("jQuery", "jquery", "jquery", _filename_pattern(["jquery"]), rf"jquery(?:\s+javascript\s+library)?\s+v?{_VER}"),
+    LibrarySignature("Bootstrap", "getbootstrap", "bootstrap", _filename_pattern(["bootstrap"]), rf"bootstrap(?:'s\s+javascript)?\s+v{_VER}"),
+    LibrarySignature("AngularJS", "angularjs", "angular.js", _filename_pattern(["angular", "angular.min"]), rf"angular(?:js)?\s+v(1\.\d+(?:\.\d+){{0,2}})"),
+    LibrarySignature("React", "facebook", "react", _filename_pattern(["react", "react-dom"]), rf"react(?:-dom)?\s+v{_VER}"),
+    LibrarySignature("Vue.js", "vuejs", "vue", _filename_pattern(["vue"]), rf"vue(?:\.js)?\s+v{_VER}"),
+    LibrarySignature("Lodash", "lodash", "lodash", _filename_pattern(["lodash"]), r"@license[\s\S]{0,80}?lodash"),
+    LibrarySignature("Moment.js", "momentjs", "moment", _filename_pattern(["moment"]), rf"//!\s*version\s*:\s*{_VER}"),
+    LibrarySignature("Handlebars", "handlebarsjs", "handlebars", _filename_pattern(["handlebars"]), rf"handlebars(?:\.js)?\s+v?{_VER}"),
+    LibrarySignature("DOMPurify", "cure53", "dompurify", _filename_pattern(["dompurify", "purify"]), rf"dompurify\s+{_VER}"),
+    LibrarySignature("Axios", "axios", "axios", _filename_pattern(["axios"]), rf"axios[\s/v]+{_VER}"),
+    LibrarySignature("CKEditor", "ckeditor", "ckeditor", _filename_pattern(["ckeditor"]), rf"ckeditor\s+{_VER}"),
+    LibrarySignature("TinyMCE", "tiny", "tinymce", _filename_pattern(["tinymce", "tiny_mce"]), rf"tinymce(?:.*?)(?:version|v)[:\s]+{_VER}"),
+]
+
+
+def _library_cpe(vendor: str, product: str, version: str) -> str:
+    return f"cpe:2.3:a:{vendor}:{product}:{version or '*'}:*:*:*:*:*:*:*"
+
+
+def detect_libraries(text: str, source_asset: str) -> list[dict[str, Any]]:
+    filename = urlsplit(str(source_asset)).path.lower()
+    region = text[:LIBRARY_BANNER_SCAN_BYTES]
+    results: list[dict[str, Any]] = []
+    for sig in JS_LIBRARY_SIGNATURES:
+        banner_match = sig.banner.search(region)
+        filename_match = sig.filename.search(filename)
+        if not banner_match and not filename_match:
+            continue
+        version = ""
+        if banner_match and banner_match.groups() and banner_match.group(1):
+            version = banner_match.group(1)
+        if not version and filename_match:
+            version = filename_match.group(1) or ""
+        version = str(version or "")
+        precision = "exact" if version else "unknown"
+        if version:
+            confidence, how = "high", "version banner/filename"
+        elif banner_match:
+            confidence, how = "medium", "source banner"
+        else:
+            confidence, how = "low", "asset filename"
+        results.append(
+            {
+                "name": sig.name,
+                "version": version,
+                "versionPrecision": precision,
+                "cpe": _library_cpe(sig.vendor, sig.product, version),
+                "sourceAsset": source_asset,
+                "confidence": confidence,
+                "reason": f"Client-side library {sig.name}{(' ' + version) if version else ''} identified via {how}.",
+            }
+        )
+    return results
+
+
 def is_js_asset_url(url: str) -> bool:
     return urlsplit(str(url)).path.lower().endswith(JS_ASSET_EXTENSIONS)
 
@@ -353,4 +436,5 @@ def extract_from_source(text: str, source_asset: str, max_bytes: int = MAX_SCAN_
         "endpoints": dedupe(endpoints, ("raw", "method", "sourceAsset")),
         "parameters": dedupe(parameters, ("name", "endpointRaw", "location", "sourceAsset")),
         "signals": dedupe(signals, ("type", "value", "sourceAsset")),
+        "libraries": dedupe(detect_libraries(snippet, source_asset), ("name", "version", "sourceAsset")),
     }
