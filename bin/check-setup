@@ -122,8 +122,27 @@ check_file_optional() {
     fi
 }
 
+provision_version_log() {
+    log="$ROOT_DIR/docs/Version-Log.md"
+    template="$ROOT_DIR/docs/Version-Log.template.md"
+    if [ -f "$log" ]; then
+        printf 'OK   local Version-Log present: %s\n' "$log"
+    elif [ -f "$template" ]; then
+        if cp "$template" "$log" 2>/dev/null; then
+            printf 'OK   created local Version-Log from template: %s\n' "$log"
+            printf '     This file is gitignored; keep your own dated dev history here.\n'
+        else
+            printf 'WARN could not create %s from template; copy it manually.\n' "$log"
+        fi
+    else
+        printf 'WARN Version-Log template missing: %s\n' "$template"
+    fi
+}
+
 printf 'Synapse setup check\n'
 printf 'Repository: %s\n\n' "$ROOT_DIR"
+
+provision_version_log
 
 check_cmd python3
 check_external_tool sqlmap "Required only for SQLMap-backed active adapter workflows."

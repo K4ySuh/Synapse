@@ -33,8 +33,10 @@ Confirm no guardrail was crossed: no database, no new report engine/framework/pl
 no RBAC engine, no broad rewrite; change is small and legible; no real client data committed.
 
 ## 4. Local version log
-For code changes, confirm `docs/Version-Log.md` was updated or created. It is intentionally
-ignored by Git, but it is still required local implementation history for agent-made changes.
+For code changes, confirm the local `docs/Version-Log.md` was updated. It is a gitignored,
+per-developer scratch log (provisioned from `docs/Version-Log.template.md` on setup) — local
+dev history, not a committed artifact to read for grounding. Shipped, shared history is
+summarized into the committed root `CHANGELOG.md`.
 
 ## 5. Scope discipline
 Diff the change against the spec. Call out anything the implementer changed **beyond** the

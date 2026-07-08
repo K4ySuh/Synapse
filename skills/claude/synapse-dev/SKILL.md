@@ -57,9 +57,12 @@ strong alignment raises confidence; disagreement is where the real design questi
 - **Respect the DATA/ privacy rule.** Real engagement data lives under `DATA/` (gitignored).
   Never put client hostnames, credentials, or real targets in committed code, docs, specs,
   or examples. Use obviously fictional placeholders (e.g. `app.acme-demo.test`).
-- **Maintain the local version log.** Every agent-made code change must update or create
-  `docs/Version-Log.md`. The file is intentionally ignored by Git so operators can keep a
-  private history, but agents still treat it as required local context.
+- **Maintain the local version log.** Every code change must update `docs/Version-Log.md`.
+  This is a **local, gitignored, per-developer scratch log** (provisioned from
+  `docs/Version-Log.template.md` by `bin/check-setup`) — it is personal dev history, not a
+  committed repo artifact, so do not read it to ground your understanding of the codebase and
+  do not assume another clone has the same contents. Shared, shipped history lives in the
+  committed root `CHANGELOG.md`; summarize the user-facing narrative there at ship time.
 
 ## Reviewing
 
@@ -123,8 +126,8 @@ Verification is end-to-end, not a glance at the diff. Read `references/verificat
 and work it. In short: the regression tests named in the spec must exist and pass; `bin/test`
 must be green overall; the relevant contract must be intact (re-read the touched contract in
 `references/architecture.md` and confirm the change honors it); and no guardrail was crossed
-(no new engine/DB, no workspace-data redaction, no scope creep). Confirm the local
-`docs/Version-Log.md` entry exists for code changes. Report pass/fail per task with the
+(no new engine/DB, no workspace-data redaction, no scope creep). Confirm the local,
+gitignored `docs/Version-Log.md` has an entry for code changes. Report pass/fail per task with the
 evidence you checked, and call out anything the implementer changed beyond the spec.
 
 ## Reference files

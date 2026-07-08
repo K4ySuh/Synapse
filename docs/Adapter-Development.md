@@ -208,7 +208,8 @@ The current built-in MCP tool surface is wired in
 - `executor_tool` metadata for active adapters
 - tests for schema/dispatch behavior
 - documentation updates when the public behavior changes
-- a local `docs/Version-Log.md` entry for every code change
+- a local `docs/Version-Log.md` entry for every code change (gitignored,
+  per-developer; provisioned from `docs/Version-Log.template.md` on setup)
 
 Future custom adapter loading should preserve the same discovery model exposed
 by `adapters.list` and `adapters.capabilities`.

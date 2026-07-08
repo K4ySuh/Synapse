@@ -57,7 +57,9 @@ transport/
 
 Other: `bin/test` (harness, uses `.venv`), `tests/`, `pyproject.toml`,
 `docs/{Architecture,Implementation-Map,Operations,Adapter-Development,Reporting-Model}.md`,
-local ignored `docs/Version-Log.md`, and `DATA/` (gitignored real engagement data).
+committed root `CHANGELOG.md` (shared shipped history), the local gitignored
+`docs/Version-Log.md` (per-developer dev notes, provisioned from
+`docs/Version-Log.template.md`; not for grounding), and `DATA/` (gitignored real engagement data).
 
 ## 3. Load-bearing contracts
 

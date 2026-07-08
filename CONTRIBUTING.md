@@ -37,7 +37,11 @@ bin/check-setup
 - Use `adapters.list` and `adapters.capabilities` metadata for discoverability.
 - Do not commit generated runtime data from `DATA/` except intentional
   placeholders.
-- Update `docs/Version-Log.md` for implementation or documentation changes.
+- Update your local `docs/Version-Log.md` for implementation or documentation
+  changes. It is a gitignored, per-developer scratch log created from
+  `docs/Version-Log.template.md` on setup — it is yours, not a shared artifact.
+- When changes ship, summarize the shared, user-facing narrative into the
+  committed `CHANGELOG.md`.
 
 ## Tests
 
@@ -71,7 +75,8 @@ Update the closest durable documentation for the behavior changed:
 - module and tool surface: `docs/Implementation-Map.md`,
 - setup and operations: `docs/Operations.md`,
 - component-specific behavior: files under `MCPS/`,
-- dated history: `docs/Version-Log.md`.
+- shipped, shared history: `CHANGELOG.md` (committed),
+- local dated dev notes: `docs/Version-Log.md` (gitignored, per developer).
 
 Keep `AGENTS.md` environment-neutral. It is shared as the Synapse MCP main
 prompt and should not contain engagement-specific routes, credentials, targets,

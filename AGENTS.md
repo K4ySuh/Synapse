@@ -67,9 +67,12 @@ Primary references:
 - `docs/Architecture.md` — architecture and data flow.
 - `docs/Implementation-Map.md` — module and tool-surface map.
 - `docs/Operations.md` — setup, workflows, cleanup, reports, and tests.
-- `docs/Version-Log.md` — local/private dated implementation history when
-  present. This file is intentionally ignored by Git but remains required
-  agent-maintained context for code changes.
+- `CHANGELOG.md` — committed, shared history of shipped changes. Summarize the
+  user-facing narrative here at ship time.
+- `docs/Version-Log.md` — local, gitignored, per-developer scratch log of dated
+  implementation notes, provisioned from `docs/Version-Log.template.md` by
+  `bin/check-setup`. It is personal, not a shared repo artifact; do not rely on
+  it for grounding another developer's clone.
 - `MCPS/Synapse-MCP/README.md` — MCP component notes and exposed tools.
 - `MCPS/Synapse-MCP/tests/` — test suite.
 
@@ -104,9 +107,11 @@ Development rules:
 - Preserve safety semantics: scope checks, confirmation gates, approval
   metadata, credential references, bounded execution, local evidence logging,
   and separation between passive analysis and active traffic.
-- Update or create local `docs/Version-Log.md` for every agent-made code
-  change. The file is intentionally ignored by Git; keep it local/private, but
-  do not skip the entry.
+- Update the local `docs/Version-Log.md` for every agent-made code change. It is
+  a gitignored, per-developer scratch log (created from
+  `docs/Version-Log.template.md` on setup); keep it local, but do not skip the
+  entry. At ship time, summarize the shared narrative into the committed
+  `CHANGELOG.md`.
 - Use `rg` / `rg --files` for repository search when available.
 - Run focused tests after changes. Preferred project harness:
 

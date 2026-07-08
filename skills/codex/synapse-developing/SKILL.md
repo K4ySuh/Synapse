@@ -45,8 +45,11 @@ editing behavior.
    references, redaction, evidence logging, candidate semantics, background job
    behavior, and passive/active separation.
 6. Add or update focused tests for changed behavior.
-7. Update `docs/Version-Log.md` when behavior, architecture, user-visible
-   capabilities, reports, setup, or safety semantics change.
+7. Update the local `docs/Version-Log.md` (gitignored per-developer scratch log,
+   provisioned from `docs/Version-Log.template.md` on setup) when behavior,
+   architecture, user-visible capabilities, reports, setup, or safety semantics
+   change. At ship time, summarize the shared narrative into the committed
+   root `CHANGELOG.md`.
 8. Run focused tests, preferably through `bin/test`; run broader tests when the
    change touches shared models, transport, ingestion, adapters, or reports.
 

@@ -47,6 +47,9 @@ next to the component under `MCPS/`.
 - Keep the root README short and current.
 - Put durable design decisions in `Architecture.md`.
 - Put operator procedures in `Operations.md`.
-- Record every agent-made code change in local `Version-Log.md`. The file is
-  intentionally ignored by Git so operators can keep their own private history.
+- Summarize shipped, user-facing changes in the committed root `CHANGELOG.md`.
+- Record every agent-made code change in your local `Version-Log.md` — a
+  gitignored, per-developer scratch log provisioned from
+  `Version-Log.template.md` on setup, so each operator keeps their own private
+  history.
 - Keep generated data and engagement-specific evidence out of documentation.
