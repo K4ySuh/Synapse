@@ -59,6 +59,8 @@ fallback prompt; the repository launcher remains the preferred alpha runtime.
 - `workspace.promote_observation_to_finding`
 - `workspace.link_evidence_to_finding`
 - `workspace.mark_finding_reviewed`
+- `approve_pretext_candidate`
+- `mark_detection_outcome`
 - `workspace.set_entity_reportable`
 - `workspace.record_candidate_validation`
 - `workspace.curate_candidate`
@@ -311,8 +313,10 @@ toggle, not a confidentiality or redaction boundary. Built-in Markdown templates
 finding-oriented deliverables; normalized passive providers render perimeter,
 JavaScript, authentication, and access-control layer reports as HTML or
 Markdown. `documentation.render_assessment_summary` renders the default
-assessment summary report with actions, technologies, findings, and pending
-observations. Raw HTTP and request/response bodies are omitted by default;
+assessment summary report with actions, technologies, findings, pretext-candidate
+coverage, and pending observations. Pretext bodies/personas render only in
+internal mode; high-level mode shows aggregate pretext counts. Detection coverage
+is internal-only. Raw HTTP and request/response bodies are omitted by default;
 external output paths require `allowExternalOutput=true`.
 
 ## Adapter Policy
@@ -324,9 +328,9 @@ modules, access-control planning/replay, and active probe helpers.
 `adapters/infra/` contains network/service enumeration and Shodan OSINT. Shared
 external command safety helpers remain in `adapters/command_utils.py`.
 
-New adapter code must import from the domain paths under `adapters/web/` and
-`adapters/infra/`. The previous flat adapter module layout is no longer
-supported.
+New adapter code must import from the domain paths under `adapters/web/`,
+`adapters/infra/`, or the social-engineering helpers under `adapters/social/`.
+The previous flat adapter module layout is no longer supported.
 
 Use `adapters.list` and `adapters.capabilities` to inspect registered adapter
 metadata, traffic behavior, confirmation requirements, limitations, and output
@@ -638,8 +642,21 @@ surface `test_candidate` precisely — identifying it by `candidateId` or by
 can be built from normal observations instead of adapters blanketing every parameter.
 Removing a class marks it refuted and drops it from `candidateFor`.
 
-Every persisted entity (services, endpoints, parameters, findings, actions, and
-observations) carries an `isReportable` flag, `true` by default.
+Pretext candidates are stored as draft workspace entities with provenance links
+to source observations. `approve_pretext_candidate` requires `confirm=true` to
+move a candidate to `approved`; parsing and ingestion never auto-approve.
+High-level reports render only aggregate pretext counts and never include the
+subject, sender persona, or body template.
+
+Purple-team detection outcomes are recorded with `mark_detection_outcome`.
+Actions may carry an optional `mitreTechniqueId`; when that ID is present in the
+static technique reference table, marking an outcome generates or updates one
+`detection_gap` entity for the action. Detection coverage renders only in the
+internal report view.
+
+Every persisted entity (services, endpoints, parameters, findings, actions,
+observations, pretext candidates, and detection gaps) carries an `isReportable`
+flag, `true` by default.
 `workspace.set_entity_reportable` flips it — by identity or by bulk attribute
 selector — so operators can discard reviewed false positives from the generated
 reports while the records stay in workspace state for later granular analysis.

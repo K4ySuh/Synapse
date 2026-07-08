@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from ..adapters.infra import nmap_adapter, shodan_adapter
+from ..adapters.social import pretext_generator
 from ..adapters.web import (
     access_control,
     command_injection_adapter,
@@ -41,6 +42,7 @@ from ..core import background_jobs, cache, credentials, documentation, dumps, ev
 from ..core.adapters import default_registry as adapter_registry
 from ..core.errors import McpError
 from ..core.paths import PROMPT_PATH
+from ..core.purple_team import gap_analysis
 
 
 PROTOCOL_VERSION = "2025-03-26"
@@ -89,6 +91,8 @@ FAST_TOOLS = {
     "shodan.company_queries",
     "evidence.tail",
     "fingerprint.read_host",
+    "approve_pretext_candidate",
+    "mark_detection_outcome",
 }
 # The MCP stdin loop is single-flight, so this pool does not add request-level
 # concurrency. Its purpose is timeout recovery: a tool that exceeds its deadline
@@ -724,6 +728,35 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "approve_pretext_candidate",
+        "description": "Approve one draft phishing pretext candidate after operator review. Requires confirm=true to change status.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "workspaceId": {"type": "string"},
+                "target": {"type": "string"},
+                "entityKey": {"type": "string"},
+                "confirm": {"type": "boolean", "default": False},
+            },
+            "required": ["workspaceId", "target", "entityKey"],
+        },
+    },
+    {
+        "name": "mark_detection_outcome",
+        "description": "Record whether a blue-team control detected a tagged action and generate/update the corresponding detection-gap entity when a MITRE mapping exists.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "workspaceId": {"type": "string"},
+                "target": {"type": "string"},
+                "actionKey": {"type": "string"},
+                "detected": {"type": ["boolean", "null"]},
+                "notes": {"type": "string", "default": ""},
+            },
+            "required": ["workspaceId", "target", "actionKey", "detected"],
+        },
+    },
+    {
         "name": "workspace.set_entity_reportable",
         "description": (
             "Set isReportable on matching workspace entities in any layer (services, endpoints, "
@@ -738,7 +771,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "target": {"type": "string"},
                 "entityType": {
                     "type": "string",
-                    "enum": ["services", "endpoints", "parameters", "findings", "actions", "observations"],
+                    "enum": ["services", "endpoints", "parameters", "findings", "actions", "observations", "pretextCandidates", "detectionGaps"],
                 },
                 "isReportable": {"type": "boolean"},
                 "selector": {
@@ -3226,6 +3259,27 @@ def _call_tool_impl(name: str, args: dict[str, Any]) -> str:
                 args["findingId"],
                 args.get("status", "confirmed"),
                 args.get("reviewer", "operator"),
+                args.get("notes", ""),
+            ),
+            indent=2,
+        )
+    if name == "approve_pretext_candidate":
+        return json.dumps(
+            pretext_generator.approve_pretext_candidate(
+                args["workspaceId"],
+                args["target"],
+                args["entityKey"],
+                bool(args.get("confirm", False)),
+            ),
+            indent=2,
+        )
+    if name == "mark_detection_outcome":
+        return json.dumps(
+            gap_analysis.mark_detection_outcome(
+                args["workspaceId"],
+                args["target"],
+                args["actionKey"],
+                args.get("detected"),
                 args.get("notes", ""),
             ),
             indent=2,

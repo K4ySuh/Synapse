@@ -61,6 +61,10 @@ def policy_from_args(args: dict[str, Any] | None = None) -> RedactionPolicy:
 
 def redact(value: Any, policy: RedactionPolicy, *, field_name: str = "") -> Any:
     marker = _field_marker(field_name)
+    if isinstance(value, dict):
+        entity_type = str(value.get("type", "") or "")
+        if entity_type == "pretext_candidate":
+            return redact_pretext_candidate(value, policy)
     if marker in BODY_FIELDS and not _body_allowed(marker, policy):
         return _hashable_redaction(value, policy)
     if marker in REQUEST_FIELDS and not policy.include_raw_http:
@@ -86,6 +90,83 @@ def redact(value: Any, policy: RedactionPolicy, *, field_name: str = "") -> Any:
     if isinstance(value, str) and not policy.include_credentials:
         return _redact_secret_strings(value)
     return value
+
+
+def redact_pretext_candidate(candidate: dict[str, Any], policy: RedactionPolicy) -> dict[str, Any]:
+    """Entity-specific pretext rule.
+
+    Safe/high-level reports may only keep aggregate dimensions. Internal/raw
+    operator views retain the actual body and provenance reference IDs.
+    """
+
+    if _safe_report_mode(policy):
+        return {
+            "type": "pretext_candidate",
+            "sophisticationTier": candidate.get("sophisticationTier", ""),
+            "status": candidate.get("status", "draft"),
+        }
+    return {
+        "type": "pretext_candidate",
+        "target": candidate.get("target", ""),
+        "subject": candidate.get("subject", ""),
+        "senderPersona": candidate.get("senderPersona", ""),
+        "bodyTemplate": candidate.get("bodyTemplate", ""),
+        "sophisticationTier": candidate.get("sophisticationTier", ""),
+        "status": candidate.get("status", "draft"),
+        "sourceObservationRefs": [str(item) for item in candidate.get("sourceObservationRefs", []) if str(item)],
+        "missingEvidenceIds": [str(item) for item in candidate.get("missingEvidenceIds", []) if str(item)],
+        "createdAt": candidate.get("createdAt", ""),
+        "approvedAt": candidate.get("approvedAt", ""),
+    }
+
+
+def pretext_report_section(candidates: list[dict[str, Any]], policy: RedactionPolicy) -> dict[str, Any]:
+    if _safe_report_mode(policy):
+        counts: dict[str, dict[str, int]] = {}
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            tier = str(candidate.get("sophisticationTier", "") or "unknown")
+            status = str(candidate.get("status", "") or "draft")
+            counts.setdefault(tier, {}).setdefault(status, 0)
+            counts[tier][status] += 1
+        return {
+            "mode": "aggregate",
+            "total": sum(sum(statuses.values()) for statuses in counts.values()),
+            "counts": counts,
+            "summaryLine": _pretext_summary_line(counts),
+        }
+    return {
+        "mode": "operator",
+        "total": len([item for item in candidates if isinstance(item, dict)]),
+        "items": [redact_pretext_candidate(item, policy) for item in candidates if isinstance(item, dict)],
+    }
+
+
+def detection_gap_report_section(gaps: list[dict[str, Any]], policy: RedactionPolicy) -> dict[str, Any]:
+    if _safe_report_mode(policy):
+        return {"mode": "excluded", "items": []}
+    return {"mode": "operator", "items": [redact(item, policy) for item in gaps if isinstance(item, dict)]}
+
+
+def _safe_report_mode(policy: RedactionPolicy) -> bool:
+    return policy.mode in {"safe", "high_level"}
+
+
+def _pretext_summary_line(counts: dict[str, dict[str, int]]) -> str:
+    if not counts:
+        return "No pretext candidates recorded."
+    parts: list[str] = []
+    for tier in ("high", "medium", "low", "unknown"):
+        statuses = counts.get(tier, {})
+        for status in ("draft", "approved"):
+            count = int(statuses.get(status, 0) or 0)
+            if not count:
+                continue
+            noun = "pretext" if count == 1 else "pretexts"
+            verb = "drafted" if status == "draft" else "approved"
+            parts.append(f"{count} {tier}-sophistication {noun} {verb}")
+    return "; ".join(parts) + "."
 
 
 def evidence_summary(record: dict[str, Any], policy: RedactionPolicy, raw_content: str | None = None) -> dict[str, Any]:

@@ -9,7 +9,7 @@ from typing import Any
 from .. import scope, workspace
 from ..errors import McpError
 from .models import CoverageSummary, EvidencePackContext, FindingDraftContext, ReportContext
-from .redaction import evidence_summary, policy_from_args, redact
+from .redaction import detection_gap_report_section, evidence_summary, policy_from_args, pretext_report_section, redact
 
 
 SEVERITIES = ("critical", "high", "medium", "low", "info")
@@ -57,12 +57,16 @@ def build_report_context(args: dict[str, Any]) -> dict[str, Any]:
     target_contexts = [_target_report_summary(wid, target, policy) for target in targets]
     findings = []
     evidence_items = []
+    pretext_candidates: list[dict[str, Any]] = []
+    detection_gaps: list[dict[str, Any]] = []
     for target in targets:
         entities = workspace.load_reportable_target_entities(wid, target)
         if include_findings:
             findings.extend(_finding_items(wid, target, entities["findings"], policy))
         if include_evidence:
             evidence_items.extend(_target_evidence_items(wid, target, policy, include_raw=False))
+        pretext_candidates.extend(_targeted_items(target, entities.get("pretextCandidates", [])))
+        detection_gaps.extend(_targeted_items(target, entities.get("detectionGaps", [])))
     coverage = summarize_coverage({"workspaceId": wid, "target": target_filter, "redactionMode": policy.mode}) if include_coverage else {}
     context = ReportContext(
         workspace_id=wid,
@@ -87,7 +91,10 @@ def build_report_context(args: dict[str, Any]) -> dict[str, Any]:
         appendices=[],
         redaction=policy,
     )
-    return {"contextType": "report", "report": context.as_dict()}
+    report = context.as_dict()
+    report["pretextSection"] = pretext_report_section(pretext_candidates, policy)
+    report["detectionCoverage"] = detection_gap_report_section(detection_gaps, policy)
+    return {"contextType": "report", "report": report}
 
 
 def build_finding_context(args: dict[str, Any]) -> dict[str, Any]:
@@ -317,6 +324,10 @@ def _target_report_summary(workspace_id: str, target: str, policy: Any) -> dict[
 
 def _finding_items(workspace_id: str, target: str, findings: list[dict[str, Any]], policy: Any) -> list[dict[str, Any]]:
     return [redact({**item, "target": target, "workspaceId": workspace_id}, policy) for item in findings if isinstance(item, dict)]
+
+
+def _targeted_items(target: str, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [{**item, "target": target} for item in items if isinstance(item, dict)]
 
 
 def _find_finding(workspace_id: str, target: str, finding_id: str) -> dict[str, Any]:

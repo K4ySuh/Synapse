@@ -415,6 +415,21 @@ def build_default_registry() -> AdapterRegistry:
             produces=["services", "dns_observations", "observations", "evidence"],
             limitations=["API-backed operations require confirmation and may consume Shodan credits."],
         ),
+        _metadata(
+            name="pretext_generator",
+            category="red_team",
+            description="Normalizes phishing pretext candidates, preserves provenance links to source observations, and requires explicit operator approval before use.",
+            capabilities=["result_ingestion"],
+            sends_traffic=False,
+            requires_confirmation=True,
+            default_risk_tier="high",
+            produces=["pretext_candidates"],
+            limitations=[
+                "Does not generate content itself; it normalizes already-generated candidate drafts.",
+                "Draft candidates remain unapproved until an operator calls approve_pretext_candidate with confirmation.",
+                "Pretext body content is internal-only and excluded from high-level report output.",
+            ],
+        ),
     ]:
         registry.register(adapter)
     return registry

@@ -6,6 +6,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..errors import McpError
+from ..purple_team.technique_reference import TECHNIQUE_DETECTION_MAP
 from .models import RenderResult
 from .templates import template_for
 
@@ -79,6 +80,9 @@ def _render_report(report: dict[str, Any]) -> str:
             lines.extend(_finding_section(finding, heading_level=3))
     else:
         lines.append("No findings are recorded in this report context.")
+    lines.extend(["", "## Pretext Candidates", ""])
+    lines.extend(_pretext_section(report.get("pretextSection", {})))
+    lines.extend(_detection_coverage_section(report.get("detectionCoverage", {})))
     evidence_items = report.get("evidence", [])
     lines.extend(["", "## Evidence Index", ""])
     if evidence_items:
@@ -126,6 +130,10 @@ def _render_assessment_summary_report(report: dict[str, Any]) -> str:
         "",
         *_assessment_actions_table(targets, coverage),
         "",
+        "## Pretext Candidates",
+        "",
+        *_pretext_section(report.get("pretextSection", {})),
+        "",
         "## 4. Findings",
         "",
     ]
@@ -139,6 +147,7 @@ def _render_assessment_summary_report(report: dict[str, Any]) -> str:
     lines.extend(_pending_observations_table(pending_items))
     lines.extend(["", "## 6. Assessment Limitations", ""])
     lines.append(_bullet_list(coverage.get("untestedAreas", []), empty="No assessment limitations are recorded in this report context."))
+    lines.extend(_detection_coverage_section(report.get("detectionCoverage", {})))
     lines.extend(["", "## Appendix: Evidence Index", ""])
     evidence_items = report.get("evidence", [])
     lines.extend(_assessment_evidence_table(evidence_items) if evidence_items else ["No evidence metadata is included."])
@@ -437,6 +446,84 @@ def _assessment_summary_text(report: dict[str, Any], confirmed_findings: list[di
         f"This report summarizes stored Synapse workspace context for {target_count} target(s). "
         f"It includes {finding_count} confirmed finding(s) and {pending_count} pending observation(s) or candidate item(s) that require review."
     )
+
+
+def _pretext_section(section: dict[str, Any]) -> list[str]:
+    if not isinstance(section, dict):
+        return ["No pretext candidates recorded."]
+    if section.get("mode") == "operator":
+        items = [item for item in section.get("items", []) if isinstance(item, dict)]
+        if not items:
+            return ["No pretext candidates recorded."]
+        lines = [
+            "| Target | Subject | Sender Persona | Tier | Status | Source Observation Refs | Body Template |",
+            "| --- | --- | --- | --- | --- | --- | --- |",
+        ]
+        for item in items:
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        _cell(item.get("target")),
+                        _cell(item.get("subject")),
+                        _cell(item.get("senderPersona")),
+                        _cell(item.get("sophisticationTier")),
+                        _cell(item.get("status")),
+                        _cell(item.get("sourceObservationRefs", [])),
+                        _cell(item.get("bodyTemplate")),
+                    ]
+                )
+                + " |"
+            )
+        return lines
+    return [_text(section.get("summaryLine")) or "No pretext candidates recorded."]
+
+
+def _detection_coverage_section(section: dict[str, Any]) -> list[str]:
+    if not isinstance(section, dict) or section.get("mode") != "operator":
+        return []
+    items = [item for item in section.get("items", []) if isinstance(item, dict)]
+    lines = ["", "## Detection Coverage", ""]
+    if not items:
+        lines.append("No detection outcomes recorded.")
+        return lines
+    lines.extend(_detection_gap_table(items))
+    return lines
+
+
+def _detection_gap_table(items: list[dict[str, Any]]) -> list[str]:
+    rows = sorted(items, key=lambda item: (-_criticality_rank(item.get("criticality")), _text(item.get("mitreTechniqueId")), _text(item.get("actionRef"))))
+    lines = ["| Technique ID | Technique Name | Criticality | Detected | Action Reference | Notes |", "| --- | --- | --- | --- | --- | --- |"]
+    for item in rows:
+        technique_id = _text(item.get("mitreTechniqueId"))
+        reference = TECHNIQUE_DETECTION_MAP.get(technique_id)
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    _cell(technique_id),
+                    _cell(reference.name if reference else ""),
+                    _cell(item.get("criticality")),
+                    _cell(_detected_label(item.get("detected"))),
+                    _cell(item.get("actionRef")),
+                    _cell(item.get("notes")),
+                ]
+            )
+            + " |"
+        )
+    return lines
+
+
+def _criticality_rank(value: Any) -> int:
+    return {"critical": 4, "high": 3, "medium": 2, "low": 1}.get(str(value or "").lower(), 0)
+
+
+def _detected_label(value: Any) -> str:
+    if value is True:
+        return "yes"
+    if value is False:
+        return "no"
+    return "unknown"
 
 
 def _action_result(item: dict[str, Any]) -> str:

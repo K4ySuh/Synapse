@@ -13,6 +13,8 @@ from .models import RiskTier, to_camel
 
 Confidence = Literal["low", "medium", "high"]
 Priority = Literal["info", "low", "medium", "high", "critical"]
+SophisticationTier = Literal["low", "medium", "high"]
+PretextStatus = Literal["draft", "approved"]
 AdapterMode = Literal[
     "passive_analysis",
     "test_planning",
@@ -91,6 +93,16 @@ class FindingEntity(WorkspaceModel):
     operator_reviewed: bool = False
 
 
+class PretextCandidateEntity(WorkspaceModel):
+    type: Literal["pretext_candidate"] = "pretext_candidate"
+    subject: str
+    sender_persona: str
+    body_template: str
+    sophistication_tier: SophisticationTier
+    source_observation_refs: list[str] = Field(default_factory=list)
+    status: PretextStatus = "draft"
+
+
 class ActionEntity(WorkspaceModel):
     type: str = "action"
     action_id: str = ""
@@ -100,6 +112,18 @@ class ActionEntity(WorkspaceModel):
     summary: str = ""
     risk_tier: RiskTier = "low"
     requires_confirmation: bool = False
+    mitre_technique_id: str | None = None
+
+
+class DetectionGapFindingEntity(WorkspaceModel):
+    type: Literal["detection_gap"] = "detection_gap"
+    key: str = ""
+    action_ref: str
+    mitre_technique_id: str
+    detected: bool | None = None
+    criticality: RiskTier
+    expected_detection_sources: list[str] = Field(default_factory=list)
+    notes: str = ""
 
 
 class WorkspaceEntityBundle(WorkspaceModel):
@@ -109,6 +133,8 @@ class WorkspaceEntityBundle(WorkspaceModel):
     findings: list[FindingEntity | dict[str, Any]] = Field(default_factory=list)
     actions: list[ActionEntity | dict[str, Any]] = Field(default_factory=list)
     observations: list[ObservationEntity | dict[str, Any]] = Field(default_factory=list)
+    pretext_candidates: list[PretextCandidateEntity | dict[str, Any]] = Field(default_factory=list)
+    detection_gaps: list[DetectionGapFindingEntity | dict[str, Any]] = Field(default_factory=list)
 
     def as_ingest_entities(self) -> dict[str, list[dict[str, Any]]]:
         return {
@@ -118,6 +144,8 @@ class WorkspaceEntityBundle(WorkspaceModel):
             "findings": _dump_entity_list(self.findings),
             "actions": _dump_entity_list(self.actions),
             "observations": _dump_entity_list(self.observations),
+            "pretextCandidates": _dump_entity_list(self.pretext_candidates),
+            "detectionGaps": _dump_entity_list(self.detection_gaps),
         }
 
 

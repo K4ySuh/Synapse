@@ -492,6 +492,42 @@ impact, remediation, reproduction steps, severity, and confidence changes;
 `workspace.link_evidence_to_finding` for evidence IDs; and
 `workspace.export_finding_context` when preparing report context.
 
+## Pretexts And Detection Outcomes
+
+Pretext candidates are stored as draft workspace entities with provenance
+references to observations. Review the draft text and source references before
+approval:
+
+```text
+approve_pretext_candidate(
+  workspaceId="<workspace>",
+  target="example.com",
+  entityKey="<pretext-key>",
+  confirm=true
+)
+```
+
+Report behavior is fixed: internal reports include the pretext subject, sender
+persona, body template, and observation reference IDs; high-level reports show
+only aggregate pretext counts by sophistication and status.
+
+Actions can carry `mitreTechniqueId` for purple-team debriefs. After the
+blue-team review, record the observed detection outcome:
+
+```text
+mark_detection_outcome(
+  workspaceId="<workspace>",
+  target="example.com",
+  actionKey="<action-key>",
+  detected=false,
+  notes="No matching alert found during debrief."
+)
+```
+
+If the technique ID exists in the static reference table, Synapse creates or
+updates one `detection_gap` entity for that action. Detection Coverage renders
+only in internal reports.
+
 ## Passive Candidate Triage
 
 After sitemap, crawler, Shodan, or operator-note ingestion has populated a

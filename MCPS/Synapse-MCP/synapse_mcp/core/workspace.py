@@ -35,6 +35,8 @@ ENTITY_FILES = {
     "findings": "findings.json",
     "actions": "actions.json",
     "observations": "observations.json",
+    "pretextCandidates": "pretext-candidates.json",
+    "detectionGaps": "detection-gaps.json",
 }
 ARCHIVE_EXTENSIONS = (".zip", ".tar", ".tar.gz", ".tgz", ".gz", ".7z", ".rar", ".bak", ".backup", ".sql", ".db")
 INTERESTING_PATH_MARKERS = ("admin", "backup", "debug", "dump", "config", "secret", "token", "swagger", "graphql")
@@ -446,9 +448,16 @@ def _entity_key(entity: dict[str, Any]) -> str:
     # Keys must be derived from stable content fields only. Mutable fields such
     # as evidenceIds change between ingests of the same data and would break
     # deduplication.
+    entity_type = entity.get("type", "")
+    if entity_type == "pretext_candidate":
+        subject = str(entity.get("subject", "") or "")
+        persona = str(entity.get("senderPersona", entity.get("sender_persona", "")) or "")
+        digest = hashlib.sha256(f"{subject}{persona}".encode("utf-8")).hexdigest()[:12]
+        return f"pretext:{entity.get('target', '')}|{digest}"
+    if entity_type == "detection_gap":
+        return f"gapfinding:{entity.get('target', '')}|{entity.get('actionRef', entity.get('action_ref', ''))}"
     if entity.get("key"):
         return str(entity["key"])
-    entity_type = entity.get("type", "")
     if entity_type == "service":
         return f"service:{entity.get('host', '')}|{entity.get('address', '')}|{entity.get('port', '')}|{entity.get('protocol', '')}"
     if entity_type == "endpoint":
@@ -495,6 +504,7 @@ _MERGE_UNION_FIELDS = {
     "reasons",
     "affectedUrls",
     "candidateFor",
+    "sourceObservationRefs",
 }
 _MERGE_REPLACE_FIELDS = {"updatedAt", "lastSeenAt"}
 _SEVERITY_RANK = {"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
@@ -538,6 +548,11 @@ def _merge_entity_fields(merged: dict[str, Any], item: dict[str, Any]) -> None:
             incoming_rank = _SEVERITY_RANK.get(str(value or ""), -1)
             if incoming_rank > current_rank:
                 merged[name] = value
+        elif name == "bodyTemplate" and merged.get("type") == "pretext_candidate":
+            if value not in ("", None):
+                merged[name] = value
+        elif name in {"detected", "notes"} and merged.get("type") == "detection_gap":
+            merged[name] = value
         elif value not in ("", None, [], {}) and not merged.get(name):
             merged[name] = value
     # A class refuted by the validation lifecycle must not be resurrected by a later
@@ -595,6 +610,8 @@ _ENTITY_TYPE_DEFAULTS = {
     "findings": "finding",
     "actions": "action",
     "observations": "observation",
+    "pretextCandidates": "pretext_candidate",
+    "detectionGaps": "detection_gap",
 }
 _ENTITY_LIST_FIELDS = (
     "evidenceIds",
@@ -617,6 +634,8 @@ _ENTITY_LIST_FIELDS = (
     "bodyParameters",
     "jsonParameters",
     "errorSignals",
+    "sourceObservationRefs",
+    "expectedDetectionSources",
 )
 OBSERVATION_PRIORITIES = {"info", "low", "medium", "high", "critical"}
 # Common candidate validation lifecycle, shared by every layer of the DATA model.
@@ -662,6 +681,10 @@ def _normalize_entity_for_workspace(workspace_id: str, target: str, entity_name:
         return _normalize_observation_for_workspace(item)
     if entity_name == "endpoints":
         return _normalize_endpoint_for_workspace(item)
+    if entity_name == "pretextCandidates":
+        return _normalize_pretext_for_workspace(workspace_id, target, item)
+    if entity_name == "detectionGaps":
+        return _normalize_detection_gap_for_workspace(target, item)
     return item
 
 
@@ -715,6 +738,30 @@ def _normalize_action_for_workspace(action: dict[str, Any]) -> dict[str, Any]:
         )
     item.setdefault("key", str(item["actionId"]))
     item.setdefault("createdAt", now_utc())
+    return item
+
+
+def _normalize_pretext_for_workspace(workspace_id: str, target: str, pretext: dict[str, Any]) -> dict[str, Any]:
+    from ..adapters.social import pretext_generator
+    from .adapters.results import PretextCandidateEntity
+
+    entity = pretext_generator.ingest_data(
+        PretextCandidateEntity(**pretext),
+        normalize_workspace_id(workspace_id),
+        normalize_target(target),
+        _load_target_entities(workspace_id, target),
+    )
+    item = entity.as_dict()
+    item.setdefault("key", _entity_key(item))
+    return item
+
+
+def _normalize_detection_gap_for_workspace(target: str, gap: dict[str, Any]) -> dict[str, Any]:
+    item = dict(gap)
+    item["target"] = normalize_target(target)
+    item.setdefault("createdAt", now_utc())
+    item["updatedAt"] = now_utc()
+    item.setdefault("key", _entity_key(item))
     return item
 
 
@@ -2692,9 +2739,9 @@ def set_entity_reportable(
 ) -> dict[str, Any]:
     """Set isReportable on every entity of entity_type matching selector, and archive the decision.
 
-    Works across all six entity layers (services, endpoints, parameters, findings, actions,
-    observations). Marking a record non-reportable keeps it in workspace state for later
-    granular analysis while excluding it from generated reports.
+    Works across all workspace entity layers. Marking a record non-reportable keeps it
+    in workspace state for later granular analysis while excluding it from generated
+    reports.
     """
     wid = normalize_workspace_id(workspace_id)
     host = normalize_target(target)

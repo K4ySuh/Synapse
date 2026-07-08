@@ -1300,7 +1300,7 @@ class DocumentationTests(unittest.TestCase):
                 )
 
                 layers = json.loads(stdio_server.call_tool("documentation.list_layers", {}))
-                self.assertEqual({item["layer"] for item in layers["layers"]}, {"perimeter", "js", "auth", "access_control", "web_vulnerabilities", "cve"})
+                self.assertEqual({item["layer"] for item in layers["layers"]}, {"perimeter", "js", "auth", "access_control", "web_vulnerabilities", "cve", "engagement"})
 
                 templates = json.loads(stdio_server.call_tool("documentation.list_templates", {"contextType": "layer_report"}))
                 self.assertIn("standard_layer_report", {item["templateId"] for item in templates["templates"]})

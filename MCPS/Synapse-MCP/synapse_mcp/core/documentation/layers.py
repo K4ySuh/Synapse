@@ -9,12 +9,13 @@ from urllib.parse import urlsplit
 from ...adapters.web import access_control, js_intel
 from .. import credentials, perimeter, workspace
 from ..errors import McpError
+from ..purple_team.technique_reference import TECHNIQUE_DETECTION_MAP
 from .models import LayerReportContext, LayerReportSection, LayerTargetContext, WorkspaceReportContext
 from .redaction import policy_from_args, redact
 
 
 LayerProvider = Callable[[dict[str, Any]], dict[str, Any]]
-DEFAULT_LAYERS = ("perimeter", "js", "auth", "access_control", "web_vulnerabilities", "cve")
+DEFAULT_LAYERS = ("perimeter", "js", "auth", "access_control", "web_vulnerabilities", "cve", "engagement")
 
 # Table columns that carry high-detail operational identifiers. Current alpha
 # HTML reports are internal artifacts, so these columns stay in the report
@@ -115,6 +116,13 @@ def list_layers(_: dict[str, Any] | None = None) -> dict[str, Any]:
                 "sendsTraffic": False,
                 "refreshable": False,
             },
+            {
+                "layer": "engagement",
+                "title": "Engagement Coverage",
+                "description": "Phishing pretext candidates (aggregate only in the high-level view) and purple-team detection-coverage outcomes (operator-only).",
+                "sendsTraffic": False,
+                "refreshable": False,
+            },
         ]
     }
 
@@ -178,6 +186,7 @@ def _providers() -> dict[str, LayerProvider]:
         "access_control": _access_control_layer,
         "web_vulnerabilities": _web_vulnerabilities_layer,
         "cve": _cve_layer,
+        "engagement": _engagement_layer,
     }
 
 
@@ -193,6 +202,8 @@ def _normalize_layer(value: Any) -> str:
         return "web_vulnerabilities"
     if layer in {"cves", "vulnerability_intel", "cve_intel"}:
         return "cve"
+    if layer in {"social", "pretext", "purple_team", "purple", "detection", "detection_coverage"}:
+        return "engagement"
     return layer
 
 
@@ -784,6 +795,181 @@ def _cve_layer(args: dict[str, Any]) -> dict[str, Any]:
         redaction=policy,
     )
     return context.as_dict()
+
+
+_PRETEXT_TIER_ORDER = ("high", "medium", "low", "unknown")
+
+
+def _engagement_layer(args: dict[str, Any]) -> dict[str, Any]:
+    """Consolidated red-team/purple-team engagement outcomes.
+
+    Two sections:
+      - Phishing pretext candidates. Safe/high-level renders expose only an
+        aggregate count by sophistication tier and status; the operator render
+        carries the subject, sender persona, and body template.
+      - Detection coverage (purple-team). Operator-only: the whole section is
+        omitted from safe/high-level renders, matching the two-report model.
+
+    Content is gated at the data level on ``policy.mode`` because the markdown
+    workspace report has no CSS layer to hide operator-only columns.
+    """
+    wid = workspace.normalize_workspace_id(args["workspaceId"])
+    policy = policy_from_args(args)
+    safe = str(policy.mode or "").lower() in {"safe", "high_level"}
+    targets = _target_names(wid, str(args.get("target", "") or ""))
+    pretext_rows: list[list[Any]] = []
+    gap_rows: list[list[Any]] = []
+    tier_counts: dict[str, dict[str, int]] = {}
+    approved_count = 0
+    detection_count = 0
+    undetected_count = 0
+    for target in targets:
+        entities = workspace.load_reportable_target_entities(wid, target)
+        pretexts = [item for item in entities.get("pretextCandidates", []) if isinstance(item, dict)]
+        gaps_for_target = [item for item in entities.get("detectionGaps", []) if isinstance(item, dict)]
+        for pretext in pretexts:
+            tier = str(pretext.get("sophisticationTier", "") or "unknown")
+            status = str(pretext.get("status", "") or "draft")
+            tier_counts.setdefault(tier, {}).setdefault(status, 0)
+            tier_counts[tier][status] += 1
+            if status == "approved":
+                approved_count += 1
+            if not safe:
+                pretext_rows.append(
+                    [
+                        target,
+                        pretext.get("subject", ""),
+                        pretext.get("senderPersona", ""),
+                        pretext.get("sophisticationTier", ""),
+                        pretext.get("status", ""),
+                        _join(pretext.get("sourceObservationRefs", []), limit=4) or "none",
+                        pretext.get("bodyTemplate", ""),
+                    ]
+                )
+        detection_count += len(gaps_for_target)
+        for gap in gaps_for_target:
+            if gap.get("detected") is not True:
+                undetected_count += 1
+        if not safe:
+            for gap in sorted(
+                gaps_for_target,
+                key=lambda item: (_severity_rank(item.get("criticality")), str(item.get("mitreTechniqueId", "")), str(item.get("actionRef", ""))),
+            ):
+                technique_id = str(gap.get("mitreTechniqueId", "") or "")
+                reference = TECHNIQUE_DETECTION_MAP.get(technique_id)
+                gap_rows.append(
+                    [
+                        target,
+                        technique_id,
+                        reference.name if reference else "",
+                        gap.get("criticality", ""),
+                        _detection_detected_label(gap.get("detected")),
+                        gap.get("actionRef", ""),
+                        gap.get("notes", ""),
+                    ]
+                )
+    pretext_total = sum(sum(statuses.values()) for statuses in tier_counts.values())
+    summary_line = _pretext_aggregate_line(tier_counts)
+    if safe:
+        pretext_section = _section(
+            "pretext_candidates",
+            "Phishing Pretext Candidates",
+            "table",
+            headers=["Sophistication Tier", "Draft", "Approved", "Total"],
+            rows=_pretext_aggregate_rows(tier_counts),
+            summary=summary_line,
+        )
+    else:
+        pretext_section = _section(
+            "pretext_candidates",
+            "Phishing Pretext Candidates",
+            "table",
+            headers=["Host", "Subject", "Sender Persona", "Tier", "Status", "Source Observation Refs", "Body Template"],
+            rows=pretext_rows,
+            summary=summary_line,
+        )
+    sections = [pretext_section]
+    if not safe:
+        sections.append(
+            _section(
+                "detection_coverage",
+                "Detection Coverage",
+                "table",
+                headers=["Technique ID", "Technique Name", "Criticality", "Detected", "Action Reference", "Notes"],
+                rows=gap_rows,
+            )
+        )
+    context = LayerReportContext(
+        workspace_id=wid,
+        layer="engagement",
+        title="Engagement Coverage Report",
+        generated_at=workspace.now_utc(),
+        summary={
+            "pretextCandidateCount": pretext_total,
+            "approvedPretextCount": approved_count,
+            "detectionOutcomeCount": detection_count,
+            "undetectedActionCount": undetected_count,
+        },
+        targets=[],
+        sections=sections,
+        gaps=_engagement_gaps(pretext_total, approved_count, detection_count, undetected_count, safe),
+        recommended_next_steps=_engagement_steps(pretext_total, approved_count, detection_count, undetected_count, safe),
+        redaction=policy,
+    )
+    return context.as_dict()
+
+
+def _detection_detected_label(value: Any) -> str:
+    if value is True:
+        return "yes"
+    if value is False:
+        return "no"
+    return "unknown"
+
+
+def _pretext_aggregate_rows(tier_counts: dict[str, dict[str, int]]) -> list[list[Any]]:
+    rows: list[list[Any]] = []
+    for tier in _PRETEXT_TIER_ORDER:
+        statuses = tier_counts.get(tier)
+        if not statuses:
+            continue
+        draft = int(statuses.get("draft", 0) or 0)
+        approved = int(statuses.get("approved", 0) or 0)
+        rows.append([tier, draft, approved, draft + approved])
+    return rows
+
+
+def _pretext_aggregate_line(tier_counts: dict[str, dict[str, int]]) -> str:
+    parts: list[str] = []
+    for tier in _PRETEXT_TIER_ORDER:
+        statuses = tier_counts.get(tier, {})
+        for status in ("draft", "approved"):
+            count = int(statuses.get(status, 0) or 0)
+            if not count:
+                continue
+            noun = "pretext" if count == 1 else "pretexts"
+            verb = "drafted" if status == "draft" else "approved"
+            parts.append(f"{count} {tier}-sophistication {noun} {verb}")
+    return "; ".join(parts) + "." if parts else "No pretext candidates recorded."
+
+
+def _engagement_gaps(pretext_total: int, approved: int, detection_count: int, undetected: int, safe: bool) -> list[str]:
+    gaps: list[str] = []
+    drafts = pretext_total - approved
+    if drafts > 0:
+        gaps.append(f"{drafts} pretext candidate(s) are still in draft and awaiting operator approval before use.")
+    if not safe and undetected > 0:
+        gaps.append(f"{undetected} tagged action(s) were not confirmed detected by blue-team controls.")
+    return gaps
+
+
+def _engagement_steps(pretext_total: int, approved: int, detection_count: int, undetected: int, safe: bool) -> list[str]:
+    steps: list[str] = []
+    if pretext_total - approved > 0:
+        steps.append("Review draft pretext candidates and approve only vetted ones with approve_pretext_candidate before use.")
+    if not safe and undetected > 0:
+        steps.append("Share the undetected techniques with the blue team and confirm expected detections are added.")
+    return steps
 
 
 def _cve_candidate_rows(target: str, candidates: list[dict[str, Any]], path_map: dict[str, str]) -> list[list[Any]]:

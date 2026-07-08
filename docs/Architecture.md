@@ -220,9 +220,13 @@ delivery-oriented presentation. The shared report styling and banner assets
 live in `core/documentation/assets.py` and are reused by every HTML export,
 including the perimeter report and the JS app map. Normalized
 passive report layers for perimeter, JavaScript, authentication,
-access-control, and CVE-exposure data share the same top-level behavior: read
+access-control, CVE-exposure, and engagement (phishing pretext candidates and
+purple-team detection coverage) data share the same top-level behavior: read
 existing workspace state and model artifacts, expose summary/sections/gaps/next
-steps, and render HTML by default without sending active traffic.
+steps, and render HTML by default without sending active traffic. The engagement
+layer gates content on the report mode: the high-level view shows only aggregate
+pretext counts and omits detection coverage entirely, while the operator view
+carries the pretext body and the detection-gap matrix.
 
 See [Reporting Model](Reporting-Model.md) for the internal Operator /
 High-Level view rules, the presentation-density toggle, and the contract that

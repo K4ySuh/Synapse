@@ -654,6 +654,7 @@ mode). The current registered set, by registry name, is:
 - `js_intelligence`
 - `nmap`
 - `shodan`
+- `pretext_generator`
 
 This list is kept in sync with `core/adapters/registry.py` by
 `tests/test_tool_wrappers.py::ToolWrapperTests::test_implementation_map_documents_every_registered_adapter`.
@@ -1070,6 +1071,27 @@ applicability confidence and exploit maturity. `cve.plan_tests` and
 benign in-scope request or delegates to the existing nuclei tool when a
 template id is available; it never fetches or executes PoC code.
 
+```text
+adapters/social/pretext_generator.py
+```
+
+Normalizes already-generated phishing pretext candidates into workspace
+entities. Parsing is context-free; workspace-aware ingestion validates
+`sourceObservationRefs`, records `missingEvidenceIds`, stamps creation time, and
+uses a stable target-scoped subject/persona key. Drafts can only transition to
+`approved` through `approve_pretext_candidate(confirm=true)`. Report rendering
+keeps body templates, subjects, and sender personas internal-only; high-level
+reports show aggregate counts.
+
+```text
+core/purple_team/
+```
+
+Holds the static ATT&CK technique detection-source reference and gap-correlation
+helper. Actions may carry `mitreTechniqueId`; `mark_detection_outcome` records
+operator-entered detection status and creates or updates one `detection_gap`
+entity per tagged action. Detection coverage renders only in internal reports.
+
 ## Tool Surface By Workflow
 
 Adapter and documentation discovery:
@@ -1098,6 +1120,8 @@ Evidence, ingestion, and finding lifecycle:
 - `workspace.promote_observation_to_finding`
 - `workspace.link_evidence_to_finding`
 - `workspace.mark_finding_reviewed`
+- `approve_pretext_candidate`
+- `mark_detection_outcome`
 - `workspace.set_entity_reportable`
 - `workspace.record_candidate_validation`
 - `workspace.curate_candidate`

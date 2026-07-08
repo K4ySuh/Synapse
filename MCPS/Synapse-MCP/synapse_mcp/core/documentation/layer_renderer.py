@@ -394,6 +394,7 @@ def _layer_subtitle(layer: dict[str, Any]) -> str:
         "js": "static analysis",
         "auth": "boundaries",
         "perimeter": "surface",
+        "engagement": "pretext & detection",
     }.get(name, "")
 
 
@@ -1135,6 +1136,10 @@ def _is_operator_only_header(header: Any) -> bool:
         "username/profile",
         "id",
         "exploit reference",
+        "subject",
+        "sender persona",
+        "body template",
+        "action reference",
     }
 
 
