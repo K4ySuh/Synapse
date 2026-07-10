@@ -25,7 +25,7 @@ that constrain every design decision:
 - **Entity hierarchy:** Workspace → Target → Finding. Evidence, observations, endpoints,
   services, and actions hang off targets with provenance back to the evidence that produced them.
 
-Version line at time of writing: `0.5.0a0`. The runtime tool count and test
+Version line at time of writing: `0.6.0b0`. The runtime tool count and test
 count move quickly; verify them from `TOOL_SCHEMAS` and `bin/test` instead of
 copying this reference by memory.
 

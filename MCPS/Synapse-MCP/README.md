@@ -23,7 +23,7 @@ When invoking the installed `synapse-mcp` package console script directly,
 set `SYNAPSE_ROOT` or `SYNAPSE_PROMPT_PATH` if you want the full repository
 `AGENTS.md` operating policy. If no root or prompt is configured, the server
 keeps MCP prompt/resource calls functional with a packaged target-neutral
-fallback prompt; the repository launcher remains the preferred alpha runtime.
+fallback prompt; the repository launcher remains the preferred Beta runtime.
 
 ## Exposed Tools
 
@@ -226,6 +226,7 @@ Codex
         ├── core/fingerprint.py
         ├── core/perimeter.py
         ├── core/js/                  # static JS intelligence models/extractors
+        ├── core/purple_team/         # ATT&CK technique and detection-gap correlation
         ├── core/background_jobs.py
         ├── core/adapters/            # adapter framework: registry, base classes, typed entity models
         ├── core/documentation/       # report contexts, templates, renderers
@@ -249,15 +250,18 @@ Codex
             │   ├── ssrf_adapter.py
             │   ├── open_redirect_adapter.py
             │   ├── command_injection_adapter.py
+            │   ├── cve_intel.py
             │   ├── ssti.py
             │   ├── lfi_rfi.py
             │   ├── ssi.py
             │   ├── access_control.py
             │   ├── js_intel.py
             │   └── active_probe.py
-            └── infra/                  # infrastructure and OSINT adapters
-                ├── nmap_adapter.py
-                └── shodan_adapter.py
+            ├── infra/                  # infrastructure and OSINT adapters
+            │   ├── nmap_adapter.py
+            │   └── shodan_adapter.py
+            └── social/
+                └── pretext_generator.py
 ```
 
 Web application testing and infrastructure/OSINT operations are separated under
@@ -310,14 +314,18 @@ The documentation layer exposes structured report, finding, evidence-pack,
 coverage, normalized layer, and all-layer workspace contexts as internal
 operator artifacts. The Operator / High-Level split is a presentation-density
 toggle, not a confidentiality or redaction boundary. Built-in Markdown templates cover assessment and
-finding-oriented deliverables; normalized passive providers render perimeter,
-JavaScript, authentication, and access-control layer reports as HTML or
-Markdown. `documentation.render_assessment_summary` renders the default
+finding-oriented deliverables; seven normalized passive providers render
+perimeter, JavaScript, authentication, access control, web vulnerability, CVE,
+and engagement layer reports as HTML or Markdown.
+`documentation.render_assessment_summary` renders the default
 assessment summary report with actions, technologies, findings, pretext-candidate
 coverage, and pending observations. Pretext bodies/personas render only in
 internal mode; high-level mode shows aggregate pretext counts. Detection coverage
 is internal-only. Raw HTTP and request/response bodies are omitted by default;
 external output paths require `allowExternalOutput=true`.
+Rendered reports default to top-level `reports/`; implicit filenames are
+prefixed with the workspace ID to prevent cross-workspace overwrites. HTML
+embeds its report assets and has no external runtime dependency.
 
 ## Adapter Policy
 
@@ -412,6 +420,9 @@ context but does not submit them. `crawler.extended` is the approved
 authenticated follow-up mode for bounded POST-form mapping; it requires a
 previous crawl, scoped `credentialId`, and `confirm=true`, skips sensitive forms
 by default, and records every submitted POST as evidence and a workspace action.
+Cross-host links, redirects, form actions, and JavaScript references outside
+the owning workspace scope remain in `flowGraph` and normalize to
+`asset_relation` observations with `followed=false`; they are not fetched.
 Interesting sitemap-derived leads are stored as priority-scored candidate
 observations in `observations.json` and surfaced through
 `workspace.prepare_target_context` as `interestingCandidates`; they are not
@@ -585,8 +596,9 @@ explicitly approved. It identifies object candidates, records authorized
 user/role contexts, builds BOLA/BOPLA/BFLA-style matrix entries, and emits
 manual test plans. `access_control.execute_matrix_test` performs approved
 cross-context replay only for a concrete request URL and explicit contexts,
-enforces scope and credential handling, falls back to unauthenticated replay
-when a context has no usable target credential, blocks state-changing requests
+enforces scope and credential handling, fails authenticated contexts that lack
+a usable target credential unless anonymous replay is explicitly selected,
+blocks state-changing requests
 unless `allowStateChanging=true`, stores sanitized response summaries, and
 records possible broken-access-control observations when comparison signals are
 strong.
@@ -604,6 +616,12 @@ by default and the same `jobs.status` polling path; pass `background=false` only
 for explicit blocking execution. Background jobs enforce their outer timeout
 with a process-group watchdog while the MCP process is alive; synchronous
 blocking command runs also terminate their process group on adapter timeout.
+Nonzero exits, missing/corrupt worker results, and finalizer failures remain
+terminal `failed` jobs with `finalized=true`; concurrent polling finalizes a
+job once.
+Nmap imports dominated by `tcpwrapped` rows emit `scan_interference`; raw rows
+remain stored but are excluded from planning, fingerprinting, perimeter, and
+CVE correlation.
 ffuf, Nuclei, nmap, crawler, and sitemap
 outputs default under
 `DATA/workspaces/<workspace>/targets/<host>/outputs/`; custom
@@ -615,6 +633,12 @@ for follow-up requests. The timed-out worker thread may still finish later, so
 state writes use atomic patterns and long-running work should use `jobs.*`.
 Prefer background jobs for anything that may run longer than the configured
 `SYNAPSE_MCP_TOOL_TIMEOUT_SECONDS` budget.
+
+`cve.correlate` skips NVD product-only queries for version-unknown components
+by default and records `cve_version_precision_gap`. An explicit
+`includeVersionUnknown=true` run still suppresses candidates that lack KEV,
+public-PoC, or exploit-reference corroboration. Results are ranked and bounded
+by `maxCandidates`, with all suppression counts returned.
 
 Findings have an explicit lifecycle. `workspace.create_finding` records an
 operator-reviewed finding by default, while
@@ -671,15 +695,17 @@ external service; API-backed calls may also consume credits. Set the API key at
 runtime with `shodan.session_key.set`; the key is held only in the running
 Synapse MCP process, is not returned in responses, and is not written to
 evidence or config. It disappears when the MCP process exits, or earlier with
-`shodan.session_key.clear`. `shodan.target_summary` combines host lookup,
-DNS/domain enumeration, InternetDB enrichment, open ports, possible CVEs, and IP
-leakage candidates for a single hostname or IP. `shodan.internetdb` requires
+`shodan.session_key.clear`. `shodan.target_summary` combines DNS/domain
+relations, hostname resolution, bounded host lookup, InternetDB enrichment,
+open ports, TLS/HTTP metadata, and possible CVEs for one hostname or IP.
+Ordinary DNS resolution is not labeled an IP leak. `shodan.internetdb` requires
 approval but does not require an API key. `shodan.company_queries` only builds
 useful queries and does not call the API. `shodan.search_filters` and
 `shodan.search_facets` expose Shodan query metadata for planning.
 
 Pass `workspaceId` or `ingest=true` to Shodan host, InternetDB, domain, search,
 or target-summary calls when the result should update workspace knowledge.
-Synapse stores compact raw OSINT evidence and normalizes Shodan data into
-services, HTTP endpoints, DNS observations, IP leakage candidates, exposed
-service observations, CPEs, and possible CVEs.
+Synapse stores canonical compact OSINT evidence even when `raw=true`, preserves
+TLS/HTTP/module/CPE/provider-CVE metadata, and normalizes services and likely
+HTTP endpoints under each discovered asset rather than the search/query seed.
+DNS and asset relations remain attached to the seed for scope mapping.

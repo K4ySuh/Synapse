@@ -32,6 +32,7 @@ MCP client
                    |   |-- js/
                    |   |-- background_jobs.py
                    |   |-- job_worker.py
+                   |   |-- purple_team/
                    |   |-- http/
                    |   |   |-- models.py
                    |   |   |-- backends.py
@@ -74,6 +75,7 @@ MCP client
                        |   |-- ssrf_adapter.py
                        |   |-- open_redirect_adapter.py
                        |   |-- command_injection_adapter.py
+                       |   |-- cve_intel.py
                        |   |-- spec_import.py
                        |   |-- headers_cookies.py
                        |   |-- jwt_analysis.py
@@ -83,9 +85,11 @@ MCP client
                        |   |-- xxe.py
                        |   |-- graphql.py
                        |   `-- tls_posture.py
-                       `-- infra/
-                           |-- nmap_adapter.py
-                           `-- shodan_adapter.py
+                       |-- infra/
+                       |   |-- nmap_adapter.py
+                       |   `-- shodan_adapter.py
+                       `-- social/
+                           `-- pretext_generator.py
 ```
 
 ## Boundary Decisions
@@ -114,7 +118,8 @@ The Synapse MCP owns:
   auth boundaries, redirects, API/JSON/GraphQL endpoints, and error signals,
 - web application analysis and passive candidate triage,
 - constrained web content discovery and infrastructure scan profiles,
-- Shodan runtime-key handling and passive recon helpers,
+- Shodan runtime-key handling and approved third-party exposure queries with
+  per-asset workspace normalization,
 - report, finding draft, evidence-pack, coverage, and internal HTML report
   contexts rendered through local-first templates.
 
@@ -172,6 +177,11 @@ site map hosts, URLs, forms, redirects, and observed requests
     `-- write JSON flowGraph plus sibling Mermaid .flow.mmd and SVG .flow.svg files
 ```
 
+Cross-host discoveries remain relation edges even when the destination is
+outside the owning workspace scope. Those destinations appear as related nodes
+with scope and followed-state metadata; the active crawler does not send
+traffic to them unless workspace scope authorizes traversal.
+
 JavaScript intelligence adds a static client-side enrichment flow:
 
 ```text
@@ -205,6 +215,14 @@ This keeps technology and perimeter reporting based on normalized target state
 rather than one-off raw tool output. It also preserves the older
 `fingerprint.from_dump` path for compatibility with traffic-only projects.
 
+Nmap ingestion detects high-volume inventories dominated by `tcpwrapped`
+services. It retains raw rows and emits `scan_interference`, but excludes those
+rows from planning, fingerprinting, perimeter, and CVE correlation until a
+cleaner scan or operator review establishes real services. Shodan search and
+target-summary ingestion distribute services to each discovered hostname/IP
+rather than copying them onto the query seed; DNS and asset relations remain
+visible from the seed context.
+
 The intended data flow for documentation is:
 
 ```text
@@ -218,10 +236,10 @@ workspace entities, evidence metadata, and action records
 Adapters produce workspace entities and evidence; `core/documentation/` owns
 delivery-oriented presentation. The shared report styling and banner assets
 live in `core/documentation/assets.py` and are reused by every HTML export,
-including the perimeter report and the JS app map. Normalized
-passive report layers for perimeter, JavaScript, authentication,
-access-control, CVE-exposure, and engagement (phishing pretext candidates and
-purple-team detection coverage) data share the same top-level behavior: read
+including the perimeter report and the JS app map. Seven normalized passive
+report layers for perimeter, JavaScript, authentication, access control, web
+vulnerabilities, CVE exposure, and engagement (phishing pretext candidates and
+purple-team detection coverage) share the same top-level behavior: read
 existing workspace state and model artifacts, expose summary/sections/gaps/next
 steps, and render HTML by default without sending active traffic. The engagement
 layer gates content on the report mode: the high-level view shows only aggregate
@@ -247,8 +265,11 @@ DATA/
 |-- scope/                global authorization allowlist
 |-- credentials/          scoped credential store (0600 where supported)
 |-- evidence/             global and host-indexed evidence event logs
-`-- workspaces/<id>/      workspace scope snapshot, jobs, reports, and
+`-- workspaces/<id>/      workspace scope snapshot, jobs, outputs, and
     `-- targets/<host>/   per-target entities, models, outputs, and evidence
+
+reports/                  local rendered reports and report-decision archives;
+                          implicit filenames are workspace-qualified
 ```
 
 The full annotated layout, including every entity file and output folder, is
@@ -266,6 +287,8 @@ The credential store is local runtime data and should not be committed.
 - Active crawling requires `confirm=true` and an authorized in-scope target. By
   default it may follow other persisted in-scope hosts discovered during the
   crawl; set `includeInScopeHosts=false` for strict single-host crawling.
+  Cross-host references outside workspace scope are recorded as relations but
+  are not fetched.
 - Extended crawling with POST form submission requires a previous crawl,
   `credentialId`, and `confirm=true`; each submitted POST is recorded as
   evidence and a workspace action, and sensitive admin-like forms are skipped by

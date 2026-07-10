@@ -639,10 +639,9 @@ class DocumentationTests(unittest.TestCase):
         self.assertIn("agentic operations layer", rendered)
         self.assertIn("mode-badge", rendered)
         self.assertIn("setMode", rendered)
-        # Operator opted into design-template fonts; they load with a system fallback.
-        self.assertIn("fonts.googleapis.com", rendered)
-        self.assertIn("fonts.gstatic.com", rendered)
-        self.assertIn('<link rel="preconnect"', rendered)
+        self.assertNotIn("fonts.googleapis.com", rendered)
+        self.assertNotIn("fonts.gstatic.com", rendered)
+        self.assertNotIn('<link rel="preconnect"', rendered)
 
     def test_js_asset_local_path_is_workspace_relative(self) -> None:
         from synapse_mcp.core.documentation.layers import _short_local_path
@@ -1165,8 +1164,17 @@ class DocumentationTests(unittest.TestCase):
                         },
                     )
                 )
-                self.assertEqual(Path(default_rendered["path"]).name, "assessment-summary.md")
+                self.assertEqual(Path(default_rendered["path"]).name, "engagement-assessment-summary.md")
                 self.assertEqual(Path(default_rendered["path"]).parent.name, "reports")
+
+                other_default = workspace.resolve_report_output_path(
+                    "other-engagement",
+                    "",
+                    extension="md",
+                    default_name="assessment-summary.md",
+                )
+                self.assertNotEqual(Path(default_rendered["path"]), other_default)
+                self.assertEqual(other_default.name, "other-engagement-assessment-summary.md")
 
                 nested_data = stdio_server.handle(
                     {
@@ -1794,8 +1802,8 @@ class DocumentationTests(unittest.TestCase):
                     self.assertNotIn("Client-facing", content)
                     self.assertNotIn("External Deliverable", content)
                     self.assertNotIn("Safe Report", content)
-                    # Operator opted into design-template fonts (with system fallback).
-                    self.assertIn("fonts.googleapis.com", content)
+                    self.assertNotIn("fonts.googleapis.com", content)
+                    self.assertNotIn("fonts.gstatic.com", content)
                     self.assertIn("system-ui", content)
                     for title in canonical_titles:
                         self.assertIn(title, content)

@@ -126,7 +126,8 @@ analysis is insufficient, ask for approval to test actively or to cross-referenc
 
 ## Findings & candidate semantics (be conservative)
 
-- **finding** — operator-reviewed issue suitable for tracking.
+- **finding** — lifecycle-managed issue suitable for tracking. A deterministic
+  passive fact may be confirmed with `operatorReviewed=false` pending signoff.
 - **candidate** — promising observation that still needs validation/review.
 - **gap** — missing coverage or unresolved uncertainty.
 - **evidence** — traceable support for an observation, test, or finding.
@@ -134,7 +135,8 @@ analysis is insufficient, ask for approval to test actively or to cross-referenc
 
 Never promote a candidate to a finding just because a scanner labels it high/critical — confirm
 impact, scope, affected asset, and evidence first. Never create confirmed findings directly from
-unreviewed candidates; use `workspace.create_finding`/promotion only after operator review. When
+unreviewed candidates; use `workspace.create_finding`/promotion only after operator review. Do not
+apply the deterministic-passive-fact exception to heuristic candidates. When
 uncertain, state the uncertainty and recommend the next validation step.
 
 ## Output style

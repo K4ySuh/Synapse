@@ -7,7 +7,7 @@ internal HTML views over it for the operator and their team. The workspace and
 its evidence are local-first and agent-facing: they stay complete so the
 operator and the agent always have full operational context.
 
-Current alpha reports are **not client deliverables**. They are internal
+Current Beta reports are **local internal artifacts, not client deliverables**. They are
 operator artifacts with an Operator / High-Level presentation toggle in the
 same HTML file. The toggle reduces visual density; it is not a confidentiality
 or redaction boundary.
@@ -87,17 +87,19 @@ agent-facing observations but is **not** rendered as a report column. It informs
 how the agent assembles a report; it is not report content.
 
 The existing `safe` redaction mode is retained only as a deprecated
-compatibility input for older calls. It should not be described as a client
-deliverable. A future `client_export` or `deliverable` mode may implement true
-redaction later as a separate feature.
+compatibility input for older calls. Internal field hiding is not an enforcement
+boundary or a current operational priority. A future explicit `client_export`
+or `deliverable` generator may implement strict omission/redaction as a separate
+feature.
 
 ## Layer Report Contract
 
-Normalized passive layers (perimeter, JavaScript, authentication, access
-control, and CVE exposure) share one shape: they read existing workspace state
-and model artifacts, apply the redaction policy, and expose summary / sections /
-gaps / recommended next steps. They render HTML by default and send no active
-traffic. The CVE layer ("Suggested CVEs & Exploitability") ranks
+Seven normalized passive layers (perimeter, JavaScript, authentication, access
+control, web vulnerabilities, CVE exposure, and engagement coverage) share one
+shape: they read existing workspace state and model artifacts, apply internal
+presentation metadata, and expose summary / sections / gaps / recommended next
+steps. They render HTML by default and send no active traffic. The CVE layer
+("Suggested CVEs & Exploitability") ranks
 known-exploited (KEV) candidates first and keeps raw exploit/PoC URLs in an
 `operator-only` column, consistent with the presentation-only rules above.
 
@@ -124,12 +126,9 @@ is never counted as active.
   actively tested.
 - Must not claim the High-Level view is sanitized, client-facing, redacted, or
   safe for external distribution.
-- Must not *depend* on external resources to be readable: the report carries an
-  inline stylesheet and a system-font fallback so it renders fully offline. (As of
-  2026-06-21, by operator decision, reports additionally link the design-template
-  web fonts — Oxanium / IBM Plex Sans / JetBrains Mono — from Google Fonts as a
-  progressive enhancement; this is the one allowed external reference. No external
-  CSS, scripts, or remote images.)
+- Must not depend on external resources: generated HTML embeds its image assets,
+  stylesheet, and script, and uses local system-font fallbacks. It contains no
+  external CSS, scripts, fonts, or remote images.
 - Must not include demo/sample ACME rows in production output.
 - Must not achieve presentation simplicity by redacting workspace JSON or
   stripping detail from agent-facing responses.

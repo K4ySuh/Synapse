@@ -734,7 +734,13 @@ def _perimeter_observations(host: str, endpoints: list[dict[str, Any]], observat
             items.append(_perimeter_observation(host, "non_web_service", f"{service.get('protocol', '')}/{service.get('port', '')}", "Non-web exposed service observed.", service.get("evidenceIds", [])))
     for observation in observations:
         observation_type = str(observation.get("type", ""))
-        if _is_report_candidate_observation(observation_type) or observation_type in {"possible_cve", "cpe_observed"}:
+        if _is_report_candidate_observation(observation_type) or observation_type in {
+            "possible_cve",
+            "cpe_observed",
+            "asset_relation",
+            "dns_resolution",
+            "scan_interference",
+        }:
             if not _candidate_belongs_to_host(observation, host):
                 continue
             items.append(_perimeter_observation(host, observation_type, observation.get("value", ""), observation.get("reason", "Requires review."), observation.get("evidenceIds", [])))

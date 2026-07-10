@@ -299,17 +299,38 @@ class CveIntelTests(unittest.TestCase):
                 self.assertEqual(result["candidateCount"], 0)
                 self.assertEqual(result["filtered"]["productMismatch"], 1)
 
-    def test_version_unknown_kept_when_high_severity_or_corroborated(self) -> None:
-        # Drupal detected with no recoverable version. Version-unknown web-exploitable CVEs
-        # survive when High/Critical (>=7.0) or KEV/PoC-corroborated; a low-severity
-        # uncorroborated one is suppressed.
+    def test_version_unknown_skips_nvd_by_default_and_emits_gap(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                seed_named_component("Drupal")
+                with patch.object(cve_intel, "_fetch_nvd") as fetch_nvd:
+                    result = json.loads(
+                        cve_intel.correlate(
+                            {
+                                "workspaceId": "engagement",
+                                "target": "app.example.com",
+                                "sources": ["nvd", "cisa_kev", "poc_github_index"],
+                                "confirm": True,
+                            }
+                        )
+                    )
+
+                fetch_nvd.assert_not_called()
+                self.assertEqual(result["candidateCount"], 0)
+                self.assertEqual(result["filtered"]["versionUnknownSkipped"], 1)
+                self.assertEqual(result["gaps"][0]["type"], "cve_version_precision_gap")
+                self.assertEqual(result["gaps"][0]["component"], "Drupal")
+
+    def test_version_unknown_opt_in_keeps_only_corroborated_candidates(self) -> None:
+        # A broad version-unknown lookup is explicit. Even then, a high CVSS score does not
+        # establish applicability; KEV/PoC/exploit corroboration is required.
         with TemporaryDirectory() as tmp:
             with isolated_state(Path(tmp)):
                 seed_named_component("Drupal")
                 payload = {
                     "vulnerabilities": [
                         nvd_item("CVE-2014-1111", nvd_config("drupal", vendor="drupal"), base_score=4.0),  # low sev, no corroboration -> suppressed
-                        nvd_item("CVE-2019-2222", nvd_config("drupal", vendor="drupal"), base_score=9.8),  # high sev -> kept
+                        nvd_item("CVE-2019-2222", nvd_config("drupal", vendor="drupal"), base_score=9.8),  # high sev alone -> suppressed
                         nvd_item("CVE-2018-7600", nvd_config("drupal", vendor="drupal"), base_score=3.0),  # low sev but KEV -> kept
                     ]
                 }
@@ -317,12 +338,100 @@ class CveIntelTests(unittest.TestCase):
                     cve_intel, "_enrich_cisa_kev", return_value={"CVE-2018-7600": {"knownExploited": True, "source": "cisa_kev"}}
                 ), patch.object(cve_intel, "_enrich_poc_github_index", return_value={}):
                     result = json.loads(
-                        cve_intel.correlate({"workspaceId": "engagement", "target": "app.example.com", "sources": ["nvd", "cisa_kev", "poc_github_index"], "confirm": True})
+                        cve_intel.correlate(
+                            {
+                                "workspaceId": "engagement",
+                                "target": "app.example.com",
+                                "sources": ["nvd", "cisa_kev", "poc_github_index"],
+                                "includeVersionUnknown": True,
+                                "confirm": True,
+                            }
+                        )
                     )
                 kept = {candidate["cveId"] for candidate in result["candidates"]}
-                self.assertEqual(kept, {"CVE-2019-2222", "CVE-2018-7600"})
-                self.assertEqual(result["filtered"]["unconfirmedSuppressed"], 1)
+                self.assertEqual(kept, {"CVE-2018-7600"})
+                self.assertEqual(result["filtered"]["unconfirmedSuppressed"], 2)
                 self.assertTrue(all(candidate["webExploitable"] for candidate in result["candidates"]))
+
+    def test_correlation_caps_and_sorts_candidate_output(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                seed_component()
+                records = []
+                for index, score in enumerate((4.0, 9.8, 7.5, 5.0, 8.2), start=1):
+                    record = dict(nvd_record())
+                    record["cveId"] = f"CVE-2026-{index:04d}"
+                    record["cvss"] = score
+                    record["applicability"] = "affected"
+                    records.append(record)
+                with patch.object(cve_intel, "_discover_nvd", return_value=records):
+                    result = json.loads(
+                        cve_intel.correlate(
+                            {
+                                "workspaceId": "engagement",
+                                "target": "app.example.com",
+                                "sources": ["nvd"],
+                                "maxCandidates": 2,
+                                "confirm": True,
+                            }
+                        )
+                    )
+
+                self.assertEqual(result["candidateCount"], 2)
+                self.assertEqual(result["filtered"]["candidateLimitSuppressed"], 3)
+                self.assertEqual(
+                    [candidate["cveId"] for candidate in result["candidates"]],
+                    ["CVE-2026-0002", "CVE-2026-0005"],
+                )
+
+    def test_correlation_reconciles_successful_snapshots_without_losing_history(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                seed_component()
+                first_record = {**nvd_record(), "applicability": "affected"}
+                second_record = {
+                    **nvd_record(),
+                    "cveId": "CVE-2026-9999",
+                    "applicability": "affected",
+                }
+                args = {
+                    "workspaceId": "engagement",
+                    "target": "app.example.com",
+                    "sources": ["nvd"],
+                    "confirm": True,
+                }
+
+                with patch.object(cve_intel, "_discover_nvd", return_value=[first_record, second_record]):
+                    first = json.loads(cve_intel.correlate(args))
+                self.assertEqual(first["candidateCount"], 2)
+
+                with patch.object(cve_intel, "_discover_nvd", side_effect=RuntimeError("provider unavailable")):
+                    failed_refresh = json.loads(cve_intel.correlate(args))
+                self.assertEqual(failed_refresh["reconciliation"]["retiredCount"], 0)
+                self.assertEqual(failed_refresh["reconciliation"]["protectedCount"], 2)
+
+                with patch.object(cve_intel, "_discover_nvd", return_value=[first_record]):
+                    reduced = json.loads(cve_intel.correlate(args))
+                self.assertEqual(reduced["reconciliation"]["retiredCount"], 1)
+                observations = workspace._load_target_entities("engagement", "app.example.com")["observations"]
+                stale = next(item for item in observations if item.get("value") == "CVE-2026-9999")
+                self.assertTrue(stale["stale"])
+                self.assertTrue(stale["retired"])
+                self.assertFalse(stale["isReportable"])
+                self.assertFalse(stale["analysisEligible"])
+                context = workspace.prepare_target_context("engagement", "app.example.com")
+                self.assertFalse(any(item.get("value") == "CVE-2026-9999" for item in context["candidateFindings"]))
+                self.assertGreaterEqual(context["observationInventory"]["suppressed"], 1)
+
+                with patch.object(cve_intel, "_discover_nvd", return_value=[first_record, second_record]):
+                    restored = json.loads(cve_intel.correlate(args))
+                self.assertEqual(restored["reconciliation"]["revivedCount"], 1)
+                observations = workspace._load_target_entities("engagement", "app.example.com")["observations"]
+                revived = next(item for item in observations if item.get("value") == "CVE-2026-9999")
+                self.assertFalse(revived["stale"])
+                self.assertFalse(revived["retired"])
+                self.assertTrue(revived["isReportable"])
+                self.assertTrue(revived["analysisEligible"])
 
     def test_major_only_version_matches_range_and_refutes_ancient(self) -> None:
         # Drupal detected as major "10". A 10.x-range CVE is affected; an ancient <4.7 CVE and a
@@ -506,6 +615,27 @@ class CveIntelTests(unittest.TestCase):
             resolved = cve_intel._resolve_source_config("nvd")
             self.assertEqual(resolved["url"], "https://env.example/nvd")
             self.assertEqual(resolved["resolvedFrom"], "env")
+
+    def test_source_endpoint_override_validates_transport_and_executable_kind(self) -> None:
+        with self.assertRaisesRegex(McpError, "absolute http"):
+            cve_intel.set_source_endpoint(
+                {"source": "nvd", "url": "/tmp/local-feed.json", "confirm": True}
+            )
+        with self.assertRaisesRegex(McpError, "searchsploit executable"):
+            cve_intel.set_source_endpoint(
+                {"source": "searchsploit", "url": "/bin/echo", "confirm": True}
+            )
+
+        result = json.loads(
+            cve_intel.set_source_endpoint(
+                {
+                    "source": "searchsploit",
+                    "url": "/opt/exploitdb/searchsploit",
+                    "confirm": True,
+                }
+            )
+        )
+        self.assertEqual(result["url"], "/opt/exploitdb/searchsploit")
 
     def test_source_status_reports_url_and_http_status_on_failure(self) -> None:
         with TemporaryDirectory() as tmp:

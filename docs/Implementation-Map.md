@@ -48,7 +48,8 @@ config/synapse.env
 |-- SYNAPSE_PYTHON           defaults to active VIRTUAL_ENV, then $SYNAPSE_ROOT/.venv/bin/python
 |-- SYNAPSE_PROMPT_PATH      defaults to $SYNAPSE_ROOT/AGENTS.md
 |-- SYNAPSE_DATA_DIR         defaults to $SYNAPSE_ROOT/DATA
-`-- SYNAPSE_DUMP_DIR         defaults to $SYNAPSE_DATA_DIR/workspaces
+|-- SYNAPSE_DUMP_DIR         defaults to $SYNAPSE_DATA_DIR/workspaces
+`-- SYNAPSE_REPORTS_DIR      defaults to $SYNAPSE_ROOT/reports
 ```
 
 Relative Synapse path values are anchored to these configured roots, not the
@@ -73,7 +74,6 @@ DATA/
 |   |-- workspace.json
 |   |-- scope.json                workspace-owned hosts, patterns, and CIDRs
 |   |-- jobs/<job-id>/job.json    background job records (sidecars embedded on finalization)
-|   |-- reports/                  generated perimeter, layer, workspace, and app-map reports
 |   |-- outputs/                  workspace-level generated outputs
 |   `-- targets/<host>/
 |       |-- target.json
@@ -98,6 +98,9 @@ DATA/
 |   |-- metadata.json
 |   |-- events.jsonl
 |   `-- fingerprint.json
+
+reports/                         local perimeter, layer, workspace, and app-map reports;
+                                 implicit names are prefixed by workspace ID
 ```
 
 Runtime data is local file-backed state. Only `.gitkeep` placeholders should be
@@ -335,7 +338,8 @@ core/paths.py
 ```
 
 Resolves repository-local paths from environment variables:
-`SYNAPSE_ROOT`, `SYNAPSE_DATA_DIR`, `SYNAPSE_DUMP_DIR`, and
+`SYNAPSE_ROOT`, `SYNAPSE_DATA_DIR`, `SYNAPSE_DUMP_DIR`,
+`SYNAPSE_REPORTS_DIR`, and
 `SYNAPSE_PROMPT_PATH`. Relative runtime paths resolve from the relevant
 configured root rather than from the process working directory.
 
@@ -360,7 +364,9 @@ are embedded in `job.json` and the sidecars are removed so the job directory
 retains only the JSON record. Adapters register named finalizers so completed
 jobs can ingest output and record workspace actions even after the MCP server
 restarts. Worker result files are written atomically, and finalizers report
-missing or corrupt worker result files as explicit error payloads. Worker result
+missing or corrupt worker result files as finalized failed jobs. Nonzero exits,
+unregistered finalizers, and finalizer exceptions are also terminal failures;
+workspace locking keeps concurrent polling to one finalization. Worker result
 paths are adapter-provided, so callers that support parallel same-target jobs
 must keep their artifact names per-run.
 If a restarted MCP process no longer has the original `Popen` handle for a
@@ -372,7 +378,9 @@ transport/stdio_server.py
 ```
 
 Dispatches JSON-RPC requests for tools, resources, and prompts. `tools/call`
-validates required arguments and simple declared JSON types before dispatch,
+validates required arguments, declared types, enums, numeric bounds, array
+items, and `oneOf` shapes before dispatch; private underscore-prefixed worker
+fields are rejected at the MCP boundary,
 while leaving adapter-owned approval gates such as `confirm=true` to the
 adapter. Malformed JSON lines return JSON-RPC parse errors. Tool execution uses
 a small executor deadline wrapper so slow synchronous operations return a
@@ -514,20 +522,22 @@ Documentation context and rendering layer. `models.py` defines report, finding
 draft, evidence pack, coverage, normalized layer report, workspace report,
 template, render-result, and redaction-policy models.
 `builder.py` turns normalized workspace entities, action records, and evidence
-metadata into structured contexts. `redaction.py` applies safe/internal/raw
-policy controls with safe defaults that omit raw HTTP, request/response bodies,
-and credentials. `templates.py` registers built-in Markdown templates, and
+metadata into structured contexts. `redaction.py` retains compatibility modes
+for internal presentation; those modes are not a client-export boundary.
+`templates.py` registers built-in Markdown templates, and
 `html_templates/` stores standalone HTML report templates and mockups.
 `renderer.py` renders deterministic Markdown for reports, assessment summaries,
 findings, evidence packs, and coverage summaries. `layers.py` provides the
 standard passive report-provider abstraction for perimeter, JavaScript,
-authentication, and access-control layers. Each provider reads existing
+authentication, access control, web vulnerabilities, CVE exposure, and
+engagement coverage. Each provider reads existing
 workspace entities and model artifacts, then returns the same normalized shape:
 summary values, sections, per-target context, evidence ids, gaps, and
 recommended next steps. `layer_renderer.py` renders those normalized layer
 contexts and all-layer workspace contexts as HTML or Markdown with shared table
 and expandable tree helpers. `exporters.py` writes JSON, Markdown, or HTML
-report exports under the workspace root `reports/` directory by default,
+report exports under the top-level `reports/` directory by default with
+workspace-qualified implicit filenames,
 rejects repo-root-looking relative paths such as `DATA/workspaces/...`, and
 requires `allowExternalOutput=true` for external paths.
 
@@ -557,8 +567,8 @@ workspace services, endpoints, observations, findings, and actions; classifies
 host assets, web applications, technology components by layer, canonical login
 portals, protected resources, perimeter observations, and review candidates;
 writes per-target `models/perimeter.json` plus workspace `perimeter-summary.json`; and
-renders Markdown or HTML tables under the workspace root `reports/` directory
-by default. Login portal grouping uses scheme, host,
+renders Markdown or HTML tables under the top-level `reports/` directory by
+default. Login portal grouping uses scheme, host,
 normalized path, provider/form signature, and ignores common workflow/query
 variants such as `PAGE_CODE`, `APP_CODE`, `lang`, `returnUrl`, `next`,
 `continue`, and `RelayState`. It filters weak 404 auth-looking paths and keeps
@@ -718,6 +728,9 @@ persisted target scope, max page/depth limits, request timeout, optional delay,
 and optional `credentialId`. Active crawl requests go through `core/http`,
 follow only persisted in-scope links and redirects, extract script route
 literals by default, and support the same direct/proxy/disabled backend policy.
+Cross-host links, redirects, form actions, and JavaScript references outside
+the owning workspace scope are retained as `asset_relation` observations and
+flow-graph nodes without being fetched.
 Active crawl output is ingested into the workspace layer per discovered host and
 recorded in `actions.json` automatically; passive site maps are ingested and
 recorded when `workspaceId` is supplied. Crawler endpoint records preserve
@@ -763,7 +776,8 @@ workspace adapter-result path while keeping inferred endpoints distinct from
 observed endpoints; it also runs as a background worker by default.
 `js.build_app_model`
 returns a compact agent/operator summary. `js.render_app_map` writes HTML,
-Markdown, or JSON reports under the workspace `reports/` directory by default,
+Markdown, or JSON reports under the top-level `reports/` directory by default,
+using a workspace-qualified implicit filename,
 combining observed requests and JS-inferred requests in a sitemap-style tree
 with source assets, parameters, confidence, and JS signals.
 
@@ -1041,19 +1055,25 @@ expected `-oA` XML file. Runs default to a generic Synapse background job and
 return a `jobId` for `jobs.status`; pass `background=false` only for explicit
 blocking execution. Finalization refreshes workspace fingerprinting and
 perimeter summaries after service data lands.
+High-volume scans dominated by `tcpwrapped` rows emit `scan_interference`; the
+raw rows remain stored but are excluded from planning, fingerprinting,
+perimeter, and CVE correlation.
 
 ```text
 adapters/infra/shodan_adapter.py
 ```
 
-Provides passive query construction, Shodan InternetDB lookup, and API-backed
+Provides no-traffic query construction, Shodan InternetDB lookup, and API-backed
 Shodan helpers. The Shodan API key is runtime-only in process memory. Shodan
 network-touching lookups require `confirm=true`; `shodan.internetdb` and
 `shodan.company_queries` do not need an API key. Shodan summaries can be
-ingested as OSINT evidence and normalized into services, endpoints, DNS
-observations, IP leakage candidates, CPEs, and possible CVEs. Ingested Shodan
-data refreshes workspace fingerprinting and perimeter summaries for the
-affected target.
+ingested as OSINT evidence and normalized into per-asset services, likely HTTP
+endpoints, DNS and asset relations, TLS/HTTP metadata, CPEs, and provider CVE
+candidates. Ordinary DNS resolution is not labeled an IP leak. Canonical data
+is ingested even when `raw=true`, search results are distributed to discovered
+assets instead of the query seed, and hostname target summaries resolve IPs
+before bounded host/InternetDB enrichment. Ingested Shodan data refreshes
+workspace fingerprinting and perimeter summaries for every affected target.
 
 ```text
 adapters/web/cve_intel.py
@@ -1066,7 +1086,13 @@ only in process memory; and records per-source status so failed or moved
 sources can be diagnosed without failing the whole run. `cve.correlate`
 requires `confirm=true` because it can query third-party sources, sends only
 component/CPE/CVE identifiers, and ingests `cve_candidate` observations with
-applicability confidence and exploit maturity. `cve.plan_tests` and
+applicability confidence and exploit maturity. Version-unknown components emit
+`cve_version_precision_gap` and skip NVD keyword lookup by default;
+`includeVersionUnknown=true` enables a broad run whose uncorroborated results
+are still suppressed. Results are ranked and capped with explicit suppression
+counts. Successful source snapshots retire no-longer-returned unreviewed
+candidates without deleting history and revive them if they reappear; failed
+providers do not retire prior data. `cve.plan_tests` and
 `cve.prepare_replay` send no traffic. `cve.execute_test` sends one bounded
 benign in-scope request or delegates to the existing nuclei tool when a
 template id is available; it never fetches or executes PoC code.
@@ -1135,6 +1161,11 @@ Evidence, ingestion, and finding lifecycle:
 - `fingerprint.probe_versions`
 - `fingerprint.read_host`
 - `cve.sources`
+- `cve.capabilities`
+- `cve.set_source_endpoint`
+- `cve.reset_source_endpoint`
+- `cve.session_key.set`
+- `cve.session_key.clear`
 - `cve.session_key.status`
 - `cve.correlate`
 - `cve.plan_tests`

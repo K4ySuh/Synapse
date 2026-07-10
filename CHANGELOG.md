@@ -10,11 +10,13 @@ committed history for the project. The format is loosely based on
 > on setup. At ship time, the relevant entries from that local log are summarized
 > into this file.
 
-## [Beta] — 2026-07-08
+## [0.6.0-beta.0] — 2026-07-10
 
-Candidate-model redesign and CVE intelligence. This release reduces candidate
-noise, models passive issues as findings, consolidates cross-adapter candidates,
-adds vulnerability-to-CVE correlation, and relocates rendered reports.
+Beta operational-precision release. This release reduces candidate noise,
+models deterministic passive issues separately from heuristic candidates,
+consolidates cross-adapter candidates, adds vulnerability-to-CVE correlation,
+reworks Shodan normalization, preserves cross-asset crawl relations, and
+relocates rendered reports.
 
 ### Added
 - **CVE intelligence layer.** New `cve` web adapter with config-driven
@@ -25,8 +27,8 @@ adds vulnerability-to-CVE correlation, and relocates rendered reports.
   relevance (web-exploitable CWE classes and network attack vector), and
   reachability (the crawled web surface, not infra-only banners); all
   drop/suppress tallies are surfaced. A `cve` documentation layer renders
-  suggested CVEs and confirmed CVE findings, omitting raw exploit references from
-  high-level/safe views.
+  suggested CVEs and confirmed CVE findings, presenting raw exploit references
+  only in Operator-detail columns.
 - **Client-side JS library detection.** Curated detector for common high-CVE
   browser libraries (jQuery, jQuery UI, Bootstrap, AngularJS, React, Vue, Lodash,
   Moment, Handlebars, DOMPurify, Axios, CKEditor, TinyMCE) from asset filenames
@@ -64,6 +66,14 @@ adds vulnerability-to-CVE correlation, and relocates rendered reports.
 - **Engagement report layer.** A consolidated "Engagement Coverage" layer in the
   workspace/layer reports surfaces pretext candidates and a detection-coverage
   matrix, honoring the operator/high-level split at the data level.
+- **Cross-asset relation model.** Crawls and Shodan results preserve related
+  host/IP/domain edges as `asset_relation` observations. Active crawls record
+  out-of-workspace-scope links without fetching them, while flow graphs retain
+  the related endpoint and actual followed state.
+- **Scan-interference diagnostics.** High-volume Nmap inventories dominated by
+  `tcpwrapped` rows are retained as raw services but excluded from planning,
+  fingerprinting, and perimeter correlation with an explicit
+  `scan_interference` observation.
 
 ### Changed
 - **Passive hygiene now produces findings.** `headers_cookies` and `tls_posture`
@@ -73,7 +83,26 @@ adds vulnerability-to-CVE correlation, and relocates rendered reports.
   low/info.
 - **Reports relocated.** Rendered reports and their report-decision archives now
   write to a top-level `reports/` directory rather than inside each workspace
-  folder.
+  folder. Implicit report filenames are workspace-qualified to prevent
+  cross-workspace overwrites.
+- **Shodan adapter precision.** Host, InternetDB, domain, search, and target
+  summary calls normalize canonical data even when `raw=true`; preserve TLS,
+  HTTP, CPE, CVE, module, DNS, and asset-relation metadata; resolve hostnames
+  before host lookup; and ingest discovered services under the discovered
+  asset rather than the query seed. Registry metadata now correctly identifies
+  third-party traffic and confirmation requirements.
+- **CVE breadth policy.** Version-unknown components emit a precision gap and
+  skip NVD product-only queries by default. Explicit broad runs retain only
+  KEV/PoC/exploit-corroborated candidates, and candidate output is ranked and
+  capped with suppression counts. Successful refreshes retire unreviewed
+  candidates no longer returned, preserve history, and revive them if they
+  reappear; provider failures never retire prior candidates.
+- **Local report model.** Operator and High-Level views are internal
+  presentation modes. Generated HTML no longer requests external web fonts and
+  remains self-contained at runtime.
+- **Transport validation.** MCP calls enforce declared enums, numeric bounds,
+  array item types, and `oneOf` shapes while rejecting private worker fields
+  from external calls.
 - **Injection precision controls.** Per-adapter minimum-score thresholds and a
   per-host candidate cap, both operator-overridable.
 - **Fingerprint version parsing.** Generator-style version strings (e.g.
@@ -86,6 +115,12 @@ adds vulnerability-to-CVE correlation, and relocates rendered reports.
   candidates are now gated down to applicable, web-relevant, reachable ones, and
   version-less component duplicates are collapsed so keyword lookups can't
   resurrect out-of-version CVEs.
+- **Background job terminal state.** Concurrent polling no longer races on one
+  temporary record; nonzero commands, missing/corrupt worker output, missing
+  finalizers, and finalizer exceptions finish as finalized failures.
+- **Crawler scope precedence.** Cross-host traversal uses the owning workspace
+  scope before global scope and does not materialize out-of-scope form actions
+  as normal endpoints.
 
 ## [Alpha] — 2026-07-02
 

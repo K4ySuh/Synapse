@@ -941,6 +941,7 @@ def fetch_crawl_url(
     rejected_hosts: set[str],
     include_in_scope_hosts: bool,
     http_session: Any | None = None,
+    workspace_id: str = "",
 ) -> dict[str, Any]:
     current_url = url
     redirects = 0
@@ -963,8 +964,16 @@ def fetch_crawl_url(
             next_url = normalize_url(location, current_url)
             if not next_url:
                 return {"finalUrl": current_url, "status": response.status, "contentType": content_type, "body": "", **response_meta, "error": f"Redirect Location was not a valid URL: {location}"}
-            if not crawl_host_allowed(next_url, allowed_hosts, rejected_hosts, include_in_scope_hosts):
-                return {"finalUrl": current_url, "status": response.status, "contentType": content_type, "body": "", **response_meta, "error": f"Redirected out of scope: {next_url}"}
+            if not crawl_host_allowed(next_url, allowed_hosts, rejected_hosts, include_in_scope_hosts, workspace_id):
+                return {
+                    "finalUrl": current_url,
+                    "status": response.status,
+                    "contentType": content_type,
+                    "body": "",
+                    **response_meta,
+                    "blockedRedirect": next_url,
+                    "error": f"Redirected out of scope: {next_url}",
+                }
             redirects += 1
             if redirects > 10:
                 return {"finalUrl": current_url, "status": response.status, "contentType": content_type, "body": "", **response_meta, "error": "Too many redirects."}
@@ -982,11 +991,12 @@ def submit_post_form(
     rejected_hosts: set[str],
     include_in_scope_hosts: bool,
     http_session: Any | None = None,
+    workspace_id: str = "",
 ) -> dict[str, Any]:
     action_url = normalize_url(form.get("action", "") or page_url, page_url)
     if not action_url:
         return {"submitted": False, "error": "POST form action did not resolve to a valid URL."}
-    if not crawl_host_allowed(action_url, allowed_hosts, rejected_hosts, include_in_scope_hosts):
+    if not crawl_host_allowed(action_url, allowed_hosts, rejected_hosts, include_in_scope_hosts, workspace_id):
         return {"submitted": False, "actionUrl": action_url, "error": "POST form action is outside authorized scope."}
     values = post_form_values(form, action_url)
     body = urlencode(values, doseq=True)
@@ -1017,7 +1027,13 @@ def submit_post_form(
     }
 
 
-def crawl_host_allowed(url: str, allowed_hosts: set[str], rejected_hosts: set[str], include_in_scope_hosts: bool) -> bool:
+def crawl_host_allowed(
+    url: str,
+    allowed_hosts: set[str],
+    rejected_hosts: set[str],
+    include_in_scope_hosts: bool,
+    workspace_id: str = "",
+) -> bool:
     host = url_host(url)
     if host in allowed_hosts:
         return True
@@ -1026,12 +1042,69 @@ def crawl_host_allowed(url: str, allowed_hosts: set[str], rejected_hosts: set[st
     if not include_in_scope_hosts:
         rejected_hosts.add(host)
         return False
-    scope_result = scope.check_target(url)
+    workspace_scope = workspace.workspace_scope(workspace_id) if workspace_id else {}
+    has_workspace_scope = any(workspace_scope.get(name) for name in ("hosts", "patterns", "cidrs"))
+    scope_result = scope.check_target_in_scope(url, workspace_scope) if has_workspace_scope else scope.check_target(url)
     if scope_result.get("inScope"):
         allowed_hosts.add(host)
         return True
     rejected_hosts.add(host)
     return False
+
+
+def record_crawl_relation(
+    relations: dict[tuple[str, str, str], dict[str, Any]],
+    source_url: str,
+    target_url: str,
+    relation_type: str,
+    *,
+    followed: bool,
+    workspace_id: str,
+) -> None:
+    source_host = url_host(source_url)
+    target_host = url_host(target_url)
+    if not source_host or not target_host or source_host == target_host:
+        return
+    workspace_scope = workspace.workspace_scope(workspace_id) if workspace_id else {}
+    has_workspace_scope = any(workspace_scope.get(name) for name in ("hosts", "patterns", "cidrs"))
+    checked = scope.check_target_in_scope(target_url, workspace_scope) if has_workspace_scope else scope.check_target(target_url)
+    key = (source_url, target_url, relation_type)
+    if followed:
+        for existing_relation in relations.values():
+            if existing_relation.get("sourceUrl") == source_url and existing_relation.get("targetUrl") == target_url:
+                existing_relation["followed"] = True
+    existing = relations.get(key)
+    if existing:
+        existing["followed"] = bool(existing.get("followed") or followed)
+        return
+    relations[key] = {
+        "sourceUrl": source_url,
+        "targetUrl": target_url,
+        "sourceHost": source_host,
+        "targetHost": target_host,
+        "relationType": relation_type,
+        "followed": followed,
+        "scopeStatus": "in_scope" if checked.get("inScope") else "out_of_scope",
+        "scopeMatch": checked.get("match", {}),
+        "confidence": "high",
+        "source": "crawler",
+    }
+
+
+def crawl_forms_for_sitemap(
+    forms: list[dict[str, Any]],
+    page_url: str,
+    base_url: str,
+    consider_discovered: Any,
+) -> list[dict[str, Any]]:
+    retained: list[dict[str, Any]] = []
+    for form in forms:
+        action_url = normalize_url(form.get("action", "") or page_url, base_url)
+        if action_url and url_host(action_url) != url_host(page_url):
+            if not consider_discovered(action_url, page_url, "form_action"):
+                continue
+        retained.append(form)
+    return retained
 
 
 def flatten_sitemap(sitemap: dict[str, Any]) -> dict[str, Any]:
@@ -1178,6 +1251,39 @@ def flow_graph_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 add_node(action_id, "endpoint", endpoint_label(action), url=action, host=url_host(action), path=urlsplit(action).path or "/")
                 submitted = bool(action_record.get("fetched")) and method in set(action_record.get("methods", []))
                 add_edge(form_id, action_id, "form_action", method=method, observed=submitted, submitted=submitted, metadata={"inputNames": input_names})
+
+    for relation_item in payload.get("relations", []):
+        if not isinstance(relation_item, dict):
+            continue
+        source_url = str(relation_item.get("sourceUrl") or "")
+        target_url = str(relation_item.get("targetUrl") or "")
+        if not source_url or not target_url:
+            continue
+        source_id = graph_id("url", source_url)
+        target_id = graph_id("url", target_url)
+        add_node(source_id, "endpoint", endpoint_label(source_url), url=source_url, host=url_host(source_url), path=urlsplit(source_url).path or "/")
+        add_node(
+            target_id,
+            "related_endpoint",
+            endpoint_label(target_url),
+            url=target_url,
+            host=url_host(target_url),
+            path=urlsplit(target_url).path or "/",
+            scopeStatus=relation_item.get("scopeStatus", ""),
+            followed=bool(relation_item.get("followed")),
+        )
+        add_edge(
+            source_id,
+            target_id,
+            str(relation_item.get("relationType") or "related_to"),
+            method="GET",
+            observed=True,
+            submitted=bool(relation_item.get("followed")),
+            metadata={
+                "scopeStatus": relation_item.get("scopeStatus", ""),
+                "followed": bool(relation_item.get("followed")),
+            },
+        )
 
     method_counts: dict[str, int] = {}
     for edge in edges:
@@ -1540,6 +1646,20 @@ def crawl(args: dict[str, Any]) -> str:
     errors: list[dict[str, Any]] = []
     post_submissions: list[dict[str, Any]] = []
     post_form_keys: set[tuple[str, str, tuple[str, ...]]] = set()
+    discovered_relations: dict[tuple[str, str, str], dict[str, Any]] = {}
+
+    def consider_discovered(url: str, source_url: str, relation_type: str, *, followed: bool = False) -> bool:
+        allowed = crawl_host_allowed(url, allowed_hosts, rejected_hosts, include_in_scope_hosts, workspace_id)
+        record_crawl_relation(
+            discovered_relations,
+            source_url,
+            url,
+            relation_type,
+            followed=allowed and followed,
+            workspace_id=workspace_id,
+        )
+        return allowed
+
     crawl_session_context = http_client.session(http_policy)
     crawl_session = crawl_session_context.__enter__()
 
@@ -1548,21 +1668,52 @@ def crawl(args: dict[str, Any]) -> str:
         if url in visited:
             continue
         host = url_host(url)
-        if not crawl_host_allowed(url, allowed_hosts, rejected_hosts, include_in_scope_hosts):
+        if discovered_from:
+            if not consider_discovered(url, discovered_from, "navigation", followed=True):
+                continue
+        elif not crawl_host_allowed(url, allowed_hosts, rejected_hosts, include_in_scope_hosts, workspace_id):
             continue
         if is_static_url(url) and not include_static and not (analyze_scripts and is_script_url(url)):
             upsert_url(sitemap, url, discovered_from=discovered_from)
             continue
         visited.add(url)
-        fetch_result = fetch_crawl_url(url, request_headers, http_policy, allowed_hosts, rejected_hosts, include_in_scope_hosts, crawl_session)
+        fetch_result = fetch_crawl_url(
+            url,
+            request_headers,
+            http_policy,
+            allowed_hosts,
+            rejected_hosts,
+            include_in_scope_hosts,
+            crawl_session,
+            workspace_id,
+        )
+        blocked_redirect = str(fetch_result.get("blockedRedirect") or "")
+        if blocked_redirect:
+            record_crawl_relation(
+                discovered_relations,
+                url,
+                blocked_redirect,
+                "redirect",
+                followed=False,
+                workspace_id=workspace_id,
+            )
         if fetch_result.get("status") is None:
             upsert_url(sitemap, url, discovered_from=discovered_from, fetched=False)
             errors.append({"url": url, "error": fetch_result.get("error", "")})
             continue
         final_url = str(fetch_result["finalUrl"])
-        if not crawl_host_allowed(final_url, allowed_hosts, rejected_hosts, include_in_scope_hosts):
+        if not crawl_host_allowed(final_url, allowed_hosts, rejected_hosts, include_in_scope_hosts, workspace_id):
             errors.append({"url": url, "error": f"Redirected out of scope: {final_url}"})
             continue
+        if final_url != url:
+            record_crawl_relation(
+                discovered_relations,
+                url,
+                final_url,
+                "redirect",
+                followed=True,
+                workspace_id=workspace_id,
+            )
         status = int(fetch_result["status"])
         content_type = str(fetch_result.get("contentType", ""))
         text = str(fetch_result.get("body", ""))
@@ -1593,7 +1744,12 @@ def crawl(args: dict[str, Any]) -> str:
             if parser.title:
                 upsert_url(sitemap, final_url, title=parser.title)
             page_base = document_base_url(final_url, parser.base_href)
-            add_forms(sitemap, final_url, parser.forms, page_base)
+            add_forms(
+                sitemap,
+                final_url,
+                crawl_forms_for_sitemap(parser.forms, final_url, page_base, consider_discovered),
+                page_base,
+            )
             if submit_post_forms:
                 if not extended_mode:
                     errors.append(
@@ -1631,6 +1787,9 @@ def crawl(args: dict[str, Any]) -> str:
                         if len(post_submissions) >= max_post_forms:
                             errors.append({"url": final_url, "warning": "Reached maxPostForms limit; remaining POST forms were not submitted."})
                             break
+                        if not consider_discovered(action_url, final_url, "form_action"):
+                            errors.append({"url": final_url, "formAction": action_url, "warning": "Recorded external form action without submitting it."})
+                            continue
                         action_id = f"act_post_{time.strftime('%Y%m%d-%H%M%S', time.gmtime())}_{len(post_submissions) + 1:04d}"
                         post_result = submit_post_form(
                             form,
@@ -1641,7 +1800,17 @@ def crawl(args: dict[str, Any]) -> str:
                             rejected_hosts,
                             include_in_scope_hosts,
                             crawl_session,
+                            workspace_id,
                         )
+                        if post_result.get("submitted"):
+                            record_crawl_relation(
+                                discovered_relations,
+                                final_url,
+                                action_url,
+                                "form_action",
+                                followed=True,
+                                workspace_id=workspace_id,
+                            )
                         action_host = url_host(str(post_result.get("actionUrl") or action_url))
                         submission = {
                             "actionId": action_id,
@@ -1738,7 +1907,7 @@ def crawl(args: dict[str, Any]) -> str:
                             metadata=metadata,
                         )
                         redirect_url = str(submission.get("redirectLocation") or "")
-                        if redirect_url and crawl_host_allowed(redirect_url, allowed_hosts, rejected_hosts, include_in_scope_hosts):
+                        if redirect_url and consider_discovered(redirect_url, str(submission["actionUrl"]), "redirect"):
                             upsert_url(sitemap, redirect_url, discovered_from=str(submission["actionUrl"]))
                             if depth < max_depth and redirect_url not in visited and all(item[0] != redirect_url for item in queue):
                                 queue.append((redirect_url, depth + 1, str(submission["actionUrl"])))
@@ -1751,13 +1920,23 @@ def crawl(args: dict[str, Any]) -> str:
                             post_base = document_base_url(str(submission["actionUrl"]), post_parser.base_href)
                             if post_parser.title:
                                 upsert_url(sitemap, str(submission["actionUrl"]), title=post_parser.title)
-                            add_forms(sitemap, str(submission["actionUrl"]), post_parser.forms, post_base)
+                            add_forms(
+                                sitemap,
+                                str(submission["actionUrl"]),
+                                crawl_forms_for_sitemap(
+                                    post_parser.forms,
+                                    str(submission["actionUrl"]),
+                                    post_base,
+                                    consider_discovered,
+                                ),
+                                post_base,
+                            )
                             if depth < max_depth:
                                 for link in post_parser.links:
                                     linked_url = normalize_url(resolve_discovered_link(link["url"], post_base))
                                     if not linked_url or not valid_discovered_url(linked_url):
                                         continue
-                                    if not crawl_host_allowed(linked_url, allowed_hosts, rejected_hosts, include_in_scope_hosts):
+                                    if not consider_discovered(linked_url, str(submission["actionUrl"]), "navigation"):
                                         continue
                                     upsert_url(sitemap, linked_url, discovered_from=str(submission["actionUrl"]))
                                     if linked_url not in visited and all(item[0] != linked_url for item in queue):
@@ -1767,7 +1946,7 @@ def crawl(args: dict[str, Any]) -> str:
                     linked_url = normalize_url(resolve_discovered_link(link["url"], page_base))
                     if not linked_url or not valid_discovered_url(linked_url):
                         continue
-                    if not crawl_host_allowed(linked_url, allowed_hosts, rejected_hosts, include_in_scope_hosts):
+                    if not consider_discovered(linked_url, final_url, "navigation"):
                         continue
                     upsert_url(sitemap, linked_url, discovered_from=final_url)
                     if linked_url not in visited and all(item[0] != linked_url for item in queue):
@@ -1777,7 +1956,7 @@ def crawl(args: dict[str, Any]) -> str:
                         submission_url = form_submission_url(form, final_url, page_base)
                         if not submission_url:
                             continue
-                        if not crawl_host_allowed(submission_url, allowed_hosts, rejected_hosts, include_in_scope_hosts):
+                        if not consider_discovered(submission_url, final_url, "get_form_submission"):
                             continue
                         upsert_url(sitemap, submission_url, method="GET", discovered_from=final_url)
                         if submission_url not in visited and all(item[0] != submission_url for item in queue):
@@ -1786,7 +1965,7 @@ def crawl(args: dict[str, Any]) -> str:
             for linked_url in extract_literal_links(text, final_url):
                 if not valid_discovered_url(linked_url):
                     continue
-                if not crawl_host_allowed(linked_url, allowed_hosts, rejected_hosts, include_in_scope_hosts):
+                if not consider_discovered(linked_url, final_url, "javascript_reference"):
                     continue
                 upsert_url(sitemap, linked_url, discovered_from=final_url)
                 if linked_url not in visited and all(item[0] != linked_url for item in queue):
@@ -1795,11 +1974,18 @@ def crawl(args: dict[str, Any]) -> str:
             time.sleep(delay)
     crawl_session_context.__exit__(None, None, None)
 
-    payload = attach_flow_graph(flatten_sitemap(sitemap))
+    flattened = flatten_sitemap(sitemap)
+    flattened["relations"] = sorted(
+        discovered_relations.values(),
+        key=lambda item: (item["sourceHost"], item["relationType"], item["targetHost"], item["targetUrl"]),
+    )
+    payload = attach_flow_graph(flattened)
     payload["crawl"] = {
         "visitedCount": len(visited),
         "queuedRemaining": len(queue),
         "errors": errors,
+        "relationCount": len(payload["relations"]),
+        "externalRelationCount": sum(1 for item in payload["relations"] if item.get("scopeStatus") != "in_scope"),
         "includeInScopeHosts": include_in_scope_hosts,
         "analyzeScripts": analyze_scripts,
         "followGetForms": follow_get_forms,
@@ -1824,6 +2010,8 @@ def crawl(args: dict[str, Any]) -> str:
             "followGetForms": follow_get_forms,
             "submitPostForms": submit_post_forms,
             "postSubmissionCount": len(post_submissions),
+            "relationCount": len(payload.get("relations", [])),
+            "externalRelationCount": payload["crawl"].get("externalRelationCount", 0),
             "approval": approval,
         },
     )
@@ -1836,6 +2024,11 @@ def crawl(args: dict[str, Any]) -> str:
         host_payload = {
             **payload,
             "hosts": [host_entry],
+            "relations": [
+                item
+                for item in payload.get("relations", [])
+                if isinstance(item, dict) and host in {item.get("sourceHost"), item.get("targetHost")}
+            ],
             "summary": {"hostCount": 1, "urlCount": host_entry.get("urlCount", 0), "formCount": host_entry.get("formCount", 0)},
         }
         host_visited = sum(1 for item in host_entry.get("urls", []) if isinstance(item, dict) and item.get("fetched"))
@@ -1858,6 +2051,7 @@ def crawl(args: dict[str, Any]) -> str:
                 "submitPostForms": submit_post_forms,
                 "extended": extended_mode,
                 "postSubmissionCount": len(post_submissions),
+                "relationCount": len(host_payload["relations"]),
                 "approval": approval,
             },
         )

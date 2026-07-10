@@ -38,7 +38,8 @@ background `jobs.*` execution.
 - `fingerprint.read_host` — recover prior host context before repeating analysis.
 
 Findings: never create confirmed findings from unreviewed candidates — `workspace.create_finding`
-/ promotion only after operator review. Keep evidence traceable (workspace ID, host/URL,
+/ promotion only after operator review. Deterministic passive facts may exist as
+`operatorReviewed=false` findings pending signoff. Keep evidence traceable (workspace ID, host/URL,
 method+path, Burp history ID, request/response file, tool+profile, job ID, output path, approval
 ID, finding/observation ID).
 
@@ -81,6 +82,9 @@ triage — no extra traffic, reprocessable).
   Follows links, navigation attrs, meta refreshes, JS route literals, and GET forms; does **not**
   submit POST forms. Runs in background by default — poll the `jobId`. Treat
   `sitemap_finding_candidate` observations as prioritized leads, not confirmed findings.
+  Cross-host destinations outside workspace scope are retained as relation
+  edges with `followed=false` and are not fetched; review them before changing
+  scope.
 - `crawler.extended` — POST-form submission; requires a previous crawl, a `credentialId`, and
   `confirm=true`. Each submitted POST is recorded as evidence + a workspace action; sensitive
   admin-like forms are skipped by default.
@@ -154,6 +158,10 @@ families:
   against an in-scope HTTP target.
 - **SSTI / LFI/RFI / SSI** — `ssti.*`, `lfi.*`, `ssi.*` with `passive_analyze` / `plan_tests` /
   `prepare_replay` / `execute_test` / `capabilities`.
+- **CVE** — fingerprint versions first, then `cve.correlate(confirm=true)`.
+  Version-unknown components become precision gaps by default; only request
+  `includeVersionUnknown=true` for a broad run, whose uncorroborated matches are
+  still suppressed. Plan or prepare replay before `cve.execute_test`.
 
 Prefer request-file or workspace-native testing so method/headers/body/cookies/routing are
 preserved. **Do not escalate from benign validation to destructive exploitation** without a new
@@ -168,7 +176,9 @@ explicit request and approval.
   (external service, may consume credits). Runtime key only: set/inspect/clear the session key at
   runtime; **never store Shodan API keys** in config, evidence, notes, or reports. Pass
   `workspaceId`/`ingest=true` to normalize results into workspace context before drawing
-  conclusions.
+  conclusions. Results are distributed per discovered asset; review relation
+  observations from the query seed and do not equate DNS resolution with an
+  origin-IP leak.
 
 ## 12. Documentation & reports (tool list)
 See `references/reporting.md` for the model. Tools: `documentation.build_report_context`,

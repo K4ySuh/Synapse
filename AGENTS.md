@@ -264,7 +264,10 @@ Keep evidence traceable. When possible, preserve concrete references such as:
 
 Do not create confirmed findings directly from unreviewed candidates. Use
 `workspace.create_finding` or promotion tools only when the operator has
-reviewed or accepted the finding.
+reviewed or accepted the candidate. A deterministic passive analyzer may emit
+a lifecycle finding with `operatorReviewed=false` when the observed fact itself
+is conclusive (for example, a missing response header); keep it visibly pending
+operator signoff and do not apply this exception to heuristic candidates.
 
 ## Credentials And Authentication
 
@@ -344,6 +347,12 @@ The crawler may discover links, routes, scripts, forms, JavaScript route
 literals, and GET form behavior. It should not submit state-changing POST forms
 unless the operator explicitly approves a tool or workflow designed for that
 risk.
+
+Preserve cross-host discovery even when the related asset is outside the
+workspace's current scope: record the source/target relation, relation type,
+scope status, and whether traffic was actually sent. Do not fetch an
+out-of-scope related asset. The relation is useful scope-mapping evidence that
+the operator can review before adding or excluding an asset.
 
 Use content discovery and scanning adapters with conservative profiles first.
 Explain the profile, scope, rate/volume expectations, and output handling before
@@ -462,6 +471,15 @@ CVEs and helps verify them under operator control.
 - Fingerprint first. Components need versions and CPEs to correlate well; run
   `fingerprint.probe_versions` (approved, in-scope, bounded) when version
   precision is low.
+- Skip broad NVD product-only correlation for version-unknown components by
+  default and record a version-precision gap instead. An operator may request
+  `includeVersionUnknown=true` for a broader intelligence run, but CVSS alone
+  does not establish applicability; retain only externally corroborated
+  KEV/PoC/exploit leads from that broad path.
+- Treat a successful correlation as a source snapshot: retire stale unreviewed
+  candidates from sources that completed successfully, preserve their history,
+  and revive them if they reappear. Do not retire prior candidates when a
+  provider fails or is skipped.
 - `cve.correlate` requires `confirm=true` because it queries third-party
   intelligence. It sends only product, version, CPE, and CVE identifiers — never
   target hostnames, paths, or secrets. Results are `cve_candidate` observations,
@@ -487,7 +505,9 @@ Synapse must not overstate conclusions.
 
 Use these terms consistently:
 
-- `finding`: operator-reviewed issue suitable for tracking.
+- `finding`: lifecycle-managed issue suitable for tracking. Deterministic
+  passive facts may be created as confirmed-but-pending-review findings only
+  when they carry `operatorReviewed=false`; operator signoff remains explicit.
 - `candidate`: promising observation that requires validation or review.
 - `gap`: missing coverage or unresolved uncertainty.
 - `evidence`: traceable support for an observation, test, or finding.
@@ -496,15 +516,16 @@ Use these terms consistently:
 
 Do not promote a candidate to a finding solely because a scanner labels it as
 high or critical. Confirm impact, scope, affected asset, and evidence first.
+Do not use the deterministic-passive-fact exception for heuristic candidates.
 
 When uncertain, state the uncertainty and recommend the next validation step.
 
 ## Documentation And Reporting
 
-Reports are internal Synapse/operator artifacts unless the operator explicitly
-requests a client deliverable or sanitized export.
+Reports are local internal Synapse/operator artifacts unless the operator
+explicitly requests a future client-facing deliverable or sanitized export.
 
-Current alpha report model:
+Current Beta report model:
 
 - `operator` view: detailed operational view with full traceability.
 - `high_level` view: summarized internal view with less operational noise.
@@ -516,6 +537,11 @@ operator report because it is not a redaction boundary.
 Do not describe high-level reports as safe, redacted, external, or
 client-facing. High-level means concise internal summary, not sanitized
 deliverable.
+
+Internal report redaction is not an operational enforcement boundary and is not
+a current development priority. Preserve existing compatibility modes, keep
+Operator and High-Level useful for local analysis, and reserve strict field
+omission/redaction work for a future explicit client-export generator.
 
 The report distinction is density and usability:
 

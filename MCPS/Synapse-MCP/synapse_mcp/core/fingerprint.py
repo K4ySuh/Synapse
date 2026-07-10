@@ -464,7 +464,11 @@ def analyze_workspace(args: dict[str, Any]) -> dict[str, Any]:
     workspace_id = workspace.normalize_workspace_id(args["workspaceId"])
     target = workspace.normalize_target(args["target"])
     entities = workspace._load_target_entities(workspace_id, target)
-    services = [item for item in entities.get("services", []) if isinstance(item, dict)]
+    services = [
+        item
+        for item in entities.get("services", [])
+        if isinstance(item, dict) and workspace.is_reportable(item) and item.get("analysisEligible") is not False
+    ]
     endpoints = [item for item in entities.get("endpoints", []) if isinstance(item, dict)]
     observations = [item for item in entities.get("observations", []) if isinstance(item, dict)]
     components = _workspace_components(services, endpoints, observations)
@@ -657,7 +661,11 @@ def probe_versions(args: dict[str, Any]) -> dict[str, Any]:
     base_url = _target_base_url(target_input) or f"https://{target}/"
 
     entities = workspace._load_target_entities(workspace_id, target)
-    services = [item for item in entities.get("services", []) if isinstance(item, dict)]
+    services = [
+        item
+        for item in entities.get("services", [])
+        if isinstance(item, dict) and workspace.is_reportable(item) and item.get("analysisEligible") is not False
+    ]
     endpoints = [item for item in entities.get("endpoints", []) if isinstance(item, dict)]
     observations = [item for item in entities.get("observations", []) if isinstance(item, dict)]
     components = _workspace_components(services, endpoints, observations)

@@ -141,11 +141,19 @@ fragile.
 Use the lowest-noise bounded option that answers the question:
 
 - Crawling: `crawler.crawl` defaults to background jobs and GET-oriented
-  mapping; `crawler.extended` submits POST forms and needs stronger approval.
+  mapping; it records cross-host/out-of-scope relations without fetching those
+  assets. `crawler.extended` submits POST forms and needs stronger approval.
 - Discovery/scanning: `ffuf.run_profile`, `nuclei.run_profile`, and
   `nmap.run_profile` are approval-gated and job-oriented.
 - OSINT: Shodan runtime-key and API-backed operations require the relevant
   operator approval and should be normalized before driving conclusions.
+  Review per-asset ingestions and `asset_relation`/`dns_resolution` records;
+  do not treat ordinary DNS resolution as an origin-IP leak.
+- CVE intelligence: fingerprint versions first. Version-unknown components
+  produce precision gaps and skip broad NVD lookup by default; use
+  `includeVersionUnknown=true` only for an explicitly broad, corroboration-gated
+  run. Successful reruns retire stale unreviewed source candidates without
+  deleting history; source failures preserve prior candidates.
 - Access control: use `access_control.identify_objects`,
   `access_control.record_context`, `access_control.build_test_matrix`, and
   `access_control.plan_tests` before any
@@ -165,7 +173,9 @@ and decisions with `evidence.log_event` when useful.
 Ingest external outputs and operator notes through `workspace.ingest_data` so
 raw evidence, normalized entities, scope status, and summaries stay linked.
 
-Do not create confirmed findings directly from raw candidates. Use
+Do not create confirmed findings directly from raw candidates. Deterministic
+passive analyzers may create `operatorReviewed=false` findings, which still
+need operator signoff. Use
 `workspace.promote_observation_to_finding`, `workspace.create_finding`,
 `workspace.update_finding`, `workspace.link_evidence_to_finding`, and
 `workspace.mark_finding_reviewed` according to operator review.

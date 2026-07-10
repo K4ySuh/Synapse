@@ -116,9 +116,15 @@ def _write_record(record: dict[str, Any]) -> None:
     root = _job_dir_for_record(record)
     root.mkdir(parents=True, exist_ok=True)
     record_path = root / "job.json"
-    tmp = record_path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(record_path)
+    tmp = record_path.with_name(f".{record_path.name}.{uuid4().hex}.tmp")
+    try:
+        tmp.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(record_path)
+    finally:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def _read_record(job_id: str) -> dict[str, Any]:
@@ -148,12 +154,15 @@ def _is_pid_alive(pid: int) -> bool:
 
 
 def _return_code(record: dict[str, Any]) -> int | None:
-    rc_path = Path(str(record.get("returnCodePath", "")))
-    if not rc_path.exists():
+    raw_path = str(record.get("returnCodePath", "") or "")
+    if not raw_path:
+        return None
+    rc_path = Path(raw_path)
+    if not rc_path.is_file():
         return None
     try:
         return int(rc_path.read_text(encoding="utf-8").strip())
-    except ValueError:
+    except (OSError, ValueError):
         return None
 
 
@@ -283,8 +292,8 @@ def start_command(
     record["startedAt"] = _utc_now()
     with _LOCK:
         _PROCESSES[job_id] = proc
-    _start_watchdog(job_id, proc, timeout_seconds)
     _write_record(record)
+    _start_watchdog(job_id, proc, timeout_seconds)
     evidence.log_event(
         event_type,
         f"Started background job {job_id}: {summary}",
@@ -400,7 +409,8 @@ def _cleanup_sidecar_files(record: dict[str, Any]) -> list[str]:
 def _finalize_record(record: dict[str, Any]) -> dict[str, Any]:
     workspace_id = str(record.get("workspaceId", "")).strip() or workspace.default_workspace_id()
     with workspace.workspace_lock(workspace_id):
-        return _finalize_record_locked(record)
+        latest = _read_json(_find_record_path(str(record["jobId"]), workspace_id), None)
+        return _finalize_record_locked(latest if isinstance(latest, dict) else record)
 
 
 def _finalize_record_locked(record: dict[str, Any]) -> dict[str, Any]:
@@ -417,7 +427,10 @@ def _finalize_record_locked(record: dict[str, Any]) -> dict[str, Any]:
     if finalizer_name:
         finalizer = _FINALIZERS.get(finalizer_name)
         if not finalizer:
+            record["status"] = "failed"
             record["error"] = f"Finalizer is not registered: {finalizer_name}"
+            record["completedAt"] = record.get("completedAt") or _utc_now()
+            record["finalized"] = True
             _write_record(record)
             _forget_process(str(record["jobId"]))
             return record
@@ -427,9 +440,10 @@ def _finalize_record_locked(record: dict[str, Any]) -> dict[str, Any]:
             record["status"] = "failed"
             record["error"] = f"{type(exc).__name__}: {exc}"
             record["completedAt"] = record.get("completedAt") or _utc_now()
-            _write_record(record)
-            _forget_process(str(record["jobId"]))
-            return record
+            record["result"] = {"isError": True, "error": record["error"]}
+        if isinstance(record.get("result"), dict) and record["result"].get("isError"):
+            record["status"] = "failed"
+            record["error"] = str(record["result"].get("error") or "Background job finalization failed.")
     record["finalized"] = True
     removed_sidecars = _cleanup_sidecar_files(record)
     if removed_sidecars:
@@ -453,10 +467,17 @@ def _finalize_record_locked(record: dict[str, Any]) -> dict[str, Any]:
 
 
 def _refresh(record: dict[str, Any]) -> dict[str, Any]:
+    workspace_id = str(record.get("workspaceId", "")).strip() or workspace.default_workspace_id()
+    with workspace.workspace_lock(workspace_id):
+        latest = _read_json(_find_record_path(str(record["jobId"]), workspace_id), None)
+        return _refresh_locked(latest if isinstance(latest, dict) else record)
+
+
+def _refresh_locked(record: dict[str, Any]) -> dict[str, Any]:
     status_value = str(record.get("status", ""))
     if status_value not in {"queued", "running"}:
         if status_value in {"completed", "timed_out", "canceled", "failed"}:
-            return _finalize_record(record)
+            return _finalize_record_locked(record)
         return record
 
     job_id = str(record["jobId"])
@@ -497,12 +518,14 @@ def _refresh(record: dict[str, Any]) -> dict[str, Any]:
         record["completedAt"] = _utc_now()
         record["error"] = record.get("error") or "Process exited before writing a return code."
     else:
-        record["status"] = "completed"
+        record["status"] = "completed" if rc == 0 else "failed"
         record["returnCode"] = rc
         record["completedAt"] = record.get("completedAt") or _utc_now()
+        if rc != 0:
+            record["error"] = record.get("error") or f"Process exited with return code {rc}."
     _write_record(record)
     if record["status"] in {"completed", "timed_out", "failed", "canceled"}:
-        return _finalize_record(record)
+        return _finalize_record_locked(record)
     return record
 
 

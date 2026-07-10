@@ -12,6 +12,9 @@ if [ -f "$ENV_FILE" ]; then
 fi
 
 SYNAPSE_PYTHON="${SYNAPSE_PYTHON:-}"
+if [ -n "$SYNAPSE_PYTHON" ] && ! [ -x "$SYNAPSE_PYTHON" ] && ! command -v "$SYNAPSE_PYTHON" >/dev/null 2>&1; then
+    SYNAPSE_PYTHON=""
+fi
 if [ -z "$SYNAPSE_PYTHON" ] && [ -n "${VIRTUAL_ENV:-}" ] && [ -x "$VIRTUAL_ENV/bin/python" ]; then
     SYNAPSE_PYTHON="$VIRTUAL_ENV/bin/python"
 fi
@@ -19,6 +22,10 @@ if [ -z "$SYNAPSE_PYTHON" ] && [ -x "$SYNAPSE_ROOT/.venv/bin/python" ]; then
     SYNAPSE_PYTHON="$SYNAPSE_ROOT/.venv/bin/python"
 fi
 SYNAPSE_PYTHON="${SYNAPSE_PYTHON:-python3}"
+if ! command -v "$SYNAPSE_PYTHON" >/dev/null 2>&1 && ! [ -x "$SYNAPSE_PYTHON" ]; then
+    printf 'Synapse Python is not executable: %s\n' "$SYNAPSE_PYTHON" >&2
+    exit 127
+fi
 export SYNAPSE_PYTHON
 
 cd "$ROOT_DIR"

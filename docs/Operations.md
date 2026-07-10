@@ -27,7 +27,7 @@ MCPS/Synapse-MCP/bin/synapse-mcp
 ```
 
 The installed `synapse-mcp` package console script can start the server too,
-but the repository launcher is preferred for alpha use because it anchors
+but the repository launcher is preferred for Beta use because it anchors
 `SYNAPSE_ROOT`, `SYNAPSE_PYTHON`, runtime data, and the full `AGENTS.md`
 operating prompt. If you invoke the installed console script directly, set
 `SYNAPSE_ROOT` or `SYNAPSE_PROMPT_PATH`; otherwise Synapse serves a packaged
@@ -124,6 +124,8 @@ baked default, so a moved source URL can be re-pointed at runtime with
 GitHub) are set only at runtime with `cve.session_key.set`.
 `SYNAPSE_PYTHON` may be set here when you need to override the console's active
 `VIRTUAL_ENV` or `$SYNAPSE_ROOT/.venv`.
+`SYNAPSE_REPORTS_DIR` controls the top-level local report root and defaults to
+`$SYNAPSE_ROOT/reports`.
 The `SYNAPSE_MCP_*_TIMEOUT_SECONDS` values bound individual stdio
 `tools/call` requests and are separate from adapter `timeoutSeconds` values
 recorded on background jobs. The MCP deadline returns a recoverable JSON-RPC
@@ -285,6 +287,11 @@ workspace layer automatically and recorded in `actions.json`; pass `workspaceId`
 to select a workspace, or omit it to use the current scope organization/default
 workspace.
 
+Cross-host links, redirects, form actions, and JavaScript references outside
+the workspace scope are still written as relation edges with `scopeStatus` and
+`followed=false`; no request is sent to those related assets. Review the
+relations before updating scope.
+
 After an approved initial crawl and an approved scoped credential are available,
 use `crawler.extended` for authenticated POST-form mapping:
 
@@ -397,9 +404,9 @@ js.render_app_map(
 
 Supported formats are `html`, `markdown`, and `json`. Without `outputPath`,
 reports are written to
-`DATA/workspaces/<workspace>/reports/js-app-map-<target>.html` or the matching
-extension. Relative paths are workspace-relative; external absolute paths
-require `allowExternalOutput=true`.
+`reports/<workspace>-js-app-map-<target>.html` or the matching extension.
+Relative report paths resolve under the top-level `reports/` root; external
+absolute paths require `allowExternalOutput=true`.
 
 The app map combines observed workspace requests and JS-inferred requests in a
 collapsible tree. It includes request method, path, origin, parameters, source
@@ -444,6 +451,12 @@ workspace data. It writes `models/perimeter.json` under each target and
 `perimeter-summary.json` at workspace level. Both steps are passive and do not
 send traffic.
 
+If an Nmap import contains at least 100 apparent open services and at least 75%
+are `tcpwrapped`, Synapse records `scan_interference` and retains the raw rows
+but excludes them from planning, fingerprinting, and perimeter/CVE correlation.
+Treat the inventory as a coverage gap and rerun a narrower version-aware
+profile before using it for CVE reasoning.
+
 For completed crawl or recon jobs, the default review sequence is:
 
 ```text
@@ -455,10 +468,10 @@ perimeter.render_report(workspaceId="<workspace>", refresh=true, format="html")
 ```
 
 Without an explicit `outputPath`, generated perimeter reports are written to
-`DATA/workspaces/<workspace>/reports/perimeter.html` or
-`DATA/workspaces/<workspace>/reports/perimeter.md`. If you provide a relative
-path, keep it workspace-relative, for example `reports/perimeter.html`; do not
-prefix it with `DATA/workspaces/...`.
+`reports/<workspace>-perimeter.html` or
+`reports/<workspace>-perimeter.md`. If you provide a relative path, keep it
+report-root-relative, for example `reports/perimeter.html`; do not prefix it
+with `DATA/workspaces/...`.
 
 Only after reviewing these outputs should the next plan suggest deeper
 technology or version validation such as nmap service detection, Nuclei
@@ -466,8 +479,9 @@ technology templates, or targeted approved probes.
 
 ## Finding Lifecycle
 
-Observations are hypotheses until an operator promotes or records them as
-findings. Use:
+Heuristic observations are hypotheses until an operator promotes or records
+them as findings. Deterministic passive analyzers may store conclusive facts as
+`operatorReviewed=false` findings pending signoff. Use:
 
 ```text
 workspace.promote_observation_to_finding(
@@ -675,9 +689,10 @@ nonced `replayId` for each execution. It creates
 denied receives a similar successful response. Identical 2xx application-error
 JSON is downgraded with `downgradeReason: identical_error_shaped_json` unless
 success markers or data-bearing JSON keys are present.
-If a replay context has no usable `credentialId` for the target, Synapse keeps
-the replay active by sending that context as an unauthenticated request and
-records the anonymous fallback in the replay context metadata.
+If an authenticated replay context has no usable `credentialId` for the target,
+Synapse fails that context by default. Anonymous replay requires an explicitly
+anonymous context or `allowAnonymousContexts=true`; it is never a silent
+downgrade.
 
 The passive API, auth, and misconfiguration analyzers run the same way: read
 existing workspace state, optionally `ingest=true`, and send no traffic.
@@ -978,7 +993,11 @@ Typical flow:
 
 1. Fingerprint the target so components carry versions and CPEs. Run
    `fingerprint.probe_versions` (confirm-gated, in-scope, bounded benign GETs)
-   first when components are version-imprecise.
+first when components are version-imprecise.
+   Version-unknown components produce a `cve_version_precision_gap` and skip
+   broad NVD keyword lookup by default. Use `includeVersionUnknown=true` only
+   for an explicitly broad run; uncorroborated product-only matches are still
+   suppressed, regardless of CVSS.
 2. `cve.correlate` (requires `confirm=true`) queries the enabled sources and
    records one `cve_candidate` observation per component/CVE. Discovery uses NVD
    and Shodan; enrichment adds CISA KEV (known-exploited), a public PoC index,
@@ -1000,6 +1019,26 @@ config-driven. When a source URL changes or fails, inspect
 tried and HTTP status), re-point it with `cve.set_source_endpoint`, and re-run
 `cve.correlate` with `refresh=true`. A single failing or rate-limited source
 degrades to a recorded status and never fails the run.
+After a successful discovery-source refresh, Synapse retires prior unreviewed
+CVE candidates that the evaluated source no longer returns. The rows remain in
+workspace history but leave planning/report output; they revive automatically
+if a later successful refresh returns them. A failed provider refresh does not
+retire prior candidates.
+
+## Shodan Exposure Intelligence
+
+Use `shodan.company_queries` to plan pivots without an API call, then obtain
+approval for exact network-touching operations. `shodan.host`,
+`shodan.internetdb`, `shodan.domain`, `shodan.search`, and
+`shodan.target_summary` preserve a canonical compact model for ingestion even
+when `raw=true` returns the provider response to the caller.
+
+Search and target-summary ingestion distributes services to the discovered
+hostname/IP rather than the query seed. The seed retains `asset_relation` and
+DNS context so the operator can decide whether related assets belong in scope.
+TLS, HTTP, module, CPE, provider CVE, and DNS metadata survive normalization.
+Ordinary DNS resolution is recorded as `dns_resolution`; it is not treated as
+an origin-IP leak without separate routing/CDN evidence.
 
 ## Scope And Cleanup
 
@@ -1068,21 +1107,22 @@ Render the default all-layers HTML report from stored workspace context:
 ```text
 documentation.render_workspace_report(
   workspaceId="<workspace>",
-  layers=["perimeter", "js", "auth", "access_control"],
+  layers=["perimeter", "js", "auth", "access_control", "web_vulnerabilities", "cve", "engagement"],
   format="html",
   outputPath="reports/workspace-report.html"
 )
 ```
 
-This report uses normalized passive providers for perimeter, JavaScript,
-authentication, and access-control layers. Report generation reads existing
+This report uses all seven normalized passive providers. Report generation reads existing
 workspace entities, model artifacts, and evidence metadata; it does not fetch
 JavaScript, authenticate, replay requests, crawl, scan, or send active traffic.
 Each layer exposes the same report structure: summary values, sections,
 per-target context, coverage gaps, and recommended next steps. Omit `layers`
 to include the default set. HTML reports embed the repository Synapse banner
 and shared report styling so the output is portable and visually consistent
-with the project assets.
+with the project assets. Without `outputPath`, reports use
+`reports/<workspace>-<artifact>.<ext>` so separate workspaces cannot overwrite
+one another.
 
 Render a single normalized layer report:
 
@@ -1096,7 +1136,8 @@ documentation.render_layer_report(
 )
 ```
 
-Valid layer names are `perimeter`, `js`, `auth`, and `access_control`. Use
+Valid layer names are `perimeter`, `js`, `auth`, `access_control`,
+`web_vulnerabilities`, `cve`, and `engagement`. Use
 `documentation.list_layers` to inspect available layers and
 `documentation.build_layer_report_context` when you need JSON context before
 rendering.

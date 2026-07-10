@@ -61,6 +61,27 @@ class ToolWrapperTests(unittest.TestCase):
         self.assertNotIn("error", response)
         self.assertFalse(response["result"]["isError"])
 
+    def test_mcp_tool_validation_enforces_shapes_bounds_enums_and_reserved_fields(self) -> None:
+        with self.assertRaisesRegex(McpError, "must be >= 1"):
+            stdio_server.validate_tool_arguments("crawler.crawl", {"target": "https://example.com", "maxPages": 0})
+        with self.assertRaisesRegex(McpError, "must be one of"):
+            stdio_server.validate_tool_arguments(
+                "documentation.render_layer_report",
+                {"workspaceId": "engagement", "layer": "perimeter", "format": "pdf"},
+            )
+        with self.assertRaisesRegex(McpError, "allowed shape"):
+            stdio_server.validate_tool_arguments(
+                "shodan.resolve", {"hostnames": {"host": "example.com"}}
+            )
+        with self.assertRaisesRegex(McpError, r"hosts\[0\] must be string"):
+            stdio_server.validate_tool_arguments(
+                "workspace.create", {"workspaceId": "engagement", "hosts": [123]}
+            )
+        with self.assertRaisesRegex(McpError, "reserved for internal workers"):
+            stdio_server.validate_tool_arguments(
+                "crawler.crawl", {"target": "https://example.com", "_extendedMode": True}
+            )
+
     def test_mcp_readme_tool_list_matches_runtime_schema(self) -> None:
         readme = Path("MCPS/Synapse-MCP/README.md").read_text(encoding="utf-8")
         tool_section = readme.split("## Exposed Tools", 1)[1].split("\n## ", 1)[0]
@@ -649,6 +670,8 @@ class ToolWrapperTests(unittest.TestCase):
                 )
                 missing = wait_for_job(missing["jobId"])
 
+                self.assertEqual(missing["status"], "failed")
+                self.assertTrue(missing["finalized"])
                 self.assertTrue(missing["result"]["isError"])
                 self.assertIn("missing", missing["result"]["error"])
 
@@ -667,8 +690,66 @@ class ToolWrapperTests(unittest.TestCase):
                 )
                 corrupt = wait_for_job(corrupt["jobId"])
 
+                self.assertEqual(corrupt["status"], "failed")
+                self.assertTrue(corrupt["finalized"])
                 self.assertTrue(corrupt["result"]["isError"])
                 self.assertIn("corrupt", corrupt["result"]["error"])
+
+    def test_background_job_nonzero_exit_and_finalizer_failures_are_terminal(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                nonzero = background_jobs.start_command(
+                    ["/bin/sh", "-c", "exit 7"],
+                    timeout_seconds=30,
+                    event_type="test.nonzero",
+                    summary="Ran nonzero job",
+                    tool="test.nonzero",
+                    workspace_id="engagement",
+                    target="example.com",
+                )
+                nonzero = wait_for_job(nonzero["jobId"])
+                self.assertEqual(nonzero["status"], "failed")
+                self.assertEqual(nonzero["returnCode"], 7)
+                self.assertTrue(nonzero["finalized"])
+
+                unregistered = background_jobs.start_command(
+                    ["/bin/sh", "-c", "true"],
+                    timeout_seconds=30,
+                    event_type="test.finalizer",
+                    summary="Ran missing finalizer job",
+                    tool="test.finalizer",
+                    workspace_id="engagement",
+                    target="example.com",
+                    finalizer_name="test.not-registered",
+                )
+                unregistered = wait_for_job(unregistered["jobId"])
+                self.assertEqual(unregistered["status"], "failed")
+                self.assertTrue(unregistered["finalized"])
+                self.assertIn("not registered", unregistered["error"])
+
+                finalizer_name = "test.raises"
+
+                def raising_finalizer(*_: object) -> dict[str, object]:
+                    raise RuntimeError("finalizer failed")
+
+                background_jobs.register_finalizer(finalizer_name, raising_finalizer)
+                try:
+                    raised = background_jobs.start_command(
+                        ["/bin/sh", "-c", "true"],
+                        timeout_seconds=30,
+                        event_type="test.finalizer",
+                        summary="Ran raising finalizer job",
+                        tool="test.finalizer",
+                        workspace_id="engagement",
+                        target="example.com",
+                        finalizer_name=finalizer_name,
+                    )
+                    raised = wait_for_job(raised["jobId"])
+                finally:
+                    background_jobs._FINALIZERS.pop(finalizer_name, None)
+                self.assertEqual(raised["status"], "failed")
+                self.assertTrue(raised["finalized"])
+                self.assertIn("RuntimeError: finalizer failed", raised["error"])
 
     def test_background_job_timeouts_are_clamped(self) -> None:
         with TemporaryDirectory() as tmp:

@@ -2,3 +2,9 @@ interface:
   display_name: "Synapse Developing"
   short_description: "Develop Synapse code, docs, tests"
   default_prompt: "Use $synapse-developing to make a focused Synapse repository change with tests and docs aligned."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "synapse"
+      description: "Local Synapse MCP server for workspace inspection and development verification."

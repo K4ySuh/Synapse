@@ -52,6 +52,62 @@ class CoreStateTests(unittest.TestCase):
                 self.assertIn("result", full)
                 self.assertEqual(full["result"]["items"][0]["url"], "https://example.com/a")
 
+    def test_jobs_status_concurrent_pollers_finalize_once(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                finalizer_name = "unit.concurrent-finalizer"
+                finalizer_calls = 0
+                calls_lock = threading.Lock()
+
+                def finalizer(_record: dict[str, object], _run: dict[str, object], _data: dict[str, object]) -> dict[str, object]:
+                    nonlocal finalizer_calls
+                    with calls_lock:
+                        finalizer_calls += 1
+                    return {"summary": {"finalized": True}}
+
+                background_jobs.register_finalizer(finalizer_name, finalizer)
+                try:
+                    started = background_jobs.start_command(
+                        ["sh", "-c", "sleep 0.05"],
+                        timeout_seconds=30,
+                        event_type="unit.concurrent-job",
+                        summary="concurrent polling job",
+                        tool="unit.concurrent-job",
+                        workspace_id="engagement",
+                        target="example.com",
+                        finalizer_name=finalizer_name,
+                    )
+                    barrier = threading.Barrier(8)
+                    statuses: list[dict[str, object]] = []
+                    failures: list[BaseException] = []
+
+                    def poll() -> None:
+                        try:
+                            barrier.wait(timeout=2)
+                            deadline = time.monotonic() + 5
+                            while time.monotonic() < deadline:
+                                status = background_jobs.status(started["jobId"])
+                                if status.get("finalized"):
+                                    statuses.append(status)
+                                    return
+                                time.sleep(0.01)
+                            raise AssertionError("background job did not finalize")
+                        except BaseException as exc:  # collected for assertion in the main test thread
+                            failures.append(exc)
+
+                    threads = [threading.Thread(target=poll) for _ in range(8)]
+                    for thread in threads:
+                        thread.start()
+                    for thread in threads:
+                        thread.join(timeout=6)
+
+                    self.assertEqual(failures, [])
+                    self.assertEqual(len(statuses), 8)
+                    self.assertTrue(all(status["status"] == "completed" for status in statuses))
+                    self.assertEqual(finalizer_calls, 1)
+                finally:
+                    background_jobs._FINALIZERS.pop(finalizer_name, None)
+
     def test_credentials_are_scoped_and_redacted(self) -> None:
         with TemporaryDirectory() as tmp:
             with isolated_state(Path(tmp)):

@@ -3,7 +3,8 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Status-Alpha-red" alt="Status: Alpha">
+  <img src="https://img.shields.io/badge/Status-Beta-blue" alt="Status: Beta">
+  <img src="https://img.shields.io/badge/Version-0.6.0b0-blue" alt="Version: 0.6.0b0">
   <img src="https://img.shields.io/badge/License-Apache--2.0-blue" alt="License: Apache 2.0">
   <img src="https://img.shields.io/badge/Python-3.10%2B-blue" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/MCP-Native-purple" alt="MCP Native">
@@ -102,7 +103,7 @@ prior assessment knowledge available through MCP tools and resources.
   evidence, parsed, normalized, and deduplicated per target.
 - Compact target context (`workspace.prepare_target_context`) so an AI client
   plans from what is already known instead of re-deriving it.
-- Operator-reviewed finding lifecycle: `candidate`, `confirmed`,
+- Finding lifecycle with explicit operator-review state: `candidate`, `confirmed`,
   `false_positive`, `accepted_risk`, `fixed`, with evidence linking and
   report-ready export.
 
@@ -125,6 +126,10 @@ prior assessment knowledge available through MCP tools and resources.
 
 - Burp-like site maps and workflow graphs (JSON plus Mermaid/SVG flowcharts)
   from offline dumps without sending traffic.
+- Active crawls preserve cross-host links, redirects, form actions, and
+  JavaScript references as `asset_relation` observations. Assets outside the
+  owning workspace scope are mapped but not fetched; the operator can review
+  those relations before expanding or excluding scope.
 - Rich request/response context extraction: parameters, JSON field paths,
   cookie names, authorization schemes, redirects, forms, API/JSON/GraphQL
   signals, authentication boundaries, state-changing methods, and error
@@ -135,6 +140,10 @@ prior assessment knowledge available through MCP tools and resources.
 - External-perimeter inventory: host assets, web applications, technology
   matrix, canonical login portals, protected resources, and request-aware
   review candidates.
+- Shodan and InternetDB results normalize per discovered asset rather than
+  attaching every service to the query seed. DNS/asset relations, TLS, HTTP,
+  CPE, provider CVE metadata, and port inventories survive compact or raw
+  response modes.
 - Passive candidate analyzers for SQLi, XSS, SSRF, open redirect, command
   injection, SSTI, LFI/RFI, SSI, access control, CSRF, CORS, XXE, GraphQL,
   insecure deserialization, security headers/cookies, JWT, and TLS posture.
@@ -169,6 +178,9 @@ prior assessment knowledge available through MCP tools and resources.
   precision. Source endpoints are config-driven and can be re-pointed at
   runtime, and only product/version/CPE/CVE identifiers ever leave the
   workspace.
+- Version-unknown components produce explicit precision gaps and skip broad
+  NVD correlation by default. `includeVersionUnknown=true` is an opt-in broad
+  run, and only externally corroborated KEV/PoC/exploit leads survive it.
 - Long-running tools run as workspace-scoped background jobs by default with
   durable `jobs.list` / `jobs.status` / `jobs.cancel` records that survive MCP
   restarts; lazy finalization ingests completed output into the workspace.
@@ -177,11 +189,12 @@ prior assessment knowledge available through MCP tools and resources.
 
 ### Reporting and documentation
 
-- Normalized passive report layers (perimeter, JavaScript, authentication,
-  access control, and CVE exposure) with a shared structure: summary, sections,
-  per-target context, coverage gaps, and recommended next steps.
+- Seven normalized passive report layers (perimeter, JavaScript,
+  authentication, access control, web vulnerabilities, CVE exposure, and
+  engagement coverage) with a shared structure: summary, sections, per-target
+  context, coverage gaps, and recommended next steps.
 - Single-layer and all-layer workspace reports as Markdown, JSON context, or
-  portable self-contained HTML with the shared Synapse visual identity.
+  self-contained HTML with inline assets and no external runtime dependency.
 - Report, finding-draft, evidence-pack, coverage, and assessment-summary
   contexts. HTML reports are internal operator artifacts with Operator /
   High-Level presentation views. Report generation never sends active traffic.
@@ -221,7 +234,7 @@ flow, and boundary decisions.
 | Target | Per-host normalized state: services, endpoints, parameters, findings, actions, observations. |
 | Evidence | Raw local artifacts plus global and host-indexed JSONL event logs. |
 | Observation | A hypothesis or lead produced by parsing, passive analysis, OSINT, or workflow mapping. |
-| Finding | Operator-reviewed or lifecycle-managed issue with status, severity, confidence, evidence IDs, impact, and remediation. |
+| Finding | Lifecycle-managed issue with status, severity, confidence, evidence IDs, impact, remediation, and explicit operator-review state. Deterministic passive facts may enter as `operatorReviewed=false`. |
 | Action | Recorded passive or active tool activity for a target. |
 | Credential | Scoped HTTP secret stored locally and referenced by `credentialId`; responses are redacted. |
 | Background Job | Workspace-scoped long-running tool record polled through `jobs.*`. |
@@ -374,7 +387,6 @@ DATA/
     |-- workspace.json                engagement metadata and target index
     |-- scope.json                    workspace-owned scope snapshot
     |-- jobs/<job-id>/job.json        background job records
-    |-- reports/                      generated layer, workspace, and app-map reports
     |-- outputs/                      workspace-level generated outputs
     `-- targets/<host>/
         |-- entities/                 services, endpoints, parameters,
@@ -382,6 +394,9 @@ DATA/
         |-- models/                   perimeter and access-control models
         |-- outputs/                  tool and JS-intelligence outputs
         `-- evidence/                 raw artifacts and Burp dumps
+
+reports/                              local internal reports and decision archives;
+                                      implicit filenames are workspace-qualified
 ```
 
 The full annotated layout is in the
@@ -401,7 +416,8 @@ in control:
   reports `scopeStatus` and warnings instead of hiding authorization state.
 - Credentials are scoped to authorized hosts and returned redacted; evidence
   events are sanitized for secrets before writing.
-- Generated outputs default under workspace folders; external output paths
+- Tool outputs default under workspace folders. Rendered reports default under
+  top-level `reports/` with workspace-qualified names; paths outside that root
   require `allowExternalOutput=true`.
 - Cleanup of dumps and generated artifacts is inspect-first and
   confirm-before-delete.

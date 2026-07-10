@@ -111,9 +111,11 @@ Rules that keep specs safe:
   report engine, no RBAC/ABAC engine, no frontend framework, no broad rewrite. Keep changes
   small and legible. Workspace/agent data stays rich; Operator and High-Level report views are
   internal presentation modes, not a client-safe redaction boundary.
-- **Order by blast radius.** When specifying a batch, sequence by impact. A confidentiality
-  leak (e.g. raw secrets reaching any report or a future client export) outranks a correctness
-  issue that only produces misleading internal results.
+- **Order by operational impact.** For the current local-only report model,
+  prioritize incorrect execution, normalization, relationships, candidate
+  applicability, and workflow state over new internal redaction behavior. A
+  future explicit client export restores strict confidentiality/redaction as a
+  first-class contract.
 
 If the spec is for Claude Code rather than Codex, frame it as an agentic session: an
 inspect → implement → verify loop per task, one commit per task, `bin/test` green as the gate,

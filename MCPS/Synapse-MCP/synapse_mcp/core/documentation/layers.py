@@ -17,7 +17,7 @@ from .redaction import policy_from_args, redact
 LayerProvider = Callable[[dict[str, Any]], dict[str, Any]]
 DEFAULT_LAYERS = ("perimeter", "js", "auth", "access_control", "web_vulnerabilities", "cve", "engagement")
 
-# Table columns that carry high-detail operational identifiers. Current alpha
+# Table columns that carry high-detail operational identifiers. Current Beta
 # HTML reports are internal artifacts, so these columns stay in the report
 # source and the renderer marks them for presentation-only CSS hiding in the
 # High-Level view. This is not a security or client-deliverable redaction layer.

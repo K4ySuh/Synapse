@@ -281,7 +281,7 @@ class PerimeterTests(unittest.TestCase):
                         {"workspaceId": "engagement", "format": "markdown"},
                     )
                 )
-                self.assertEqual(Path(default_report["path"]).name, "perimeter.md")
+                self.assertEqual(Path(default_report["path"]).name, "engagement-perimeter.md")
                 self.assertEqual(Path(default_report["path"]).parent.name, "reports")
                 # Reports live in the top-level reports root, never inside workspace state.
                 default_path = Path(default_report["path"]).resolve()

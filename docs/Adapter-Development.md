@@ -117,11 +117,12 @@ when results matter beyond the immediate response. This creates a raw evidence
 artifact, merges normalized entities, logs a `workspace.ingest` event, and keeps
 the target context compact.
 
-Human-review report artifacts that are not deliverable documentation may be
-written under the workspace `reports/` directory or the adapter's target
-`outputs/<tool>/` tree. Keep relative output paths
-workspace-relative and require `allowExternalOutput=true` for external absolute
-paths, matching the documentation, perimeter, and JS app-map exporters.
+Rendered report artifacts use the top-level `reports/` root with
+workspace-qualified implicit names. Non-report adapter artifacts use the
+adapter target's `outputs/<tool>/` tree. Keep relative report paths
+report-root-relative and require `allowExternalOutput=true` for external
+absolute paths, matching the documentation, perimeter, and JS app-map
+exporters.
 
 Use `evidence.log_event` for reviewed milestones and operational decisions.
 Do not place secrets in evidence event data. The evidence module sanitizes

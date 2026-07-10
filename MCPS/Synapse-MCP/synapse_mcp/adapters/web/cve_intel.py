@@ -123,6 +123,13 @@ def set_source_endpoint(args: dict[str, Any]) -> str:
         raise McpError(-32602, f"Unknown endpoint-configurable CVE source: {source}")
     if not url:
         raise McpError(-32602, "url is required.")
+    if source == "searchsploit":
+        if parse.urlsplit(url).scheme or url.rstrip("/").rsplit("/", 1)[-1] != "searchsploit":
+            raise McpError(-32602, "searchsploit override must name the searchsploit executable or a path ending in /searchsploit.")
+    else:
+        parsed = parse.urlsplit(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise McpError(-32602, f"{source} override must be an absolute http(s) URL.")
     _ENDPOINT_OVERRIDES[source] = url
     resolved = _resolve_source_config(source)
     _LAST_SOURCE_STATUS[source] = _source_status(source, "ok", resolved, detail="runtime endpoint override set")
@@ -183,9 +190,18 @@ def correlate(args: dict[str, Any]) -> str:
     source_status: dict[str, dict[str, Any]] = {}
     discovery_records: list[dict[str, Any]] = []
     discovery_returned = False
-    filter_stats = {"unreachable": 0, "productMismatch": 0, "notAffected": 0, "nonWeb": 0, "unconfirmedSuppressed": 0}
+    filter_stats = {
+        "unreachable": 0,
+        "productMismatch": 0,
+        "notAffected": 0,
+        "nonWeb": 0,
+        "versionUnknownSkipped": 0,
+        "unconfirmedSuppressed": 0,
+        "candidateLimitSuppressed": 0,
+    }
     http_surface = bool(entities.get("endpoints"))
     components = _filter_web_reachable(_technology_components(entities), http_surface, filter_stats)
+    version_gaps = _version_precision_gaps(components)
 
     discovery_args = {**args, "_workspaceId": workspace_id, "_target": target, "_observations": observations, "_filterStats": filter_stats}
     for source in selected:
@@ -206,6 +222,18 @@ def correlate(args: dict[str, Any]) -> str:
 
     merged = _apply_breadth_gate(merged, enrichment, filter_stats)
     candidates = [_candidate_from_record(item, enrichment.get(item["cveId"], {}), source_status) for item in merged]
+    candidates.sort(
+        key=lambda item: (
+            -int(item["candidate"].get("priorityScore", 0) or 0),
+            {"high": 0, "medium": 1, "low": 2}.get(str(item["candidate"].get("confidence", "low")), 3),
+            str(item["candidate"].get("cveId", "")),
+            str(item["candidate"].get("component", "")),
+        )
+    )
+    max_candidates = min(max(int(args.get("maxCandidates", 25)), 1), 250)
+    if len(candidates) > max_candidates:
+        filter_stats["candidateLimitSuppressed"] = len(candidates) - max_candidates
+        candidates = candidates[:max_candidates]
     result = AdapterResult(
         adapter="cve",
         mode="passive_analysis",
@@ -215,18 +243,27 @@ def correlate(args: dict[str, Any]) -> str:
             f"Correlated {len(candidates)} web-exploitable CVE candidate(s) from {len(selected)} source(s) "
             f"(dropped {filter_stats['productMismatch']} product-mismatch, {filter_stats['notAffected']} out-of-version, "
             f"{filter_stats['nonWeb']} non-web, {filter_stats['unreachable']} unreachable-component; "
-            f"suppressed {filter_stats['unconfirmedSuppressed']} low-severity version-unknown)."
+            f"skipped {filter_stats['versionUnknownSkipped']} version-unknown component lookup(s), "
+            f"suppressed {filter_stats['unconfirmedSuppressed']} uncorroborated and "
+            f"{filter_stats['candidateLimitSuppressed']} over-limit candidate(s))."
         ),
-        entities=WorkspaceEntityBundle(observations=[item["observation"] for item in candidates]),
+        entities=WorkspaceEntityBundle(observations=[item["observation"] for item in candidates] + version_gaps),
         recommended_tests=recommended_tests(),
         limitations=[
             "CVE presence in public intelligence does not prove exploitability on this target.",
             "Candidates are filtered to web-pentest-relevant classes (network-reachable, web-exploitable CWE) on components attributable to the crawled HTTP surface; non-web and out-of-version CVEs are dropped.",
-            "Version-unknown components keep only High/Critical or KEV/PoC-corroborated CVEs, so the list is actionable rather than exhaustive.",
+            "NVD keyword correlation is skipped for version-unknown components by default because product-only matches cannot establish applicability. Set includeVersionUnknown=true for an explicitly broad run; even then, only KEV/PoC/exploit-corroborated records survive.",
             "PoC references are stored as read-only evidence and are never fetched or executed by Synapse.",
             "Online lookups send only product, version, CPE, and CVE identifiers to third-party sources.",
         ],
-        metadata={"sourceStatus": source_status, "sources": selected, "cveDataAvailable": discovery_returned, "filtered": filter_stats},
+        metadata={
+            "sourceStatus": source_status,
+            "sources": selected,
+            "cveDataAvailable": discovery_returned,
+            "filtered": filter_stats,
+            "versionGaps": version_gaps,
+            "maxCandidates": max_candidates,
+        },
     )
     payload = {
         **result.as_ingest_payload(),
@@ -236,8 +273,11 @@ def correlate(args: dict[str, Any]) -> str:
         "sources": selected,
         "cveDataAvailable": discovery_returned,
         "filtered": filter_stats,
+        "gaps": version_gaps,
+        "maxCandidates": max_candidates,
     }
     ingestion = None
+    reconciliation: dict[str, Any] | None = None
     if args.get("ingest", True):
         ingestion = workspace.ingest_data(
             workspace_id,
@@ -248,12 +288,109 @@ def correlate(args: dict[str, Any]) -> str:
             json.dumps(payload, indent=2, ensure_ascii=False),
             {"adapter": "cve", "sources": selected, "sourceStatus": source_status},
         )
+        successful_discovery_sources = {
+            source
+            for source in selected
+            if source in DISCOVERY_SOURCES and source_status.get(source, {}).get("status") == "ok"
+        }
+        reconciliation = _reconcile_cve_observation_snapshot(
+            workspace_id,
+            target,
+            payload.get("entities", {}).get("observations", []),
+            successful_discovery_sources,
+        )
     evidence.log_event(
         "cve.correlate",
         f"Correlated CVE candidates for {target}.",
-        {"workspaceId": workspace_id, "target": target, "candidateCount": len(candidates), "sources": selected},
+        {
+            "workspaceId": workspace_id,
+            "target": target,
+            "candidateCount": len(candidates),
+            "sources": selected,
+            "reconciliation": reconciliation or {},
+        },
     )
-    return json.dumps({**payload, **({"ingestion": ingestion} if ingestion else {})}, indent=2)
+    return json.dumps(
+        {
+            **payload,
+            **({"ingestion": ingestion} if ingestion else {}),
+            **({"reconciliation": reconciliation} if reconciliation is not None else {}),
+        },
+        indent=2,
+    )
+
+
+def _reconcile_cve_observation_snapshot(
+    workspace_id: str,
+    target: str,
+    current_observations: Any,
+    successful_discovery_sources: set[str],
+) -> dict[str, Any]:
+    path = workspace.target_entity_path(workspace_id, target, "observations")
+    current = [item for item in current_observations if isinstance(item, dict)] if isinstance(current_observations, list) else []
+    current_keys = {workspace._entity_key(item) for item in current}
+    retired = 0
+    revived = 0
+    protected = 0
+    changed = False
+    with workspace.workspace_lock(workspace_id):
+        stored = workspace._read_json(path, [])
+        if not isinstance(stored, list):
+            stored = []
+        for item in stored:
+            if not isinstance(item, dict) or item.get("type") not in {"cve_candidate", "cve_version_precision_gap"}:
+                continue
+            key = workspace._entity_key(item)
+            if key in current_keys:
+                if item.get("staleBySnapshot") == "cve.correlate":
+                    item["isReportable"] = bool(item.pop("reportableBeforeSnapshot", True))
+                    item["analysisEligible"] = bool(item.pop("analysisEligibleBeforeSnapshot", True))
+                    item["retired"] = bool(item.pop("retiredBeforeSnapshot", False))
+                    item.pop("staleBySnapshot", None)
+                    item.pop("staleReason", None)
+                    item["stale"] = False
+                    revived += 1
+                    changed = True
+                continue
+
+            if item.get("type") == "cve_candidate":
+                discovery_sources = {
+                    str(source)
+                    for source in item.get("discoverySources", [])
+                    if isinstance(source, str) and source
+                }
+                if not discovery_sources or not discovery_sources.issubset(successful_discovery_sources):
+                    protected += 1
+                    continue
+                if item.get("validationStatus") in {"testing", "confirmed"} or item.get("operatorReviewed") is True:
+                    item["stale"] = True
+                    item["staleReason"] = "A successful CVE intelligence refresh no longer returned this operator-protected candidate."
+                    protected += 1
+                    changed = True
+                    continue
+
+            if item.get("staleBySnapshot") == "cve.correlate":
+                continue
+            item["reportableBeforeSnapshot"] = workspace.is_reportable(item)
+            item["analysisEligibleBeforeSnapshot"] = item.get("analysisEligible") is not False
+            item["retiredBeforeSnapshot"] = bool(item.get("retired"))
+            item["isReportable"] = False
+            item["analysisEligible"] = False
+            item["retired"] = True
+            item["stale"] = True
+            item["staleBySnapshot"] = "cve.correlate"
+            item["staleReason"] = "A successful CVE intelligence refresh no longer returned this candidate or precision gap."
+            retired += 1
+            changed = True
+        if changed:
+            workspace._write_json(path, stored)
+    return {
+        "successfulDiscoverySources": sorted(successful_discovery_sources),
+        "currentCount": len(current_keys),
+        "retiredCount": retired,
+        "revivedCount": revived,
+        "protectedCount": protected,
+    }
 
 
 def _technology_components(entities: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
@@ -326,6 +463,39 @@ def _filter_web_reachable(components: list[dict[str, Any]], http_surface: bool, 
         else:
             filter_stats["unreachable"] += 1
     return kept
+
+
+def _version_precision_gaps(components: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    gaps: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for component in components:
+        name = str(component.get("name") or "").strip()
+        version = str(component.get("version") or "").strip()
+        precision = str(component.get("versionPrecision") or "unknown").strip().lower()
+        if not name or (version and precision not in {"unknown", "inferred"}):
+            continue
+        key = (name.lower(), str(component.get("cpe") or "").lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        gaps.append(
+            {
+                "type": "cve_version_precision_gap",
+                "key": f"cve-version-gap:{stable_slug(name)}|{stable_slug(component.get('cpe', ''))}",
+                "value": name,
+                "component": name,
+                "version": version,
+                "cpe": component.get("cpe", ""),
+                "versionPrecision": precision or "unknown",
+                "confidence": "high",
+                "priority": "medium",
+                "priorityScore": 65,
+                "reason": f"{name} was identified without a precise version; probe or verify the version before NVD applicability correlation.",
+                "snapshotSource": "cve.correlate",
+                "evidenceIds": component.get("evidenceIds", []),
+            }
+        )
+    return gaps
 
 
 def _run_discovery_source(
@@ -507,6 +677,10 @@ def _discover_nvd(components: list[dict[str, Any]], args: dict[str, Any]) -> lis
         version = str(component.get("version", "")).strip()
         cpe = str(component.get("cpe", "")).strip()
         if not name:
+            continue
+        if not version and not bool(args.get("includeVersionUnknown", False)):
+            if isinstance(stats, dict):
+                stats["versionUnknownSkipped"] += 1
             continue
         comp_vendor, comp_tokens = _component_product_tokens(component)
         has_cpe = bool(comp_tokens) and bool(_cpe_fields(cpe)[1])
@@ -720,17 +894,17 @@ def _version_in_cpe(version: str, cpe: dict[str, Any]) -> bool | None:
     return True
 
 
-_UNKNOWN_VERSION_MIN_CVSS = 7.0
-
-
 def _apply_breadth_gate(
     records: list[dict[str, Any]],
     enrichment: dict[str, dict[str, Any]],
     filter_stats: dict[str, int],
 ) -> list[dict[str, Any]]:
-    """For version-confirmed CVEs, keep all (already web-relevant + applicable). For
-    version-unknown CVEs, keep only High/Critical (CVSS >= 7.0) or KEV/PoC-corroborated ones,
-    so breadth across route-identified components stays actionable rather than exhaustive."""
+    """Keep version-confirmed applicability and externally corroborated unknown-version leads.
+
+    A high CVSS score does not compensate for missing product-version applicability. Broad
+    version-unknown NVD correlation is opt-in and still requires KEV, public-PoC, or an
+    exploit-tagged reference before a record becomes a target candidate.
+    """
     kept: list[dict[str, Any]] = []
     for record in records:
         if record.get("applicability") != "unconfirmed":
@@ -738,8 +912,7 @@ def _apply_breadth_gate(
             continue
         enr = enrichment.get(record.get("cveId", ""), {})
         corroborated = bool(enr.get("knownExploited")) or bool(enr.get("pocReferences")) or bool(record.get("exploitReferences"))
-        high_severity = record.get("cvss") is not None and float(record.get("cvss") or 0) >= _UNKNOWN_VERSION_MIN_CVSS
-        if corroborated or high_severity:
+        if corroborated:
             kept.append(record)
         else:
             filter_stats["unconfirmedSuppressed"] += 1
@@ -748,14 +921,24 @@ def _apply_breadth_gate(
 
 def _discover_shodan(components: list[dict[str, Any]], args: dict[str, Any]) -> list[dict[str, Any]]:
     observations = args.get("_observations", [])
-    cves = []
+    reported: dict[str, dict[str, Any]] = {}
     for observation in observations if isinstance(observations, list) else []:
         if not isinstance(observation, dict) or observation.get("type") != "possible_cve":
             continue
         cve_id = _normalize_cve_id(observation.get("value", ""))
-        if cve_id and cve_id not in cves:
-            cves.append(cve_id)
-    if not cves:
+        if not cve_id:
+            continue
+        record = reported.setdefault(cve_id, {"providerVerified": False, "cvss": None, "evidenceIds": [], "targets": []})
+        record["providerVerified"] = bool(record["providerVerified"] or observation.get("providerVerified"))
+        if record["cvss"] is None and observation.get("cvssScore") is not None:
+            record["cvss"] = observation.get("cvssScore")
+        for evidence_id in observation.get("evidenceIds", []) if isinstance(observation.get("evidenceIds"), list) else []:
+            if evidence_id not in record["evidenceIds"]:
+                record["evidenceIds"].append(evidence_id)
+        observed_target = str(observation.get("target") or "")
+        if observed_target and observed_target not in record["targets"]:
+            record["targets"].append(observed_target)
+    if not reported:
         return []
     if len(components) == 1:
         component = components[0]
@@ -771,7 +954,7 @@ def _discover_shodan(components: list[dict[str, Any]], args: dict[str, Any]) -> 
     return [
         {
             "cveId": cve_id,
-            "cvss": None,
+            "cvss": report.get("cvss"),
             "severity": "",
             "summary": "Reported by Shodan/InternetDB and requires validation before being treated as a finding.",
             "references": [],
@@ -783,9 +966,11 @@ def _discover_shodan(components: list[dict[str, Any]], args: dict[str, Any]) -> 
             "versionPrecision": precision,
             "source": "shodan",
             "discoverySources": ["shodan"],
-            "evidenceIds": [],
+            "providerVerified": bool(report.get("providerVerified")),
+            "reportedTargets": report.get("targets", []),
+            "evidenceIds": report.get("evidenceIds", []),
         }
-        for cve_id in cves
+        for cve_id, report in sorted(reported.items())
     ]
 
 
@@ -921,6 +1106,12 @@ def _merge_discovery_records(records: list[dict[str, Any]]) -> list[dict[str, An
             existing["summary"] = record["summary"]
         if record.get("publishedDate") and not existing.get("publishedDate"):
             existing["publishedDate"] = record["publishedDate"]
+        if record.get("providerVerified"):
+            existing["providerVerified"] = True
+        for target in record.get("reportedTargets", []):
+            existing.setdefault("reportedTargets", [])
+            if target not in existing["reportedTargets"]:
+                existing["reportedTargets"].append(target)
     return sorted(merged.values(), key=lambda item: (item["cveId"], item["component"], item.get("version", "")))
 
 
@@ -977,6 +1168,8 @@ def _candidate_from_record(record: dict[str, Any], enrichment: dict[str, Any], s
         "webExploitable": bool(vuln_class),
         "discoverySources": sorted(record.get("discoverySources", [])),
         "knownExploited": known_exploited,
+        "providerVerified": bool(record.get("providerVerified")),
+        "reportedTargets": record.get("reportedTargets", []),
         "pocReferences": poc_refs,
         "pocCount": len(poc_refs),
         "exploitReferences": exploit_refs,
@@ -988,6 +1181,7 @@ def _candidate_from_record(record: dict[str, Any], enrichment: dict[str, Any], s
         "sourceStatus": source_status,
         "references": record.get("references", []),
         "validationStatus": "proposed",
+        "snapshotSource": "cve.correlate",
         "tags": ["cve", exploit_maturity, *class_tags, *tags],
     }
     observation = candidate_observation(
@@ -1020,7 +1214,7 @@ def _stronger_applicability(left: Any, right: Any) -> Any:
 def _applicability_confidence(record: dict[str, Any]) -> str:
     sources = set(record.get("discoverySources", []))
     if sources == {"shodan"}:
-        return "medium"
+        return "high" if record.get("providerVerified") else "medium"
     applicability = record.get("applicability")
     if applicability == "affected":
         return "high"

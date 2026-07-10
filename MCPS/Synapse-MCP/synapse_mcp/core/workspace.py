@@ -1307,6 +1307,34 @@ def parse_sitemap(raw_data: str) -> dict[str, list[dict[str, Any]]]:
                     if preview:
                         parameter["valuePreview"] = preview
                     entities["parameters"].append(parameter)
+    for relation in payload.get("relations", []):
+        if not isinstance(relation, dict):
+            continue
+        source_host = str(relation.get("sourceHost") or normalize_target(str(relation.get("sourceUrl") or ""))).lower()
+        target_host = str(relation.get("targetHost") or normalize_target(str(relation.get("targetUrl") or ""))).lower()
+        relation_type = str(relation.get("relationType") or "related_to").lower()
+        if not source_host or not target_host or source_host == target_host:
+            continue
+        entities["observations"].append(
+            {
+                "type": "asset_relation",
+                "key": f"asset-relation:{source_host}|{relation_type}|{target_host}",
+                "value": target_host,
+                "sourceAsset": source_host,
+                "targetAsset": target_host,
+                "sourceUrl": relation.get("sourceUrl", ""),
+                "targetUrl": relation.get("targetUrl", ""),
+                "relationType": relation_type,
+                "followed": bool(relation.get("followed")),
+                "scopeStatus": relation.get("scopeStatus", ""),
+                "confidence": relation.get("confidence", "high"),
+                "source": relation.get("source", "crawler"),
+                "reason": (
+                    f"Crawler content on {source_host} referenced {target_host} via {relation_type}; "
+                    + ("the related asset was followed under the approved crawl scope." if relation.get("followed") else "the relation was recorded without sending traffic to the related asset.")
+                ),
+            }
+        )
     return entities
 
 
@@ -1345,6 +1373,30 @@ def parse_nmap(raw_data: str) -> dict[str, list[dict[str, Any]]]:
                     "extrainfo": service.get("extrainfo", ""),
                 }
             )
+    services = entities["services"]
+    tcpwrapped_count = sum(1 for item in services if str(item.get("name", "")).lower() == "tcpwrapped")
+    if len(services) >= 100 and tcpwrapped_count / len(services) >= 0.75:
+        reason = (
+            f"Nmap reported {len(services)} open services, including {tcpwrapped_count} tcpwrapped rows. "
+            "This pattern is consistent with scan interference, a tarpitted edge, or a synthetic all-ports response; "
+            "retain the raw scan but exclude these rows from planning and fingerprint correlation."
+        )
+        for service in services:
+            service["isReportable"] = False
+            service["analysisEligible"] = False
+            service["suppressionReason"] = reason
+        entities["observations"].append(
+            {
+                "type": "scan_interference",
+                "value": str(services[0].get("host") or services[0].get("address") or "nmap"),
+                "confidence": "high",
+                "priority": "medium",
+                "priorityScore": 65,
+                "serviceCount": len(services),
+                "tcpwrappedCount": tcpwrapped_count,
+                "reason": reason,
+            }
+        )
     return entities
 
 
@@ -1445,6 +1497,8 @@ def _service_from_shodan(
         port_number = int(port)
     except (TypeError, ValueError):
         return None
+    if not 1 <= port_number <= 65535:
+        return None
     return {
         "type": "service",
         "host": host,
@@ -1459,11 +1513,22 @@ def _service_from_shodan(
     }
 
 
-def _http_endpoint_for_service(host: str, port: int, http: dict[str, Any] | None = None) -> dict[str, Any] | None:
+def _http_endpoint_for_service(
+    host: str,
+    port: int,
+    http: dict[str, Any] | None = None,
+    module: str = "",
+) -> dict[str, Any] | None:
     if not host:
         return None
     http = http or {}
-    scheme = "https" if port in {443, 8443} else "http"
+    module_name = str(module or "").lower()
+    known_web_port = port in {80, 443, 3000, 5000, 8000, 8008, 8080, 8081, 8443, 8888, 9000, 9443}
+    has_http_metadata = any(http.get(name) not in (None, "", [], {}) for name in ("title", "server", "host", "location", "status", "components"))
+    module_is_web = "http" in module_name
+    if not known_web_port and not has_http_metadata and not module_is_web:
+        return None
+    scheme = "https" if port in {443, 8443, 9443} or "https" in module_name or "ssl" in module_name else "http"
     default_port = (scheme == "http" and port == 80) or (scheme == "https" and port == 443)
     netloc = host if default_port else f"{host}:{port}"
     return _endpoint_from_url(
@@ -1474,6 +1539,7 @@ def _http_endpoint_for_service(host: str, port: int, http: dict[str, Any] | None
             "status": http.get("status"),
             "title": http.get("title"),
             "server": http.get("server"),
+            "technologySignals": http.get("components", []),
         },
     )
 
@@ -1485,6 +1551,7 @@ def parse_shodan(raw_data: str, metadata: dict[str, Any] | None = None) -> dict[
         return entities
     metadata = metadata or {}
     source_kind = str(metadata.get("sourceKind") or metadata.get("tool") or "shodan")
+    _parse_shodan_relations(payload, entities)
     _parse_shodan_domain(payload, entities)
     _parse_shodan_host_like(payload, entities, source_kind)
     _parse_shodan_search(payload, entities)
@@ -1721,7 +1788,39 @@ def parse_graphql_test(raw_data: str, metadata: dict[str, Any] | None = None) ->
     return entities
 
 
+def _parse_shodan_relations(payload: dict[str, Any], entities: dict[str, list[dict[str, Any]]]) -> None:
+    relations = payload.get("relations", [])
+    if not isinstance(relations, list):
+        return
+    for item in relations[:2000]:
+        if not isinstance(item, dict):
+            continue
+        source_asset = str(item.get("sourceAsset") or "").strip().lower()
+        target_asset = str(item.get("targetAsset") or "").strip().lower()
+        relation_type = str(item.get("relationType") or "related_to").strip().lower()
+        if not source_asset or not target_asset or source_asset == target_asset:
+            continue
+        entities["observations"].append(
+            {
+                "type": "asset_relation",
+                "key": f"asset-relation:{source_asset}|{relation_type}|{target_asset}",
+                "value": target_asset,
+                "sourceAsset": source_asset,
+                "targetAsset": target_asset,
+                "relationType": relation_type,
+                "source": item.get("source", "shodan"),
+                "query": item.get("query", ""),
+                "address": item.get("address", ""),
+                "scopeStatus": item.get("scopeStatus", ""),
+                "confidence": item.get("confidence", "medium"),
+                "reason": item.get("reason")
+                or f"External intelligence relates {source_asset} to {target_asset} via {relation_type}.",
+            }
+        )
+
+
 def _parse_shodan_domain(payload: dict[str, Any], entities: dict[str, list[dict[str, Any]]]) -> None:
+    _parse_shodan_relations(payload, entities)
     domain = str(payload.get("domain") or "")
     records = payload.get("records", [])
     if not isinstance(records, list):
@@ -1736,11 +1835,11 @@ def _parse_shodan_domain(payload: dict[str, Any], entities: dict[str, list[dict[
         if hostname and record_type in {"A", "AAAA"} and value:
             entities["observations"].append(
                 {
-                    "type": "ip_leakage_candidate",
+                    "type": "dns_resolution",
                     "value": str(value),
                     "host": hostname,
-                    "confidence": "medium",
-                    "reason": "Shodan DNS data maps this hostname to an IP address.",
+                    "confidence": "high",
+                    "reason": "Shodan DNS data maps this hostname to an IP address; resolution alone is not evidence of an origin-IP leak.",
                 }
             )
         if hostname:
@@ -1757,15 +1856,43 @@ def _parse_shodan_domain(payload: dict[str, Any], entities: dict[str, list[dict[
 
 
 def _parse_shodan_host_like(payload: dict[str, Any], entities: dict[str, list[dict[str, Any]]], source_kind: str) -> None:
+    _parse_shodan_relations(payload, entities)
     ip = str(payload.get("ip") or payload.get("ip_str") or "")
     hostnames = [str(item) for item in payload.get("hostnames", []) if item] if isinstance(payload.get("hostnames"), list) else []
     ports = payload.get("ports", [])
     services = payload.get("services", [])
+    detailed_ports = {
+        int(item.get("port"))
+        for item in services
+        if isinstance(item, dict) and str(item.get("port", "")).isdigit() and 1 <= int(item["port"]) <= 65535
+    } if isinstance(services, list) else set()
     if isinstance(ports, list):
         for port in ports[:1000]:
+            try:
+                port_number = int(port)
+            except (TypeError, ValueError):
+                continue
+            if port_number in detailed_ports:
+                continue
             service = _service_from_shodan(hostnames[0] if hostnames else ip, port, address=ip, source=source_kind)
             if service:
                 entities["services"].append(service)
+                host = str(service.get("host") or ip)
+                entities["observations"].append(
+                    {
+                        "type": "exposed_service",
+                        "value": f"{host}:{service['port']}",
+                        "host": host,
+                        "address": ip,
+                        "port": service["port"],
+                        "source": source_kind,
+                        "confidence": "low",
+                        "reason": "Reported in Shodan/InternetDB port inventory without a detailed service banner.",
+                    }
+                )
+                endpoint = _http_endpoint_for_service(host, service["port"])
+                if endpoint:
+                    entities["endpoints"].append(endpoint)
     if isinstance(services, list):
         for banner in services[:1000]:
             if not isinstance(banner, dict):
@@ -1773,6 +1900,9 @@ def _parse_shodan_host_like(payload: dict[str, Any], entities: dict[str, list[di
             service_hostnames = [str(item) for item in banner.get("hostnames", []) if item] if isinstance(banner.get("hostnames"), list) else []
             host = service_hostnames[0] if service_hostnames else (hostnames[0] if hostnames else ip)
             port = banner.get("port")
+            module = str(banner.get("module") or "")
+            http_metadata = banner.get("http") if isinstance(banner.get("http"), dict) else None
+            ssl_metadata = banner.get("ssl") if isinstance(banner.get("ssl"), dict) else None
             service = _service_from_shodan(
                 host,
                 port,
@@ -1781,7 +1911,14 @@ def _parse_shodan_host_like(payload: dict[str, Any], entities: dict[str, list[di
                 product=str(banner.get("product") or ""),
                 version=str(banner.get("version") or ""),
                 source=source_kind,
-                extra={"domains": banner.get("domains", []), "timestamp": banner.get("timestamp")},
+                extra={
+                    "module": module,
+                    "domains": banner.get("domains", []),
+                    "cpes": banner.get("cpes", []),
+                    "ssl": ssl_metadata,
+                    "http": http_metadata,
+                    "timestamp": banner.get("timestamp"),
+                },
             )
             if service:
                 entities["services"].append(service)
@@ -1789,18 +1926,35 @@ def _parse_shodan_host_like(payload: dict[str, Any], entities: dict[str, list[di
                     {
                         "type": "exposed_service",
                         "value": f"{host}:{service['port']}",
+                        "host": host,
+                        "address": ip,
+                        "port": service["port"],
+                        "source": source_kind,
                         "confidence": "medium",
                         "reason": "Observed in Shodan service banner data.",
                     }
                 )
-                endpoint = _http_endpoint_for_service(host, service["port"], banner.get("http") if isinstance(banner.get("http"), dict) else None)
+                endpoint = _http_endpoint_for_service(host, service["port"], http_metadata, module)
                 if endpoint:
                     entities["endpoints"].append(endpoint)
-    _append_cve_observations(payload.get("vulns", []), entities, ip or ",".join(hostnames))
+                _append_cve_observations(
+                    banner.get("vulnerabilities") or banner.get("vulns", []),
+                    entities,
+                    host or ip,
+                    source_kind=source_kind,
+                )
+                _append_cpe_observations(banner.get("cpes", []), entities, host or ip)
+    _append_cve_observations(
+        payload.get("vulnerabilities") or payload.get("vulns", []),
+        entities,
+        ip or ",".join(hostnames),
+        source_kind=source_kind,
+    )
     _append_cpe_observations(payload.get("cpes", []), entities, ip or ",".join(hostnames))
 
 
 def _parse_shodan_search(payload: dict[str, Any], entities: dict[str, list[dict[str, Any]]]) -> None:
+    _parse_shodan_relations(payload, entities)
     matches = payload.get("matches", [])
     if not isinstance(matches, list):
         return
@@ -1810,6 +1964,11 @@ def _parse_shodan_search(payload: dict[str, Any], entities: dict[str, list[dict[
         ip = str(match.get("ip") or match.get("ip_str") or "")
         hostnames = [str(item) for item in match.get("hostnames", []) if item] if isinstance(match.get("hostnames"), list) else []
         host = hostnames[0] if hostnames else ip
+        module = str(match.get("module") or "")
+        http_metadata = match.get("http") if isinstance(match.get("http"), dict) else None
+        if http_metadata is None and match.get("httpTitle"):
+            http_metadata = {"title": match.get("httpTitle")}
+        ssl_metadata = match.get("ssl") if isinstance(match.get("ssl"), dict) else None
         service = _service_from_shodan(
             host,
             match.get("port"),
@@ -1818,7 +1977,17 @@ def _parse_shodan_search(payload: dict[str, Any], entities: dict[str, list[dict[
             product=str(match.get("product") or ""),
             version=str(match.get("version") or ""),
             source="shodan_search",
-            extra={"org": match.get("org"), "asn": match.get("asn"), "domains": match.get("domains", []), "timestamp": match.get("timestamp")},
+            extra={
+                "org": match.get("org"),
+                "isp": match.get("isp"),
+                "asn": match.get("asn"),
+                "module": module,
+                "domains": match.get("domains", []),
+                "cpes": match.get("cpes", []),
+                "ssl": ssl_metadata,
+                "http": http_metadata,
+                "timestamp": match.get("timestamp"),
+            },
         )
         if not service:
             continue
@@ -1827,29 +1996,61 @@ def _parse_shodan_search(payload: dict[str, Any], entities: dict[str, list[dict[
             {
                 "type": "exposed_service",
                 "value": f"{host}:{service['port']}",
+                "host": host,
+                "address": ip,
+                "port": service["port"],
+                "source": "shodan_search",
                 "confidence": "medium",
                 "reason": "Observed in Shodan search results.",
             }
         )
-        endpoint = _http_endpoint_for_service(host, service["port"], {"title": match.get("httpTitle")})
+        endpoint = _http_endpoint_for_service(host, service["port"], http_metadata, module)
         if endpoint:
             entities["endpoints"].append(endpoint)
+        _append_cve_observations(
+            match.get("vulnerabilities") or match.get("vulns", []),
+            entities,
+            host or ip,
+            source_kind="shodan_search",
+        )
+        _append_cpe_observations(match.get("cpes", []), entities, host or ip)
 
 
 def _parse_shodan_target_summary(payload: dict[str, Any], entities: dict[str, list[dict[str, Any]]]) -> None:
-    for ip in payload.get("ipLeakageCandidates", []) if isinstance(payload.get("ipLeakageCandidates"), list) else []:
+    _parse_shodan_relations(payload, entities)
+    resolved_values = payload.get("resolvedIps", [])
+    if not isinstance(resolved_values, list):
+        resolved_values = []
+    for ip in resolved_values:
         entities["observations"].append(
             {
-                "type": "ip_leakage_candidate",
+                "type": "dns_resolution",
                 "value": str(ip),
-                "confidence": "medium",
-                "reason": "Collected during Shodan target summary.",
+                "host": str(payload.get("target") or ""),
+                "confidence": "high",
+                "reason": "Resolved during Shodan target summary; this does not by itself indicate an origin-IP leak.",
             }
         )
+    legacy_candidates = payload.get("ipLeakageCandidates", [])
+    if isinstance(legacy_candidates, list) and not resolved_values:
+        for ip in legacy_candidates:
+            entities["observations"].append(
+                {
+                    "type": "ip_exposure_candidate",
+                    "value": str(ip),
+                    "confidence": "low",
+                    "reason": "Legacy Shodan target-summary data labeled this address as a leakage candidate; validate routing and CDN/origin context before drawing that conclusion.",
+                }
+            )
     _append_cve_observations(payload.get("possibleCves", []), entities, str(payload.get("target") or ""))
     host = payload.get("host")
     if isinstance(host, dict):
         _parse_shodan_host_like(host, entities, "shodan_host")
+    hosts = payload.get("hosts")
+    if isinstance(hosts, dict):
+        for nested in hosts.values():
+            if isinstance(nested, dict):
+                _parse_shodan_host_like(nested, entities, "shodan_host")
     internetdb = payload.get("internetdb")
     if isinstance(internetdb, dict):
         for nested in internetdb.values():
@@ -1863,12 +2064,22 @@ def _parse_shodan_target_summary(payload: dict[str, Any], entities: dict[str, li
         _parse_shodan_domain(domain, entities)
 
 
-def _append_cve_observations(vulns: Any, entities: dict[str, list[dict[str, Any]]], target: str) -> None:
-    values = vulns.keys() if isinstance(vulns, dict) else vulns
-    if isinstance(values, str) or (not isinstance(values, list) and not hasattr(values, "__iter__")):
+def _append_cve_observations(
+    vulns: Any,
+    entities: dict[str, list[dict[str, Any]]],
+    target: str,
+    *,
+    source_kind: str = "shodan",
+) -> None:
+    if isinstance(vulns, dict):
+        values: list[Any] = [{"cveId": cve_id, **(metadata if isinstance(metadata, dict) else {})} for cve_id, metadata in vulns.items()]
+    elif isinstance(vulns, list):
+        values = vulns
+    else:
         return
-    for cve in list(values)[:1000]:
-        cve_text = str(cve)
+    for cve in values[:1000]:
+        metadata = cve if isinstance(cve, dict) else {}
+        cve_text = str(metadata.get("cveId") or metadata.get("id") or cve).upper()
         if not cve_text.startswith("CVE-"):
             continue
         entities["observations"].append(
@@ -1876,8 +2087,13 @@ def _append_cve_observations(vulns: Any, entities: dict[str, list[dict[str, Any]
                 "type": "possible_cve",
                 "value": cve_text,
                 "target": target,
-                "confidence": "low",
-                "reason": "Reported by Shodan/InternetDB and requires validation before being treated as a finding.",
+                "source": source_kind,
+                "providerVerified": bool(metadata.get("verified")),
+                "cvssScore": metadata.get("cvss"),
+                "summary": str(metadata.get("summary") or "")[:500],
+                "references": metadata.get("references", []),
+                "confidence": "medium" if metadata.get("verified") else "low",
+                "reason": "Reported by Shodan/InternetDB and requires target-specific validation before being treated as a finding.",
             }
         )
 
@@ -2083,6 +2299,14 @@ def recommended_next_actions(stored: dict[str, list[dict[str, Any]]], observatio
                     "risk": "low",
                 }
             )
+        elif observation.get("type") == "asset_relation" and observation.get("scopeStatus") != "in_scope":
+            actions.append(
+                {
+                    "action": "review_related_asset_scope",
+                    "reason": f"Review whether related asset {observation.get('targetAsset') or observation.get('value')} belongs to this engagement before active testing.",
+                    "risk": "info",
+                }
+            )
     if not actions and stored.get("parameters"):
         actions.append(
             {
@@ -2151,8 +2375,18 @@ def prepare_target_context(workspace_id: str, target: str, purpose: str = "next_
     entities = _load_target_entities(wid, host)
     scope_context = scope_status_for_target(host)
     endpoints = entities["endpoints"]
-    services = entities["services"]
-    observations = entities["observations"]
+    all_services = entities["services"]
+    services = [
+        item
+        for item in all_services
+        if isinstance(item, dict) and is_reportable(item) and item.get("analysisEligible") is not False
+    ]
+    all_observations = entities["observations"]
+    observations = [
+        item
+        for item in all_observations
+        if isinstance(item, dict) and item.get("analysisEligible") is not False and not item.get("retired")
+    ]
     prioritized_observations = sorted(observations, key=lambda item: int(item.get("priorityScore", 0) or 0), reverse=True)
     findings = entities["findings"]
     recent_actions = entities["actions"][-10:]
@@ -2209,6 +2443,16 @@ def prepare_target_context(workspace_id: str, target: str, purpose: str = "next_
             }
             for item in services[:30]
         ],
+        "serviceInventory": {
+            "total": len(all_services),
+            "analysisEligible": len(services),
+            "suppressed": len(all_services) - len(services),
+        },
+        "observationInventory": {
+            "total": len(all_observations),
+            "analysisEligible": len(observations),
+            "suppressed": len(all_observations) - len(observations),
+        },
         "knownEndpoints": {
             "total": len(endpoints),
             "interesting": [
@@ -2264,6 +2508,16 @@ def workspace_summary(workspace_id: str) -> dict[str, Any]:
             {
                 "target": target_meta.get("target"),
                 "serviceCount": len(entities["services"]),
+                "analysisEligibleServiceCount": sum(
+                    1
+                    for item in entities["services"]
+                    if isinstance(item, dict) and is_reportable(item) and item.get("analysisEligible") is not False
+                ),
+                "suppressedServiceCount": sum(
+                    1
+                    for item in entities["services"]
+                    if not is_reportable(item) or (isinstance(item, dict) and item.get("analysisEligible") is False)
+                ),
                 "endpointCount": len(entities["endpoints"]),
                 "parameterCount": len(entities["parameters"]),
                 "findingCount": len(entities["findings"]),
@@ -2637,7 +2891,9 @@ def resolve_report_output_path(
         return resolved
     if not default_name.endswith(f".{extension}"):
         default_name = f"{default_name}.{extension}"
-    resolved = reports_root / default_name
+    workspace_prefix = f"{normalize_workspace_id(workspace_id)}-"
+    namespaced_name = default_name if Path(default_name).name.startswith(workspace_prefix) else f"{workspace_prefix}{default_name}"
+    resolved = reports_root / namespaced_name
     resolved.parent.mkdir(parents=True, exist_ok=True)
     return resolved
 

@@ -247,6 +247,71 @@ class WebDiscoveryAdapterTests(unittest.TestCase):
                 self.assertTrue(svg_path.exists())
                 self.assertIn("<svg", svg_path.read_text(encoding="utf-8"))
 
+    def test_crawler_records_workspace_external_relations_without_following_them(self) -> None:
+        seen_hosts: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen_hosts.append(str(request.url.host))
+            if request.url.host == "app.acme-demo.test":
+                return httpx.Response(
+                    200,
+                    text=(
+                        '<html><body><a href="https://related.acme-demo.test/docs">Docs</a>'
+                        '<form method="post" action="https://related.acme-demo.test/session">'
+                        '<input name="username"></form></body></html>'
+                    ),
+                    headers={"content-type": "text/html"},
+                )
+            return httpx.Response(200, text="unexpected external fetch", headers={"content-type": "text/html"})
+
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                scope.save_scope(
+                    ["app.acme-demo.test", "related.acme-demo.test"],
+                    "test",
+                    "Example Client",
+                )
+                workspace.create_workspace(
+                    "engagement",
+                    organization="Example Client",
+                    hosts=["app.acme-demo.test"],
+                )
+                with stub_httpx(handler):
+                    result = json.loads(
+                        crawler_adapter.crawl(
+                            {
+                                "target": "https://app.acme-demo.test/",
+                                "workspaceId": "engagement",
+                                "maxDepth": 2,
+                                "maxPages": 10,
+                                "delayMillis": 0,
+                                "background": False,
+                                "confirm": True,
+                            }
+                        )
+                    )
+
+                self.assertEqual(seen_hosts, ["app.acme-demo.test"])
+                external_relations = [item for item in result["relations"] if item.get("targetHost") == "related.acme-demo.test"]
+                self.assertEqual({item["relationType"] for item in external_relations}, {"navigation", "form_action"})
+                self.assertTrue(all(item["scopeStatus"] == "out_of_scope" for item in external_relations))
+                self.assertTrue(all(item["followed"] is False for item in external_relations))
+                self.assertEqual(result["crawl"]["externalRelationCount"], 2)
+                self.assertTrue(
+                    any(node.get("type") == "related_endpoint" for node in result["flowGraph"]["nodes"])
+                )
+
+                entities = workspace._load_target_entities("engagement", "app.acme-demo.test")
+                self.assertFalse(
+                    any("related.acme-demo.test" in str(item.get("url", "")) for item in entities["endpoints"])
+                )
+                relations = [item for item in entities["observations"] if item.get("type") == "asset_relation"]
+                self.assertEqual({item["relationType"] for item in relations}, {"navigation", "form_action"})
+                self.assertEqual(
+                    {item["target"] for item in workspace.workspace_summary("engagement")["targets"]},
+                    {"app.acme-demo.test"},
+                )
+
     def test_passive_analyzers_normalize_method_prefixed_urls_and_skip_numeric_spa_routes(self) -> None:
         file_candidate = lfi_rfi.candidate_from_observation(
             {

@@ -197,7 +197,8 @@ if [ -x "$ROOT_DIR/MCPS/Synapse-MCP/bin/synapse-mcp" ]; then
     if [ -z "$missing_tools" ]; then
         printf 'OK   Synapse MCP starts and exposes expected adapter tools\n'
     else
-        printf 'WARN Synapse MCP started but missing expected tools:%s\n' "$missing_tools"
+        printf 'MISS Synapse MCP started but missing expected tools:%s\n' "$missing_tools"
+        ok=1
     fi
 else
     printf 'MISS Synapse MCP launcher is not executable\n'

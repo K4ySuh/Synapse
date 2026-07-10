@@ -16,17 +16,6 @@ BANNER_PATH = SYNAPSE_ROOT / "assets" / "Offensive-Synapse-Banner.png"
 # The report hero uses the darker, blue-toned "docs" brand banner (optimized JPEG),
 # which sits more harmonically over the navy report body than the red console banner.
 DOCS_BANNER_PATH = SYNAPSE_ROOT / "assets" / "Synapse-Docs-Banner.jpg"
-# Operator opted into the design-template typography (Oxanium / IBM Plex Sans /
-# JetBrains Mono). The faces load from Google Fonts as a progressive enhancement;
-# every font-family below keeps a system fallback so the report still renders
-# fully offline if the network (or the CDN) is unavailable.
-FONT_LINKS = (
-    '<link rel="preconnect" href="https://fonts.googleapis.com">'
-    '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
-    '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?'
-    "family=Oxanium:wght@500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&"
-    'family=JetBrains+Mono:wght@400;500&display=swap">'
-)
 MODE_TOGGLE_SCRIPT = (
     "function setMode(mode){var high=mode==='high-level';document.body.classList.toggle('operator',!high);"
     "document.body.classList.toggle('high-level',high);var op=document.getElementById('btnOp');var hi=document.getElementById('btnHigh');"
@@ -76,9 +65,6 @@ def html_shell(title: Any, body: str, script: str = "", meta: dict[str, Any] | N
         "<!doctype html>\n<html><head><meta charset=\"utf-8\">"
         "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
         f"<title>{escape_text(title)}</title>"
-        # Operator-approved design typography from Google Fonts, with system-font
-        # fallbacks in the CSS so the report degrades gracefully offline.
-        f"{FONT_LINKS}"
         f"<style>{report_css()}</style>"
         f"{script_html}"
         f"</head><body class=\"{escape_text(body_class)}\">"

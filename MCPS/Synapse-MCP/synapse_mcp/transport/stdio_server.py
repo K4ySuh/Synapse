@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from pathlib import Path
 from typing import Any
 
+from .. import __version__
 from ..adapters.infra import nmap_adapter, shodan_adapter
 from ..adapters.social import pretext_generator
 from ..adapters.web import (
@@ -47,7 +48,7 @@ from ..core.purple_team import gap_analysis
 
 PROTOCOL_VERSION = "2025-03-26"
 SERVER_NAME = "synapse-mcp"
-SERVER_VERSION = "0.5.0a0"
+SERVER_VERSION = __version__
 MAIN_PROMPT_NAME = "synapse-main"
 
 
@@ -327,7 +328,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "properties": {
                 "workspaceId": {"type": "string"},
                 "target": {"type": "string"},
-                "layer": {"type": "string", "enum": ["perimeter", "js", "auth", "access_control", "web_vulnerabilities", "cve"]},
+                "layer": {"type": "string", "enum": ["perimeter", "js", "auth", "access_control", "web_vulnerabilities", "cve", "engagement"]},
                 "refresh": {"type": "boolean", "default": False},
                 "redactionMode": {"type": "string", "default": "high_level"},
             },
@@ -444,7 +445,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "properties": {
                 "workspaceId": {"type": "string"},
                 "target": {"type": "string"},
-                "layer": {"type": "string", "enum": ["perimeter", "js", "auth", "access_control", "web_vulnerabilities", "cve"]},
+                "layer": {"type": "string", "enum": ["perimeter", "js", "auth", "access_control", "web_vulnerabilities", "cve", "engagement"]},
                 "refresh": {"type": "boolean", "default": False},
                 "format": {"type": "string", "enum": ["html", "markdown"], "default": "html"},
                 "redactionMode": {"type": "string", "default": "high_level"},
@@ -1835,6 +1836,13 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 },
                 "refresh": {"type": "boolean", "default": False},
                 "minCvss": {"type": "number", "minimum": 0, "maximum": 10},
+                "includeVersionUnknown": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Opt into broad NVD keyword correlation for components without a version. Uncorroborated results remain suppressed.",
+                },
+                "nvdResultsPerComponent": {"type": "integer", "minimum": 1, "maximum": 200, "default": 20},
+                "maxCandidates": {"type": "integer", "minimum": 1, "maximum": 250, "default": 25},
                 "ingest": {"type": "boolean", "default": True},
                 "requestTimeout": {"type": "integer", "minimum": 1, "default": 20},
                 **HTTP_POLICY_PROPERTIES,
@@ -2668,7 +2676,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "shodan.domain",
-        "description": "Enumerate Shodan DNS records and subdomains for a domain, including IP leakage candidates.",
+        "description": "Enumerate Shodan DNS records and subdomains for a domain, preserving DNS and asset relationships without treating ordinary resolution as origin-IP leakage.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -2737,7 +2745,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "shodan.search",
-        "description": "Search Shodan for exposed services using an auditable query. May consume query credits.",
+        "description": "Search Shodan for exposed services using an auditable query. Results are normalized per discovered asset with relations back to the query seed. May consume query credits.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -2782,15 +2790,17 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "shodan.target_summary",
-        "description": "Build a target-level Shodan summary for a hostname or IP: subdomains, IP leakage candidates, open ports, and possible CVEs.",
+        "description": "Build a target-level Shodan summary for a hostname or IP: DNS relations, resolved addresses, host/InternetDB service metadata, TLS context, and possible CVEs.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "target": {"type": "string"},
+                "domain": {"type": "string", "description": "Optional registrable/root domain to enumerate when target is a hostname."},
                 "includeHost": {"type": "boolean", "default": True},
                 "includeInternetDb": {"type": "boolean", "default": True},
                 "includeDomain": {"type": "boolean", "default": True},
-                "maxInternetDbIps": {"type": "integer", "minimum": 1, "default": 10},
+                "maxHostIps": {"type": "integer", "minimum": 0, "maximum": 25, "default": 3},
+                "maxInternetDbIps": {"type": "integer", "minimum": 0, "maximum": 100, "default": 10},
                 "history": {"type": "boolean", "default": False},
                 "minify": {"type": "boolean", "default": False},
                 "type": {"type": "string"},
@@ -3009,7 +3019,57 @@ def _schema_type_matches(value: Any, expected: str) -> bool:
         return isinstance(value, list)
     if expected == "object":
         return isinstance(value, dict)
+    if expected == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
     return True
+
+
+def _validate_schema_value(name: str, field: str, value: Any, schema: dict[str, Any]) -> None:
+    alternatives = schema.get("oneOf")
+    if isinstance(alternatives, list):
+        for alternative in alternatives:
+            if not isinstance(alternative, dict):
+                continue
+            try:
+                _validate_schema_value(name, field, value, alternative)
+            except McpError:
+                continue
+            break
+        else:
+            raise McpError(-32602, f"Invalid arguments for {name}: field {field} does not match any allowed shape")
+        return
+
+    expected = schema.get("type")
+    if isinstance(expected, str) and not _schema_type_matches(value, expected):
+        raise McpError(-32602, f"Invalid arguments for {name}: field {field} must be {expected}")
+    allowed = schema.get("enum")
+    if isinstance(allowed, list) and value not in allowed:
+        rendered = ", ".join(str(item) for item in allowed)
+        raise McpError(-32602, f"Invalid arguments for {name}: field {field} must be one of: {rendered}")
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        minimum = schema.get("minimum")
+        maximum = schema.get("maximum")
+        if isinstance(minimum, (int, float)) and value < minimum:
+            raise McpError(-32602, f"Invalid arguments for {name}: field {field} must be >= {minimum}")
+        if isinstance(maximum, (int, float)) and value > maximum:
+            raise McpError(-32602, f"Invalid arguments for {name}: field {field} must be <= {maximum}")
+    if isinstance(value, list):
+        item_schema = schema.get("items")
+        if isinstance(item_schema, dict):
+            for index, item in enumerate(value):
+                _validate_schema_value(name, f"{field}[{index}]", item, item_schema)
+    if isinstance(value, dict):
+        properties = schema.get("properties")
+        if isinstance(properties, dict):
+            for nested_name, nested_value in value.items():
+                nested_schema = properties.get(nested_name)
+                if isinstance(nested_schema, dict):
+                    _validate_schema_value(name, f"{field}.{nested_name}", nested_value, nested_schema)
+        required = schema.get("required")
+        if isinstance(required, list):
+            for nested_name in required:
+                if isinstance(nested_name, str) and nested_name not in value:
+                    raise McpError(-32602, f"Invalid arguments for {name}: field {field} is missing {nested_name}")
 
 
 def validate_tool_arguments(name: str, args: dict[str, Any]) -> None:
@@ -3030,12 +3090,12 @@ def validate_tool_arguments(name: str, args: dict[str, Any]) -> None:
     if not isinstance(properties, dict):
         return
     for field, value in args.items():
+        if field.startswith("_"):
+            raise McpError(-32602, f"Invalid arguments for {name}: field {field} is reserved for internal workers")
         prop = properties.get(field)
         if not isinstance(prop, dict):
             continue
-        expected = prop.get("type")
-        if isinstance(expected, str) and not _schema_type_matches(value, expected):
-            raise McpError(-32602, f"Invalid arguments for {name}: field {field} must be {expected}")
+        _validate_schema_value(name, field, value, prop)
 
 
 def call_tool(name: str, args: dict[str, Any]) -> str:

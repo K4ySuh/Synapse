@@ -5,7 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from helpers import isolated_state
-from synapse_mcp.core import cache, evidence, perimeter, scope, workspace
+from synapse_mcp.core import cache, evidence, fingerprint, perimeter, scope, workspace
 from synapse_mcp.core.adapters import surface_candidate
 from synapse_mcp.core.documentation import builder as documentation_builder
 from synapse_mcp.core.errors import McpError
@@ -328,6 +328,36 @@ class WorkspaceIngestionTests(unittest.TestCase):
                 self.assertEqual(context["knownServices"][0]["port"], 443)
                 self.assertEqual(context["knownServices"][0]["product"], "nginx")
 
+    def test_workspace_suppresses_scan_interference_from_planning_and_fingerprints(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                ports = "".join(
+                    f'<port protocol="tcp" portid="{port}"><state state="open"/><service name="tcpwrapped"/></port>'
+                    for port in range(1, 101)
+                )
+                raw = (
+                    '<nmaprun><host><address addr="203.0.113.60" addrtype="ipv4"/>'
+                    '<hostnames><hostname name="edge.example.com"/></hostnames>'
+                    f"<ports>{ports}</ports></host></nmaprun>"
+                )
+
+                result = workspace.ingest_data("engagement", "edge.example.com", "nmap", "tool_output", "xml", raw)
+                context = workspace.prepare_target_context("engagement", "edge.example.com")
+                fingerprint_result = fingerprint.analyze_workspace(
+                    {"workspaceId": "engagement", "target": "edge.example.com", "ingest": False}
+                )
+
+                self.assertEqual(result["entitiesCreated"]["services"], 100)
+                self.assertEqual(context["knownServices"], [])
+                self.assertEqual(
+                    context["serviceInventory"],
+                    {"total": 100, "analysisEligible": 0, "suppressed": 100},
+                )
+                interference = next(item for item in context["observations"] if item.get("type") == "scan_interference")
+                self.assertEqual(interference["tcpwrappedCount"], 100)
+                self.assertEqual(fingerprint_result["fingerprint"]["serviceCount"], 0)
+                self.assertEqual(fingerprint_result["fingerprint"]["technologyComponents"], [])
+
     def test_workspace_ingests_shodan_domain_and_port_models(self) -> None:
         with TemporaryDirectory() as tmp:
             with isolated_state(Path(tmp)):
@@ -350,7 +380,17 @@ class WorkspaceIngestionTests(unittest.TestCase):
                                 "vulns": ["CVE-2024-0001"],
                             }
                         },
-                        "ipLeakageCandidates": ["203.0.113.10"],
+                        "resolvedIps": ["203.0.113.10"],
+                        "relations": [
+                            {
+                                "sourceAsset": "api.example.com",
+                                "targetAsset": "203.0.113.10",
+                                "relationType": "resolves_to",
+                                "source": "shodan.target_summary",
+                                "confidence": "high",
+                            }
+                        ],
+                        "ipLeakageCandidates": [],
                         "possibleCves": ["CVE-2024-0001"],
                     }
                 )
@@ -362,7 +402,9 @@ class WorkspaceIngestionTests(unittest.TestCase):
                 self.assertGreaterEqual(result["entitiesCreated"]["observations"], 4)
                 self.assertEqual({item["port"] for item in context["knownServices"]}, {80, 443})
                 observation_types = {item["type"] for item in context["observations"]}
-                self.assertIn("ip_leakage_candidate", observation_types)
+                self.assertIn("dns_resolution", observation_types)
+                self.assertIn("asset_relation", observation_types)
+                self.assertNotIn("ip_exposure_candidate", observation_types)
                 self.assertIn("possible_cve", observation_types)
                 self.assertIn("cpe_observed", observation_types)
 

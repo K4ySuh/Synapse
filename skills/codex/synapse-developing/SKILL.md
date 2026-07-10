@@ -42,8 +42,9 @@ editing behavior.
    request requires them.
 4. Make the narrowest coherent change.
 5. Preserve scope checks, confirmation gates, approval metadata, credential
-   references, redaction, evidence logging, candidate semantics, background job
-   behavior, and passive/active separation.
+   references, evidence logging, candidate semantics, background-job behavior,
+   passive/active separation, and rich local report context. Existing redaction
+   modes are compatibility inputs, not the primary internal-report boundary.
 6. Add or update focused tests for changed behavior.
 7. Update the local `docs/Version-Log.md` (gitignored per-developer scratch log,
    provisioned from `docs/Version-Log.template.md` on setup) when behavior,
@@ -111,6 +112,11 @@ For passive adapters, read existing workspace, dumps, fingerprints, or operator
 data and optionally ingest observations through `workspace.ingest_data`. Make
 scope status explicit without hiding passive out-of-scope input.
 
+Discovery adapters may normalize relations to assets outside the initial seed
+scope so the operator can map the perimeter. Keep relation provenance and scope
+status, and do not convert passive relation discovery into active traffic
+without the normal workspace-scope and approval gates.
+
 For active adapters:
 
 - Enforce exact target scope before execution.
@@ -141,12 +147,14 @@ mutable fields such as `evidenceIds` as deduplication identity.
 Maintain conservative semantics:
 
 - `candidate`: requires validation or review.
-- `finding`: operator-reviewed issue suitable for tracking.
+- `finding`: lifecycle-managed issue suitable for tracking. Deterministic
+  passive facts may be confirmed with `operatorReviewed=false` pending signoff.
 - `gap`: missing coverage or unresolved uncertainty.
 - `evidence`: traceable support for an action, observation, or finding.
 
-Do not promote scanner labels or passive observations into confirmed findings
-in code.
+Do not promote scanner labels or heuristic passive observations into confirmed
+findings in code. The deterministic-fact exception must not be used for
+candidates.
 
 ## Documentation And Reports
 
@@ -160,8 +168,10 @@ Preserve the current internal report model:
   client-safe by default.
 
 Keep candidates visually and textually distinct from confirmed findings. Include
-coverage and gaps when useful. Avoid adding external report dependencies unless
-the operator explicitly accepts that tradeoff.
+coverage and gaps when useful. Generated HTML must remain self-contained with
+no external runtime assets. Treat new internal redaction work as lower priority
+than faithful workspace/layer rendering unless the operator explicitly requests
+a client-export boundary.
 
 ## Testing
 
