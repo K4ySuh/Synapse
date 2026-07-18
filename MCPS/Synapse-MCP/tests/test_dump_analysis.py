@@ -94,10 +94,40 @@ class DumpAnalysisTests(unittest.TestCase):
                 ]
                 self.assertTrue(sqli_surfaces)
 
-    def test_xss_generate_test_code_returns_payloads(self) -> None:
-        result = json.loads(xss_analysis.generate_test_code({"parameter": "q", "context": "html"}))
+    def test_xss_generate_test_code_enforces_explicit_payload_modes(self) -> None:
+        result = json.loads(
+            xss_analysis.generate_test_code(
+                {"parameter": "q", "context": "html", "url": "https://example.com/search", "marker": "RTBITXSS20260717"}
+            )
+        )
         self.assertEqual(result["parameter"], "q")
-        self.assertIn("<img src=x onerror=alert(1)>", result["payloads"])
+        self.assertEqual(result["mode"], "reflection_marker")
+        self.assertEqual(result["riskTier"], "low")
+        self.assertEqual(result["payloads"], ["RTBITXSS20260717"])
+        self.assertEqual(result["exactWirePayloads"], ["RTBITXSS20260717"])
+        self.assertIsNone(result["browserConsoleHelper"])
+        marker_only = json.dumps(result["payloads"] + [item["value"] for item in result["encodingVariants"]]).lower()
+        for executable_token in ("<", ">", "onerror", "onload", "javascript:", "alert(", "script"):
+            self.assertNotIn(executable_token, marker_only)
+
+        breakout = json.loads(
+            xss_analysis.generate_test_code(
+                {"parameter": "q", "context": "html", "mode": "context_breakout", "marker": "RTBITXSS20260717"}
+            )
+        )
+        self.assertEqual(breakout["riskTier"], "medium")
+        self.assertTrue(breakout["browserConsoleHelper"])
+        self.assertFalse(any(token in json.dumps(breakout["payloads"]).lower() for token in ("onerror", "onload", "javascript:", "alert(")))
+
+        execution = json.loads(
+            xss_analysis.generate_test_code(
+                {"parameter": "q", "context": "html", "mode": "execution", "marker": "RTBITXSS20260717"}
+            )
+        )
+        self.assertEqual(execution["riskTier"], "high")
+        self.assertTrue(any("alert(" in payload or "onerror" in payload or "onload" in payload for payload in execution["payloads"]))
+        with self.assertRaisesRegex(Exception, "ASCII alphanumeric"):
+            xss_analysis.generate_test_code({"parameter": "q", "marker": "unsafe-marker"})
 
     def test_xss_dump_analysis_can_ingest_workspace_observations(self) -> None:
         with TemporaryDirectory() as tmp:

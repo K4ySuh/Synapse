@@ -73,7 +73,7 @@ def find_candidates(entities: dict[str, list[dict[str, Any]]]) -> list[dict[str,
         name = str(parameter.get("name", ""))
         location = str(parameter.get("location", "") or "query").lower()
         preview = str(parameter.get("valuePreview", "") or parameter.get("value", ""))
-        ecosystem = detect_ecosystem(name, preview)
+        ecosystem = str(parameter.get("valueShape", "")) or detect_ecosystem(name, preview)
         if not ecosystem:
             continue
         signed_shape = _signed_shape(parameter, siblings)

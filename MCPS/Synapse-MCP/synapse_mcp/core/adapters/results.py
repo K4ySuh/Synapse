@@ -9,6 +9,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .models import RiskTier, to_camel
+from ..url_hygiene import canonical_url_identity, normalize_parameter_name, redact_url_query_values
 
 
 Confidence = Literal["low", "medium", "high"]
@@ -275,7 +276,8 @@ def _surface_slug(value: Any) -> str:
 
 
 def surface_candidate_id(method: str, url: str, location: str, parameter: str) -> str:
-    return f"tc_{_surface_slug(method)}_{_surface_slug(url)}_{_surface_slug(location)}_{_surface_slug(parameter)}"[:170]
+    identity = canonical_url_identity(url) or redact_url_query_values(url) or str(url)
+    return f"tc_{_surface_slug(method)}_{_surface_slug(identity)}_{_surface_slug(location)}_{_surface_slug(normalize_parameter_name(parameter))}"[:170]
 
 
 def surface_candidate(
@@ -303,6 +305,8 @@ def surface_candidate(
     duplicate stored evidence. Returned as a plain dict (camelCase), like ``passive_finding``.
     """
     method = (method or "GET").upper()
+    url = redact_url_query_values(url) or url
+    parameter = normalize_parameter_name(parameter)
     score = int(priority_score or 0)
     prefixed_reason = f"[{vuln_class}] {reason}" if reason else ""
     detail: dict[str, Any] = {

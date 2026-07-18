@@ -10,7 +10,7 @@ import httpx
 
 from helpers import assert_shared_html_shell, isolated_state, wait_for_job
 from http_stub import stub_httpx
-from synapse_mcp.adapters.web import js_intel
+from synapse_mcp.adapters.web import crawler_adapter, js_intel
 from synapse_mcp.core import background_jobs, credentials, scope, workspace
 from synapse_mcp.core.js import extractors, normalizer
 from synapse_mcp.core.http.models import HttpResponse
@@ -18,6 +18,95 @@ from synapse_mcp.transport import stdio_server
 
 
 class JsIntelligenceTests(unittest.TestCase):
+    def test_crawler_cached_scripts_are_reused_passively_and_refresh_is_explicit(self) -> None:
+        request_counts: dict[str, int] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            path = urlsplit(str(request.url)).path
+            request_counts[path] = request_counts.get(path, 0) + 1
+            if path == "/":
+                return httpx.Response(
+                    200,
+                    text='<html><script src="/static/a.js"></script><script src="/static/b.js"></script></html>',
+                    headers={"content-type": "text/html"},
+                )
+            if path == "/static/a.js":
+                return httpx.Response(200, text="fetch('/api/a')", headers={"content-type": "application/javascript", "etag": "a1"})
+            if path == "/static/b.js":
+                return httpx.Response(200, text="fetch('/api/b')", headers={"content-type": "application/javascript", "etag": "b1"})
+            return httpx.Response(404, text="missing")
+
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                target = "http://app.acme-demo.test/"
+                scope.save_scope([target], "test", "Example Client")
+                with stub_httpx(handler):
+                    crawl = json.loads(
+                        crawler_adapter.crawl(
+                            {
+                                "workspaceId": "engagement",
+                                "target": target,
+                                "maxDepth": 1,
+                                "maxPages": 5,
+                                "delayMillis": 0,
+                                "analyzeScripts": True,
+                                "background": False,
+                                "confirm": True,
+                                "approvalId": "crawl-cache-test",
+                            }
+                        )
+                    )
+                self.assertEqual(request_counts, {"/": 1, "/static/a.js": 1, "/static/b.js": 1})
+
+                discovered = json.loads(js_intel.discover_assets({"workspaceId": "engagement", "target": target}))
+                self.assertEqual(discovered["assetCount"], 2)
+                self.assertTrue(all(Path(asset["localPath"]).is_file() for asset in discovered["assets"]))
+                self.assertTrue(all(asset["cacheSource"] == "crawler" for asset in discovered["assets"]))
+                self.assertTrue(all(asset["approvalId"] == "crawl-cache-test" for asset in discovered["assets"]))
+                self.assertTrue(all(crawl["ingestion"]["evidenceId"] in asset["evidenceIds"] for asset in discovered["assets"]))
+
+                analysis = json.loads(
+                    js_intel.analyze_static(
+                        {
+                            "workspaceId": "engagement",
+                            "target": target,
+                            "manifestPath": discovered["manifestPath"],
+                            "background": False,
+                        }
+                    )
+                )
+                self.assertEqual(analysis["summary"]["assetCount"], 2)
+                self.assertEqual(analysis["summary"]["endpointCount"], 2)
+
+                before_reuse = dict(request_counts)
+                with stub_httpx(handler):
+                    reused = json.loads(
+                        js_intel.fetch_assets(
+                            {"workspaceId": "engagement", "target": target, "assets": discovered["assets"]}
+                        )
+                    )
+                self.assertEqual(request_counts, before_reuse)
+                self.assertEqual(reused["cacheHitCount"], 2)
+                self.assertEqual(reused["networkFetchCount"], 0)
+
+                with stub_httpx(handler):
+                    refreshed = json.loads(
+                        js_intel.fetch_assets(
+                            {
+                                "workspaceId": "engagement",
+                                "target": target,
+                                "assets": discovered["assets"],
+                                "refresh": True,
+                                "confirm": True,
+                                "approvalId": "refresh-cache-test",
+                            }
+                        )
+                    )
+                self.assertEqual(request_counts["/static/a.js"], 2)
+                self.assertEqual(request_counts["/static/b.js"], 2)
+                self.assertEqual(refreshed["cacheHitCount"], 0)
+                self.assertEqual(refreshed["networkFetchCount"], 2)
+
     def test_js_normalizer_rejects_code_blobs_external_endpoints_and_identifier_params(self) -> None:
         entities = normalizer.build_entities(
             {

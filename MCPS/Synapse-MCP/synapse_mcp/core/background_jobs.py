@@ -205,7 +205,10 @@ def _worker_result_finalizer(_record: dict[str, Any], _result: dict[str, Any], d
                 if flow_graph.get(key) is not None
             }
         return {
-            "summary": payload.get("summary", {}),
+            "summary": {
+                **(payload.get("summary", {}) if isinstance(payload.get("summary"), dict) else {}),
+                **(payload.get("resultSummary", {}) if isinstance(payload.get("resultSummary"), dict) else {}),
+            },
             "crawl": payload.get("crawl", {}),
             "outputPath": payload.get("outputPath", ""),
             "flowGraph": compact_flow,
@@ -580,6 +583,8 @@ def _job_response(record: dict[str, Any], *, include_result: bool = False) -> di
     }
     if isinstance(result.get("summary"), dict):
         response["resultSummary"] = result["summary"]
+        if result["summary"].get("disposition"):
+            response["resultDisposition"] = result["summary"]["disposition"]
     if isinstance(result.get("counts"), dict):
         response["counts"] = result["counts"]
     if include_result:

@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import re
 from typing import Any
-from urllib.parse import urljoin, urlsplit, urlunsplit
+from urllib.parse import urljoin, urlsplit
+
+from ...core.url_hygiene import canonical_url_identity, normalize_parameter_name, redact_url_query_values
 
 
 STATIC_ASSET_EXTENSIONS = (
@@ -57,10 +59,15 @@ def strip_method_prefix(value: Any) -> str:
 
 def normalize_surface_url(value: Any) -> str:
     text = strip_method_prefix(value)
-    parsed = urlsplit(text)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-        return ""
-    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path or "/", parsed.query, ""))
+    return redact_url_query_values(text)
+
+
+def canonical_surface_url(value: Any) -> str:
+    return canonical_url_identity(strip_method_prefix(value))
+
+
+def normalize_surface_parameter(value: Any) -> str:
+    return normalize_parameter_name(value)
 
 
 def observation_surface_url(observation: dict[str, Any]) -> str:

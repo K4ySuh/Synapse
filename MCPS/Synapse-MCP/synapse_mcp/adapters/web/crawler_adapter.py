@@ -17,6 +17,13 @@ from urllib.parse import urlencode, parse_qsl, urljoin, urlsplit, urlunsplit
 from ...core import credentials, dumps, evidence, fingerprint, scope, workspace
 from ...core.errors import McpError
 from ...core.http import HttpClientPolicy, HttpRequest, http_client
+from ...core.url_hygiene import (
+    canonical_url_identity,
+    normalize_parameter_name,
+    redact_url_query_values,
+    redact_value_preview as redact_sensitive_preview,
+    safe_query_items,
+)
 from ...core.paths import synapse_python
 from ..command_utils import (
     approval_metadata,
@@ -27,6 +34,7 @@ from ..command_utils import (
     start_background_command,
 )
 from .surface_hygiene import is_likely_spa_asset_pollution, is_numeric_spa_route, resolve_discovered_link
+from . import js_intel
 
 
 STATIC_EXTENSIONS = (
@@ -364,7 +372,7 @@ def extract_literal_links(text: str, base_url: str, limit: int = 500) -> list[st
 
 
 def query_parameters(url: str) -> list[str]:
-    return sorted({name for name, _ in parse_qsl(urlsplit(url).query, keep_blank_values=True) if name})
+    return sorted({item["name"] for item in safe_query_items(url)})
 
 
 def split_http_message(raw: str) -> tuple[str, dict[str, str], str]:
@@ -747,7 +755,12 @@ def add_forms(sitemap: dict[str, Any], page_url: str, forms: list[dict[str, Any]
     host = url_host(page_url)
     host_entry = ensure_host(sitemap, host)
     seen = {
-        (form.get("pageUrl"), form.get("method"), form.get("action"), tuple(input_item.get("name", "") for input_item in form.get("inputs", [])))
+        (
+            canonical_url_identity(form.get("pageUrl", "")),
+            form.get("method"),
+            canonical_url_identity(form.get("action", "")),
+            tuple(sorted(normalize_parameter_name(input_item.get("name", "")) for input_item in form.get("inputs", []) if normalize_parameter_name(input_item.get("name", "")))),
+        )
         for form in host_entry["forms"]
     }
     resolution_base = base_url or page_url
@@ -755,15 +768,29 @@ def add_forms(sitemap: dict[str, Any], page_url: str, forms: list[dict[str, Any]
         action = normalize_url(form.get("action", "") or page_url, resolution_base)
         if action and not valid_discovered_url(action):
             continue
+        safe_inputs = []
+        for input_item in form.get("inputs", []):
+            if not isinstance(input_item, dict):
+                continue
+            safe_name = normalize_parameter_name(input_item.get("name", ""))
+            safe_input = {**input_item, "name": safe_name}
+            preview, fingerprint = redact_sensitive_preview(safe_name, input_item.get("valuePreview", ""))
+            safe_input["valuePreview"] = preview
+            if fingerprint:
+                safe_input["valueFingerprint"] = fingerprint
+                safe_input["valueRedacted"] = True
+            safe_inputs.append(safe_input)
         row = {
-            "pageUrl": page_url,
+            "pageUrl": redact_url_query_values(page_url),
+            "canonicalPageUrl": canonical_url_identity(page_url),
             "method": form.get("method", "GET"),
-            "action": action,
+            "action": redact_url_query_values(action),
+            "canonicalAction": canonical_url_identity(action),
             "id": form.get("id", ""),
             "name": form.get("name", ""),
-            "inputs": form.get("inputs", []),
+            "inputs": safe_inputs,
         }
-        key = (row["pageUrl"], row["method"], row["action"], tuple(input_item.get("name", "") for input_item in row["inputs"]))
+        key = (row["canonicalPageUrl"], row["method"], row["canonicalAction"], tuple(sorted(input_item.get("name", "") for input_item in row["inputs"] if input_item.get("name"))))
         if key not in seen:
             seen.add(key)
             host_entry["forms"].append(row)
@@ -945,11 +972,19 @@ def fetch_crawl_url(
 ) -> dict[str, Any]:
     current_url = url
     redirects = 0
+    attempted_requests = 0
+    http_responses = 0
+
+    def finish(payload: dict[str, Any]) -> dict[str, Any]:
+        return {**payload, "attemptedCount": attempted_requests, "httpResponseCount": http_responses}
+
     while True:
         request = HttpRequest(url=current_url, headers=request_headers)
+        attempted_requests += 1
         response = http_session.send(request) if http_session is not None else http_client.send(request, policy=policy)
         if response.status is None:
-            return {"finalUrl": current_url, "status": None, "contentType": "", "body": "", "error": response.error}
+            return finish({"finalUrl": current_url, "status": None, "contentType": "", "body": "", "error": response.error})
+        http_responses += 1
         content_type = header_value(response.headers, "content-type").split(";", 1)[0].strip().lower()
         response_meta = {
             "headers": response.headers,
@@ -960,12 +995,12 @@ def fetch_crawl_url(
         if response.status in REDIRECT_STATUSES:
             location = header_value(response.headers, "location")
             if not location:
-                return {"finalUrl": current_url, "status": response.status, "contentType": content_type, "body": "", **response_meta, "error": "Redirect response did not include a Location header."}
+                return finish({"finalUrl": current_url, "status": response.status, "contentType": content_type, "body": "", **response_meta, "error": "Redirect response did not include a Location header."})
             next_url = normalize_url(location, current_url)
             if not next_url:
-                return {"finalUrl": current_url, "status": response.status, "contentType": content_type, "body": "", **response_meta, "error": f"Redirect Location was not a valid URL: {location}"}
+                return finish({"finalUrl": current_url, "status": response.status, "contentType": content_type, "body": "", **response_meta, "error": f"Redirect Location was not a valid URL: {location}"})
             if not crawl_host_allowed(next_url, allowed_hosts, rejected_hosts, include_in_scope_hosts, workspace_id):
-                return {
+                return finish({
                     "finalUrl": current_url,
                     "status": response.status,
                     "contentType": content_type,
@@ -973,13 +1008,13 @@ def fetch_crawl_url(
                     **response_meta,
                     "blockedRedirect": next_url,
                     "error": f"Redirected out of scope: {next_url}",
-                }
+                })
             redirects += 1
             if redirects > 10:
-                return {"finalUrl": current_url, "status": response.status, "contentType": content_type, "body": "", **response_meta, "error": "Too many redirects."}
+                return finish({"finalUrl": current_url, "status": response.status, "contentType": content_type, "body": "", **response_meta, "error": "Too many redirects."})
             current_url = next_url
             continue
-        return {"finalUrl": normalize_url(response.url or current_url), "status": response.status, "contentType": content_type, "body": response.body, **response_meta, "error": response.error}
+        return finish({"finalUrl": normalize_url(response.url or current_url), "status": response.status, "contentType": content_type, "body": response.body, **response_meta, "error": response.error})
 
 
 def submit_post_form(
@@ -1126,6 +1161,122 @@ def flatten_sitemap(sitemap: dict[str, Any]) -> dict[str, Any]:
     sitemap["hosts"] = flat_hosts
     sitemap["summary"] = {"hostCount": len(flat_hosts), "urlCount": url_count, "formCount": form_count}
     return sitemap
+
+
+def sanitize_sitemap_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Remove sensitive/dynamic URL values and collapse canonical variants."""
+    clean = json.loads(json.dumps(payload))
+    for host_entry in clean.get("hosts", []):
+        if not isinstance(host_entry, dict):
+            continue
+        merged_urls: dict[str, dict[str, Any]] = {}
+        for record in host_entry.get("urls", []):
+            if not isinstance(record, dict):
+                continue
+            raw_url = str(record.get("url", ""))
+            canonical = canonical_url_identity(raw_url)
+            safe_url = redact_url_query_values(raw_url)
+            if not canonical or not safe_url:
+                continue
+            item = {**record, "url": safe_url, "canonicalUrl": canonical, "path": urlsplit(safe_url).path or "/"}
+            item["queryParameters"] = sorted({query["name"] for query in safe_query_items(raw_url)})
+            for field in ("discoveredFrom", "redirectLocations"):
+                if isinstance(item.get(field), list):
+                    item[field] = sorted({redact_url_query_values(value) for value in item[field] if redact_url_query_values(value)})
+            existing = merged_urls.get(canonical)
+            if existing is None:
+                merged_urls[canonical] = item
+                continue
+            for field, value in item.items():
+                if isinstance(value, list):
+                    current = existing.get(field) if isinstance(existing.get(field), list) else []
+                    existing[field] = current + [entry for entry in value if entry not in current]
+                elif isinstance(value, bool):
+                    existing[field] = bool(existing.get(field) or value)
+                elif value not in ("", None, [], {}) and existing.get(field) in ("", None, [], {}):
+                    existing[field] = value
+        host_entry["urls"] = sorted(merged_urls.values(), key=lambda item: item["canonicalUrl"])
+
+        merged_forms: dict[tuple[str, str, str, tuple[str, ...]], dict[str, Any]] = {}
+        for form in host_entry.get("forms", []):
+            if not isinstance(form, dict):
+                continue
+            page_url = redact_url_query_values(form.get("pageUrl", ""))
+            action = redact_url_query_values(form.get("action", ""))
+            inputs = []
+            for input_item in form.get("inputs", []):
+                if not isinstance(input_item, dict):
+                    continue
+                name = normalize_parameter_name(input_item.get("name", ""))
+                if input_item.get("valueRedacted"):
+                    safe_input = {**input_item, "name": name, "valuePreview": "<redacted>"}
+                else:
+                    preview, fingerprint = redact_sensitive_preview(name, input_item.get("valuePreview", ""))
+                    safe_input = {**input_item, "name": name, "valuePreview": preview}
+                    if fingerprint:
+                        safe_input.update({"valueFingerprint": fingerprint, "valueRedacted": True})
+                inputs.append(safe_input)
+            input_names = tuple(sorted({item["name"] for item in inputs if item.get("name")}))
+            key = (canonical_url_identity(page_url), str(form.get("method", "GET")).upper(), canonical_url_identity(action), input_names)
+            if key not in merged_forms:
+                merged_forms[key] = {
+                    **form,
+                    "pageUrl": page_url,
+                    "canonicalPageUrl": key[0],
+                    "method": key[1],
+                    "action": action,
+                    "canonicalAction": key[2],
+                    "inputs": inputs,
+                }
+        host_entry["forms"] = sorted(merged_forms.values(), key=lambda item: (item["canonicalPageUrl"], item["canonicalAction"], item["method"]))
+        host_entry["urlCount"] = len(host_entry["urls"])
+        host_entry["formCount"] = len(host_entry["forms"])
+
+    relations: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for relation in clean.get("relations", []):
+        if not isinstance(relation, dict):
+            continue
+        source_url = redact_url_query_values(relation.get("sourceUrl", ""))
+        target_url = redact_url_query_values(relation.get("targetUrl", ""))
+        key = (canonical_url_identity(source_url), canonical_url_identity(target_url), str(relation.get("relationType", "")))
+        if key not in relations:
+            relations[key] = {**relation, "sourceUrl": source_url, "targetUrl": target_url}
+        else:
+            relations[key]["followed"] = bool(relations[key].get("followed") or relation.get("followed"))
+    clean["relations"] = sorted(relations.values(), key=lambda item: (item.get("sourceHost", ""), item.get("relationType", ""), item.get("targetHost", ""), item.get("targetUrl", "")))
+
+    crawl = clean.get("crawl")
+    if isinstance(crawl, dict):
+        for error in crawl.get("errors", []):
+            if not isinstance(error, dict):
+                continue
+            for field in ("url", "formAction"):
+                if error.get(field):
+                    error[field] = redact_url_query_values(error[field])
+        for submission in crawl.get("postSubmissions", []):
+            if not isinstance(submission, dict):
+                continue
+            for field in ("pageUrl", "actionUrl", "redirectLocation"):
+                if submission.get(field):
+                    submission[field] = redact_url_query_values(submission[field])
+            if isinstance(submission.get("submittedValues"), dict):
+                safe_values = {}
+                for name, value in submission["submittedValues"].items():
+                    safe_name = normalize_parameter_name(name)
+                    preview = str(value) if str(value) in {"[REDACTED]", "<redacted>"} else redact_sensitive_preview(safe_name, value, limit=160)[0]
+                    safe_values[safe_name] = preview
+                submission["submittedValues"] = safe_values
+    source = clean.get("source")
+    if isinstance(source, dict) and source.get("target"):
+        source["target"] = redact_url_query_values(source["target"])
+    if isinstance(source, dict) and isinstance(source.get("scope"), dict) and source["scope"].get("target"):
+        source["scope"]["target"] = redact_url_query_values(source["scope"]["target"])
+    summary = clean.get("summary")
+    if isinstance(summary, dict):
+        summary["urlCount"] = sum(int(host.get("urlCount", 0) or 0) for host in clean.get("hosts", []) if isinstance(host, dict))
+        summary["formCount"] = sum(int(host.get("formCount", 0) or 0) for host in clean.get("hosts", []) if isinstance(host, dict))
+    clean["sensitiveData"] = {"queryValuesRedacted": True, "canonicalIdentity": "scheme_host_path_sorted_parameter_names"}
+    return clean
 
 
 def graph_id(prefix: str, value: str) -> str:
@@ -1511,7 +1662,7 @@ def sitemap_from_dump(args: dict[str, Any]) -> str:
                     continue
                 upsert_url(sitemap, linked_url, discovered_from=url)
 
-    payload = attach_flow_graph(flatten_sitemap(sitemap))
+    payload = attach_flow_graph(sanitize_sitemap_payload(flatten_sitemap(sitemap)))
     if warnings:
         payload["warnings"] = warnings
     write_sitemap(payload, args.get("output"), "dump-sitemap.json", args.get("workspaceId"))
@@ -1558,6 +1709,29 @@ def sitemap_from_dump(args: dict[str, Any]) -> str:
         payload["ingestions"] = ingestions
         payload["actions"] = actions
     return json.dumps(payload, indent=2)
+
+
+def crawl_error_category(error: str, *, status: Any = None) -> str:
+    text = str(error or "").lower()
+    if status == 429 or "rate limit" in text or "too many requests" in text:
+        return "rate_limited"
+    if "redirected out of scope" in text or "blocked redirect" in text:
+        return "blocked_redirect"
+    if any(marker in text for marker in ("certificate", "handshake", "ssl", "tls")):
+        return "tls"
+    if any(marker in text for marker in ("timed out", "timeout", "deadline exceeded")):
+        return "timeout"
+    if any(marker in text for marker in ("name or service", "nodename", "dns", "resolve host", "name resolution")):
+        return "dns"
+    if any(marker in text for marker in ("connection reset", "reset by peer")):
+        return "connection_reset"
+    if "disabled" in text:
+        return "backend_disabled"
+    if any(marker in text for marker in ("connection refused", "connect error", "network is unreachable", "connection failed")):
+        return "connection"
+    if status is not None:
+        return "http_error"
+    return "other"
 
 
 def crawl(args: dict[str, Any]) -> str:
@@ -1643,10 +1817,16 @@ def crawl(args: dict[str, Any]) -> str:
     )
     queue: list[tuple[str, int, str | None]] = [(target, 0, None)]
     visited: set[str] = set()
+    attempted_urls: set[str] = set()
+    attempted_count = 0
+    http_response_count = 0
+    successful_fetch_count = 0
+    blocked_redirect_count = 0
     errors: list[dict[str, Any]] = []
     post_submissions: list[dict[str, Any]] = []
     post_form_keys: set[tuple[str, str, tuple[str, ...]]] = set()
     discovered_relations: dict[tuple[str, str, str], dict[str, Any]] = {}
+    cached_script_urls: dict[str, list[str]] = {}
 
     def consider_discovered(url: str, source_url: str, relation_type: str, *, followed: bool = False) -> bool:
         allowed = crawl_host_allowed(url, allowed_hosts, rejected_hosts, include_in_scope_hosts, workspace_id)
@@ -1663,9 +1843,9 @@ def crawl(args: dict[str, Any]) -> str:
     crawl_session_context = http_client.session(http_policy)
     crawl_session = crawl_session_context.__enter__()
 
-    while queue and len(visited) < max_pages:
+    while queue and len(attempted_urls) < max_pages:
         url, depth, discovered_from = queue.pop(0)
-        if url in visited:
+        if url in attempted_urls:
             continue
         host = url_host(url)
         if discovered_from:
@@ -1676,7 +1856,7 @@ def crawl(args: dict[str, Any]) -> str:
         if is_static_url(url) and not include_static and not (analyze_scripts and is_script_url(url)):
             upsert_url(sitemap, url, discovered_from=discovered_from)
             continue
-        visited.add(url)
+        attempted_urls.add(url)
         fetch_result = fetch_crawl_url(
             url,
             request_headers,
@@ -1687,8 +1867,11 @@ def crawl(args: dict[str, Any]) -> str:
             crawl_session,
             workspace_id,
         )
+        attempted_count += int(fetch_result.get("attemptedCount", 1) or 0)
+        http_response_count += int(fetch_result.get("httpResponseCount", 0) or 0)
         blocked_redirect = str(fetch_result.get("blockedRedirect") or "")
         if blocked_redirect:
+            blocked_redirect_count += 1
             record_crawl_relation(
                 discovered_relations,
                 url,
@@ -1697,13 +1880,35 @@ def crawl(args: dict[str, Any]) -> str:
                 followed=False,
                 workspace_id=workspace_id,
             )
+            status = fetch_result.get("status")
+            upsert_url(
+                sitemap,
+                url,
+                status=int(status) if isinstance(status, int) else None,
+                content_type=str(fetch_result.get("contentType", "")),
+                discovered_from=discovered_from,
+                fetched=False,
+                metadata={"redirectLocations": [blocked_redirect]},
+            )
+            errors.append(
+                {
+                    "url": url,
+                    "blockedRedirect": blocked_redirect,
+                    "status": status,
+                    "error": str(fetch_result.get("error") or f"Redirected out of scope: {blocked_redirect}"),
+                    "category": "blocked_redirect",
+                }
+            )
+            continue
         if fetch_result.get("status") is None:
             upsert_url(sitemap, url, discovered_from=discovered_from, fetched=False)
-            errors.append({"url": url, "error": fetch_result.get("error", "")})
+            error_text = str(fetch_result.get("error", ""))
+            errors.append({"url": url, "error": error_text, "category": crawl_error_category(error_text)})
             continue
         final_url = str(fetch_result["finalUrl"])
         if not crawl_host_allowed(final_url, allowed_hosts, rejected_hosts, include_in_scope_hosts, workspace_id):
-            errors.append({"url": url, "error": f"Redirected out of scope: {final_url}"})
+            errors.append({"url": url, "error": f"Redirected out of scope: {final_url}", "category": "blocked_redirect"})
+            blocked_redirect_count += 1
             continue
         if final_url != url:
             record_crawl_relation(
@@ -1718,7 +1923,14 @@ def crawl(args: dict[str, Any]) -> str:
         content_type = str(fetch_result.get("contentType", ""))
         text = str(fetch_result.get("body", ""))
         if fetch_result.get("error"):
-            errors.append({"url": url, "status": status, "error": str(fetch_result["error"])})
+            error_text = str(fetch_result["error"])
+            errors.append({"url": url, "status": status, "error": error_text, "category": crawl_error_category(error_text, status=status)})
+        elif status == 429:
+            errors.append({"url": url, "status": status, "error": "HTTP 429 rate limit response.", "category": "rate_limited"})
+        else:
+            successful_fetch_count += 1
+            visited.add(final_url)
+        fetch_succeeded = not fetch_result.get("error") and status != 429
 
         upsert_url(
             sitemap,
@@ -1726,14 +1938,31 @@ def crawl(args: dict[str, Any]) -> str:
             status=status,
             content_type=content_type,
             discovered_from=discovered_from,
-            fetched=True,
+            fetched=fetch_succeeded,
             metadata={
                 "responseHeaders": fetch_result.get("responseHeaders", {}),
                 "responseCookieNames": fetch_result.get("responseCookieNames", []),
                 "technologySignals": html_technology_signals(text),
             },
         )
-        if fetch_result.get("error"):
+        if analyze_scripts and is_script_content(final_url, content_type) and not fetch_result.get("error"):
+            cached = js_intel.cache_crawler_asset(
+                workspace_id,
+                final_url,
+                text,
+                status=status,
+                content_type=content_type,
+                approval_id=str(approval.get("approvalId") or ""),
+                response_metadata={
+                    "status": status,
+                    "contentType": content_type,
+                    "finalUrl": redact_url_query_values(final_url),
+                    "responseHeaders": fetch_result.get("responseHeaders", {}),
+                },
+            )
+            if cached:
+                cached_script_urls.setdefault(url_host(final_url), []).append(final_url)
+        if not fetch_succeeded:
             continue
         if any(kind in content_type for kind in HTML_TYPES):
             parser = PageParser()
@@ -1909,7 +2138,7 @@ def crawl(args: dict[str, Any]) -> str:
                         redirect_url = str(submission.get("redirectLocation") or "")
                         if redirect_url and consider_discovered(redirect_url, str(submission["actionUrl"]), "redirect"):
                             upsert_url(sitemap, redirect_url, discovered_from=str(submission["actionUrl"]))
-                            if depth < max_depth and redirect_url not in visited and all(item[0] != redirect_url for item in queue):
+                            if depth < max_depth and redirect_url not in attempted_urls and all(item[0] != redirect_url for item in queue):
                                 queue.append((redirect_url, depth + 1, str(submission["actionUrl"])))
                         if any(kind in post_content_type for kind in HTML_TYPES):
                             post_parser = PageParser()
@@ -1939,7 +2168,7 @@ def crawl(args: dict[str, Any]) -> str:
                                     if not consider_discovered(linked_url, str(submission["actionUrl"]), "navigation"):
                                         continue
                                     upsert_url(sitemap, linked_url, discovered_from=str(submission["actionUrl"]))
-                                    if linked_url not in visited and all(item[0] != linked_url for item in queue):
+                                    if linked_url not in attempted_urls and all(item[0] != linked_url for item in queue):
                                         queue.append((linked_url, depth + 1, str(submission["actionUrl"])))
             if depth < max_depth:
                 for link in parser.links:
@@ -1949,7 +2178,7 @@ def crawl(args: dict[str, Any]) -> str:
                     if not consider_discovered(linked_url, final_url, "navigation"):
                         continue
                     upsert_url(sitemap, linked_url, discovered_from=final_url)
-                    if linked_url not in visited and all(item[0] != linked_url for item in queue):
+                    if linked_url not in attempted_urls and all(item[0] != linked_url for item in queue):
                         queue.append((linked_url, depth + 1, final_url))
                 if follow_get_forms:
                     for form in parser.forms:
@@ -1959,7 +2188,7 @@ def crawl(args: dict[str, Any]) -> str:
                         if not consider_discovered(submission_url, final_url, "get_form_submission"):
                             continue
                         upsert_url(sitemap, submission_url, method="GET", discovered_from=final_url)
-                        if submission_url not in visited and all(item[0] != submission_url for item in queue):
+                        if submission_url not in attempted_urls and all(item[0] != submission_url for item in queue):
                             queue.append((submission_url, depth + 1, final_url))
         if depth < max_depth and analyze_scripts and is_script_content(final_url, content_type):
             for linked_url in extract_literal_links(text, final_url):
@@ -1968,7 +2197,7 @@ def crawl(args: dict[str, Any]) -> str:
                 if not consider_discovered(linked_url, final_url, "javascript_reference"):
                     continue
                 upsert_url(sitemap, linked_url, discovered_from=final_url)
-                if linked_url not in visited and all(item[0] != linked_url for item in queue):
+                if linked_url not in attempted_urls and all(item[0] != linked_url for item in queue):
                     queue.append((linked_url, depth + 1, final_url))
         if delay:
             time.sleep(delay)
@@ -1979,13 +2208,31 @@ def crawl(args: dict[str, Any]) -> str:
         discovered_relations.values(),
         key=lambda item: (item["sourceHost"], item["relationType"], item["targetHost"], item["targetUrl"]),
     )
-    payload = attach_flow_graph(flattened)
-    payload["crawl"] = {
+    for error in errors:
+        if isinstance(error, dict) and not error.get("category"):
+            error["category"] = crawl_error_category(str(error.get("error", "")), status=error.get("status"))
+    categorized_error_counts: dict[str, int] = {}
+    for error in errors:
+        category = str(error.get("category") or "other") if isinstance(error, dict) else "other"
+        categorized_error_counts[category] = categorized_error_counts.get(category, 0) + 1
+    disposition = "complete"
+    if successful_fetch_count == 0:
+        disposition = "no_coverage"
+    elif errors or queue:
+        disposition = "partial"
+    flattened["crawl"] = {
         "visitedCount": len(visited),
+        "attemptedCount": attempted_count,
+        "successfulFetchCount": successful_fetch_count,
+        "httpResponseCount": http_response_count,
+        "errorCount": len(errors),
+        "blockedRedirectCount": blocked_redirect_count,
+        "categorizedErrorCounts": categorized_error_counts,
+        "disposition": disposition,
         "queuedRemaining": len(queue),
         "errors": errors,
-        "relationCount": len(payload["relations"]),
-        "externalRelationCount": sum(1 for item in payload["relations"] if item.get("scopeStatus") != "in_scope"),
+        "relationCount": len(flattened["relations"]),
+        "externalRelationCount": sum(1 for item in flattened["relations"] if item.get("scopeStatus") != "in_scope"),
         "includeInScopeHosts": include_in_scope_hosts,
         "analyzeScripts": analyze_scripts,
         "followGetForms": follow_get_forms,
@@ -1996,6 +2243,18 @@ def crawl(args: dict[str, Any]) -> str:
         "postSubmissions": post_submissions,
         "includeSensitivePostForms": include_sensitive_post_forms,
     }
+    flattened["resultSummary"] = {
+        "disposition": disposition,
+        "attemptedCount": attempted_count,
+        "successfulFetchCount": successful_fetch_count,
+        "httpResponseCount": http_response_count,
+        "visitedCount": len(visited),
+        "errorCount": len(errors),
+        "blockedRedirectCount": blocked_redirect_count,
+        "categorizedErrorCounts": categorized_error_counts,
+        "queuedRemaining": len(queue),
+    }
+    payload = attach_flow_graph(sanitize_sitemap_payload(flattened))
     write_sitemap(payload, args.get("output"), f"{scope_result['host']}-{tool_name.replace('.', '-')}-sitemap.json", workspace_id, scope_result["host"])
     evidence.log_event(
         tool_name,
@@ -2056,6 +2315,12 @@ def crawl(args: dict[str, Any]) -> str:
             },
         )
         ingestions.append(ingestion)
+        js_intel.link_crawler_cache_evidence(
+            workspace_id,
+            host,
+            cached_script_urls.get(host, []),
+            str(ingestion.get("evidenceId", "")),
+        )
         actions.append(
             workspace.record_action(
                 workspace_id,
@@ -2113,6 +2378,8 @@ def _start_background_crawl(
     approval: dict[str, Any],
     tool_name: str = "crawler.crawl",
 ) -> str:
+    public_target = redact_url_query_values(target) or target
+    public_scope = {**scope_result, "target": public_target}
     worker_args = dict(args)
     worker_args["background"] = False
     worker_args["_deferWorkflowRefreshToFinalizer"] = True
@@ -2154,7 +2421,7 @@ def _start_background_crawl(
     ]
     event_data = {
         "workspaceId": workspace_id,
-        "target": target,
+        "target": public_target,
         "host": scope_result["host"],
         "maxPages": max_pages,
         "maxDepth": max_depth,
@@ -2177,16 +2444,16 @@ def _start_background_crawl(
         event_data=event_data,
         tool=tool_name,
         workspace_id=workspace_id,
-        target=target,
+        target=public_target,
         output_path=str(result_path),
         finalizer_name="worker.result",
         finalizer_data={"resultPath": str(result_path)},
     )
     return json.dumps(
         {
-            "target": target,
+            "target": public_target,
             "workspaceId": workspace_id,
-            "scope": scope_result,
+            "scope": public_scope,
             "background": True,
             "job": job,
             "status": "started",

@@ -11,6 +11,7 @@ from urllib import parse
 
 from ...core import credentials, workspace
 from ...core.errors import McpError
+from ...core.url_hygiene import is_high_entropy_value, is_sensitive_query_name
 
 
 def coerce_candidate(args: dict[str, Any], *, required_parameter: bool = True) -> dict[str, Any]:
@@ -186,7 +187,7 @@ def is_sensitive_header_name(name: Any) -> bool:
 
 def is_sensitive_value_name(name: Any) -> bool:
     normalized = str(name).strip().lower().replace("_", "-")
-    return normalized in {"authorization", "cookie", "set-cookie"} or any(
+    return is_sensitive_query_name(normalized) or normalized in {"authorization", "cookie", "set-cookie"} or any(
         marker in normalized
         for marker in (
             "api-key",
@@ -207,7 +208,7 @@ def is_sensitive_value_name(name: Any) -> bool:
 
 def redact_value_preview(name: Any, value: Any, *, limit: int = 120) -> str:
     text = str(value)
-    return "<redacted>" if is_sensitive_value_name(name) and text else text[:limit]
+    return "<redacted>" if text and (is_sensitive_value_name(name) or is_high_entropy_value(text)) else text[:limit]
 
 
 def response_summary(response: dict[str, Any], *, body_preview_bytes: int = 0) -> dict[str, Any]:

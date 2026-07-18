@@ -12,7 +12,7 @@ from ...core import evidence, workspace
 from ...core.adapters import AdapterResult, WorkspaceEntityBundle, surface_candidate
 from ...core.errors import McpError
 from .active_probe import priority_for_score, redact_value_preview, stable_slug
-from .surface_hygiene import is_candidate_noise_url, normalize_surface_url
+from .surface_hygiene import canonical_surface_url, is_candidate_noise_url, normalize_surface_parameter, normalize_surface_url
 from . import sqlmap_analysis
 
 
@@ -208,7 +208,7 @@ def find_workspace_candidates(entities: dict[str, list[dict[str, Any]]], *, targ
     for parameter in entities.get("parameters", []):
         if not isinstance(parameter, dict):
             continue
-        name = str(parameter.get("name", "") or "").strip()
+        name = normalize_surface_parameter(parameter.get("name", ""))
         url = normalize_surface_url(parameter.get("url", ""))
         if not name or not url:
             continue
@@ -220,7 +220,7 @@ def find_workspace_candidates(entities: dict[str, list[dict[str, Any]]], *, targ
         score, reasons = score_workspace_parameter(parameter, endpoint)
         if score < min_score:
             continue
-        candidate_id = "sqli_" + stable_slug(f"{url}|{parameter.get('method', '')}|{parameter.get('location', '')}|{name}")
+        candidate_id = "sqli_" + stable_slug(f"{canonical_surface_url(url)}|{parameter.get('method', '')}|{parameter.get('location', '')}|{name}")
         candidates.setdefault(
             candidate_id,
             {

@@ -18,6 +18,7 @@ from ...core.http.models import HttpClientPolicy, HttpRequest
 from ...core.js import extractors, normalizer
 from ...core.js.models import JsAnalysisResult, JsAsset, SOURCE
 from ...core.paths import SYNAPSE_ROOT, synapse_python
+from ...core.url_hygiene import canonical_url_identity, redact_url_query_values
 from ..command_utils import background_requested, require_in_scope
 from . import surface_hygiene
 
@@ -81,6 +82,7 @@ def discover_assets(args: dict[str, Any]) -> str:
     workspace.add_target(workspace_id, target)
     entities = workspace._load_target_entities(workspace_id, target)
     assets = _discover_from_entities(entities)
+    assets.extend(_load_cached_assets(workspace_id, target))
     if include_evidence_raw:
         assets.extend(_discover_from_raw_evidence(workspace_id, target))
     assets = _dedupe_assets(assets)[:max_assets]
@@ -98,8 +100,6 @@ def fetch_assets(args: dict[str, Any]) -> str:
     target_input = str(args["target"])
     target = workspace.normalize_target(target_input)
     policy = HttpClientPolicy.from_args(args, timeout_seconds=float(args.get("requestTimeout", 10)))
-    if policy.backend != "disabled" and args.get("confirm") is not True:
-        raise McpError(-32001, "Fetching JavaScript assets sends HTTP traffic and requires confirm=true.")
     workspace.add_target(workspace_id, target)
     max_assets = int(args.get("maxAssets", DEFAULT_FETCH_MAX_ASSETS))
     max_bytes = int(args.get("maxBytesPerAsset", DEFAULT_MAX_BYTES))
@@ -132,16 +132,30 @@ def fetch_assets(args: dict[str, Any]) -> str:
     credential = credentials.credential_for_target(credential_id, target_input) if credential_id else None
     credential_meta = credentials.redact_credential(credential) if credential else None
     candidate_assets = [asset for asset in assets[:max_assets] if isinstance(asset, dict) and asset.get("url")]
+    refresh = bool(args.get("refresh", False))
     fetched: list[dict[str, Any]] = []
+    network_assets: list[dict[str, Any]] = []
+    for asset in candidate_assets:
+        cached = None if refresh else _find_cached_asset(workspace_id, target, str(asset.get("url") or ""), max_bytes=max_bytes)
+        if cached:
+            fetched.append({**cached, "cacheHit": True})
+        else:
+            network_assets.append(asset)
+    if policy.backend != "disabled" and network_assets and args.get("confirm") is not True:
+        raise McpError(
+            -32001,
+            "Fetching uncached JavaScript assets sends HTTP traffic and requires confirm=true. "
+            "Cached assets can be reused without confirmation; use refresh=true only for a deliberate re-fetch.",
+        )
     errors: list[dict[str, Any]] = []
     budget_exceeded = False
     deadline = time.monotonic() + budget_seconds
     with http_client.session(fetch_policy) as session:
-        for index, asset in enumerate(candidate_assets):
+        for index, asset in enumerate(network_assets):
             remaining_seconds = deadline - time.monotonic()
             if remaining_seconds <= 0.1:
                 budget_exceeded = True
-                for skipped in candidate_assets[index:]:
+                for skipped in network_assets[index:]:
                     errors.append({"url": str(skipped.get("url") or ""), "error": f"Skipped: fetch budget of {budget_seconds:g}s exceeded."})
                 break
             url = str(asset.get("url") or "")
@@ -168,25 +182,23 @@ def fetch_assets(args: dict[str, Any]) -> str:
                 errors.append({"url": final_url, "status": response.status, "error": f"Response is not JavaScript-like: {content_type}"})
                 continue
             body = response.body[:max_bytes]
-            body_bytes = body.encode("utf-8", errors="replace")
-            digest = hashlib.sha256(body_bytes).hexdigest()
-            asset_path = _asset_dir(workspace_id, target) / f"{digest}.js"
-            asset_path.write_text(body, encoding="utf-8", errors="replace")
-            parsed = urlsplit(final_url)
-            fetched_asset = JsAsset(
-                url=final_url,
-                host=(parsed.hostname or "").lower(),
-                path=parsed.path or "/",
-                source_endpoint=str(asset.get("sourceEndpoint") or ""),
-                local_path=str(asset_path),
-                sha256=digest,
-                status=response.status,
+            fetched_asset = cache_asset(
+                workspace_id,
+                target,
+                final_url,
+                body,
+                status=int(response.status),
                 content_type=content_type,
-                size=len(body_bytes),
-                fetched_at=workspace.now_utc(),
+                source="js.fetch_assets",
+                source_endpoint=str(asset.get("sourceEndpoint") or ""),
                 discovered_from=[str(item) for item in asset.get("discoveredFrom", []) if item] if isinstance(asset.get("discoveredFrom"), list) else [],
-                confidence="high",
-            ).as_dict()
+                approval_id=str(args.get("approvalId") or ""),
+                max_bytes=max_bytes,
+            )
+            if not fetched_asset:
+                errors.append({"url": final_url, "status": response.status, "error": "Asset exceeded cache retention or size policy."})
+                continue
+            fetched_asset["cacheHit"] = False
             fetched.append(fetched_asset)
     manifest = _write_json_artifact(
         workspace_id,
@@ -210,11 +222,25 @@ def fetch_assets(args: dict[str, Any]) -> str:
             "httpBackend": policy.backend,
             "budgetSeconds": budget_seconds,
             "budgetExceeded": budget_exceeded,
+            "cacheHitCount": sum(1 for item in fetched if item.get("cacheHit")),
+            "networkFetchCount": sum(1 for item in fetched if item.get("cacheHit") is False),
             "credentialId": credential_id,
             "authenticated": credential is not None,
         },
     )
-    result = {"workspaceId": workspace_id, "target": target, "assetCount": len(fetched), "assets": fetched, "errors": errors, "manifestPath": str(manifest), "budgetSeconds": budget_seconds, "budgetExceeded": budget_exceeded}
+    result = {
+        "workspaceId": workspace_id,
+        "target": target,
+        "assetCount": len(fetched),
+        "assets": fetched,
+        "errors": errors,
+        "manifestPath": str(manifest),
+        "budgetSeconds": budget_seconds,
+        "budgetExceeded": budget_exceeded,
+        "cacheHitCount": sum(1 for item in fetched if item.get("cacheHit")),
+        "networkFetchCount": sum(1 for item in fetched if item.get("cacheHit") is False),
+        "refresh": refresh,
+    }
     if credential_meta is not None:
         result["credential"] = credential_meta
     return json.dumps(result, indent=2)
@@ -742,7 +768,12 @@ def _load_assets_for_analysis(workspace_id: str, target: str, args: dict[str, An
             p = Path(str(path)).expanduser().resolve(strict=False)
             assets.append({"url": str(p), "localPath": str(p), "source": SOURCE})
         return assets
-    raw_manifest = str(args.get("manifestPath") or _latest_artifact(workspace_id, target, "manifests", "fetched-assets.json") or "")
+    raw_manifest = str(
+        args.get("manifestPath")
+        or _latest_artifact(workspace_id, target, "manifests", "fetched-assets.json")
+        or _latest_artifact(workspace_id, target, "manifests", "assets.json")
+        or ""
+    )
     if not raw_manifest:
         return []
     manifest_path = Path(raw_manifest).expanduser().resolve(strict=False)
@@ -809,6 +840,181 @@ def _asset_dir(workspace_id: str, target: str) -> Path:
     return path
 
 
+def _cache_index_path(workspace_id: str, target: str) -> Path:
+    return _asset_dir(workspace_id, target) / "cache-index.json"
+
+
+def cache_asset(
+    workspace_id: str,
+    target: str,
+    url: str,
+    body: str,
+    *,
+    status: int,
+    content_type: str,
+    source: str,
+    source_endpoint: str = "",
+    discovered_from: list[str] | None = None,
+    approval_id: str = "",
+    evidence_ids: list[str] | None = None,
+    response_metadata: dict[str, Any] | None = None,
+    max_bytes: int = DEFAULT_MAX_BYTES,
+) -> dict[str, Any]:
+    body_bytes = body.encode("utf-8", errors="replace")
+    if not body_bytes or len(body_bytes) > max_bytes or not (200 <= int(status) < 300):
+        return {}
+    digest = hashlib.sha256(body_bytes).hexdigest()
+    normalized_url = canonical_url_identity(url) or url
+    url_digest = hashlib.sha256(normalized_url.encode("utf-8")).hexdigest()[:16]
+    cache_key = hashlib.sha256(f"{normalized_url}|{digest}".encode("utf-8")).hexdigest()
+    asset_path = _asset_dir(workspace_id, target) / f"{url_digest}-{digest}.js"
+    if not asset_path.exists():
+        asset_path.write_text(body, encoding="utf-8", errors="replace")
+        _chmod_private(asset_path)
+    public_url = redact_url_query_values(url) or url
+    parsed = urlsplit(public_url)
+    asset = JsAsset(
+        url=public_url,
+        host=(parsed.hostname or "").lower(),
+        path=parsed.path or "/",
+        source_endpoint=redact_url_query_values(source_endpoint or url) or source_endpoint or url,
+        local_path=str(asset_path),
+        sha256=digest,
+        status=status,
+        content_type=content_type,
+        size=len(body_bytes),
+        fetched_at=workspace.now_utc(),
+        discovered_from=discovered_from or [],
+        confidence="high",
+    ).as_dict()
+    asset.update(
+        {
+            "cacheKey": cache_key,
+            "canonicalUrl": normalized_url,
+            "cacheSource": source,
+            "approvalId": approval_id,
+            "evidenceIds": sorted({str(item) for item in evidence_ids or [] if item}),
+            "responseMetadata": response_metadata or {},
+            "provenance": [
+                {
+                    "source": source,
+                    "approvalId": approval_id,
+                    "evidenceIds": sorted({str(item) for item in evidence_ids or [] if item}),
+                    "responseMetadata": response_metadata or {},
+                    "fetchedAt": asset["fetchedAt"],
+                }
+            ],
+        }
+    )
+    index_path = _cache_index_path(workspace_id, target)
+    with workspace.workspace_lock(workspace_id):
+        try:
+            payload = json.loads(index_path.read_text(encoding="utf-8")) if index_path.exists() else {"assets": []}
+        except (OSError, json.JSONDecodeError):
+            payload = {"assets": []}
+        existing = next(
+            (item for item in payload.get("assets", []) if isinstance(item, dict) and item.get("cacheKey") == cache_key),
+            None,
+        )
+        if existing:
+            existing_refs = existing.get("evidenceIds", []) if isinstance(existing.get("evidenceIds"), list) else []
+            asset["evidenceIds"] = sorted({*existing_refs, *asset.get("evidenceIds", [])})
+            asset["provenance"] = [
+                *(existing.get("provenance", []) if isinstance(existing.get("provenance"), list) else []),
+                *asset["provenance"],
+            ]
+        assets = [item for item in payload.get("assets", []) if isinstance(item, dict) and item.get("cacheKey") != cache_key]
+        assets.append(asset)
+        index_path.write_text(
+            json.dumps({"source": SOURCE, "workspaceId": workspace_id, "target": target, "assets": assets}, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        _chmod_private(index_path)
+    return asset
+
+
+def cache_crawler_asset(
+    workspace_id: str,
+    url: str,
+    body: str,
+    *,
+    status: int,
+    content_type: str,
+    approval_id: str = "",
+    response_metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return cache_asset(
+        workspace_id,
+        workspace.normalize_target(url),
+        url,
+        body,
+        status=status,
+        content_type=content_type,
+        source="crawler",
+        source_endpoint=url,
+        approval_id=approval_id,
+        response_metadata=response_metadata,
+    )
+
+
+def link_crawler_cache_evidence(workspace_id: str, target: str, urls: list[str], evidence_id: str) -> None:
+    identities = {canonical_url_identity(url) for url in urls if canonical_url_identity(url)}
+    index_path = _cache_index_path(workspace_id, target)
+    if not evidence_id or not identities or not index_path.exists():
+        return
+    with workspace.workspace_lock(workspace_id):
+        try:
+            payload = json.loads(index_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        changed = False
+        for asset in payload.get("assets", []):
+            if not isinstance(asset, dict) or asset.get("cacheSource") != "crawler" or asset.get("canonicalUrl") not in identities:
+                continue
+            refs = [str(item) for item in asset.get("evidenceIds", []) if item]
+            if evidence_id not in refs:
+                asset["evidenceIds"] = refs + [evidence_id]
+                provenance = asset.get("provenance", []) if isinstance(asset.get("provenance"), list) else []
+                for item in provenance:
+                    if isinstance(item, dict) and item.get("source") == "crawler":
+                        item_refs = [str(ref) for ref in item.get("evidenceIds", []) if ref]
+                        if evidence_id not in item_refs:
+                            item["evidenceIds"] = item_refs + [evidence_id]
+                changed = True
+        if changed:
+            index_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def _load_cached_assets(workspace_id: str, target: str, *, max_bytes: int = DEFAULT_MAX_BYTES) -> list[dict[str, Any]]:
+    index_path = _cache_index_path(workspace_id, target)
+    if not index_path.exists():
+        return []
+    try:
+        payload = json.loads(index_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    assets = []
+    for item in payload.get("assets", []):
+        if not isinstance(item, dict):
+            continue
+        path = Path(str(item.get("localPath") or ""))
+        try:
+            valid = path.is_file() and 0 < path.stat().st_size <= max_bytes and path.stat().st_size == int(item.get("size", 0) or 0)
+            if valid and item.get("sha256"):
+                valid = hashlib.sha256(path.read_bytes()).hexdigest() == str(item["sha256"])
+        except OSError:
+            valid = False
+        if valid:
+            assets.append(item)
+    return assets
+
+
+def _find_cached_asset(workspace_id: str, target: str, url: str, *, max_bytes: int) -> dict[str, Any] | None:
+    identity = canonical_url_identity(url)
+    matches = [item for item in _load_cached_assets(workspace_id, target, max_bytes=max_bytes) if item.get("canonicalUrl") == identity]
+    return matches[-1] if matches else None
+
+
 def _write_json_artifact(workspace_id: str, target: str, folder: str, suffix: str, payload: dict[str, Any]) -> Path:
     root = _tool_root(workspace_id, target) / folder
     root.mkdir(parents=True, exist_ok=True)
@@ -825,7 +1031,24 @@ def _latest_artifact(workspace_id: str, target: str, folder: str, suffix: str) -
 
 
 def _dedupe_assets(assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return _dedupe_dicts(sorted(assets, key=_asset_sort_key), ("url",))
+    merged: dict[str, dict[str, Any]] = {}
+    for asset in sorted(assets, key=_asset_sort_key):
+        url = str(asset.get("url") or "")
+        existing = merged.get(url)
+        if existing is None or (asset.get("localPath") and not existing.get("localPath")):
+            combined = {**(existing or {}), **asset}
+            prior_discovered = (existing or {}).get("discoveredFrom", [])
+            discovered = list(
+                dict.fromkeys(
+                    [
+                        *(prior_discovered if isinstance(prior_discovered, list) else []),
+                        *(asset.get("discoveredFrom", []) if isinstance(asset.get("discoveredFrom"), list) else []),
+                    ]
+                )
+            )
+            combined["discoveredFrom"] = discovered
+            merged[url] = combined
+    return list(merged.values())
 
 
 def _asset_sort_key(asset: dict[str, Any]) -> tuple[int, int, str]:
