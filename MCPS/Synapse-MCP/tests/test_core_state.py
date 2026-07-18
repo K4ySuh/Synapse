@@ -623,6 +623,73 @@ class CoreStateTests(unittest.TestCase):
                 self.assertIn("login URL", guidance["requestedDetails"][0])
                 self.assertIn("credentials.set_auth_profile", json.dumps(guidance))
 
+    def test_large_scope_control_plane_responses_are_bounded_and_paginated(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                hosts = [f"host-{index:03d}.example.com" for index in range(503)]
+                started_text = stdio_server.call_tool(
+                    "project.start",
+                    {"organization": "Large Scope", "workspaceId": "large-scope", "hosts": hosts},
+                )
+                started = json.loads(started_text)
+
+                self.assertLess(len(started_text.encode("utf-8")), 12_000)
+                self.assertEqual(started["scope"]["scope"]["counts"]["hosts"], len(hosts))
+                self.assertEqual(started["evidenceProject"]["hostCount"], len(hosts))
+                self.assertEqual(started["workspace"]["workspaceId"], "large-scope")
+                self.assertTrue(started["scope"]["path"].endswith("scope.json"))
+
+                checked_text = stdio_server.call_tool("scope.check_target", {"target": hosts[-1]})
+                checked = json.loads(checked_text)
+                self.assertLess(len(checked_text.encode("utf-8")), 8_000)
+                self.assertTrue(checked["inScope"])
+                self.assertEqual(checked["scope"]["counts"]["hosts"], len(hosts))
+                self.assertEqual(len(checked["scope"]["inventory"]), scope.DEFAULT_INVENTORY_PREVIEW)
+
+                summary_text = stdio_server.call_tool("workspace.summary", {"workspaceId": "large-scope"})
+                summary = json.loads(summary_text)
+                self.assertLess(len(summary_text.encode("utf-8")), 8_000)
+                self.assertEqual(summary["targetCount"], len(hosts))
+                self.assertEqual(len(summary["targets"]), workspace.DEFAULT_SUMMARY_PREVIEW)
+                self.assertTrue(summary["path"].endswith("workspaces/large-scope"))
+
+                scope_inventory: list[str] = []
+                cursor: str | None = "0"
+                while cursor is not None:
+                    page = json.loads(
+                        stdio_server.call_tool(
+                            "scope.check_target",
+                            {"target": hosts[0], "cursor": cursor, "limit": 73},
+                        )
+                    )["scope"]
+                    scope_inventory.extend(item["value"] for item in page["inventory"] if item["type"] == "host")
+                    cursor = page["pagination"]["nextCursor"]
+                self.assertEqual(scope_inventory, sorted(hosts))
+                self.assertEqual(len(scope_inventory), len(set(scope_inventory)))
+
+                target_inventory: list[str] = []
+                cursor = "0"
+                while cursor is not None:
+                    page = json.loads(
+                        stdio_server.call_tool(
+                            "workspace.summary",
+                            {"workspaceId": "large-scope", "cursor": cursor, "limit": 73},
+                        )
+                    )
+                    target_inventory.extend(item["target"] for item in page["targets"])
+                    cursor = page["pagination"]["nextCursor"]
+                self.assertEqual(target_inventory, sorted(hosts))
+                self.assertEqual(len(target_inventory), len(set(target_inventory)))
+
+                included = json.loads(
+                    stdio_server.call_tool(
+                        "workspace.summary",
+                        {"workspaceId": "large-scope", "includeInventory": True},
+                    )
+                )
+                self.assertTrue(included["inventoryIncluded"])
+                self.assertEqual(len(included["targets"]), len(hosts))
+
     def test_scope_matching_supports_explicit_patterns_and_cidrs(self) -> None:
         with TemporaryDirectory() as tmp:
             with isolated_state(Path(tmp)):
