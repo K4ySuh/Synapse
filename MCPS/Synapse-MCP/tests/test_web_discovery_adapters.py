@@ -342,7 +342,7 @@ class WebDiscoveryAdapterTests(unittest.TestCase):
         )
         self.assertIsNone(numeric_template)
 
-        cors_candidates = cors.find_candidates(
+        cors_surfaces = cors.find_surfaces(
             {
                 "endpoints": [
                     {
@@ -360,7 +360,11 @@ class WebDiscoveryAdapterTests(unittest.TestCase):
                 "observations": [],
             }
         )
-        self.assertEqual([item["url"] for item in cors_candidates], ["http://localhost:3000/rest/products/search"])
+        self.assertEqual(cors_surfaces["candidates"], [])
+        self.assertEqual(
+            [item["url"] for item in cors_surfaces["classifications"]],
+            ["http://localhost:3000/rest/products/search"],
+        )
 
         header_candidates = headers_cookies.find_candidates(
             {
@@ -447,6 +451,110 @@ class WebDiscoveryAdapterTests(unittest.TestCase):
         self.assertNotIn("https://example.com/login", urls)
         self.assertNotIn("https://example.com/accounting", urls)
 
+    def test_open_redirect_classifies_embed_search_and_canonical_redirect_surfaces(self) -> None:
+        oembed_urls = [
+            f"https://example.com/wp-json/oembed/1.0/embed?url=https://example.com/articles/{index}"
+            for index in range(40)
+        ]
+        search_url = "https://example.com/search"
+        owa_url = "https://example.com/owa/auth/logon.aspx?url=https://example.com/owa/"
+        redirect_urls = ["https://example.com/redirect?next=/home", "https://example.com/redirect?next=/profile"]
+        entities = {
+            "endpoints": [
+                *[
+                    {"type": "endpoint", "url": url, "method": "GET", "statusCodes": [200], "contentTypes": ["application/json"]}
+                    for url in oembed_urls
+                ],
+                {"type": "endpoint", "url": search_url, "method": "GET", "statusCodes": [200], "contentTypes": ["text/html"]},
+                {"type": "endpoint", "url": owa_url, "method": "GET", "statusCodes": [200], "contentTypes": ["text/html"]},
+                *[
+                    {
+                        "type": "endpoint",
+                        "url": url,
+                        "method": "GET",
+                        "statusCodes": [302],
+                        "redirectLocations": ["/home"],
+                    }
+                    for url in redirect_urls
+                ],
+            ],
+            "parameters": [
+                *[
+                    {
+                        "type": "parameter",
+                        "name": "url",
+                        "url": url,
+                        "method": "GET",
+                        "location": "query",
+                        "valuePreview": f"https://example.com/articles/{index}",
+                    }
+                    for index, url in enumerate(oembed_urls)
+                ],
+                {"type": "parameter", "name": "url", "url": search_url, "method": "GET", "location": "form", "inputType": "hidden", "valuePreview": "/search"},
+                {"type": "parameter", "name": "urlbasesearchstring", "url": search_url, "method": "GET", "location": "form", "inputType": "hidden", "valuePreview": "/search?q="},
+                {"type": "parameter", "name": "url", "url": owa_url, "method": "GET", "location": "query", "valuePreview": "https://example.com/owa/"},
+                *[
+                    {"type": "parameter", "name": "next", "url": url, "method": "GET", "location": "query", "valuePreview": "/home"}
+                    for url in redirect_urls
+                ],
+            ],
+            "observations": [
+                {
+                    "type": "open_redirect_candidate",
+                    "candidateId": "legacy-oembed-redirect",
+                    "value": oembed_urls[0],
+                    "url": oembed_urls[0],
+                    "parameter": "url",
+                    "method": "GET",
+                    "location": "query",
+                    "priority": "high",
+                    "priorityScore": 90,
+                    "isReportable": True,
+                }
+            ],
+        }
+
+        surfaces = open_redirect_adapter.find_surfaces(entities)
+        candidates = [item for item in surfaces if item["isReportable"]]
+        classifications = [item for item in surfaces if not item["isReportable"]]
+
+        self.assertEqual(len(candidates), 2)
+        self.assertEqual({item["canonicalRoute"] for item in candidates}, {"https://example.com/owa/auth/logon.aspx", "https://example.com/redirect"})
+        redirect = next(item for item in candidates if item["canonicalRoute"].endswith("/redirect"))
+        self.assertEqual(redirect["priority"], "high")
+        self.assertIn("observed_redirect_response", redirect["redirectSignals"])
+        self.assertEqual(len([item for item in classifications if item["classification"] == "server_side_fetch_embed"]), 1)
+        oembed = next(item for item in classifications if item["classification"] == "server_side_fetch_embed")
+        self.assertEqual(oembed["candidateFor"], ["ssrf"])
+        self.assertEqual(oembed["suggestedAdapter"], "ssrf")
+        self.assertEqual({item["parameter"] for item in classifications if item["classification"] == "search_configuration"}, {"url", "urlbasesearchstring"})
+
+        ssrf_candidates = ssrf_adapter.find_candidates(entities, 35)
+        self.assertTrue(any("oembed" in item["url"] for item in ssrf_candidates))
+
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                workspace.create_workspace("engagement", hosts=["example.com"])
+                workspace.ingest_data(
+                    "engagement",
+                    "example.com",
+                    "adapter_result",
+                    "passive_analysis",
+                    "json",
+                    json.dumps({"entities": entities}),
+                )
+                analyzed = json.loads(
+                    open_redirect_adapter.analyze_workspace(
+                        {"workspaceId": "engagement", "target": "example.com", "ingest": True, "minScore": 35}
+                    )
+                )
+                self.assertEqual(analyzed["candidateCount"], 2)
+                self.assertGreaterEqual(analyzed["classificationCount"], 3)
+                stored = workspace._load_target_entities("engagement", "example.com")["observations"]
+                legacy = next(item for item in stored if item.get("candidateId") == "legacy-oembed-redirect")
+                self.assertFalse(legacy["isReportable"])
+                self.assertTrue(any(item.get("type") == "open_redirect_surface_classification" and item.get("classification") == "server_side_fetch_embed" for item in stored))
+
     def test_crawler_crawl_defaults_to_background_worker_and_ingests_result(self) -> None:
         class CrawlHandler(BaseHTTPRequestHandler):
             def do_GET(self) -> None:
@@ -485,6 +593,12 @@ class WebDiscoveryAdapterTests(unittest.TestCase):
 
                     self.assertEqual(job["status"], "completed")
                     self.assertGreaterEqual(job["result"]["crawl"]["visitedCount"], 2)
+                    self.assertEqual(job["resultDisposition"], "complete")
+                    self.assertGreaterEqual(job["resultSummary"]["successfulFetchCount"], 2)
+                    self.assertEqual(job["resultSummary"]["errorCount"], 0)
+                    listed = next(item for item in background_jobs.list_jobs(workspace_id="engagement")["jobs"] if item["jobId"] == job["jobId"])
+                    self.assertEqual(listed["resultDisposition"], "complete")
+                    self.assertIn("httpResponseCount", listed["resultSummary"])
                     self.assertTrue(job["result"]["workflowRefresh"])
                     context = workspace.prepare_target_context("engagement", "127.0.0.1")
                     self.assertGreaterEqual(context["knownEndpoints"]["total"], 2)
@@ -553,8 +667,65 @@ class WebDiscoveryAdapterTests(unittest.TestCase):
                     )
 
                 self.assertEqual(seen_paths, [])
-                self.assertEqual(result["crawl"]["visitedCount"], 1)
+                self.assertEqual(result["crawl"]["visitedCount"], 0)
+                self.assertEqual(result["crawl"]["attemptedCount"], 1)
+                self.assertEqual(result["crawl"]["disposition"], "no_coverage")
                 self.assertIn("disabled", result["crawl"]["errors"][0]["error"])
+
+    def test_crawler_coverage_dispositions_and_error_categories(self) -> None:
+        scenarios = {
+            "valid": (
+                lambda _request: httpx.Response(200, text="<html>ok</html>", headers={"content-type": "text/html"}),
+                {"disposition": "complete", "attemptedCount": 1, "httpResponseCount": 1, "successfulFetchCount": 1, "visitedCount": 1, "errorCount": 0},
+            ),
+            "tls": (
+                lambda request: (_ for _ in ()).throw(httpx.ConnectError("TLS certificate verify failed during handshake", request=request)),
+                {"disposition": "no_coverage", "attemptedCount": 1, "httpResponseCount": 0, "successfulFetchCount": 0, "visitedCount": 0, "errorCount": 1, "category": "tls"},
+            ),
+            "blocked_redirect": (
+                lambda _request: httpx.Response(302, headers={"location": "https://outside.example/"}),
+                {"disposition": "no_coverage", "attemptedCount": 1, "httpResponseCount": 1, "successfulFetchCount": 0, "visitedCount": 0, "errorCount": 1, "category": "blocked_redirect", "blockedRedirectCount": 1},
+            ),
+            "timeout": (
+                lambda request: (_ for _ in ()).throw(httpx.ReadTimeout("request timed out", request=request)),
+                {"disposition": "no_coverage", "attemptedCount": 1, "httpResponseCount": 0, "successfulFetchCount": 0, "visitedCount": 0, "errorCount": 1, "category": "timeout"},
+            ),
+            "mixed": (
+                lambda request: (
+                    (_ for _ in ()).throw(httpx.ReadTimeout("request timed out", request=request))
+                    if urlsplit(str(request.url)).path == "/slow"
+                    else httpx.Response(200, text='<a href="/slow">slow</a>', headers={"content-type": "text/html"})
+                ),
+                {"disposition": "partial", "attemptedCount": 2, "httpResponseCount": 1, "successfulFetchCount": 1, "visitedCount": 1, "errorCount": 1, "category": "timeout"},
+            ),
+        }
+        for name, (handler, expected) in scenarios.items():
+            with self.subTest(name=name), TemporaryDirectory() as tmp:
+                with isolated_state(Path(tmp)):
+                    target = "http://app.acme-demo.test/"
+                    scope.save_scope([target], "test", "Example Client")
+                    with stub_httpx(handler):
+                        result = json.loads(
+                            crawler_adapter.crawl(
+                                {
+                                    "target": target,
+                                    "workspaceId": "engagement",
+                                    "maxDepth": 1,
+                                    "maxPages": 3,
+                                    "delayMillis": 0,
+                                    "background": False,
+                                    "confirm": True,
+                                }
+                            )
+                        )
+                    crawl = result["crawl"]
+                    for field in ("disposition", "attemptedCount", "httpResponseCount", "successfulFetchCount", "visitedCount", "errorCount"):
+                        self.assertEqual(crawl[field], expected[field])
+                        self.assertEqual(result["resultSummary"][field], expected[field])
+                    if expected.get("blockedRedirectCount") is not None:
+                        self.assertEqual(crawl["blockedRedirectCount"], expected["blockedRedirectCount"])
+                    if expected.get("category"):
+                        self.assertEqual(crawl["categorizedErrorCounts"], {expected["category"]: 1})
 
     def test_crawler_extended_submits_post_forms_with_credentials_and_records_actions(self) -> None:
         seen_gets: list[str] = []
@@ -864,6 +1035,117 @@ class WebDiscoveryAdapterTests(unittest.TestCase):
                 observation_types = {item["type"] for item in context["observations"]}
                 self.assertIn("command_injection_candidate", observation_types)
 
+    def test_command_injection_requires_boundary_semantics_and_corroboration(self) -> None:
+        benign_names = [
+            "tipusDocument",
+            "tipo_documento",
+            "municipalityId",
+            "municipi_id",
+            "contractType",
+            "procedure_type",
+            "agenda2030TaxonomyFilter",
+            "oninputprocessing",
+            "administrationType",
+        ]
+        positive_names = ["command", "exec", "host", "ping_target"]
+        diagnostic_url = "https://example.com/tools/diagnostic/ping"
+        weak_url = "https://example.com/inventory/search"
+        entities = {
+            "endpoints": [
+                {
+                    "type": "endpoint",
+                    "url": "https://example.com/administration/search",
+                    "method": "GET",
+                    "source": "sitemap",
+                    "observedRequests": [{"method": "GET"}],
+                },
+                {
+                    "type": "endpoint",
+                    "url": diagnostic_url,
+                    "method": "GET",
+                    "source": "sitemap",
+                    "observedRequests": [{"method": "GET"}],
+                },
+                {
+                    "type": "endpoint",
+                    "url": weak_url,
+                    "method": "GET",
+                    "source": "sitemap",
+                },
+            ],
+            "parameters": [
+                {
+                    "type": "parameter",
+                    "name": name,
+                    "url": "https://example.com/administration/search",
+                    "method": "GET",
+                    "location": "query",
+                }
+                for name in benign_names
+            ]
+            + [
+                {
+                    "type": "parameter",
+                    "name": name,
+                    "url": diagnostic_url,
+                    "method": "GET",
+                    "location": "query",
+                }
+                for name in positive_names
+            ]
+            + [
+                {
+                    "type": "parameter",
+                    "name": "host",
+                    "url": weak_url,
+                    "method": "GET",
+                    "location": "query",
+                }
+            ],
+        }
+
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                workspace.create_workspace("engagement", hosts=["example.com"])
+                workspace.ingest_data(
+                    "engagement",
+                    "example.com",
+                    "adapter_result",
+                    "passive_analysis",
+                    "json",
+                    json.dumps({"entities": entities}),
+                )
+                result = json.loads(
+                    command_injection_adapter.analyze_workspace(
+                        {
+                            "workspaceId": "engagement",
+                            "target": "example.com",
+                            "minScore": 35,
+                            "ingest": True,
+                        }
+                    )
+                )
+
+                self.assertEqual(result["candidateCount"], 4)
+                self.assertEqual({item["parameter"] for item in result["candidates"]}, set(positive_names))
+                self.assertTrue(all(item["isReportable"] for item in result["candidates"]))
+                self.assertTrue(all("parameter_semantics" in item["signalCategories"] for item in result["candidates"]))
+                self.assertTrue(all("diagnostic_route" in item["signalCategories"] for item in result["candidates"]))
+                self.assertFalse(any(item["parameter"] in benign_names for item in result["candidates"]))
+                self.assertEqual(result["discoveryObservationCount"], 1)
+                weak = result["discoveryObservations"][0]
+                self.assertEqual(weak["parameter"], "host")
+                self.assertFalse(weak["isReportable"])
+                self.assertEqual(command_injection_adapter.semantic_tokens("ping_target"), ["ping", "target"])
+                self.assertEqual(command_injection_adapter.semantic_tokens("oninputprocessing"), ["oninputprocessing"])
+
+                stored = workspace._load_target_entities("engagement", "example.com")["observations"]
+                reportable = [item for item in stored if item.get("type") == "command_injection_candidate" and item.get("isReportable") is not False]
+                discoveries = [item for item in stored if item.get("type") == "command_injection_discovery"]
+                self.assertEqual(len(reportable), 4)
+                self.assertEqual(len(discoveries), 1)
+                self.assertFalse(discoveries[0]["isReportable"])
+
     def test_command_injection_prepare_replay_is_no_traffic_and_allowlisted(self) -> None:
         args = {
             "url": "https://example.com/admin/ping?host=127.0.0.1",
@@ -992,6 +1274,8 @@ class WebDiscoveryAdapterTests(unittest.TestCase):
                     "parameter": "q",
                     "location": "query",
                     "marker": "UNIT",
+                    "payload": "UNIT",
+                    "maxPayloads": 1,
                     "credentialId": "xss-cookie",
                 }
                 with self.assertRaisesRegex(Exception, "confirm=true"):
@@ -1009,12 +1293,17 @@ class WebDiscoveryAdapterTests(unittest.TestCase):
                         )
                     )
 
-                    self.assertEqual(result["test"]["assessment"], "possible_xss")
+                    self.assertEqual(result["test"]["assessment"], "reflection_observed")
+                    self.assertEqual(result["test"]["mode"], "reflection_marker")
+                    self.assertEqual(result["test"]["riskTier"], "low")
+                    self.assertEqual(result["test"]["marker"], "UNIT")
+                    self.assertEqual(result["test"]["approvedPayloads"], ["UNIT"])
                     self.assertTrue(result["test"]["tests"][0]["rawPayloadReflected"])
                     exchange_path = Path(result["test"]["tests"][0]["exchangeEvidence"]["rawPath"])
                     self.assertTrue(exchange_path.exists())
                     exchange_text = exchange_path.read_text(encoding="utf-8")
-                    self.assertIn("synapse-xss", exchange_text)
+                    self.assertIn("UNIT", exchange_text)
+                    self.assertNotIn("synapse-xss", exchange_text.lower())
                     self.assertIn('"Cookie": "<redacted>"', exchange_text)
                     self.assertIn('"set-cookie": "<redacted>"', exchange_text)
                     self.assertNotIn("xss-secret", exchange_text)
@@ -1060,7 +1349,43 @@ class WebDiscoveryAdapterTests(unittest.TestCase):
                         )
                     )
                     self.assertEqual(stored["test"]["candidate"]["candidateId"], "xss_stored_search_q")
-                    self.assertEqual(stored["test"]["assessment"], "possible_xss")
+                    self.assertEqual(stored["test"]["assessment"], "reflection_observed")
+
+                    execution_plan = json.loads(
+                        xss_adapter.generate_test_code(
+                            {"parameter": "q", "context": "html", "mode": "execution", "marker": "EXECUTION123"}
+                        )
+                    )
+                    with self.assertRaisesRegex(Exception, "requires riskTier=high"):
+                        xss_adapter.execute_test(
+                            {
+                                **base_args,
+                                "mode": "execution",
+                                "context": "html",
+                                "marker": "EXECUTION123",
+                                "payload": execution_plan["exactWirePayloads"][0],
+                                "confirm": True,
+                                "approvalReason": "Deliberately mismatched unit-test risk tier",
+                                "riskTier": "low",
+                            }
+                        )
+                    executed = json.loads(
+                        xss_adapter.execute_test(
+                            {
+                                **base_args,
+                                "mode": "execution",
+                                "context": "html",
+                                "marker": "EXECUTION123",
+                                "payload": execution_plan["exactWirePayloads"][0],
+                                "confirm": True,
+                                "approvalReason": "Unit test explicitly approved execution-capable payload",
+                                "riskTier": "high",
+                            }
+                        )
+                    )
+                    self.assertEqual(executed["test"]["mode"], "execution")
+                    self.assertEqual(executed["test"]["assessment"], "executable_payload_reflected")
+                    self.assertEqual(executed["test"]["approvedPayloads"], execution_plan["exactWirePayloads"][:1])
 
     def test_open_redirect_execute_test_captures_external_location_without_following(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
@@ -1796,6 +2121,147 @@ class CsrfAdapterTests(unittest.TestCase):
                 self.assertEqual(account["method"], "POST")
                 self.assertGreaterEqual(account["priorityScore"], 60)  # base + high-value path
 
+    def test_auth_workflows_require_token_and_impact_prerequisites(self) -> None:
+        def form(action: str, *names: str) -> dict[str, object]:
+            return {
+                "pageUrl": action,
+                "method": "POST",
+                "action": action,
+                "inputs": [{"name": name, "type": "hidden" if csrf._is_token_field(name) else "text"} for name in names],
+            }
+
+        raw = json.dumps(
+            {
+                "hosts": [
+                    {
+                        "host": "example.com",
+                        "urls": [],
+                        "forms": [
+                            form("https://example.com/account/update", "email", "save"),
+                            form("https://example.com/index.php/login", "username", "password", "requesttoken"),
+                            form("https://example.com/login/basic", "username", "password"),
+                            form("https://example.com/login/supported", "username", "password"),
+                            form("https://example.com/password/forgot", "email"),
+                            form("https://example.com/account/recovery/supported", "email"),
+                            form("https://example.com/register/basic", "email", "password"),
+                            form("https://example.com/registration/supported", "email", "password"),
+                        ],
+                    }
+                ],
+                "summary": {"hostCount": 1, "urlCount": 0, "formCount": 8},
+            }
+        )
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                scope.save_scope(["https://example.com"], "test")
+                credentials.save_credential(
+                    {
+                        "id": "approved-login-baseline",
+                        "type": "cookie",
+                        "secret": "test-session-only",
+                        "scopes": ["example.com"],
+                    }
+                )
+                workspace.ingest_data("engagement", "example.com", "sitemap", "tool_output", "json", raw)
+                workspace.ingest_data(
+                    "engagement",
+                    "example.com",
+                    "adapter_result",
+                    "passive_analysis",
+                    "json",
+                    json.dumps(
+                        {
+                            "entities": {
+                                "observations": [
+                                    {
+                                        "type": "csrf_candidate",
+                                        "candidateId": "csrf_legacy_blanket_login",
+                                        "value": "https://example.com/login/basic",
+                                        "url": "https://example.com/login/basic",
+                                        "method": "POST",
+                                        "reason": "Legacy blanket login candidate.",
+                                    }
+                                ]
+                            }
+                        }
+                    ),
+                )
+                result = json.loads(
+                    csrf.analyze_workspace(
+                        {
+                            "workspaceId": "engagement",
+                            "target": "example.com",
+                            "workflowContexts": [
+                                {
+                                    "url": "https://example.com/login/supported",
+                                    "attackerAccountScenario": "Approved test account can receive victim-generated content after a session switch.",
+                                    "credentialedBaselineApproved": True,
+                                    "baselineCredentialId": "approved-login-baseline",
+                                    "approvalId": "csrf-login-baseline-approval",
+                                },
+                                {
+                                    "url": "https://example.com/account/recovery/supported",
+                                    "unauthorizedStateChangeImpact": "Changes the approved test account recovery destination.",
+                                    "impactEvidenceIds": ["ev_recovery_baseline"],
+                                },
+                                {
+                                    "url": "https://example.com/registration/supported",
+                                    "unauthorizedStateChangeImpact": "Creates an approved test identity with attacker-selected state.",
+                                    "impactEvidenceIds": ["ev_registration_baseline"],
+                                },
+                            ],
+                        }
+                    )
+                )
+
+                candidate_by_url = {item["url"]: item for item in result["candidates"]}
+                self.assertEqual(
+                    set(candidate_by_url),
+                    {
+                        "https://example.com/account/update",
+                        "https://example.com/login/supported",
+                        "https://example.com/account/recovery/supported",
+                        "https://example.com/registration/supported",
+                    },
+                )
+                self.assertEqual(candidate_by_url["https://example.com/login/supported"]["workflowDisposition"], "login_csrf_candidate")
+                self.assertTrue(
+                    candidate_by_url["https://example.com/login/supported"]["prerequisites"]["baselineCredentialReferenceValid"]
+                )
+                classifications = {item["url"]: item for item in result["classifications"]}
+                self.assertEqual(classifications["https://example.com/index.php/login"]["workflowDisposition"], "recognized_token_field")
+                self.assertEqual(classifications["https://example.com/index.php/login"]["tokenFields"], ["requesttoken"])
+                self.assertEqual(classifications["https://example.com/login/basic"]["workflowDisposition"], "login_csrf_prerequisite_gap")
+                self.assertEqual(classifications["https://example.com/password/forgot"]["workflowDisposition"], "recovery_csrf_impact_gap")
+                self.assertEqual(classifications["https://example.com/register/basic"]["workflowDisposition"], "registration_csrf_impact_gap")
+                self.assertEqual(result["reconciliation"]["suppressed"], 1)
+                legacy = next(
+                    item
+                    for item in workspace._load_target_entities("engagement", "example.com")["observations"]
+                    if item.get("candidateId") == "csrf_legacy_blanket_login"
+                )
+                self.assertFalse(legacy["isReportable"])
+
+                login_plan = json.loads(csrf.generate_test_plan({"candidate": candidate_by_url["https://example.com/login/supported"]}))
+                self.assertEqual(login_plan["workflowType"], "login")
+                self.assertFalse(login_plan["sendsTraffic"])
+                self.assertTrue(any("attacker-controlled baseline" in step for step in login_plan["manualReproductionOutline"]))
+
+        for name in (
+            "requesttoken",
+            "_token",
+            "_wpnonce",
+            "wp_nonce",
+            "__RequestVerificationToken",
+            "csrfmiddlewaretoken",
+            "authenticity_token",
+            "form_token",
+            "form_key",
+        ):
+            self.assertTrue(csrf._is_token_field(name), name)
+        for name in ("tokenizer", "announcement", "email", "password"):
+            self.assertFalse(csrf._is_token_field(name), name)
+
     def test_generate_test_plan_is_manual_and_guarded(self) -> None:
         plan = json.loads(csrf.generate_test_plan({"url": "https://example.com/account/update", "method": "POST"}))
         self.assertFalse(plan["sendsTraffic"])
@@ -1803,7 +2269,7 @@ class CsrfAdapterTests(unittest.TestCase):
 
 
 class CorsAdapterTests(unittest.TestCase):
-    def test_passive_flags_wildcard_with_credentials_and_ignores_same_origin(self) -> None:
+    def test_passive_classifies_browser_semantics_and_ignores_same_origin(self) -> None:
         raw = json.dumps(
             {
                 "hosts": [
@@ -1811,11 +2277,59 @@ class CorsAdapterTests(unittest.TestCase):
                         "host": "example.com",
                         "urls": [
                             {
-                                "url": "https://example.com/api/data",
+                                "url": "https://example.com/api/wildcard-credentials",
                                 "methods": ["GET"],
                                 "statusCodes": [200],
                                 "responseHeaders": {
                                     "access-control-allow-origin": "*",
+                                    "access-control-allow-credentials": "true",
+                                },
+                            },
+                            {
+                                "url": "https://example.com/api/wildcard-public",
+                                "methods": ["GET"],
+                                "statusCodes": [200],
+                                "responseHeaders": {"access-control-allow-origin": "*"},
+                            },
+                            {
+                                "url": "https://example.com/api/null-credentials",
+                                "methods": ["GET"],
+                                "statusCodes": [200],
+                                "responseHeaders": {
+                                    "access-control-allow-origin": "null",
+                                    "access-control-allow-credentials": "true",
+                                },
+                            },
+                            {
+                                "url": "https://example.com/api/null-public",
+                                "methods": ["GET"],
+                                "statusCodes": [200],
+                                "responseHeaders": {"access-control-allow-origin": "null"},
+                            },
+                            {
+                                "url": "https://example.com/api/fixed-credentials",
+                                "methods": ["GET"],
+                                "statusCodes": [200],
+                                "responseHeaders": {
+                                    "access-control-allow-origin": "https://trusted.example",
+                                    "access-control-allow-credentials": "true",
+                                },
+                            },
+                            {
+                                "url": "https://example.com/api/fixed-public",
+                                "methods": ["GET"],
+                                "statusCodes": [200],
+                                "responseHeaders": {"access-control-allow-origin": "https://trusted.example"},
+                            },
+                            {
+                                "url": "https://example.com/api/observed-reflection",
+                                "methods": ["GET"],
+                                "statusCodes": [200],
+                                "observedRequests": [
+                                    {"requestHeaders": {"Origin": "https://attacker.example"}}
+                                ],
+                                "responseHeaders": {
+                                    "access-control-allow-origin": "https://attacker.example",
                                     "access-control-allow-credentials": "true",
                                 },
                             },
@@ -1828,19 +2342,61 @@ class CorsAdapterTests(unittest.TestCase):
                         ],
                     }
                 ],
-                "summary": {"hostCount": 1, "urlCount": 2, "formCount": 0},
+                "summary": {"hostCount": 1, "urlCount": 8, "formCount": 0},
             }
         )
         with TemporaryDirectory() as tmp:
             with isolated_state(Path(tmp)):
                 workspace.ingest_data("engagement", "example.com", "sitemap", "tool_output", "json", raw)
+                workspace.ingest_data(
+                    "engagement",
+                    "example.com",
+                    "adapter_result",
+                    "passive_analysis",
+                    "json",
+                    json.dumps(
+                        {
+                            "entities": {
+                                "observations": [
+                                    {
+                                        "type": "cors_candidate",
+                                        "candidateId": "cors_legacy_wildcard_credentials",
+                                        "value": "https://example.com/api/wildcard-credentials",
+                                        "url": "https://example.com/api/wildcard-credentials",
+                                        "method": "GET",
+                                        "reason": "Legacy wildcard-plus-credentials candidate.",
+                                    }
+                                ]
+                            }
+                        }
+                    ),
+                )
                 result = json.loads(cors.analyze_workspace({"workspaceId": "engagement", "target": "example.com"}))
-                urls = {c["url"] for c in result["candidates"]}
-                self.assertIn("https://example.com/api/data", urls)
-                self.assertNotIn("https://example.com/api/self", urls)
-                wildcard = next(c for c in result["candidates"] if c["url"].endswith("/api/data"))
+                candidate_codes = {c["verdictCode"] for c in result["candidates"]}
+                self.assertEqual(
+                    candidate_codes,
+                    {"credentialed_null_origin_policy_candidate", "observed_credentialed_origin_reflection_candidate"},
+                )
+                classification_codes = {c["verdictCode"] for c in result["classifications"]}
+                self.assertEqual(
+                    classification_codes,
+                    {
+                        "invalid_noncredentialed_wildcard",
+                        "public_wildcard_read",
+                        "public_null_origin_read",
+                        "public_fixed_origin_read",
+                        "credentialed_fixed_origin_policy",
+                    },
+                )
+                wildcard = next(c for c in result["classifications"] if c["verdictCode"] == "invalid_noncredentialed_wildcard")
+                self.assertFalse(wildcard["isReportable"])
                 self.assertTrue(wildcard["allowCredentials"])
-                self.assertEqual(wildcard["priority"], "medium")
+                self.assertNotIn("https://example.com/api/self", {c["url"] for c in [*result["candidates"], *result["classifications"]]})
+                self.assertEqual(result["reconciliation"]["suppressed"], 1)
+                stored = workspace._load_target_entities("engagement", "example.com")["observations"]
+                legacy = next(item for item in stored if item.get("candidateId") == "cors_legacy_wildcard_credentials")
+                self.assertFalse(legacy["isReportable"])
+                self.assertFalse(legacy["analysisEligible"])
 
     def test_cors_collapses_host_wide_acao(self) -> None:
         raw = json.dumps(
@@ -1868,9 +2424,10 @@ class CorsAdapterTests(unittest.TestCase):
 
                 result = json.loads(cors.analyze_workspace({"workspaceId": "engagement", "target": "example.com"}))
 
-                self.assertEqual(result["candidateCount"], 1)
-                self.assertEqual(result["candidates"][0]["affectedCount"], 5)
-                self.assertEqual(result["candidates"][0]["dedupeScope"], "host")
+                self.assertEqual(result["candidateCount"], 0)
+                self.assertEqual(result["classificationCount"], 1)
+                self.assertEqual(result["classifications"][0]["affectedCount"], 5)
+                self.assertEqual(result["classifications"][0]["dedupeScope"], "host")
 
     def test_execute_test_requires_confirmation(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -1878,14 +2435,22 @@ class CorsAdapterTests(unittest.TestCase):
                 with self.assertRaises(McpError):
                     cors.execute_test({"url": "https://example.com/api", "workspaceId": "engagement"})
 
-    def test_execute_test_detects_origin_reflection(self) -> None:
+    def test_execute_test_uses_browser_semantic_verdicts(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
             origin = request.headers.get("origin", "")
             path = urlsplit(str(request.url)).path
-            if path == "/reflect":
+            if path == "/wildcard-public":
+                headers = {"access-control-allow-origin": "*"}
+            elif path == "/wildcard-credentials":
+                headers = {"access-control-allow-origin": "*", "access-control-allow-credentials": "true"}
+            elif path == "/reflect-public":
+                headers = {"access-control-allow-origin": origin}
+            elif path == "/reflect-credentials":
                 headers = {"access-control-allow-origin": origin, "access-control-allow-credentials": "true"}
+            elif path == "/null":
+                headers = {"access-control-allow-origin": "null", "access-control-allow-credentials": "true"}
             else:
-                headers = {"access-control-allow-origin": "https://trusted.example"}
+                headers = {"access-control-allow-origin": "https://trusted.example", "access-control-allow-credentials": "true"}
             return httpx.Response(200, text="ok", headers=headers)
 
         with TemporaryDirectory() as tmp:
@@ -1893,39 +2458,62 @@ class CorsAdapterTests(unittest.TestCase):
                 base = "http://app.acme-demo.test"
                 scope.save_scope([base], "test")
                 with stub_httpx(handler):
-                    reflected = json.loads(
+                    results = {}
+                    for name in (
+                        "wildcard-public",
+                        "wildcard-credentials",
+                        "reflect-public",
+                        "reflect-credentials",
+                        "fixed",
+                    ):
+                        results[name] = json.loads(
+                            cors.execute_test(
+                                {
+                                    "url": f"{base}/{name}",
+                                    "workspaceId": "engagement",
+                                    "confirm": True,
+                                    "approvalReason": "unit test approved CORS probe",
+                                }
+                            )
+                        )
+                    results["null"] = json.loads(
                         cors.execute_test(
                             {
-                                "url": f"{base}/reflect",
+                                "url": f"{base}/null",
                                 "workspaceId": "engagement",
+                                "probeOrigin": "null",
                                 "confirm": True,
-                                "approvalReason": "unit test approved CORS probe",
+                                "approvalReason": "unit test approved null-origin CORS probe",
                             }
                         )
                     )
-                    self.assertEqual(reflected["test"]["assessment"], "possible_cors_misconfiguration")
-                    self.assertTrue(reflected["test"]["originReflected"])
-                    self.assertTrue(reflected["action"]["created"])
-                    self.assertEqual(reflected["action"]["action"]["tool"], "cors.execute_test")
-                    reflected_exchange = Path(reflected["test"]["exchangeEvidence"]["rawPath"])
-                    self.assertTrue(reflected_exchange.exists())
-                    self.assertIn("access-control-allow-origin", reflected_exchange.read_text(encoding="utf-8"))
 
-                    fixed = json.loads(
-                        cors.execute_test(
-                            {
-                                "url": f"{base}/fixed",
-                                "workspaceId": "engagement",
-                                "confirm": True,
-                                "approvalReason": "unit test approved CORS probe",
-                            }
-                        )
-                    )
-                self.assertEqual(fixed["test"]["assessment"], "inconclusive")
-                observation_types = {
-                    o["type"] for o in workspace._load_target_entities("engagement", "app.acme-demo.test")["observations"]
-                }
-                self.assertIn("possible_cors_misconfiguration", observation_types)
+                self.assertEqual(results["wildcard-public"]["test"]["assessment"], "public_wildcard_read")
+                wildcard_credentials = results["wildcard-credentials"]["test"]
+                self.assertEqual(wildcard_credentials["assessment"], "invalid_noncredentialed_wildcard")
+                self.assertFalse(wildcard_credentials["verdict"]["browserAllowsCredentialedRead"])
+                self.assertFalse(wildcard_credentials["verdict"]["isReportable"])
+                self.assertEqual(results["reflect-public"]["test"]["assessment"], "origin_allowed_without_credentials")
+                self.assertEqual(results["fixed"]["test"]["assessment"], "fixed_allowlist_not_probe_origin")
+
+                for name in ("reflect-credentials", "null"):
+                    self.assertEqual(results[name]["test"]["assessment"], "possible_cors_misconfiguration")
+                    self.assertTrue(results[name]["test"]["verdict"]["browserAllowsCredentialedRead"])
+                    self.assertTrue(results[name]["test"]["verdict"]["isReportable"])
+                self.assertTrue(results["reflect-credentials"]["test"]["originReflected"])
+                self.assertFalse(results["null"]["test"]["originReflected"])
+                self.assertTrue(results["null"]["test"]["verdict"]["attackerControlledOriginAllowed"])
+
+                reflected_exchange = Path(results["reflect-credentials"]["test"]["exchangeEvidence"]["rawPath"])
+                self.assertTrue(reflected_exchange.exists())
+                self.assertIn("access-control-allow-origin", reflected_exchange.read_text(encoding="utf-8"))
+                observations = workspace._load_target_entities("engagement", "app.acme-demo.test")["observations"]
+                reportable = [item for item in observations if item["type"] == "possible_cors_misconfiguration"]
+                informational = [item for item in observations if item["type"] == "cors_probe_verdict"]
+                self.assertEqual(len(reportable), 2)
+                self.assertEqual(len(informational), 4)
+                self.assertTrue(all(item["browserAllowsCredentialedRead"] for item in reportable))
+                self.assertTrue(all(item["isReportable"] is False for item in informational))
 
 
 if __name__ == "__main__":

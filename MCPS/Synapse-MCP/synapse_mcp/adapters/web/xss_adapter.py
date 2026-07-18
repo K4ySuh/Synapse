@@ -15,7 +15,7 @@ from ...core.http import HttpClientPolicy, HttpRequest, http_client
 from ..command_utils import approval_metadata, require_confirmed, require_in_scope
 from .active_probe import priority_for_score, redact_value_preview, stable_slug
 from .active_probe import build_http_request, coerce_candidate, redact_headers, response_summary, store_http_exchange_evidence
-from .surface_hygiene import is_candidate_noise_url, normalize_surface_url
+from .surface_hygiene import canonical_surface_url, is_candidate_noise_url, normalize_surface_parameter, normalize_surface_url
 from . import xss_analysis
 
 
@@ -117,17 +117,26 @@ def execute_test(args: dict[str, Any]) -> str:
     method = str(candidate.get("method", "GET")).upper()
     parameter = str(candidate.get("parameter", ""))
     location = str(candidate.get("location", "query"))
-    marker = xss_marker(args.get("marker") or candidate.get("candidateId") or parameter or "xss")
-    allowed = xss_payloads(marker)
-    payloads = [str(args["payload"])] if args.get("payload") else allowed[: int(args.get("maxPayloads", 2))]
+    mode = xss_analysis.normalize_test_mode(args.get("mode", "reflection_marker"))
+    plan = xss_analysis.build_test_plan(
+        parameter=parameter,
+        context=str(args.get("context") or candidate.get("likelyContext") or "unknown"),
+        url=target_url,
+        mode=mode,
+        marker=args.get("marker"),
+    )
+    marker = plan["marker"]
+    allowed = plan["exactWirePayloads"]
+    payloads = [str(args["payload"])] if "payload" in args and args.get("payload") is not None else allowed[: int(args.get("maxPayloads", 2))]
     payloads = [payload for payload in payloads if payload in allowed]
     if not payloads:
-        raise McpError(-32602, "XSS active tests only support built-in benign marker payloads.")
-    approval = approval_metadata(args)
+        raise McpError(-32602, f"XSS {mode} tests only support exact payloads returned by xss.generate_test_code for that mode, marker, and context.")
+    risk_tier = validate_mode_risk_tier(mode, args.get("riskTier"))
+    approval = approval_metadata({**args, "riskTier": risk_tier})
     timeout = int(args.get("requestTimeout", 10))
     policy = HttpClientPolicy.from_args(args, timeout_seconds=timeout)
     tests = []
-    raw_tag_reflected = False
+    mode_payload_reflected = False
     marker_reflected = False
     encoded_reflected = False
     with http_client.session(policy) as session:
@@ -139,8 +148,9 @@ def execute_test(args: dict[str, Any]) -> str:
             body = str(response_payload.get("body", "") or "")
             reflected_payload = payload in body
             reflected_marker = marker in body
-            reflected_encoded = html.escape(payload, quote=True) in body
-            raw_tag_reflected = raw_tag_reflected or (reflected_payload and "<synapse-xss" in payload)
+            encoded_payload = html.escape(payload, quote=True)
+            reflected_encoded = encoded_payload != payload and encoded_payload in body
+            mode_payload_reflected = mode_payload_reflected or reflected_payload
             marker_reflected = marker_reflected or reflected_marker
             encoded_reflected = encoded_reflected or reflected_encoded
             exchange_evidence = store_http_exchange_evidence(
@@ -155,6 +165,8 @@ def execute_test(args: dict[str, Any]) -> str:
                     "parameter": parameter,
                     "payload": payload,
                     "marker": marker,
+                    "mode": mode,
+                    "riskTier": risk_tier,
                     "approval": approval,
                 },
             )
@@ -170,8 +182,10 @@ def execute_test(args: dict[str, Any]) -> str:
                     "encodedPayloadReflected": reflected_encoded,
                 }
             )
-    if raw_tag_reflected:
-        assessment = "possible_xss"
+    if mode == "execution" and mode_payload_reflected:
+        assessment = "executable_payload_reflected"
+    elif mode == "context_breakout" and mode_payload_reflected:
+        assessment = "context_breakout_reflected"
     elif marker_reflected:
         assessment = "reflection_observed"
     elif encoded_reflected:
@@ -182,6 +196,10 @@ def execute_test(args: dict[str, Any]) -> str:
         "candidate": candidate,
         "tests": tests,
         "marker": marker,
+        "mode": mode,
+        "riskTier": risk_tier,
+        "payloadCapability": plan["payloadCapability"],
+        "approvedPayloads": payloads,
         "assessment": assessment,
         "approval": approval,
     }
@@ -192,7 +210,7 @@ def execute_test(args: dict[str, Any]) -> str:
         "active_validation",
         "json",
         json.dumps(raw, indent=2, ensure_ascii=False),
-        {"approval": approval, "target": target_url, "host": scope_result["host"], "parameter": parameter},
+        {"approval": approval, "target": target_url, "host": scope_result["host"], "parameter": parameter, "mode": mode, "riskTier": risk_tier},
     )
     action = workspace.record_action(
         workspace_id,
@@ -204,6 +222,8 @@ def execute_test(args: dict[str, Any]) -> str:
             "method": method,
             "parameter": parameter,
             "location": location,
+            "mode": mode,
+            "riskTier": risk_tier,
             "assessment": assessment,
             "exchangeEvidenceIds": [item["exchangeEvidence"]["evidenceId"] for item in tests if item.get("exchangeEvidence")],
             "approval": approval,
@@ -213,8 +233,8 @@ def execute_test(args: dict[str, Any]) -> str:
     )
     evidence.log_event(
         "xss.execute_test",
-        f"Ran approved benign XSS reflection test against {scope_result['host']} parameter {parameter}.",
-        {"workspaceId": workspace_id, "target": target_url, "host": scope_result["host"], "assessment": assessment, "approval": approval},
+        f"Ran approved {mode} XSS test against {scope_result['host']} parameter {parameter}.",
+        {"workspaceId": workspace_id, "target": target_url, "host": scope_result["host"], "mode": mode, "riskTier": risk_tier, "assessment": assessment, "approval": approval},
     )
     return json.dumps({"test": raw, "ingestion": ingestion, "action": action}, indent=2)
 
@@ -252,16 +272,17 @@ def _url_from_value(value: Any) -> str:
     return ""
 
 
-def xss_marker(value: Any) -> str:
-    slug = stable_slug(value).replace("-", "_").replace(".", "_").upper()
-    return f"SYNAPSE_XSS_{slug}"[:80]
-
-
-def xss_payloads(marker: str) -> list[str]:
-    return [
-        f'"><synapse-xss data-token="{marker}"></synapse-xss>',
-        marker,
-    ]
+def validate_mode_risk_tier(mode: str, requested: Any) -> str:
+    ranks = {"low": 1, "medium": 2, "high": 3}
+    required = xss_analysis.XSS_MODE_RISK_TIERS[mode]
+    if requested is None or not str(requested).strip():
+        return required
+    normalized = str(requested).strip().lower()
+    if normalized not in ranks:
+        raise McpError(-32602, "XSS riskTier must be low, medium, or high.")
+    if ranks[normalized] < ranks[required]:
+        raise McpError(-32602, f"XSS mode {mode} requires riskTier={required} or higher.")
+    return normalized
 
 
 def find_workspace_candidates(entities: dict[str, list[dict[str, Any]]], *, target: str = "", min_score: int = 55) -> list[dict[str, Any]]:
@@ -272,7 +293,7 @@ def find_workspace_candidates(entities: dict[str, list[dict[str, Any]]], *, targ
     for parameter in entities.get("parameters", []):
         if not isinstance(parameter, dict):
             continue
-        name = str(parameter.get("name", "") or "").strip()
+        name = normalize_surface_parameter(parameter.get("name", ""))
         url = normalize_surface_url(parameter.get("url", ""))
         if not name or not url:
             continue
@@ -284,7 +305,7 @@ def find_workspace_candidates(entities: dict[str, list[dict[str, Any]]], *, targ
         score, reasons = score_workspace_parameter(parameter, endpoint)
         if score < min_score:
             continue
-        candidate_id = "xss_" + stable_slug(f"{url}|{parameter.get('method', '')}|{parameter.get('location', '')}|{name}")
+        candidate_id = "xss_" + stable_slug(f"{canonical_surface_url(url)}|{parameter.get('method', '')}|{parameter.get('location', '')}|{name}")
         candidates.setdefault(
             candidate_id,
             {

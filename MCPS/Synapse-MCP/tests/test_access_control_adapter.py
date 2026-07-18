@@ -28,8 +28,8 @@ class AccessControlAdapterTests(unittest.TestCase):
 
                 self.assertEqual(items[0]["objectId"], "canonical_user")
 
-    def test_access_control_identifies_api_collections_and_basket_objects_without_static_noise(self) -> None:
-        objects = access_control.extract_object_identifiers(
+    def test_access_control_requires_privileged_semantics_for_api_collections(self) -> None:
+        surfaces = access_control.extract_object_surfaces(
             {
                 "endpoints": [
                     {
@@ -53,14 +53,139 @@ class AccessControlAdapterTests(unittest.TestCase):
                 ],
                 "parameters": [],
                 "observations": [],
-            },
-            25,
+            }
         )
+        objects = [item for item in surfaces if item["isReportable"]]
+        classifications = [item for item in surfaces if not item["isReportable"]]
 
         object_keys = {(item["endpointPattern"], item["objectType"], item["testClass"]) for item in objects}
-        self.assertIn(("/api/Users", "user", "BFLA"), object_keys)
+        self.assertNotIn(("/api/Users", "user", "BFLA"), object_keys)
+        self.assertTrue(any(item["endpointPattern"] == "/api/Users" and item["classification"] == "public_or_unqualified_collection" for item in classifications))
         self.assertIn(("/rest/basket/{basket_id}", "basket", "BOLA"), object_keys)
-        self.assertFalse(any("default.svg" in item["url"] for item in objects))
+        self.assertFalse(any("default.svg" in item["url"] for item in surfaces))
+
+    def test_access_control_suppresses_framework_public_and_dependency_404_surfaces(self) -> None:
+        comment_url = "https://example.com/comment"
+        dependency_url = "https://example.com/api/users/"
+        protected_url = "https://example.com/api/orders/123"
+        entities = {
+            "endpoints": [
+                {
+                    "type": "endpoint",
+                    "url": comment_url,
+                    "method": "POST",
+                    "statusCodes": [200],
+                    "contentTypes": ["text/html"],
+                    "source": "crawler",
+                    "observed": True,
+                },
+                {
+                    "type": "endpoint",
+                    "url": dependency_url,
+                    "method": "GET",
+                    "statusCodes": [404],
+                    "contentTypes": ["application/json"],
+                    "source": "js_intelligence",
+                    "sourceAsset": "https://example.com/vendor/ui-router-1.0.10.js",
+                    "derived": True,
+                    "inferred": True,
+                },
+                {
+                    "type": "endpoint",
+                    "url": protected_url,
+                    "method": "GET",
+                    "statusCodes": [200],
+                    "contentTypes": ["application/json"],
+                    "cookieNames": ["SESSIONID"],
+                    "source": "js_intelligence",
+                    "sourceAsset": "https://example.com/assets/app.js",
+                    "derived": True,
+                    "observedRequests": [{"method": "GET", "status": 200}],
+                },
+            ],
+            "parameters": [
+                {"type": "parameter", "name": name, "url": comment_url, "method": "POST", "location": "form", "valuePreview": value}
+                for name, value in (
+                    ("form_build_id", "form-abc"),
+                    ("form_id", "comment_form"),
+                    ("comment_post_ID", "42"),
+                    ("category_id", "7"),
+                    ("newsletter_id", "4"),
+                    ("contract_type", "public"),
+                    ("procedure_filter", "open"),
+                )
+            ],
+            "observations": [
+                {
+                    "type": "access_control_object_candidate",
+                    "objectId": "legacy_dependency_object",
+                    "value": "/api/users",
+                    "url": dependency_url,
+                    "method": "GET",
+                    "priority": "high",
+                    "priorityScore": 85,
+                    "isReportable": True,
+                },
+                {
+                    "type": "access_control_test_candidate",
+                    "matrixId": "legacy_dependency_matrix",
+                    "value": "/api/users",
+                    "method": "GET",
+                    "priority": "high",
+                    "priorityScore": 85,
+                    "isReportable": True,
+                },
+            ],
+        }
+
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                workspace.create_workspace("engagement", organization="Example Corp", hosts=["example.com"])
+                workspace.ingest_data(
+                    "engagement",
+                    "example.com",
+                    "adapter_result",
+                    "passive_analysis",
+                    "json",
+                    json.dumps({"entities": entities}),
+                )
+
+                identified = json.loads(access_control.identify_objects({"workspaceId": "engagement", "target": "example.com"}))
+                self.assertEqual(identified["objectCount"], 1)
+                self.assertEqual(identified["objects"][0]["endpointPattern"], "/api/orders/{order_id}")
+                self.assertEqual(identified["objects"][0]["objectType"], "order")
+                self.assertEqual(identified["objects"][0]["sourceQuality"], "first_party")
+                self.assertTrue(identified["objects"][0]["isReportable"])
+
+                classifications = identified["classifications"]
+                classified_names = {item["identifierName"] for item in classifications}
+                self.assertTrue({"form_build_id", "form_id", "comment_post_id", "category_id", "newsletter_id", "contract_type", "procedure_filter"}.issubset(classified_names))
+                dependency = next(item for item in classifications if item["url"] == dependency_url)
+                self.assertEqual(dependency["reachability"], "refuted_not_found")
+                self.assertEqual(dependency["sourceQuality"], "dependency")
+                self.assertIn("observed_consistent_404_410", dependency["suppressionReasons"])
+                self.assertEqual(access_control.endpoint_reachability({"statusCodes": [404, 200]}), "observed_reachable")
+
+                matrix = json.loads(
+                    access_control.build_test_matrix(
+                        {
+                            "workspaceId": "engagement",
+                            "target": "example.com",
+                            "contexts": [
+                                {"contextId": "owner", "role": "user", "authState": "authenticated", "credentialId": "owner-cred"},
+                                {"contextId": "peer", "role": "user", "authState": "authenticated", "credentialId": "peer-cred"},
+                            ],
+                        }
+                    )
+                )
+                self.assertEqual(matrix["matrixCount"], 1)
+                self.assertEqual(matrix["matrix"][0]["endpointPattern"], "/api/orders/{order_id}")
+                stored_objects = access_control.read_access_control_items("engagement", "example.com", "objects")
+                self.assertEqual([item["endpointPattern"] for item in stored_objects], ["/api/orders/{order_id}"])
+                stored_observations = workspace._load_target_entities("engagement", "example.com")["observations"]
+                legacy = [item for item in stored_observations if str(item.get("matrixId") or item.get("objectId", "")).startswith("legacy_dependency")]
+                self.assertEqual(len(legacy), 2)
+                self.assertTrue(all(item["isReportable"] is False and item["analysisEligible"] is False for item in legacy))
 
     def test_access_control_identifies_objects_records_contexts_and_builds_matrix(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -188,6 +313,112 @@ class AccessControlAdapterTests(unittest.TestCase):
 
         self.assertEqual(matrix[0]["requiredContexts"], ["tester1", "tester3"])
 
+    def test_access_control_matrix_preserves_available_contexts_and_emits_gaps(self) -> None:
+        objects = [
+            {
+                "objectId": "obj_order",
+                "objectType": "order",
+                "method": "GET",
+                "endpointPattern": "/api/orders/{order_id}",
+                "identifierName": "order_id",
+                "identifierValueShape": "numeric",
+                "location": "path",
+                "testClass": "BOLA",
+                "priority": "high",
+            }
+        ]
+        anonymous_matrix, anonymous_gaps = access_control.create_matrix_plan(
+            objects,
+            [{"contextId": "rtbit-anonymous", "role": "anonymous", "authState": "anonymous"}],
+        )
+        self.assertEqual(len(anonymous_matrix), 1)
+        self.assertEqual(anonymous_matrix[0]["testClass"], "ANONYMOUS_BASELINE")
+        self.assertEqual(anonymous_matrix[0]["requiredContexts"], ["rtbit-anonymous"])
+        self.assertEqual(len(anonymous_gaps), 1)
+        self.assertEqual(anonymous_gaps[0]["missingContextRoles"], ["two_authenticated_peers"])
+
+        one_matrix, one_gaps = access_control.create_matrix_plan(
+            objects,
+            [{"contextId": "only-user", "role": "user", "authState": "authenticated", "credentialId": "cred-only"}],
+        )
+        self.assertEqual(one_matrix, [])
+        self.assertEqual(one_gaps[0]["availableContextIds"], ["only-user"])
+
+        peer_matrix, peer_gaps = access_control.create_matrix_plan(
+            objects,
+            [
+                {"contextId": "alice", "role": "user", "authState": "authenticated", "credentialId": "cred-alice"},
+                {"contextId": "bob", "role": "user", "authState": "authenticated", "credentialId": "cred-bob"},
+            ],
+        )
+        self.assertEqual(peer_gaps, [])
+        self.assertEqual(peer_matrix[0]["requiredContexts"], ["alice", "bob"])
+        serialized = json.dumps(anonymous_matrix + anonymous_gaps + one_matrix + one_gaps + peer_matrix)
+        self.assertNotIn("user_a", serialized)
+        self.assertNotIn("user_b", serialized)
+        self.assertNotIn("standard_user", serialized)
+
+    def test_access_control_build_matrix_persists_anonymous_baseline_and_blocked_gap(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                workspace.create_workspace("engagement", organization="Example Corp", hosts=["example.com"])
+                access_control.replace_access_control_items(
+                    "engagement",
+                    "example.com",
+                    "objects",
+                    [
+                        {
+                            "objectId": "obj_order",
+                            "objectType": "order",
+                            "method": "GET",
+                            "endpointPattern": "/api/orders/{order_id}",
+                            "identifierName": "order_id",
+                            "identifierValueShape": "numeric",
+                            "location": "path",
+                            "testClass": "BOLA",
+                            "priority": "high",
+                            "isReportable": True,
+                        }
+                    ],
+                    "objectId",
+                )
+                result = json.loads(
+                    access_control.build_test_matrix(
+                        {
+                            "workspaceId": "engagement",
+                            "target": "example.com",
+                            "refreshObjects": False,
+                            "contexts": [{"contextId": "rtbit-anonymous", "role": "anonymous", "authState": "anonymous"}],
+                            "ingest": True,
+                        }
+                    )
+                )
+
+                self.assertEqual(result["matrixCount"], 1)
+                self.assertEqual(result["matrix"][0]["requiredContexts"], ["rtbit-anonymous"])
+                self.assertEqual(result["matrix"][0]["testClass"], "ANONYMOUS_BASELINE")
+                self.assertEqual(result["coverageGapCount"], 1)
+                self.assertTrue(result["coverageGaps"][0]["blocked"])
+                self.assertEqual(result["coverageGaps"][0]["availableContextIds"], ["rtbit-anonymous"])
+                self.assertTrue((workspace.target_model_dir("engagement", "example.com", "access-control") / "coverage-gaps.json").exists())
+
+                with self.assertRaisesRegex(Exception, "Blocked access-control coverage gaps are not executable"):
+                    access_control.execute_matrix_test(
+                        {
+                            "workspaceId": "engagement",
+                            "target": "example.com",
+                            "matrixEntry": result["coverageGaps"][0],
+                            "confirm": True,
+                        }
+                    )
+                with self.assertRaisesRegex(Exception, "missing matrix-required context IDs"):
+                    access_control.resolve_replay_contexts(
+                        {"contexts": [{"contextId": "different-anonymous", "role": "anonymous"}]},
+                        "engagement",
+                        "example.com",
+                        result["matrix"][0],
+                    )
+
     def test_access_control_execute_matrix_test_replays_contexts_with_approval(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
             cookie = request.headers.get("cookie", "")
@@ -269,12 +500,11 @@ class AccessControlAdapterTests(unittest.TestCase):
                                     "matrixId": "acm_cross_host",
                                     "endpointPattern": "/api/users/{user_id}",
                                     "method": "GET",
-                                    "objectType": "user",
-                                    "testClass": "BOLA",
+                                "objectType": "user",
+                                    "testClass": "ANONYMOUS_BASELINE",
                                 },
                                 "requestUrl": "https://api.example.com/api/users/123",
-                                "allowAnonymousContexts": True,
-                                "contexts": [{"contextId": "anonymous", "role": "anonymous", "expectedAccess": True}],
+                                "contexts": [{"contextId": "anonymous", "role": "anonymous", "expectedAccess": False}],
                                 "confirm": True,
                                 "approvalReason": "unit test approved cross-host attribution check",
                                 "riskTier": "low",
@@ -295,6 +525,9 @@ class AccessControlAdapterTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             with isolated_state(Path(tmp)):
                 workspace.create_workspace("engagement", organization="Example Client", hosts=["example.com"])
+                scope.save_scope(["https://example.com"], "test", "Example Client")
+                credentials.save_credential({"id": "high-cred", "type": "cookie", "scopes": ["example.com"], "secret": "HIGH=1"})
+                credentials.save_credential({"id": "normal-cred", "type": "cookie", "scopes": ["example.com"], "secret": "NORMAL=1"})
                 base_args = {
                     "workspaceId": "engagement",
                     "target": "example.com",
@@ -305,11 +538,10 @@ class AccessControlAdapterTests(unittest.TestCase):
                         "testClass": "BFLA",
                     },
                     "requestUrl": "https://example.com/api/Sicas",
-                    "allowAnonymousContexts": True,
                     "allowStateChanging": True,
                     "contexts": [
-                        {"contextId": "high", "role": "admin", "expectedAccess": True},
-                        {"contextId": "normal", "role": "user", "expectedAccess": False},
+                        {"contextId": "high", "role": "admin", "credentialId": "high-cred", "expectedAccess": True},
+                        {"contextId": "normal", "role": "user", "credentialId": "normal-cred", "expectedAccess": False},
                     ],
                     "confirm": True,
                     "approvalReason": "unit test approved POST replay identity check",
@@ -336,6 +568,9 @@ class AccessControlAdapterTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             with isolated_state(Path(tmp)):
                 workspace.create_workspace("engagement", organization="Example Client", hosts=["example.com"])
+                scope.save_scope(["https://example.com"], "test", "Example Client")
+                credentials.save_credential({"id": "high-cred", "type": "cookie", "scopes": ["example.com"], "secret": "HIGH=1"})
+                credentials.save_credential({"id": "normal-cred", "type": "cookie", "scopes": ["example.com"], "secret": "NORMAL=1"})
                 with patch.object(access_control.http_client, "send", side_effect=fake_send):
                     result = json.loads(
                         access_control.execute_matrix_test(
@@ -350,10 +585,9 @@ class AccessControlAdapterTests(unittest.TestCase):
                                     "testClass": "BFLA",
                                 },
                                 "requestUrl": "https://example.com/api/Sicas",
-                                "allowAnonymousContexts": True,
                                 "contexts": [
-                                    {"contextId": "high", "role": "admin", "expectedAccess": True},
-                                    {"contextId": "normal", "role": "user", "expectedAccess": False},
+                                    {"contextId": "high", "role": "admin", "credentialId": "high-cred", "expectedAccess": True},
+                                    {"contextId": "normal", "role": "user", "credentialId": "normal-cred", "expectedAccess": False},
                                 ],
                                 "confirm": True,
                                 "approvalReason": "unit test approved error-shaped response check",
@@ -395,11 +629,10 @@ class AccessControlAdapterTests(unittest.TestCase):
                                     "endpointPattern": "/api/users/{user_id}",
                                     "method": "GET",
                                     "objectType": "user",
-                                    "testClass": "BOLA",
+                                    "testClass": "ANONYMOUS_BASELINE",
                                 },
                                 "requestUrl": "https://example.com/api/users/123",
-                                "allowAnonymousContexts": True,
-                                "contexts": [{"contextId": "anonymous", "role": "anonymous", "expectedAccess": True}],
+                                "contexts": [{"contextId": "anonymous", "role": "anonymous", "expectedAccess": False}],
                                 "confirm": True,
                                 "approvalReason": "unit test approved budget clamp",
                                 "riskTier": "low",
@@ -418,7 +651,7 @@ class AccessControlAdapterTests(unittest.TestCase):
             with isolated_state(Path(tmp)):
                 base = "http://127.0.0.1:9"
                 scope.save_scope([base], "test", "Example Client")
-                with self.assertRaisesRegex(Exception, "allowAnonymousContexts=true"):
+                with self.assertRaisesRegex(Exception, "separate context explicitly marked anonymous"):
                     access_control.execute_matrix_test(
                         {
                             "workspaceId": "engagement",
@@ -441,7 +674,7 @@ class AccessControlAdapterTests(unittest.TestCase):
                         }
                     )
 
-    def test_access_control_replay_without_valid_credentials_uses_anonymous_when_allowed(self) -> None:
+    def test_access_control_replay_never_downgrades_missing_credentials_to_anonymous(self) -> None:
         seen_cookies: list[str] = []
 
         def handler(request: httpx.Request) -> httpx.Response:
@@ -454,6 +687,44 @@ class AccessControlAdapterTests(unittest.TestCase):
                 target = f"{base}/api/users/123"
                 scope.save_scope([base], "test", "Example Client")
 
+                with stub_httpx(handler), self.assertRaisesRegex(Exception, "never downgraded|separate context explicitly marked anonymous"):
+                    access_control.execute_matrix_test(
+                        {
+                            "workspaceId": "engagement",
+                            "target": "app.acme-demo.test",
+                            "matrixEntry": {
+                                "matrixId": "acm_anon",
+                                "endpointPattern": "/api/users/{user_id}",
+                                "method": "GET",
+                                "objectType": "user",
+                                "testClass": "BOLA",
+                            },
+                            "requestUrl": target,
+                            "allowAnonymousContexts": True,
+                            "contexts": [
+                                {"contextId": "missing", "expectedAccess": True},
+                                {"contextId": "invalid", "credentialId": "does-not-exist", "expectedAccess": False},
+                            ],
+                            "confirm": True,
+                            "approvalReason": "unit test verifies anonymous downgrade is forbidden",
+                            "riskTier": "low",
+                        }
+                    )
+
+                self.assertEqual(seen_cookies, [])
+
+    def test_access_control_explicit_anonymous_baseline_replays_without_credentials(self) -> None:
+        seen_cookies: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen_cookies.append(request.headers.get("cookie", ""))
+            return httpx.Response(403, text='{"error":"denied"}', headers={"content-type": "application/json"})
+
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                base = "http://app.acme-demo.test"
+                target = f"{base}/api/users/123"
+                scope.save_scope([base], "test", "Example Client")
                 with stub_httpx(handler):
                     result = json.loads(
                         access_control.execute_matrix_test(
@@ -461,32 +732,28 @@ class AccessControlAdapterTests(unittest.TestCase):
                                 "workspaceId": "engagement",
                                 "target": "app.acme-demo.test",
                                 "matrixEntry": {
-                                    "matrixId": "acm_anon",
+                                    "matrixId": "acm_anonymous_baseline",
                                     "endpointPattern": "/api/users/{user_id}",
                                     "method": "GET",
                                     "objectType": "user",
-                                    "testClass": "BOLA",
+                                    "testClass": "ANONYMOUS_BASELINE",
+                                    "requiredContexts": ["rtbit-anonymous"],
                                 },
                                 "requestUrl": target,
-                                "allowAnonymousContexts": True,
-                                "contexts": [
-                                    {"contextId": "missing", "expectedAccess": True},
-                                    {"contextId": "invalid", "credentialId": "does-not-exist", "expectedAccess": False},
-                                ],
+                                "contexts": [{"contextId": "rtbit-anonymous", "role": "anonymous", "authState": "anonymous"}],
                                 "confirm": True,
-                                "approvalReason": "unit test approved anonymous access-control replay",
+                                "approvalReason": "unit test approved explicit anonymous baseline",
                                 "riskTier": "low",
                             }
                         )
                     )
 
-                self.assertEqual(seen_cookies, ["", ""])
+                self.assertEqual(seen_cookies, [""])
                 contexts = result["replay"]["contexts"]
-                self.assertEqual([item["authState"] for item in contexts], ["anonymous", "anonymous"])
+                self.assertEqual([item["authState"] for item in contexts], ["anonymous"])
                 self.assertTrue(all(item["allowAnonymous"] for item in contexts))
-                self.assertEqual([item["credentialId"] for item in contexts], ["", ""])
-                self.assertIn("No credentialId", contexts[0]["anonymousReason"])
-                self.assertIn("could not be used", contexts[1]["anonymousReason"])
+                self.assertEqual([item["credentialId"] for item in contexts], [""])
+                self.assertIn("explicitly", contexts[0]["anonymousReason"])
                 self.assertTrue(all("Cookie" not in replay["requestHeaders"] for replay in result["replay"]["replays"]))
 
     def test_resolve_replay_contexts_requires_credentials_by_default(self) -> None:
@@ -512,19 +779,18 @@ class AccessControlAdapterTests(unittest.TestCase):
                 self.assertTrue(contexts[0]["allowAnonymous"])
                 self.assertEqual(contexts[0]["authState"], "anonymous")
 
-    def test_resolve_replay_contexts_allows_anonymous_when_flag_set(self) -> None:
+    def test_resolve_replay_contexts_global_anonymous_flag_cannot_downgrade_role(self) -> None:
         with TemporaryDirectory() as tmp:
             with isolated_state(Path(tmp)):
-                contexts = access_control.resolve_replay_contexts(
-                    {"contexts": [{"contextId": "missing", "expectedAccess": True}], "allowAnonymousContexts": True},
-                    "engagement",
-                    "127.0.0.1",
-                    {"requiredContexts": []},
-                )
-                self.assertTrue(contexts[0]["allowAnonymous"])
-                self.assertEqual(contexts[0]["credentialId"], "")
+                with self.assertRaisesRegex(Exception, "separate context explicitly marked anonymous"):
+                    access_control.resolve_replay_contexts(
+                        {"contexts": [{"contextId": "missing", "expectedAccess": True}], "allowAnonymousContexts": True},
+                        "engagement",
+                        "127.0.0.1",
+                        {"requiredContexts": []},
+                    )
 
-    def test_prepare_replay_context_auth_invalid_credential_fails_unless_allowed(self) -> None:
+    def test_prepare_replay_context_auth_invalid_credential_never_downgrades(self) -> None:
         with TemporaryDirectory() as tmp:
             with isolated_state(Path(tmp)):
                 with self.assertRaisesRegex(Exception, "could not be resolved"):
@@ -532,14 +798,12 @@ class AccessControlAdapterTests(unittest.TestCase):
                         {"contextId": "user_b", "credentialId": "does-not-exist"},
                         "http://127.0.0.1/api/users/123",
                     )
-                downgraded = access_control.prepare_replay_context_auth(
-                    {"contextId": "user_b", "credentialId": "does-not-exist"},
-                    "http://127.0.0.1/api/users/123",
-                    allow_anonymous=True,
-                )
-                self.assertEqual(downgraded["credentialId"], "")
-                self.assertTrue(downgraded["allowAnonymous"])
-                self.assertEqual(downgraded["authState"], "anonymous")
+                with self.assertRaisesRegex(Exception, "never downgraded"):
+                    access_control.prepare_replay_context_auth(
+                        {"contextId": "user_b", "credentialId": "does-not-exist"},
+                        "http://127.0.0.1/api/users/123",
+                        allow_anonymous=True,
+                    )
 
     def test_build_replay_request_blocks_secret_bearing_headers(self) -> None:
         for header in ("X-Api-Key", "X-Auth-Token", "X-Session-Id", "X-CSRF-Token"):
@@ -583,6 +847,7 @@ class AccessControlAdapterTests(unittest.TestCase):
                 target = f"{base}/api/users/123"
                 scope.save_scope([base], "test", "Example Client")
                 credentials.save_credential({"id": "user-a", "type": "cookie", "scopes": ["app.acme-demo.test"], "secret": "USERA=1"})
+                credentials.save_credential({"id": "user-b", "type": "cookie", "scopes": ["app.acme-demo.test"], "secret": "USERB=1"})
 
                 with stub_httpx(handler):
                     result = json.loads(
@@ -600,7 +865,7 @@ class AccessControlAdapterTests(unittest.TestCase):
                                 "requestUrl": target,
                                 "contexts": [
                                     {"contextId": "user_a", "credentialId": "user-a", "expectedAccess": True},
-                                    {"contextId": "user_b", "expectedAccess": False},
+                                    {"contextId": "user_b", "credentialId": "user-b", "expectedAccess": False},
                                 ],
                                 "confirm": True,
                                 "approvalReason": "unit test approved redirect-denial replay",
@@ -650,44 +915,39 @@ class AccessControlAdapterTests(unittest.TestCase):
                 )
                 self.assertEqual({item["contextId"]: item["expectedAccess"] for item in bfla}, {"admin": True, "normal": False})
 
-    def test_bfla_without_privileged_context_reports_unassessable(self) -> None:
+    def test_bfla_without_privileged_context_is_blocked_before_traffic(self) -> None:
         with TemporaryDirectory() as tmp:
             with isolated_state(Path(tmp)):
                 scope.save_scope(["https://example.com"], "test", "Example Client")
-                with patch.object(
+                credentials.save_credential({"id": "normal-cred", "type": "cookie", "scopes": ["example.com"], "secret": "NORMAL=1"})
+                send = patch.object(
                     access_control.http_client,
                     "send",
                     return_value=HttpResponse(status=200, headers={"content-type": "application/json"}, body='{"ok":true}'),
-                ):
-                    result = json.loads(
-                        access_control.execute_matrix_test(
-                            {
-                                "workspaceId": "engagement",
-                                "target": "example.com",
-                                "matrixEntry": {
-                                    "matrixId": "acm_bfla_unassessable",
-                                    "endpointPattern": "/admin",
-                                    "method": "GET",
-                                    "objectType": "function",
-                                    "testClass": "BFLA",
-                                },
-                                "requestUrl": "https://example.com/admin",
-                                "contexts": [
-                                    {"contextId": "normal", "role": "user", "authState": "authenticated"},
-                                    {"contextId": "anon", "role": "anonymous", "authState": "anonymous"},
-                                ],
-                                "allowAnonymousContexts": True,
-                                "confirm": True,
-                                "approvalReason": "unit test approved BFLA unassessable check",
-                                "riskTier": "low",
-                            }
-                        )
+                )
+                with send as mocked_send, self.assertRaisesRegex(Exception, "no privileged authenticated context"):
+                    access_control.execute_matrix_test(
+                        {
+                            "workspaceId": "engagement",
+                            "target": "example.com",
+                            "matrixEntry": {
+                                "matrixId": "acm_bfla_unassessable",
+                                "endpointPattern": "/admin",
+                                "method": "GET",
+                                "objectType": "function",
+                                "testClass": "BFLA",
+                            },
+                            "requestUrl": "https://example.com/admin",
+                            "contexts": [
+                                {"contextId": "normal", "role": "user", "authState": "authenticated", "credentialId": "normal-cred"},
+                                {"contextId": "anon", "role": "anonymous", "authState": "anonymous"},
+                            ],
+                            "confirm": True,
+                            "approvalReason": "unit test verifies incomplete BFLA is blocked",
+                            "riskTier": "low",
+                        }
                     )
-
-                reason = "BFLA unassessable: no privileged context recorded"
-                self.assertEqual(result["replay"]["assessment"], "inconclusive")
-                self.assertEqual(result["replay"]["assessmentReason"], reason)
-                self.assertIn(reason, result["replay"]["missingInformation"])
+                mocked_send.assert_not_called()
 
     def test_compare_reports_body_identity(self) -> None:
         identical = compare_http_responses({"status": 200, "body": '{"a":1}'}, {"status": 200, "body": '{"a":1}'})

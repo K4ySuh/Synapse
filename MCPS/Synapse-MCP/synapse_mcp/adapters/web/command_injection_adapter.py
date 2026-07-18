@@ -7,6 +7,7 @@ import json
 import re
 import time
 from typing import Any
+import unicodedata
 from urllib import parse
 
 from ...core import evidence, fingerprint, workspace
@@ -26,7 +27,7 @@ from .active_probe import (
 from .surface_hygiene import is_candidate_noise_url, normalize_surface_url
 
 
-COMMAND_PARAM_MARKERS = {
+STRONG_COMMAND_TOKENS = {
     "cmd",
     "command",
     "exec",
@@ -40,6 +41,8 @@ COMMAND_PARAM_MARKERS = {
     "nslookup",
     "traceroute",
     "trace",
+}
+CONTEXTUAL_COMMAND_TOKENS = {
     "host",
     "hostname",
     "domain",
@@ -47,10 +50,11 @@ COMMAND_PARAM_MARKERS = {
     "address",
     "target",
 }
-COMMAND_PATH_MARKERS = (
+COMMAND_PATH_TOKENS = {
     "cmd",
     "command",
     "exec",
+    "execute",
     "shell",
     "process",
     "run",
@@ -61,7 +65,49 @@ COMMAND_PATH_MARKERS = (
     "trace",
     "diagnostic",
     "network",
-    "admin",
+    "tool",
+    "tools",
+}
+BUSINESS_FIELD_TOKENS = {
+    "agenda",
+    "category",
+    "classification",
+    "contract",
+    "contracte",
+    "document",
+    "documento",
+    "documenttype",
+    "filter",
+    "municipality",
+    "municipi",
+    "municipio",
+    "procedure",
+    "procediment",
+    "procedimiento",
+    "taxonomy",
+    "tipus",
+    "tipo",
+    "type",
+}
+JS_EXECUTION_PATTERNS = (
+    "child_process",
+    "runtime.exec",
+    "processbuilder",
+    "os.system",
+    "subprocess.",
+    "shell:true",
+    "shell: true",
+    ".spawn(",
+    ".exec(",
+)
+COMMAND_RESPONSE_PATTERNS = (
+    "command not found",
+    "not recognized as an internal or external command",
+    "cmd.exe",
+    "/bin/sh",
+    "sh:",
+    "permission denied",
+    "shell syntax",
 )
 
 
@@ -74,12 +120,16 @@ def analyze_workspace(args: dict[str, Any]) -> str:
     context = workspace.prepare_target_context(workspace_id, target, purpose="command_injection_candidate_analysis", max_tokens=4000)
     entities = workspace._load_target_entities(workspace.normalize_workspace_id(workspace_id), workspace.normalize_target(target))
     os_context = infer_os_context(target, organization)
-    candidates = find_candidates(entities, min_score, os_context)[:max_candidates]
-    result = build_result(workspace_id, target, candidates, context, os_context)
+    surfaces = find_candidate_surfaces(entities, os_context)
+    candidates = [item for item in surfaces if item.get("isReportable") and item["priorityScore"] >= min_score][:max_candidates]
+    weak_observations = [item for item in surfaces if not item.get("isReportable")][:max_candidates]
+    result = build_result(workspace_id, target, candidates, weak_observations, context, os_context)
     payload = {
         **result.as_ingest_payload(),
         "candidateCount": len(candidates),
         "candidates": candidates,
+        "discoveryObservationCount": len(weak_observations),
+        "discoveryObservations": weak_observations,
         "osContext": os_context,
         "contextSummary": context_summary(context),
     }
@@ -101,6 +151,7 @@ def analyze_workspace(args: dict[str, Any]) -> str:
             "workspaceId": workspace.normalize_workspace_id(workspace_id),
             "target": workspace.normalize_target(target),
             "candidateCount": len(candidates),
+            "discoveryObservationCount": len(weak_observations),
             "osFamily": os_context["family"],
             "ingested": bool(ingestion),
         },
@@ -130,13 +181,21 @@ def infer_os_context(target: str, organization: str = "unknown-org") -> dict[str
 
 
 def find_candidates(entities: dict[str, list[dict[str, Any]]], min_score: int, os_context: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        item
+        for item in find_candidate_surfaces(entities, os_context)
+        if item.get("isReportable") and item["priorityScore"] >= min_score
+    ]
+
+
+def find_candidate_surfaces(entities: dict[str, list[dict[str, Any]]], os_context: dict[str, Any]) -> list[dict[str, Any]]:
     endpoints_by_url = {item.get("url"): item for item in entities.get("endpoints", []) if isinstance(item, dict)}
     candidates: dict[str, dict[str, Any]] = {}
     for parameter in entities.get("parameters", []):
         if not isinstance(parameter, dict):
             continue
         candidate = candidate_from_parameter(parameter, endpoints_by_url.get(parameter.get("url")), os_context)
-        if candidate and candidate["priorityScore"] >= min_score:
+        if candidate:
             candidates[candidate["candidateId"]] = candidate
     return sorted(candidates.values(), key=lambda item: item["priorityScore"], reverse=True)
 
@@ -150,41 +209,114 @@ def candidate_from_parameter(parameter: dict[str, Any], endpoint: dict[str, Any]
         return None
     method = str(parameter.get("method", "") or (endpoint or {}).get("method", "GET")).upper()
     location = str(parameter.get("location", "query"))
-    path = str(parameter.get("path", "") or parse.urlsplit(url).path).lower()
-    lower_name = name.lower()
+    path = str(parameter.get("path", "") or parse.urlsplit(url).path)
+    name_tokens = semantic_tokens(name)
+    path_tokens = semantic_tokens(path)
+    strong_name_tokens = sorted(set(name_tokens) & STRONG_COMMAND_TOKENS)
+    contextual_name_tokens = sorted(set(name_tokens) & CONTEXTUAL_COMMAND_TOKENS)
+    negative_tokens = sorted(set(name_tokens) & BUSINESS_FIELD_TOKENS)
+    if negative_tokens and not strong_name_tokens:
+        contextual_name_tokens = []
+    matched_name_tokens = strong_name_tokens + contextual_name_tokens
+    matched_path_tokens = sorted(set(path_tokens) & COMMAND_PATH_TOKENS)
+    endpoint_context = json.dumps({"parameter": parameter, "endpoint": endpoint or {}}, ensure_ascii=False, sort_keys=True).lower()
+    js_execution_signals = sorted({pattern for pattern in JS_EXECUTION_PATTERNS if pattern in endpoint_context})
+    response_behavior_signals = sorted({pattern for pattern in COMMAND_RESPONSE_PATTERNS if pattern in endpoint_context})
+    observed_requests = (endpoint or {}).get("observedRequests", [])
+    observed_command_route = bool(observed_requests) and bool(matched_path_tokens)
     score = 10
-    reasons = []
-    if lower_name in COMMAND_PARAM_MARKERS or any(marker in lower_name for marker in COMMAND_PARAM_MARKERS):
-        score += 45
-        reasons.append("Parameter name suggests command, process, shell, network diagnostic, host, or target input.")
-    if any(marker in path for marker in COMMAND_PATH_MARKERS):
+    reasons: list[str] = []
+    signal_categories: list[str] = []
+    if matched_name_tokens:
+        score += 45 if strong_name_tokens else 30
+        signal_categories.append("parameter_semantics")
+        reasons.append(f"Parameter tokens match command/diagnostic concepts: {', '.join(matched_name_tokens)}.")
+    if matched_path_tokens:
         score += 30
-        reasons.append("Endpoint path suggests command execution, diagnostics, network lookup, scripting, or admin tooling.")
-    if location in {"form", "body", "json"}:
+        signal_categories.append("diagnostic_route")
+        reasons.append(f"Endpoint path has command/diagnostic tokens: {', '.join(matched_path_tokens)}.")
+    if js_execution_signals:
+        score += 35
+        signal_categories.append("js_execution_api")
+        reasons.append("JavaScript/request-construction context references a shell or process execution API.")
+    if response_behavior_signals:
+        score += 40
+        signal_categories.append("os_command_response")
+        reasons.append("Observed response context contains OS command or shell behavior.")
+    if observed_command_route:
         score += 10
+        signal_categories.append("observed_command_route")
+        reasons.append("A request was observed on the command-like endpoint route.")
+    if location in {"form", "body", "json"}:
+        score += 5
         reasons.append("Parameter is in a submitted body/form context where server-side processing is more likely.")
     if method in {"POST", "PUT", "PATCH"}:
-        score += 10
+        score += 5
         reasons.append("State-changing method may wrap server-side workflow execution.")
-    if not reasons:
+    if not matched_name_tokens and not matched_path_tokens and not js_execution_signals and not response_behavior_signals:
         return None
+    corroboration = [category for category in signal_categories if category != "parameter_semantics"]
+    reportable = bool(matched_name_tokens) and bool(corroboration)
+    if not reportable:
+        reasons.append("This is a single-signal discovery observation; independent command-execution corroboration is required before active validation.")
     score = min(score, 100)
-    return build_candidate(url=url, method=method, parameter=name, location=location, score=score, reasons=reasons, os_context=os_context)
+    return build_candidate(
+        url=url,
+        method=method,
+        parameter=name,
+        location=location,
+        score=score,
+        reasons=reasons,
+        os_context=os_context,
+        is_reportable=reportable,
+        signal_categories=signal_categories,
+        parameter_tokens=name_tokens,
+        path_tokens=path_tokens,
+        negative_tokens=negative_tokens,
+    )
 
 
-def build_candidate(*, url: str, method: str, parameter: str, location: str, score: int, reasons: list[str], os_context: dict[str, Any]) -> dict[str, Any]:
+def semantic_tokens(value: Any) -> list[str]:
+    text = unicodedata.normalize("NFKD", str(value or ""))
+    text = "".join(char for char in text if not unicodedata.combining(char))
+    text = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", text)
+    text = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1 \2", text)
+    return [token.lower() for token in re.findall(r"[A-Za-z0-9]+", text) if token]
+
+
+def build_candidate(
+    *,
+    url: str,
+    method: str,
+    parameter: str,
+    location: str,
+    score: int,
+    reasons: list[str],
+    os_context: dict[str, Any],
+    is_reportable: bool = True,
+    signal_categories: list[str] | None = None,
+    parameter_tokens: list[str] | None = None,
+    path_tokens: list[str] | None = None,
+    negative_tokens: list[str] | None = None,
+) -> dict[str, Any]:
     candidate_id = f"command_injection_{stable_slug(method)}_{stable_slug(url)}_{stable_slug(parameter or location)}"
     family = os_context.get("family", "unknown")
     return {
         "candidateId": candidate_id[:160],
-        "type": "command_injection_candidate",
+        "type": "command_injection_candidate" if is_reportable else "command_injection_discovery",
         "url": url,
         "method": method,
         "parameter": parameter,
         "location": location,
-        "priority": priority_for_score(score),
+        "priority": priority_for_score(score) if is_reportable else "low",
         "priorityScore": score,
-        "confidence": "medium" if score >= 70 else "low",
+        "confidence": "medium" if is_reportable and score >= 70 else "low",
+        "isReportable": is_reportable,
+        "analysisEligible": is_reportable,
+        "signalCategories": signal_categories or [],
+        "parameterTokens": parameter_tokens or [],
+        "pathTokens": path_tokens or [],
+        "negativeTokens": negative_tokens or [],
         "osFamily": family,
         "osConfidence": os_context.get("confidence", "low"),
         "reasons": reasons,
@@ -193,7 +325,14 @@ def build_candidate(*, url: str, method: str, parameter: str, location: str, sco
     }
 
 
-def build_result(workspace_id: str, target: str, candidates: list[dict[str, Any]], context: dict[str, Any], os_context: dict[str, Any]) -> AdapterResult:
+def build_result(
+    workspace_id: str,
+    target: str,
+    candidates: list[dict[str, Any]],
+    weak_observations: list[dict[str, Any]],
+    context: dict[str, Any],
+    os_context: dict[str, Any],
+) -> AdapterResult:
     observations = [
         candidate_observation(
             candidate_type="command_injection_candidate",
@@ -213,20 +352,48 @@ def build_result(workspace_id: str, target: str, candidates: list[dict[str, Any]
                 "osConfidence": candidate.get("osConfidence", "low"),
                 "reasons": candidate.get("reasons", []),
                 "testPlanSummary": candidate.get("testPlanSummary", ""),
+                "signalCategories": candidate.get("signalCategories", []),
+                "parameterTokens": candidate.get("parameterTokens", []),
+                "pathTokens": candidate.get("pathTokens", []),
             },
         )
         for candidate in candidates
     ]
+    observations.extend(
+        {
+            "type": "command_injection_discovery",
+            "key": item["candidateId"],
+            "value": item["url"],
+            "url": item["url"],
+            "method": item["method"],
+            "parameter": item["parameter"],
+            "location": item["location"],
+            "confidence": "low",
+            "priority": "low",
+            "priorityScore": item["priorityScore"],
+            "reason": item["reasons"][-1],
+            "reasons": item["reasons"],
+            "isReportable": False,
+            "analysisEligible": False,
+            "signalCategories": item.get("signalCategories", []),
+            "parameterTokens": item.get("parameterTokens", []),
+            "pathTokens": item.get("pathTokens", []),
+            "negativeTokens": item.get("negativeTokens", []),
+            "tags": ["command-injection", "weak-discovery", "needs-corroboration"],
+        }
+        for item in weak_observations
+    )
     return AdapterResult(
         adapter="command_injection",
         mode="passive_analysis",
         workspace_id=workspace.normalize_workspace_id(workspace_id),
         target=workspace.normalize_target(target),
-        summary=f"Identified {len(candidates)} command injection candidate surfaces.",
+        summary=f"Identified {len(candidates)} corroborated command injection candidate surface(s) and {len(weak_observations)} non-reportable discovery observation(s).",
         entities=WorkspaceEntityBundle(observations=observations),
         recommended_tests=recommended_tests(),
         limitations=[
             "Passive analysis identifies command-like input surfaces only.",
+            "A reportable candidate requires boundary-aware parameter semantics plus an independent diagnostic-route, JavaScript execution-API, observed command-route, or OS command-response signal.",
             "Active validation is limited to benign echo-style marker payloads.",
         ],
         metadata={"contextSummary": context_summary(context), "osContext": os_context},

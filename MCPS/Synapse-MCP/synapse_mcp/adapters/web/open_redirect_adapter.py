@@ -14,10 +14,10 @@ from ...core.errors import McpError
 from ...core.http import HttpClientPolicy, HttpRequest, http_client
 from ..command_utils import approval_metadata, require_confirmed, require_in_scope
 from .active_probe import build_http_request, coerce_candidate, redact_headers, response_summary, stable_slug, store_http_exchange_evidence
-from .surface_hygiene import is_candidate_noise_url, normalize_surface_url, observation_surface_url
+from .surface_hygiene import canonical_surface_url, is_candidate_noise_url, normalize_surface_parameter, normalize_surface_url, observation_surface_url
 
 
-REDIRECT_PARAM_MARKERS = {
+STRONG_REDIRECT_PARAMETERS = {
     "next",
     "return",
     "return_url",
@@ -28,23 +28,32 @@ REDIRECT_PARAM_MARKERS = {
     "continue_url",
     "destination",
     "dest",
-    "url",
-    "uri",
-    "target",
-    "to",
     "callback",
     "relaystate",
     "goto",
     "forward",
 }
-REDIRECT_PATH_MARKERS = (
+AMBIGUOUS_URL_PARAMETERS = {"url", "uri", "target", "to"}
+REDIRECT_ROUTE_TOKENS = {
     "redirect",
     "return",
     "continue",
     "callback",
-    "url",
+    "forward",
+    "goto",
+}
+AUTH_ROUTE_TOKENS = {"auth", "login", "logon", "logout", "oauth", "signin", "signout", "sso"}
+SEARCH_CONFIG_TOKENS = {"search", "filter", "query", "facet", "configuration", "config"}
+SEARCH_CONFIG_PARAMETER_NAMES = {"baseurl", "searchurl", "urlbase", "urlbasesearchstring", "urlsearchconfig"}
+CLIENT_NAVIGATION_PATTERNS = (
+    "window.location",
+    "location.assign",
+    "location.replace",
+    "location.href",
+    "document.location",
+    "router.push",
+    "navigate(",
 )
-STRICT_REDIRECT_MARKERS = ("redirect", "return", "url", "continue", "callback")
 ABSOLUTE_URL_RE = re.compile(r"^(?:https?:)?//", re.IGNORECASE)
 
 
@@ -55,12 +64,16 @@ def analyze_workspace(args: dict[str, Any]) -> str:
     min_score = int(args.get("minScore", 35))
     context = workspace.prepare_target_context(workspace_id, target, purpose="open_redirect_candidate_analysis", max_tokens=4000)
     entities = workspace._load_target_entities(workspace.normalize_workspace_id(workspace_id), workspace.normalize_target(target))
-    candidates = find_candidates(entities, min_score)[:max_candidates]
+    surfaces = find_surfaces(entities)
+    candidates = [item for item in surfaces if item.get("isReportable") and item["priorityScore"] >= min_score][:max_candidates]
+    classifications = [item for item in surfaces if not item.get("isReportable")][:max_candidates]
     payload = {
         "workspaceId": workspace.normalize_workspace_id(workspace_id),
         "target": workspace.normalize_target(target),
         "candidateCount": len(candidates),
         "candidates": candidates,
+        "classificationCount": len(classifications),
+        "classifications": classifications,
         "contextSummary": {
             "endpointCount": context.get("knownEndpoints", {}).get("total", 0),
             "parameterCount": context.get("parameters", {}).get("total", 0),
@@ -78,6 +91,7 @@ def analyze_workspace(args: dict[str, Any]) -> str:
             json.dumps(payload, indent=2, ensure_ascii=False),
             {"minScore": min_score, "maxCandidates": max_candidates},
         )
+    reconciliation = reconcile_open_redirect_observations(workspace_id, target, {item["candidateId"] for item in candidates})
     evidence.log_event(
         "open_redirect.analyze_workspace",
         f"Analyzed open redirect candidates for {workspace.normalize_target(target)}.",
@@ -85,28 +99,64 @@ def analyze_workspace(args: dict[str, Any]) -> str:
             "workspaceId": workspace.normalize_workspace_id(workspace_id),
             "target": workspace.normalize_target(target),
             "candidateCount": len(candidates),
+            "classificationCount": len(classifications),
             "ingested": bool(ingestion),
         },
     )
-    return json.dumps({**payload, **({"ingestion": ingestion} if ingestion else {})}, indent=2)
+    return json.dumps({**payload, "observationReconciliation": reconciliation, **({"ingestion": ingestion} if ingestion else {})}, indent=2)
 
 
 def find_candidates(entities: dict[str, list[dict[str, Any]]], min_score: int) -> list[dict[str, Any]]:
-    endpoints_by_url = {item.get("url"): item for item in entities.get("endpoints", []) if isinstance(item, dict)}
-    candidates: dict[str, dict[str, Any]] = {}
+    return [item for item in find_surfaces(entities) if item.get("isReportable") and item["priorityScore"] >= min_score]
+
+
+def find_surfaces(entities: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
+    endpoints_by_surface = index_endpoints(entities.get("endpoints", []))
+    surfaces: dict[str, dict[str, Any]] = {}
     for parameter in entities.get("parameters", []):
         if not isinstance(parameter, dict):
             continue
-        candidate = candidate_from_parameter(parameter, endpoints_by_url.get(parameter.get("url")))
-        if candidate and candidate["priorityScore"] >= min_score:
-            candidates[candidate["candidateId"]] = candidate
+        method = str(parameter.get("method", "GET") or "GET").upper()
+        endpoint = endpoints_by_surface.get((method, canonical_route(parameter.get("url", ""))), {})
+        surface = candidate_from_parameter(parameter, endpoint)
+        if surface:
+            existing = surfaces.get(surface["candidateId"])
+            if existing is None or (surface.get("isReportable") and not existing.get("isReportable")) or surface["priorityScore"] > existing["priorityScore"]:
+                surfaces[surface["candidateId"]] = surface
     for observation in entities.get("observations", []):
         if not isinstance(observation, dict):
             continue
-        candidate = candidate_from_observation(observation)
-        if candidate and candidate["priorityScore"] >= min_score:
-            candidates.setdefault(candidate["candidateId"], candidate)
-    return sorted(candidates.values(), key=lambda item: item["priorityScore"], reverse=True)
+        surface = candidate_from_observation(observation)
+        if surface:
+            surfaces.setdefault(surface["candidateId"], surface)
+    return sorted(surfaces.values(), key=lambda item: item["priorityScore"], reverse=True)
+
+
+def index_endpoints(endpoints: Any) -> dict[tuple[str, str], dict[str, Any]]:
+    indexed: dict[tuple[str, str], dict[str, Any]] = {}
+    for endpoint in endpoints if isinstance(endpoints, list) else []:
+        if not isinstance(endpoint, dict):
+            continue
+        method = str(endpoint.get("method", "GET") or "GET").upper()
+        route = canonical_route(endpoint.get("url", ""))
+        if not route:
+            continue
+        current = indexed.setdefault((method, route), {"url": route, "method": method})
+        for field in ("statusCodes", "redirectLocations", "observedRequests", "responseHeaders", "navigationSignals"):
+            value = endpoint.get(field)
+            if value in (None, "", [], {}):
+                continue
+            if isinstance(value, list):
+                existing = current.get(field, []) if isinstance(current.get(field), list) else []
+                current[field] = existing + [item for item in value if item not in existing]
+            elif isinstance(value, dict):
+                current[field] = {**(current.get(field, {}) if isinstance(current.get(field), dict) else {}), **value}
+            else:
+                current.setdefault(field, value)
+        for field in ("status", "path", "source", "sourceAsset", "reason"):
+            if endpoint.get(field) not in (None, ""):
+                current.setdefault(field, endpoint[field])
+    return indexed
 
 
 def candidate_from_parameter(parameter: dict[str, Any], endpoint: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -118,31 +168,83 @@ def candidate_from_parameter(parameter: dict[str, Any], endpoint: dict[str, Any]
         return None
     method = str(parameter.get("method", "") or (endpoint or {}).get("method", "GET")).upper()
     location = str(parameter.get("location", "query"))
-    path = urlsplit(url).path.lower()
-    lower_name = name.lower()
+    path = urlsplit(url).path
+    path_tokens = semantic_tokens(path)
+    normalized_name = normalize_surface_parameter(name)
     value_preview = str(parameter.get("value", "") or parameter.get("valuePreview", ""))
     score = 10
-    reasons = []
-    has_redirect_signal = False
-    if _has_redirect_signal(lower_name):
-        has_redirect_signal = True
-        score += 45
-        reasons.append("Parameter name suggests redirect, return, continuation, target, or destination behavior.")
-    if any(marker in path for marker in REDIRECT_PATH_MARKERS):
-        has_redirect_signal = True
-        score += 25
-        reasons.append("Endpoint path suggests authentication, callback, continuation, or redirect workflow.")
-    if ABSOLUTE_URL_RE.search(value_preview):
-        has_redirect_signal = True
-        score += 25
-        reasons.append("Observed value resembles an absolute or protocol-relative URL.")
-    if method == "GET":
+    reasons: list[str] = []
+    signals: list[str] = []
+    strong_parameter = normalized_name in STRONG_REDIRECT_PARAMETERS
+    ambiguous_parameter = normalized_name in AMBIGUOUS_URL_PARAMETERS
+    observed_redirect = endpoint_has_redirect_response(endpoint or {})
+    client_navigation = endpoint_has_client_navigation({"parameter": parameter, "endpoint": endpoint or {}})
+    redirect_route = bool(path_tokens & REDIRECT_ROUTE_TOKENS)
+    auth_continuation = bool(path_tokens & AUTH_ROUTE_TOKENS) and (strong_parameter or ambiguous_parameter)
+    absolute_value = bool(ABSOLUTE_URL_RE.search(value_preview))
+    if is_oembed_surface(path, normalized_name) and not observed_redirect and not client_navigation:
+        return build_classification(
+            url=url,
+            method=method,
+            parameter=name,
+            location=location,
+            classification="server_side_fetch_embed",
+            reason="WordPress oEmbed URL input is server-side fetch/embed semantics, not navigation/continuation behavior.",
+            candidate_for=["ssrf"],
+        )
+    if is_search_configuration(path_tokens, normalized_name, parameter) and not observed_redirect and not client_navigation and not redirect_route:
+        return build_classification(
+            url=url,
+            method=method,
+            parameter=name,
+            location=location,
+            classification="search_configuration",
+            reason="Search/form URL configuration lacks an observed redirect response or client navigation sink.",
+        )
+    if strong_parameter:
+        score += 35
+        signals.append("continuation_parameter")
+        reasons.append("Parameter is an exact redirect/return/continuation concept.")
+    elif ambiguous_parameter:
         score += 10
+        reasons.append("Parameter is a generic URL/target concept and needs endpoint behavior corroboration.")
+    if observed_redirect:
+        score += 60
+        signals.append("observed_redirect_response")
+        reasons.append("Observed endpoint evidence contains a redirect status or Location header.")
+    if client_navigation:
+        score += 50
+        signals.append("client_navigation_sink")
+        reasons.append("Stored endpoint/JavaScript context contains a client navigation sink.")
+    if redirect_route:
+        score += 35
+        signals.append("redirect_route")
+        reasons.append("Endpoint route has explicit redirect/return/continuation semantics.")
+    elif auth_continuation:
+        score += 30
+        signals.append("authentication_continuation_route")
+        reasons.append("Authentication route and continuation parameter jointly imply post-authentication navigation.")
+    if ABSOLUTE_URL_RE.search(value_preview):
+        score += 10
+        reasons.append("Observed value is absolute, but value shape alone is not treated as redirect behavior.")
+    if method == "GET":
+        score += 5
         reasons.append("GET redirect parameters are directly testable through navigation without submitting state-changing forms.")
     if location == "form":
         score += 5
         reasons.append("Parameter appears in a form workflow that may redirect after submission.")
-    if not has_redirect_signal:
+    reportable = bool(signals) or strong_parameter
+    if not reportable:
+        if ambiguous_parameter or absolute_value:
+            return build_classification(
+                url=url,
+                method=method,
+                parameter=name,
+                location=location,
+                classification="ambiguous_url_input",
+                reason="Generic URL input lacks a Location response, client navigation sink, redirect route, or authentication continuation semantic.",
+                candidate_for=["ssrf"] if absolute_value else [],
+            )
         return None
     return build_candidate(
         url=url,
@@ -152,6 +254,7 @@ def candidate_from_parameter(parameter: dict[str, Any], endpoint: dict[str, Any]
         score=min(score, 100),
         reasons=reasons,
         source="parameter",
+        signals=signals,
     )
 
 
@@ -162,17 +265,18 @@ def candidate_from_observation(observation: dict[str, Any]) -> dict[str, Any] | 
     if is_candidate_noise_url(value):
         return None
     method = str(observation.get("method", "GET")).upper()
-    path = urlsplit(value).path.lower()
+    path = urlsplit(value).path
+    path_tokens = semantic_tokens(path)
     input_names = [str(item) for item in observation.get("inputNames", []) if item]
     score = 0
     reasons = []
-    if any(marker in path for marker in REDIRECT_PATH_MARKERS):
+    if path_tokens & REDIRECT_ROUTE_TOKENS:
         score += 35
         reasons.append("Form or endpoint path suggests authentication, continuation, callback, or redirect behavior.")
     interesting_inputs = [
         name
         for name in input_names
-        if _has_redirect_signal(name.lower())
+        if normalize_surface_parameter(name) in STRONG_REDIRECT_PARAMETERS
     ]
     if interesting_inputs:
         score += 40
@@ -187,6 +291,7 @@ def candidate_from_observation(observation: dict[str, Any]) -> dict[str, Any] | 
         score=min(score, 100),
         reasons=reasons,
         source="observation",
+        signals=["redirect_route"] if path_tokens & REDIRECT_ROUTE_TOKENS else ["continuation_parameter"],
     )
 
 
@@ -199,8 +304,11 @@ def build_candidate(
     score: int,
     reasons: list[str],
     source: str,
+    signals: list[str] | None = None,
 ) -> dict[str, Any]:
-    candidate_id = f"open_redirect_{stable_slug(method)}_{stable_slug(url)}_{stable_slug(parameter or location)}"
+    route = canonical_route(url)
+    normalized_parameter = normalize_surface_parameter(parameter)
+    candidate_id = f"open_redirect_{stable_slug(method)}_{stable_slug(route)}_{stable_slug(location)}_{stable_slug(normalized_parameter or location)}"
     return {
         "candidateId": candidate_id[:160],
         "type": "open_redirect_candidate",
@@ -209,6 +317,10 @@ def build_candidate(
         "parameter": parameter,
         "location": location,
         "source": source,
+        "canonicalRoute": route,
+        "redirectSignals": signals or [],
+        "isReportable": True,
+        "analysisEligible": True,
         "priority": priority_for_score(score),
         "priorityScore": score,
         "confidence": "medium" if score >= 70 else "low",
@@ -217,9 +329,119 @@ def build_candidate(
     }
 
 
-def _has_redirect_signal(value: str) -> bool:
-    text = value.lower()
-    return any(marker in text for marker in STRICT_REDIRECT_MARKERS)
+def build_classification(
+    *,
+    url: str,
+    method: str,
+    parameter: str,
+    location: str,
+    classification: str,
+    reason: str,
+    candidate_for: list[str] | None = None,
+) -> dict[str, Any]:
+    route = canonical_route(url)
+    normalized_parameter = normalize_surface_parameter(parameter)
+    classification_id = f"open_redirect_classification_{stable_slug(method)}_{stable_slug(route)}_{stable_slug(location)}_{stable_slug(normalized_parameter or location)}"
+    return {
+        "candidateId": classification_id[:160],
+        "type": "open_redirect_surface_classification",
+        "url": url,
+        "canonicalRoute": route,
+        "method": method,
+        "parameter": parameter,
+        "location": location,
+        "classification": classification,
+        "candidateFor": candidate_for or [],
+        "suggestedAdapter": "ssrf" if "ssrf" in (candidate_for or []) else "",
+        "priority": "low",
+        "priorityScore": 20,
+        "confidence": "high" if classification in {"server_side_fetch_embed", "search_configuration"} else "medium",
+        "reason": reason,
+        "reasons": [reason],
+        "isReportable": False,
+        "analysisEligible": False,
+    }
+
+
+def canonical_route(value: Any) -> str:
+    canonical = canonical_surface_url(value)
+    parsed = urlsplit(canonical)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return ""
+    return urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(), parsed.path or "/", "", ""))
+
+
+def semantic_tokens(value: Any) -> set[str]:
+    text = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", str(value or ""))
+    return {token.lower() for token in re.findall(r"[A-Za-z0-9]+", text)}
+
+
+def endpoint_has_redirect_response(endpoint: dict[str, Any]) -> bool:
+    statuses: set[int] = set()
+    for value in (endpoint.get("statusCodes", []) if isinstance(endpoint.get("statusCodes"), list) else [endpoint.get("statusCodes")]) + [endpoint.get("status")]:
+        try:
+            statuses.add(int(value))
+        except (TypeError, ValueError):
+            pass
+    observed_locations: list[Any] = []
+    for request in endpoint.get("observedRequests", []) if isinstance(endpoint.get("observedRequests"), list) else []:
+        if not isinstance(request, dict):
+            continue
+        for value in (request.get("status"), request.get("statusCode")):
+            try:
+                statuses.add(int(value))
+            except (TypeError, ValueError):
+                pass
+        observed_locations.extend([request.get("location"), request.get("redirectLocation")])
+    response_headers = endpoint.get("responseHeaders", {})
+    has_location = bool(endpoint.get("redirectLocations")) or any(observed_locations) or (
+        isinstance(response_headers, dict) and any(str(name).lower() == "location" and value for name, value in response_headers.items())
+    )
+    return has_location or any(300 <= status < 400 for status in statuses)
+
+
+def endpoint_has_client_navigation(context: dict[str, Any]) -> bool:
+    serialized = json.dumps(context, ensure_ascii=False, sort_keys=True).lower()
+    return any(pattern in serialized for pattern in CLIENT_NAVIGATION_PATTERNS)
+
+
+def is_oembed_surface(path: str, parameter: str) -> bool:
+    return parameter == "url" and "oembed" in semantic_tokens(path)
+
+
+def is_search_configuration(path_tokens: set[str], parameter: str, record: dict[str, Any]) -> bool:
+    name_tokens = semantic_tokens(parameter)
+    input_type = str(record.get("inputType", "") or "").lower()
+    config_like_name = parameter in AMBIGUOUS_URL_PARAMETERS or parameter in SEARCH_CONFIG_PARAMETER_NAMES or bool(name_tokens & SEARCH_CONFIG_TOKENS) or "base" in name_tokens
+    return bool(path_tokens & SEARCH_CONFIG_TOKENS) and config_like_name and input_type in {"", "hidden", "text", "url"}
+
+
+def reconcile_open_redirect_observations(workspace_id: str, target: str, active_candidate_ids: set[str]) -> dict[str, int]:
+    wid = workspace.normalize_workspace_id(workspace_id)
+    host = workspace.normalize_target(target)
+    path = workspace.target_entity_path(wid, host, "observations")
+    observations = workspace._read_json(path, [])
+    if not isinstance(observations, list):
+        return {"active": len(active_candidate_ids), "suppressed": 0}
+    suppressed = 0
+    for observation in observations:
+        if not isinstance(observation, dict) or observation.get("type") != "open_redirect_candidate":
+            continue
+        if str(observation.get("candidateId", "")) in active_candidate_ids:
+            continue
+        if observation.get("isReportable") is False:
+            continue
+        observation["isReportable"] = False
+        observation["analysisEligible"] = False
+        observation["reportableDecision"] = {
+            "isReportable": False,
+            "reviewer": "open_redirect_reconciliation",
+            "reason": "Candidate is absent from the current semantic open-redirect snapshot.",
+        }
+        suppressed += 1
+    if suppressed:
+        workspace._write_json(path, observations)
+    return {"active": len(active_candidate_ids), "suppressed": suppressed}
 
 
 def generate_test_plan(args: dict[str, Any]) -> str:
