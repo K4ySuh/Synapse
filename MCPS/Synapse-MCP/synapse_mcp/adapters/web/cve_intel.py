@@ -3,11 +3,17 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from email.utils import parsedate_to_datetime
+import fcntl
 import hashlib
 import json
 import os
+from pathlib import Path
+import random
 import re
 import shutil
+from string import Formatter
 import subprocess
 import time
 from typing import Any, Callable
@@ -34,6 +40,12 @@ _ENDPOINT_OVERRIDES: dict[str, str] = {}
 _SESSION_KEYS: dict[str, str] = {}
 _LAST_SOURCE_STATUS: dict[str, dict[str, Any]] = {}
 _LAST_FETCH_CONTEXT: dict[str, dict[str, Any]] = {}
+_DEFAULT_PROVIDER_LIMITS: dict[str, dict[str, tuple[int, float]]] = {
+    "nvd": {"anonymous": (5, 30.0), "authenticated": (50, 30.0)},
+    "cisa_kev": {"anonymous": (30, 60.0), "authenticated": (30, 60.0)},
+    "poc_github_index": {"anonymous": (30, 60.0), "authenticated": (30, 60.0)},
+    "github_search": {"anonymous": (10, 60.0), "authenticated": (30, 60.0)},
+}
 
 
 class SourceFetchError(Exception):
@@ -44,6 +56,29 @@ class SourceFetchError(Exception):
         self.detail = detail
         self.http_status = http_status
         self.resolved_from = resolved_from
+
+
+class SourceRateLimited(SourceFetchError):
+    def __init__(
+        self,
+        source: str,
+        url: str,
+        detail: str,
+        *,
+        retry_after_seconds: float,
+        remaining_delay_seconds: float,
+        attempt: int,
+        max_attempts: int,
+        provider_key: str,
+        http_status: int | None = 429,
+        resolved_from: str = "",
+    ) -> None:
+        super().__init__(source, url, detail, http_status=http_status, resolved_from=resolved_from)
+        self.retry_after_seconds = max(float(retry_after_seconds), 0.0)
+        self.remaining_delay_seconds = max(float(remaining_delay_seconds), 0.0)
+        self.attempt = max(int(attempt), 0)
+        self.max_attempts = max(int(max_attempts), 1)
+        self.provider_key = provider_key
 
 
 class SourceSkipped(Exception):
@@ -78,6 +113,55 @@ def _resolve_source_config(source: str) -> dict[str, str]:
     return {"source": normalized, "url": baked_default, "envVar": env_var, "resolvedFrom": "default"}
 
 
+def _validate_source_config(source: str, resolved: dict[str, str] | None = None) -> dict[str, Any]:
+    resolved = resolved or _resolve_source_config(source)
+    url = str(resolved.get("url", ""))
+    if source == "shodan":
+        return {"valid": True, "status": "ok", "templateFields": [], "exampleUrl": "workspace"}
+    if source == "searchsploit":
+        valid = bool(url) and not any(char in url for char in "{}")
+        return {"valid": valid, "status": "ok" if valid else "configuration_error", "templateFields": [], "exampleUrl": url, "error": "" if valid else "searchsploit path cannot contain template braces"}
+    if source != "poc_github_index":
+        parsed = parse.urlsplit(url)
+        valid = parsed.scheme in {"http", "https"} and bool(parsed.netloc) and not any(char in url for char in "{}")
+        return {"valid": valid, "status": "ok" if valid else "configuration_error", "templateFields": [], "exampleUrl": url, "error": "" if valid else "source endpoint must be an absolute HTTP(S) URL without template fields"}
+
+    try:
+        parsed_template = list(Formatter().parse(url))
+    except ValueError as exc:
+        return {"valid": False, "status": "configuration_error", "templateFields": [], "exampleUrl": "", "error": f"invalid PoC endpoint template: {exc}"}
+    fields = [field for _, field, _, _ in parsed_template if field is not None]
+    invalid_format = any(format_spec or conversion for _, field, format_spec, conversion in parsed_template if field is not None)
+    if sorted(fields) != ["cveId", "year"] or invalid_format:
+        return {
+            "valid": False,
+            "status": "configuration_error",
+            "templateFields": fields,
+            "exampleUrl": "",
+            "error": "PoC endpoint template must contain exactly {year} and {cveId} with no conversion or format specifier",
+        }
+    try:
+        example = url.format(year="2024", cveId="CVE-2024-4577")
+    except (KeyError, ValueError, IndexError) as exc:
+        return {"valid": False, "status": "configuration_error", "templateFields": fields, "exampleUrl": "", "error": f"invalid PoC endpoint template: {exc}"}
+    parsed = parse.urlsplit(example)
+    valid = parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+    return {
+        "valid": valid,
+        "status": "ok" if valid else "configuration_error",
+        "templateFields": fields,
+        "exampleUrl": example,
+        "error": "" if valid else "interpolated PoC endpoint must be an absolute HTTP(S) URL",
+    }
+
+
+def _validate_all_source_configs() -> dict[str, dict[str, Any]]:
+    return {source: _validate_source_config(source) for source in sorted(_known_sources())}
+
+
+_STARTUP_SOURCE_VALIDATION = _validate_all_source_configs()
+
+
 def _enabled_sources(args: dict[str, Any] | None = None) -> list[str]:
     args = args or {}
     configured = args.get("sources")
@@ -105,11 +189,15 @@ def sources(args: dict[str, Any] | None = None) -> str:
     payload = {}
     for source in sorted(_known_sources()):
         resolved = _resolve_source_config(source)
+        validation = _validate_source_config(source, resolved)
         payload[source] = {
-            "enabled": source in enabled,
+            "enabled": source in enabled and validation["valid"],
+            "configuredEnabled": source in enabled,
             "url": resolved["url"],
             "resolvedFrom": resolved["resolvedFrom"],
             "envVar": resolved.get("envVar", ""),
+            "configuration": validation,
+            "startupConfiguration": _STARTUP_SOURCE_VALIDATION.get(source, {}),
             "lastStatus": _LAST_SOURCE_STATUS.get(source, {}),
         }
     return json.dumps({"sources": payload, "defaultEnabled": _enabled_sources({})}, indent=2)
@@ -130,6 +218,9 @@ def set_source_endpoint(args: dict[str, Any]) -> str:
         parsed = parse.urlsplit(url)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise McpError(-32602, f"{source} override must be an absolute http(s) URL.")
+    validation = _validate_source_config(source, {"source": source, "url": url, "resolvedFrom": "override"})
+    if not validation["valid"]:
+        raise McpError(-32602, str(validation.get("error") or f"Invalid {source} endpoint configuration."))
     _ENDPOINT_OVERRIDES[source] = url
     resolved = _resolve_source_config(source)
     _LAST_SOURCE_STATUS[source] = _source_status(source, "ok", resolved, detail="runtime endpoint override set")
@@ -202,8 +293,18 @@ def correlate(args: dict[str, Any]) -> str:
     http_surface = bool(entities.get("endpoints"))
     components = _filter_web_reachable(_technology_components(entities), http_surface, filter_stats)
     version_gaps = _version_precision_gaps(components)
+    deployment_context = _target_deployment_context(entities)
+    query_source_results: dict[str, dict[str, dict[str, Any]]] = {}
 
-    discovery_args = {**args, "_workspaceId": workspace_id, "_target": target, "_observations": observations, "_filterStats": filter_stats}
+    discovery_args = {
+        **args,
+        "_workspaceId": workspace_id,
+        "_target": target,
+        "_observations": observations,
+        "_filterStats": filter_stats,
+        "_deploymentContext": deployment_context,
+        "_querySourceResults": query_source_results,
+    }
     for source in selected:
         if source not in DISCOVERY_SOURCES:
             continue
@@ -217,12 +318,18 @@ def correlate(args: dict[str, Any]) -> str:
     for source in selected:
         if source not in ENRICHMENT_SOURCES:
             continue
-        data = _run_enrichment_source(source, ENRICHMENT_SOURCES[source], cve_ids, {**args, "_workspaceId": workspace_id, "_target": target}, source_status)
+        data = _run_enrichment_source(
+            source,
+            ENRICHMENT_SOURCES[source],
+            cve_ids,
+            {**args, "_workspaceId": workspace_id, "_target": target, "_querySourceResults": query_source_results},
+            source_status,
+        )
         _merge_enrichment(enrichment, data)
 
     merged = _apply_breadth_gate(merged, enrichment, filter_stats)
-    candidates = [_candidate_from_record(item, enrichment.get(item["cveId"], {}), source_status) for item in merged]
-    candidates.sort(
+    candidate_results = [_candidate_from_record(item, enrichment.get(item["cveId"], {})) for item in merged]
+    candidate_results.sort(
         key=lambda item: (
             -int(item["candidate"].get("priorityScore", 0) or 0),
             {"high": 0, "medium": 1, "low": 2}.get(str(item["candidate"].get("confidence", "low")), 3),
@@ -230,10 +337,30 @@ def correlate(args: dict[str, Any]) -> str:
             str(item["candidate"].get("component", "")),
         )
     )
+    refuted_candidates = [item["candidate"] for item in candidate_results if item["candidate"].get("deploymentDisposition") == "contradicted"]
+    candidates = [item for item in candidate_results if item["candidate"].get("deploymentDisposition") != "contradicted"]
+    prerequisite_gaps = [item["gap"] for item in candidate_results if isinstance(item.get("gap"), dict)]
+    filter_stats["deploymentContradicted"] = len(refuted_candidates)
+    filter_stats["prerequisiteUnknown"] = len(prerequisite_gaps)
     max_candidates = min(max(int(args.get("maxCandidates", 25)), 1), 250)
     if len(candidates) > max_candidates:
         filter_stats["candidateLimitSuppressed"] = len(candidates) - max_candidates
         candidates = candidates[:max_candidates]
+    retained_candidate_ids = {item["candidate"].get("candidateId") for item in candidates}
+    retained_results = [
+        item
+        for item in candidate_results
+        if item["candidate"].get("deploymentDisposition") == "contradicted"
+        or item["candidate"].get("candidateId") in retained_candidate_ids
+    ]
+    prerequisite_gaps = [item["gap"] for item in retained_results if isinstance(item.get("gap"), dict)]
+    filter_stats["prerequisiteUnknown"] = len(prerequisite_gaps)
+    run_source_results = [
+        result
+        for source_results in query_source_results.values()
+        for result in source_results.values()
+    ]
+    run_source_results.sort(key=lambda item: (str(item.get("source", "")), str(item.get("queryHash", ""))))
     result = AdapterResult(
         adapter="cve",
         mode="passive_analysis",
@@ -245,9 +372,11 @@ def correlate(args: dict[str, Any]) -> str:
             f"{filter_stats['nonWeb']} non-web, {filter_stats['unreachable']} unreachable-component; "
             f"skipped {filter_stats['versionUnknownSkipped']} version-unknown component lookup(s), "
             f"suppressed {filter_stats['unconfirmedSuppressed']} uncorroborated and "
-            f"{filter_stats['candidateLimitSuppressed']} over-limit candidate(s))."
+            f"{filter_stats['candidateLimitSuppressed']} over-limit candidate(s); "
+            f"refuted {filter_stats['deploymentContradicted']} deployment contradiction(s) and "
+            f"recorded {filter_stats['prerequisiteUnknown']} prerequisite gap(s))."
         ),
-        entities=WorkspaceEntityBundle(observations=[item["observation"] for item in candidates] + version_gaps),
+        entities=WorkspaceEntityBundle(observations=[item["observation"] for item in retained_results] + version_gaps + prerequisite_gaps),
         recommended_tests=recommended_tests(),
         limitations=[
             "CVE presence in public intelligence does not prove exploitability on this target.",
@@ -262,6 +391,9 @@ def correlate(args: dict[str, Any]) -> str:
             "cveDataAvailable": discovery_returned,
             "filtered": filter_stats,
             "versionGaps": version_gaps,
+            "prerequisiteGaps": prerequisite_gaps,
+            "deploymentContext": deployment_context,
+            "sourceResults": run_source_results,
             "maxCandidates": max_candidates,
         },
     )
@@ -269,11 +401,14 @@ def correlate(args: dict[str, Any]) -> str:
         **result.as_ingest_payload(),
         "candidates": [item["candidate"] for item in candidates],
         "candidateCount": len(candidates),
+        "refutedCandidates": refuted_candidates,
+        "refutedCandidateCount": len(refuted_candidates),
         "sourceStatus": source_status,
+        "sourceResults": run_source_results,
         "sources": selected,
         "cveDataAvailable": discovery_returned,
         "filtered": filter_stats,
-        "gaps": version_gaps,
+        "gaps": version_gaps + prerequisite_gaps,
         "maxCandidates": max_candidates,
     }
     ingestion = None
@@ -329,6 +464,7 @@ def _reconcile_cve_observation_snapshot(
     path = workspace.target_entity_path(workspace_id, target, "observations")
     current = [item for item in current_observations if isinstance(item, dict)] if isinstance(current_observations, list) else []
     current_keys = {workspace._entity_key(item) for item in current}
+    current_by_key = {workspace._entity_key(item): item for item in current}
     retired = 0
     revived = 0
     protected = 0
@@ -338,10 +474,35 @@ def _reconcile_cve_observation_snapshot(
         if not isinstance(stored, list):
             stored = []
         for item in stored:
-            if not isinstance(item, dict) or item.get("type") not in {"cve_candidate", "cve_version_precision_gap"}:
+            if not isinstance(item, dict) or item.get("type") not in {"cve_candidate", "cve_version_precision_gap", "cve_prerequisite_gap"}:
                 continue
             key = workspace._entity_key(item)
             if key in current_keys:
+                incoming = current_by_key[key]
+                if item.get("type") == "cve_candidate" and item.get("operatorReviewed") is not True and item.get("validationStatus") != "confirmed":
+                    for field in (
+                        "confidence",
+                        "priority",
+                        "priorityScore",
+                        "reason",
+                        "reasons",
+                        "versionApplicability",
+                        "versionConfidence",
+                        "applicabilityConfidence",
+                        "prerequisites",
+                        "prerequisiteEvaluation",
+                        "deploymentDisposition",
+                        "directReplayEligible",
+                        "webExploitable",
+                        "testable",
+                        "validationStatus",
+                        "isReportable",
+                        "analysisEligible",
+                        "retired",
+                    ):
+                        if field in incoming and item.get(field) != incoming[field]:
+                            item[field] = incoming[field]
+                            changed = True
                 if item.get("staleBySnapshot") == "cve.correlate":
                     item["isReportable"] = bool(item.pop("reportableBeforeSnapshot", True))
                     item["analysisEligible"] = bool(item.pop("analysisEligibleBeforeSnapshot", True))
@@ -368,6 +529,9 @@ def _reconcile_cve_observation_snapshot(
                     protected += 1
                     changed = True
                     continue
+            elif not successful_discovery_sources:
+                protected += 1
+                continue
 
             if item.get("staleBySnapshot") == "cve.correlate":
                 continue
@@ -506,10 +670,36 @@ def _run_discovery_source(
     source_status: dict[str, dict[str, Any]],
 ) -> list[dict[str, Any]]:
     resolved = _resolve_source_config(source)
+    validation = _validate_source_config(source, resolved)
+    if not validation["valid"]:
+        status = _source_status(source, "configuration_error", resolved, detail=str(validation.get("error", "invalid source configuration")), configuration=validation)
+        source_status[source] = status
+        _LAST_SOURCE_STATUS[source] = status
+        return []
     try:
         records = fn(components, args)
     except SourceSkipped as exc:
         status = _source_status(source, f"skipped: {exc.detail}", resolved, detail=exc.detail)
+        source_status[source] = status
+        _LAST_SOURCE_STATUS[source] = status
+        return []
+    except SourceRateLimited as exc:
+        rate_state = {
+            **_fetch_context(args, source),
+            "retryAfterSeconds": exc.retry_after_seconds,
+            "remainingDelaySeconds": exc.remaining_delay_seconds,
+            "attempt": exc.attempt,
+            "maxAttempts": exc.max_attempts,
+            "providerKey": exc.provider_key,
+        }
+        status = _source_status(
+            source,
+            "rate_limited",
+            {"url": exc.url, "resolvedFrom": exc.resolved_from or resolved["resolvedFrom"]},
+            http_status=exc.http_status,
+            detail=exc.detail,
+            **rate_state,
+        )
         source_status[source] = status
         _LAST_SOURCE_STATUS[source] = status
         return []
@@ -523,8 +713,14 @@ def _run_discovery_source(
         source_status[source] = status
         _LAST_SOURCE_STATUS[source] = status
         return []
-    context = _LAST_FETCH_CONTEXT.get(source, resolved)
-    status = _source_status(source, "ok", {"url": context.get("url", resolved["url"]), "resolvedFrom": context.get("resolvedFrom", resolved["resolvedFrom"])}, http_status=context.get("httpStatus"))
+    context = _fetch_context(args, source) or resolved
+    status = _source_status(
+        source,
+        "ok",
+        {"url": context.get("url", resolved["url"]), "resolvedFrom": context.get("resolvedFrom", resolved["resolvedFrom"])},
+        http_status=context.get("httpStatus"),
+        **_provider_status_fields(context),
+    )
     source_status[source] = status
     _LAST_SOURCE_STATUS[source] = status
     return records
@@ -538,6 +734,12 @@ def _run_enrichment_source(
     source_status: dict[str, dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:
     resolved = _resolve_source_config(source)
+    validation = _validate_source_config(source, resolved)
+    if not validation["valid"]:
+        status = _source_status(source, "configuration_error", resolved, detail=str(validation.get("error", "invalid source configuration")), configuration=validation)
+        source_status[source] = status
+        _LAST_SOURCE_STATUS[source] = status
+        return {}
     if not cve_ids:
         status = _source_status(source, "skipped: no CVEs discovered", resolved, detail="no CVEs discovered")
         source_status[source] = status
@@ -547,6 +749,26 @@ def _run_enrichment_source(
         records = fn(cve_ids, args)
     except SourceSkipped as exc:
         status = _source_status(source, f"skipped: {exc.detail}", resolved, detail=exc.detail)
+        source_status[source] = status
+        _LAST_SOURCE_STATUS[source] = status
+        return {}
+    except SourceRateLimited as exc:
+        rate_state = {
+            **_fetch_context(args, source),
+            "retryAfterSeconds": exc.retry_after_seconds,
+            "remainingDelaySeconds": exc.remaining_delay_seconds,
+            "attempt": exc.attempt,
+            "maxAttempts": exc.max_attempts,
+            "providerKey": exc.provider_key,
+        }
+        status = _source_status(
+            source,
+            "rate_limited",
+            {"url": exc.url, "resolvedFrom": exc.resolved_from or resolved["resolvedFrom"]},
+            http_status=exc.http_status,
+            detail=exc.detail,
+            **rate_state,
+        )
         source_status[source] = status
         _LAST_SOURCE_STATUS[source] = status
         return {}
@@ -560,14 +782,20 @@ def _run_enrichment_source(
         source_status[source] = status
         _LAST_SOURCE_STATUS[source] = status
         return {}
-    context = _LAST_FETCH_CONTEXT.get(source, resolved)
-    status = _source_status(source, "ok", {"url": context.get("url", resolved["url"]), "resolvedFrom": context.get("resolvedFrom", resolved["resolvedFrom"])}, http_status=context.get("httpStatus"))
+    context = _fetch_context(args, source) or resolved
+    status = _source_status(
+        source,
+        "ok",
+        {"url": context.get("url", resolved["url"]), "resolvedFrom": context.get("resolvedFrom", resolved["resolvedFrom"])},
+        http_status=context.get("httpStatus"),
+        **_provider_status_fields(context),
+    )
     source_status[source] = status
     _LAST_SOURCE_STATUS[source] = status
     return records
 
 
-def _source_status(source: str, status: str, resolved: dict[str, Any], *, http_status: Any = None, detail: str = "") -> dict[str, Any]:
+def _source_status(source: str, status: str, resolved: dict[str, Any], *, http_status: Any = None, detail: str = "", **provider_state: Any) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "status": status,
         "url": str(resolved.get("url", "")),
@@ -577,72 +805,474 @@ def _source_status(source: str, status: str, resolved: dict[str, Any], *, http_s
         payload["httpStatus"] = http_status
     if detail:
         payload["detail"] = detail
+    if isinstance(provider_state.get("configuration"), dict):
+        payload["configuration"] = provider_state["configuration"]
+    for key in (
+        "providerKey",
+        "credentialTier",
+        "queryCount",
+        "cacheHitCount",
+        "networkRequestCount",
+        "retryCount",
+        "attempt",
+        "maxAttempts",
+        "retryAfterSeconds",
+        "remainingDelaySeconds",
+        "coordinatorDelaySeconds",
+    ):
+        if provider_state.get(key) is not None:
+            payload[key] = provider_state[key]
     return payload
 
 
-def _cache_file(workspace_id: str, target: str, source: str, query: Any) -> Any:
-    digest = hashlib.sha256(json.dumps(query, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()[:20]
-    cache_dir = workspace.target_output_dir(workspace_id, target, "cve-cache")
-    return cache_dir / f"{source}_{digest}.json"
+def _provider_status_fields(context: dict[str, Any]) -> dict[str, Any]:
+    keys = {
+        "providerKey",
+        "credentialTier",
+        "queryCount",
+        "cacheHitCount",
+        "networkRequestCount",
+        "retryCount",
+        "attempt",
+        "maxAttempts",
+        "retryAfterSeconds",
+        "remainingDelaySeconds",
+        "coordinatorDelaySeconds",
+    }
+    return {key: context[key] for key in keys if context.get(key) is not None}
 
 
-def _fetch_json_source(source: str, query: Any, url: str, args: dict[str, Any], *, headers: dict[str, str] | None = None) -> Any:
-    workspace_id = str(args.get("_workspaceId") or args.get("workspaceId") or workspace.default_workspace_id())
-    target = str(args.get("_target") or args.get("target") or "cve-intel")
-    resolved = _resolve_source_config(source)
-    cache_path = _cache_file(workspace_id, target, source, {"url": url, "query": query})
-    if args.get("refresh") is not True and cache_path.exists():
-        cached = json.loads(cache_path.read_text(encoding="utf-8"))
-        _LAST_FETCH_CONTEXT[source] = {"url": cached.get("url", url), "resolvedFrom": cached.get("resolvedFrom", resolved["resolvedFrom"]), "httpStatus": cached.get("httpStatus", 200)}
-        return cached.get("payload")
+def _provider_cache_root() -> Path:
+    root = workspace.WORKSPACES_DIR.parent / "cache" / "cve-intelligence"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
 
-    policy = HttpClientPolicy.from_args(args, timeout_seconds=float(args.get("requestTimeout", 20)))
-    policy.max_body_bytes = max(policy.max_body_bytes, int(args.get("maxBodyBytes", 5_000_000)))
-    request_headers = {"User-Agent": "Synapse-MCP/0.1", **(headers or {})}
-    response = http_client.send(HttpRequest(url=url, headers=request_headers), policy=policy)
-    _LAST_FETCH_CONTEXT[source] = {"url": url, "resolvedFrom": resolved["resolvedFrom"], "httpStatus": response.status}
-    if response.status is None:
-        raise SourceFetchError(source, url, response.error or "request failed", resolved_from=resolved["resolvedFrom"])
-    if response.status >= 400:
-        raise SourceFetchError(source, url, response.body[:500] or f"HTTP {response.status}", http_status=response.status, resolved_from=resolved["resolvedFrom"])
+
+def _provider_query_digest(source: str, query: Any) -> str:
+    material = {"source": source, "query": query}
+    return hashlib.sha256(json.dumps(material, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def _provider_cache_query(url: str, query: Any) -> dict[str, Any]:
+    parsed = parse.urlsplit(url)
+    endpoint = parse.urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(), parsed.path, "", ""))
+    return {"endpoint": endpoint, "query": query}
+
+
+def _cache_file(source: str, query: Any) -> Path:
+    digest = _provider_query_digest(source, query)
+    cache_dir = _provider_cache_root() / "responses" / stable_slug(source)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir / f"{digest}.json"
+
+
+@contextmanager
+def _exclusive_file_lock(path: Path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a+", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _read_json_file(path: Path, default: Any) -> Any:
     try:
-        payload = json.loads(response.body or "{}")
-    except json.JSONDecodeError as exc:
-        raise SourceFetchError(source, url, f"response was not JSON: {exc}", http_status=response.status, resolved_from=resolved["resolvedFrom"]) from exc
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return default
 
-    evidence_record = workspace.store_raw_evidence(
+
+def _write_json_file(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(f"{path.suffix}.{os.getpid()}.tmp")
+    temporary.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    temporary.replace(path)
+
+
+def _credential_tier(source: str) -> str:
+    if source == "nvd" and _SESSION_KEYS.get("nvd"):
+        return "authenticated"
+    if source == "github_search" and _SESSION_KEYS.get("github"):
+        return "authenticated"
+    return "anonymous"
+
+
+def _provider_key(source: str) -> str:
+    return f"{stable_slug(source)}:{_credential_tier(source)}"
+
+
+def _provider_limit(source: str, args: dict[str, Any]) -> tuple[int, float]:
+    tier = _credential_tier(source)
+    defaults = _DEFAULT_PROVIDER_LIMITS.get(source, {}).get(tier, (30, 60.0))
+    capacity = min(max(int(args.get("providerRateLimitCapacity", defaults[0])), 1), 10_000)
+    window = min(max(float(args.get("providerRateLimitWindowSeconds", defaults[1])), 0.01), 3_600.0)
+    return capacity, window
+
+
+def _provider_state_paths(provider_key: str) -> tuple[Path, Path]:
+    stem = stable_slug(provider_key)
+    root = _provider_cache_root() / "coordination"
+    return root / f"{stem}.json", root / f"{stem}.lock"
+
+
+def _claim_provider_token(source: str, args: dict[str, Any], *, max_wait_seconds: float) -> tuple[float, str]:
+    provider_key = _provider_key(source)
+    capacity, window = _provider_limit(source, args)
+    refill_rate = capacity / window
+    state_path, lock_path = _provider_state_paths(provider_key)
+    total_wait = 0.0
+    deadline = time.monotonic() + max(max_wait_seconds, 0.0)
+    while True:
+        now = time.time()
+        with _exclusive_file_lock(lock_path):
+            state = _read_json_file(state_path, {})
+            previous = float(state.get("updatedAt", now) or now)
+            tokens = min(float(state.get("tokens", capacity) or 0.0) + max(now - previous, 0.0) * refill_rate, float(capacity))
+            blocked_until = float(state.get("blockedUntil", 0.0) or 0.0)
+            delay = max(blocked_until - now, 0.0)
+            if delay <= 0 and tokens >= 1.0:
+                tokens -= 1.0
+                _write_json_file(
+                    state_path,
+                    {"providerKey": provider_key, "capacity": capacity, "windowSeconds": window, "tokens": tokens, "updatedAt": now, "blockedUntil": blocked_until},
+                )
+                return total_wait, provider_key
+            if delay <= 0:
+                delay = max((1.0 - tokens) / refill_rate, 0.0)
+            _write_json_file(
+                state_path,
+                {"providerKey": provider_key, "capacity": capacity, "windowSeconds": window, "tokens": tokens, "updatedAt": now, "blockedUntil": blocked_until},
+            )
+        remaining = max(deadline - time.monotonic(), 0.0)
+        if delay > remaining:
+            raise SourceRateLimited(
+                source,
+                _resolve_source_config(source)["url"],
+                "provider budget is paused beyond the bounded wait",
+                retry_after_seconds=delay,
+                remaining_delay_seconds=delay,
+                attempt=0,
+                max_attempts=max(int(args.get("providerMaxAttempts", 3)), 1),
+                provider_key=provider_key,
+                http_status=None,
+                resolved_from=_resolve_source_config(source)["resolvedFrom"],
+            )
+        time.sleep(delay)
+        total_wait += delay
+
+
+def _pause_provider(source: str, delay_seconds: float) -> None:
+    provider_key = _provider_key(source)
+    state_path, lock_path = _provider_state_paths(provider_key)
+    with _exclusive_file_lock(lock_path):
+        now = time.time()
+        state = _read_json_file(state_path, {})
+        state["providerKey"] = provider_key
+        state["blockedUntil"] = max(float(state.get("blockedUntil", 0.0) or 0.0), now + max(delay_seconds, 0.0))
+        state["updatedAt"] = now
+        _write_json_file(state_path, state)
+
+
+def _retry_after_seconds(headers: dict[str, str], now: float | None = None) -> float:
+    value = next((str(item).strip() for key, item in headers.items() if str(key).lower() == "retry-after"), "")
+    if not value:
+        return 0.0
+    try:
+        return max(float(value), 0.0)
+    except ValueError:
+        try:
+            parsed = parsedate_to_datetime(value)
+            return max(parsed.timestamp() - (time.time() if now is None else now), 0.0)
+        except (TypeError, ValueError, OverflowError):
+            return 0.0
+
+
+def _fetch_context(args: dict[str, Any], source: str) -> dict[str, Any]:
+    contexts = args.get("_sourceFetchContext")
+    if not isinstance(contexts, dict) or not isinstance(contexts.get(source), dict):
+        return {}
+    return dict(contexts[source])
+
+
+def _record_fetch_context(args: dict[str, Any], source: str, context: dict[str, Any]) -> None:
+    contexts = args.setdefault("_sourceFetchContext", {})
+    if not isinstance(contexts, dict):
+        contexts = {}
+        args["_sourceFetchContext"] = contexts
+    current = dict(contexts.get(source, {})) if isinstance(contexts.get(source), dict) else {}
+    for key in ("queryCount", "cacheHitCount", "networkRequestCount", "retryCount"):
+        current[key] = int(current.get(key, 0) or 0) + int(context.get(key, 0) or 0)
+    current["coordinatorDelaySeconds"] = round(float(current.get("coordinatorDelaySeconds", 0.0) or 0.0) + float(context.get("coordinatorDelaySeconds", 0.0) or 0.0), 6)
+    for key, value in context.items():
+        if key not in {"queryCount", "cacheHitCount", "networkRequestCount", "retryCount", "coordinatorDelaySeconds"}:
+            current[key] = value
+    contexts[source] = current
+    _LAST_FETCH_CONTEXT[source] = dict(current)
+
+
+def _store_provider_evidence(
+    workspace_id: str,
+    target: str,
+    source: str,
+    url: str,
+    query: Any,
+    resolved_from: str,
+    http_status: int,
+    payload: Any,
+    *,
+    cache_path: Path,
+    cache_hit: bool,
+) -> dict[str, Any]:
+    return workspace.store_raw_evidence(
         workspace_id,
         target,
         f"cve_{source}",
         "cve_intelligence",
         "json",
         json.dumps(payload, indent=2, ensure_ascii=False),
-        {"source": source, "url": url, "query": query, "resolvedFrom": resolved["resolvedFrom"], "httpStatus": response.status},
+        {
+            "source": source,
+            "url": url,
+            "query": query,
+            "queryHash": cache_path.stem,
+            "providerCachePath": str(cache_path),
+            "providerCacheHit": cache_hit,
+            "resolvedFrom": resolved_from,
+            "httpStatus": http_status,
+        },
     )
-    cache_path.write_text(
-        json.dumps(
+
+
+def _register_query_source_result(
+    args: dict[str, Any],
+    source: str,
+    *,
+    query: Any,
+    url: str,
+    resolved_from: str,
+    http_status: int,
+    cache_path: Path,
+    cache_hit: bool,
+    evidence_record: dict[str, Any],
+) -> dict[str, Any]:
+    result = {
+        "sourceResultId": f"cve-source-result:{stable_slug(source)}:{cache_path.stem}",
+        "source": source,
+        "queryHash": cache_path.stem,
+        "query": query,
+        "url": url,
+        "httpStatus": http_status,
+        "resolvedFrom": resolved_from,
+        "evidenceId": str(evidence_record.get("evidenceId", "")),
+        "cacheHit": cache_hit,
+    }
+    registry = args.setdefault("_querySourceResults", {})
+    if not isinstance(registry, dict):
+        registry = {}
+        args["_querySourceResults"] = registry
+    source_registry = registry.setdefault(source, {})
+    if not isinstance(source_registry, dict):
+        source_registry = {}
+        registry[source] = source_registry
+    source_registry[cache_path.stem] = result
+    return result
+
+
+def _query_source_result(args: dict[str, Any], source: str, query: Any, url: str) -> dict[str, Any]:
+    registry = args.get("_querySourceResults")
+    if not isinstance(registry, dict) or not isinstance(registry.get(source), dict):
+        return {}
+    digest = _provider_query_digest(source, _provider_cache_query(url, query))
+    result = registry[source].get(digest)
+    return dict(result) if isinstance(result, dict) else {}
+
+
+def _matching_query_source_result(args: dict[str, Any], source: str, expected_query: dict[str, Any]) -> dict[str, Any]:
+    registry = args.get("_querySourceResults")
+    source_results = registry.get(source, {}) if isinstance(registry, dict) else {}
+    for result in source_results.values() if isinstance(source_results, dict) else []:
+        query = result.get("query", {}) if isinstance(result, dict) else {}
+        if isinstance(query, dict) and all(query.get(key) == value for key, value in expected_query.items()):
+            return dict(result)
+    return {}
+
+
+def _fetch_json_source(source: str, query: Any, url: str, args: dict[str, Any], *, headers: dict[str, str] | None = None) -> Any:
+    workspace_id = str(args.get("_workspaceId") or args.get("workspaceId") or workspace.default_workspace_id())
+    target = str(args.get("_target") or args.get("target") or "cve-intel")
+    resolved = _resolve_source_config(source)
+    cache_query = _provider_cache_query(url, query)
+    cache_path = _cache_file(source, cache_query)
+    query_lock = cache_path.with_suffix(".lock")
+    with _exclusive_file_lock(query_lock):
+        cached = _read_json_file(cache_path, {}) if args.get("refresh") is not True else {}
+        if isinstance(cached, dict) and "payload" in cached:
+            payload = cached.get("payload")
+            status = int(cached.get("httpStatus", 200) or 200)
+            cached_url = str(cached.get("url", url))
+            cached_from = str(cached.get("resolvedFrom", resolved["resolvedFrom"]))
+            evidence_record = _store_provider_evidence(workspace_id, target, source, cached_url, query, cached_from, status, payload, cache_path=cache_path, cache_hit=True)
+            _register_query_source_result(
+                args,
+                source,
+                query=query,
+                url=cached_url,
+                resolved_from=cached_from,
+                http_status=status,
+                cache_path=cache_path,
+                cache_hit=True,
+                evidence_record=evidence_record,
+            )
+            _record_fetch_context(
+                args,
+                source,
+                {
+                    "url": cached_url,
+                    "resolvedFrom": cached_from,
+                    "httpStatus": status,
+                    "providerKey": _provider_key(source),
+                    "credentialTier": _credential_tier(source),
+                    "queryCount": 1,
+                    "cacheHitCount": 1,
+                    "networkRequestCount": 0,
+                    "retryCount": 0,
+                    "attempt": 0,
+                    "maxAttempts": max(int(args.get("providerMaxAttempts", 3)), 1),
+                    "remainingDelaySeconds": 0.0,
+                },
+            )
+            return payload
+
+        policy = HttpClientPolicy.from_args(args, timeout_seconds=float(args.get("requestTimeout", 20)))
+        policy.max_body_bytes = max(policy.max_body_bytes, int(args.get("maxBodyBytes", 5_000_000)))
+        request_headers = {"User-Agent": "Synapse-MCP/0.1", **(headers or {})}
+        max_attempts = min(max(int(args.get("providerMaxAttempts", 3)), 1), 5)
+        max_wait = min(max(float(args.get("providerMaxWaitSeconds", 30.0)), 0.0), 300.0)
+        backoff_base = min(max(float(args.get("providerBackoffBaseSeconds", 1.0)), 0.01), 30.0)
+        backoff_max = min(max(float(args.get("providerBackoffMaxSeconds", 30.0)), backoff_base), 120.0)
+        jitter_max = min(max(float(args.get("providerBackoffJitterSeconds", 0.5)), 0.0), 5.0)
+        started = time.monotonic()
+        coordinator_delay = 0.0
+        response = None
+        provider_key = _provider_key(source)
+        retry_after = 0.0
+        for attempt in range(1, max_attempts + 1):
+            remaining_wait = max(max_wait - (time.monotonic() - started), 0.0)
+            waited, provider_key = _claim_provider_token(source, args, max_wait_seconds=remaining_wait)
+            coordinator_delay += waited
+            response = http_client.send(HttpRequest(url=url, headers=request_headers), policy=policy)
+            if response.status != 429:
+                break
+            retry_after = _retry_after_seconds(response.headers)
+            backoff = min(backoff_base * (2 ** (attempt - 1)), backoff_max) + random.uniform(0.0, jitter_max)
+            delay = max(retry_after, backoff)
+            _pause_provider(source, delay)
+            remaining_wait = max(max_wait - (time.monotonic() - started), 0.0)
+            _record_fetch_context(
+                args,
+                source,
+                {
+                    "url": url,
+                    "resolvedFrom": resolved["resolvedFrom"],
+                    "httpStatus": 429,
+                    "providerKey": provider_key,
+                    "credentialTier": _credential_tier(source),
+                    "queryCount": 1 if attempt == 1 else 0,
+                    "cacheHitCount": 0,
+                    "networkRequestCount": 1,
+                    "retryCount": 1 if attempt < max_attempts else 0,
+                    "attempt": attempt,
+                    "maxAttempts": max_attempts,
+                    "retryAfterSeconds": retry_after,
+                    "remainingDelaySeconds": delay,
+                    "coordinatorDelaySeconds": coordinator_delay,
+                },
+            )
+            coordinator_delay = 0.0
+            if attempt >= max_attempts or delay > remaining_wait:
+                raise SourceRateLimited(
+                    source,
+                    url,
+                    response.body[:500] or "HTTP 429 provider rate limit",
+                    retry_after_seconds=retry_after,
+                    remaining_delay_seconds=delay,
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                    provider_key=provider_key,
+                    resolved_from=resolved["resolvedFrom"],
+                )
+            time.sleep(delay)
+            coordinator_delay += delay
+
+        if response is None:
+            raise SourceFetchError(source, url, "provider request was not attempted", resolved_from=resolved["resolvedFrom"])
+        _record_fetch_context(
+            args,
+            source,
+            {
+                "url": url,
+                "resolvedFrom": resolved["resolvedFrom"],
+                "httpStatus": response.status,
+                "providerKey": provider_key,
+                "credentialTier": _credential_tier(source),
+                "queryCount": 1 if attempt == 1 else 0,
+                "cacheHitCount": 0,
+                "networkRequestCount": 1,
+                "retryCount": 0,
+                "attempt": attempt,
+                "maxAttempts": max_attempts,
+                "retryAfterSeconds": retry_after,
+                "remainingDelaySeconds": 0.0,
+                "coordinatorDelaySeconds": coordinator_delay,
+            },
+        )
+        if response.status is None:
+            raise SourceFetchError(source, url, response.error or "request failed", resolved_from=resolved["resolvedFrom"])
+        if response.status >= 400:
+            raise SourceFetchError(source, url, response.body[:500] or f"HTTP {response.status}", http_status=response.status, resolved_from=resolved["resolvedFrom"])
+        try:
+            payload = json.loads(response.body or "{}")
+        except json.JSONDecodeError as exc:
+            raise SourceFetchError(source, url, f"response was not JSON: {exc}", http_status=response.status, resolved_from=resolved["resolvedFrom"]) from exc
+
+        _write_json_file(
+            cache_path,
             {
                 "source": source,
                 "url": url,
                 "query": query,
+                "queryHash": cache_path.stem,
                 "resolvedFrom": resolved["resolvedFrom"],
                 "httpStatus": response.status,
-                "evidence": evidence_record,
                 "payload": payload,
                 "cachedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             },
-            indent=2,
-            ensure_ascii=False,
-        ),
-        encoding="utf-8",
-    )
-    return payload
+        )
+        evidence_record = _store_provider_evidence(workspace_id, target, source, url, query, resolved["resolvedFrom"], response.status, payload, cache_path=cache_path, cache_hit=False)
+        _register_query_source_result(
+            args,
+            source,
+            query=query,
+            url=url,
+            resolved_from=resolved["resolvedFrom"],
+            http_status=response.status,
+            cache_path=cache_path,
+            cache_hit=False,
+            evidence_record=evidence_record,
+        )
+        return payload
+
+
+def _nvd_query_url(query: dict[str, Any]) -> str:
+    resolved = _resolve_source_config("nvd")
+    params = {key: value for key, value in query.items() if value}
+    return f"{resolved['url']}?{parse.urlencode(params)}"
 
 
 def _fetch_nvd(query: dict[str, Any], args: dict[str, Any]) -> Any:
-    resolved = _resolve_source_config("nvd")
-    params = {key: value for key, value in query.items() if value}
-    url = f"{resolved['url']}?{parse.urlencode(params)}"
+    url = _nvd_query_url(query)
     headers = {"apiKey": _SESSION_KEYS["nvd"]} if _SESSION_KEYS.get("nvd") else None
     return _fetch_json_source("nvd", query, url, args, headers=headers)
 
@@ -654,9 +1284,15 @@ def _fetch_cisa_kev(args: dict[str, Any]) -> Any:
 
 def _fetch_poc_github_index(cve_id: str, args: dict[str, Any]) -> Any:
     resolved = _resolve_source_config("poc_github_index")
-    year = _cve_year(cve_id)
-    url = resolved["url"].format(year=year, cveId=cve_id)
-    return _fetch_json_source("poc_github_index", {"cveId": cve_id, "year": year}, url, args)
+    validation = _validate_source_config("poc_github_index", resolved)
+    if not validation["valid"]:
+        raise SourceFetchError("poc_github_index", resolved["url"], str(validation.get("error", "invalid PoC endpoint template")), resolved_from=resolved["resolvedFrom"])
+    normalized = _normalize_cve_id(cve_id)
+    year = _cve_year(normalized)
+    if not year:
+        raise SourceFetchError("poc_github_index", resolved["url"], f"invalid strict CVE identifier: {cve_id}", resolved_from=resolved["resolvedFrom"])
+    url = resolved["url"].format(year=year, cveId=normalized)
+    return _fetch_json_source("poc_github_index", {"cveId": normalized, "year": year}, url, args)
 
 
 def _fetch_github_search(cve_id: str, args: dict[str, Any]) -> Any:
@@ -670,6 +1306,7 @@ def _fetch_github_search(cve_id: str, args: dict[str, Any]) -> Any:
 
 def _discover_nvd(components: list[dict[str, Any]], args: dict[str, Any]) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
+    query_payloads: dict[str, tuple[Any, dict[str, Any]]] = {}
     min_cvss = float(args.get("minCvss", 0) or 0)
     stats = args.get("_filterStats")
     for component in components:
@@ -689,7 +1326,11 @@ def _discover_nvd(components: list[dict[str, Any]], args: dict[str, Any]) -> lis
             query["cpeName"] = cpe
         else:
             query["keywordSearch"] = " ".join([name, version]).strip()
-        payload = _fetch_nvd(query, args)
+        query_key = hashlib.sha256(json.dumps(query, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+        if query_key not in query_payloads:
+            payload = _fetch_nvd(query, args)
+            query_payloads[query_key] = (payload, _query_source_result(args, "nvd", query, _nvd_query_url(query)))
+        payload, source_result = query_payloads[query_key]
         if isinstance(payload, dict) and int(payload.get("httpStatus", 0) or 0) >= 400:
             resolved = _resolve_source_config("nvd")
             raise SourceFetchError("nvd", resolved["url"], str(payload.get("detail") or payload.get("body") or "HTTP error"), http_status=int(payload["httpStatus"]), resolved_from=resolved["resolvedFrom"])
@@ -714,6 +1355,11 @@ def _discover_nvd(components: list[dict[str, Any]], args: dict[str, Any]) -> lis
                     stats["nonWeb"] += 1
                 continue
             references, exploit_refs = _references_from_nvd(cve)
+            prerequisites = _nvd_prerequisites(cve)
+            prerequisite_evaluation = _evaluate_prerequisites(
+                prerequisites,
+                args.get("_deploymentContext", {}) if isinstance(args.get("_deploymentContext"), dict) else {},
+            )
             records.append(
                 {
                     "cveId": cve_id,
@@ -728,12 +1374,17 @@ def _discover_nvd(components: list[dict[str, Any]], args: dict[str, Any]) -> lis
                     "cpe": cpe,
                     "versionPrecision": component.get("versionPrecision", "unknown"),
                     "applicability": applicability,
+                    "versionApplicability": applicability,
+                    "prerequisites": prerequisites,
+                    "prerequisiteEvaluation": prerequisite_evaluation,
+                    "deploymentDisposition": prerequisite_evaluation["disposition"],
                     "cwes": cwes,
                     "attackVector": attack_vector,
                     "vulnClass": vuln_class,
                     "source": "nvd",
                     "discoverySources": ["nvd"],
-                    "evidenceIds": component.get("evidenceIds", []),
+                    "evidenceIds": list(component.get("evidenceIds", [])) + ([source_result["evidenceId"]] if source_result.get("evidenceId") else []),
+                    "sourceResults": [source_result] if source_result else [],
                 }
             )
     return records
@@ -762,6 +1413,202 @@ def _cpe_fields(cpe: str) -> tuple[str, str, str]:
     if len(parts) >= 6 and parts[0] == "cpe" and parts[1] == "2.3":
         return parts[3].lower(), parts[4].lower(), parts[5].lower()
     return "", "", ""
+
+
+_WINDOWS_FACT_MARKERS = ("windows", "microsoft-iis", "microsoft iis", "win32", "win64", "pleskwin")
+_UNIX_FACT_MARKERS = ("linux", "unix", "ubuntu", "debian", "centos", "red hat", "rhel", "alpine", "plesklin")
+
+
+def _target_deployment_context(entities: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
+    texts: list[str] = []
+    evidence_ids: list[str] = []
+    for entity_name in ("services", "endpoints", "observations"):
+        for item in entities.get(entity_name, []):
+            if not isinstance(item, dict):
+                continue
+            item_type = str(item.get("type", ""))
+            if item_type.startswith("cve_") or item_type in {"possible_cve"}:
+                continue
+            texts.append(
+                " ".join(
+                    str(item.get(key, ""))
+                    for key in ("name", "value", "product", "version", "extrainfo", "reason", "path", "url", "server")
+                ).lower()
+            )
+            for evidence_id in item.get("evidenceIds", []) if isinstance(item.get("evidenceIds"), list) else []:
+                if evidence_id and evidence_id not in evidence_ids:
+                    evidence_ids.append(str(evidence_id))
+    haystack = "\n".join(texts)
+    observed_os: list[str] = []
+    if any(marker in haystack for marker in _WINDOWS_FACT_MARKERS):
+        observed_os.append("windows")
+    if any(marker in haystack for marker in _UNIX_FACT_MARKERS):
+        observed_os.append("unix")
+    deployment_facts: list[str] = []
+    fact_markers = {
+        "apache": ("apache", "httpd"),
+        "nginx": ("nginx", "openresty"),
+        "iis": ("microsoft-iis", "microsoft iis", "iis/"),
+        "php_cgi": ("php-cgi", "php cgi", "cgi/fcgi", "cgi-fcgi"),
+        "affected_code_page": ("code page", "code-page", "best-fit", "best fit"),
+    }
+    for fact, markers in fact_markers.items():
+        if any(marker in haystack for marker in markers):
+            deployment_facts.append(fact)
+    modules = sorted({match.group(1).lower() for match in re.finditer(r"\b((?:mod_|php-?)[a-z0-9_-]+)\s+module\b", haystack)})
+    deployment_facts.extend(f"module:{module}" for module in modules if f"module:{module}" not in deployment_facts)
+    return {
+        "observedOs": observed_os,
+        "deploymentFacts": sorted(deployment_facts),
+        "evidenceIds": evidence_ids,
+    }
+
+
+def _nvd_configuration_cpes(cve: dict[str, Any]) -> list[dict[str, Any]]:
+    matches: list[dict[str, Any]] = []
+
+    def walk(nodes: Any) -> None:
+        for node in nodes if isinstance(nodes, list) else []:
+            if not isinstance(node, dict):
+                continue
+            for match in node.get("cpeMatch", []) if isinstance(node.get("cpeMatch"), list) else []:
+                if not isinstance(match, dict):
+                    continue
+                parts = str(match.get("criteria", "")).split(":")
+                if len(parts) < 6 or parts[0:2] != ["cpe", "2.3"]:
+                    continue
+                matches.append(
+                    {
+                        "part": parts[2].lower(),
+                        "vendor": parts[3].lower(),
+                        "product": parts[4].lower(),
+                        "version": parts[5].lower(),
+                        "vulnerable": bool(match.get("vulnerable", False)),
+                    }
+                )
+            walk(node.get("children"))
+
+    configs = cve.get("configurations", [])
+    if isinstance(configs, dict):
+        configs = [configs]
+    for config in configs if isinstance(configs, list) else []:
+        if isinstance(config, dict):
+            walk(config.get("nodes"))
+    return matches
+
+
+def _nvd_prerequisites(cve: dict[str, Any]) -> list[dict[str, Any]]:
+    descriptions = cve.get("descriptions", [])
+    description = " ".join(
+        str(item.get("value", ""))
+        for item in descriptions if isinstance(item, dict) and item.get("lang") in {None, "", "en"}
+    ).lower()
+    config_cpes = _nvd_configuration_cpes(cve)
+    os_families: set[str] = set()
+    os_sources: set[str] = set()
+    for match in config_cpes:
+        if match.get("part") != "o":
+            continue
+        text = f"{match.get('vendor', '')} {match.get('product', '')}"
+        if any(marker in text for marker in _WINDOWS_FACT_MARKERS):
+            os_families.add("windows")
+            os_sources.add("nvd_configuration")
+        if any(marker in text for marker in _UNIX_FACT_MARKERS):
+            os_families.add("unix")
+            os_sources.add("nvd_configuration")
+    description_os: set[str] = set()
+    if re.search(r"\b(?:on|under|for|running)\s+(?:microsoft\s+)?windows\b|\bwindows[- ]specific\b|\bwindows\s+(?:systems?|servers?|platforms?|installations?)\b", description):
+        description_os.add("windows")
+    if re.search(r"\b(?:on|under|for|running)\s+(?:linux|unix|ubuntu|debian|rhel|red\s+hat)\b|\b(?:linux|unix)[- ]specific\b|\b(?:linux|unix)\s+(?:systems?|servers?|platforms?|installations?)\b", description):
+        description_os.add("unix")
+    if description_os:
+        os_families.update(description_os)
+        os_sources.add("nvd_description")
+
+    prerequisites: list[dict[str, Any]] = []
+    if os_families:
+        prerequisites.append(
+            {
+                "id": "operating_system",
+                "kind": "operating_system",
+                "requiredAnyOf": sorted(os_families),
+                "sources": sorted(os_sources),
+                "controllingFact": "The deployment must use one of the affected operating-system families.",
+            }
+        )
+    web_servers = [
+        fact
+        for fact, pattern in (("apache", r"\bapache\b"), ("nginx", r"\bnginx\b"), ("iis", r"\b(?:microsoft\s+)?iis\b"))
+        if re.search(pattern, description)
+    ]
+    if web_servers:
+        prerequisites.append(
+            {
+                "id": "web_server",
+                "kind": "web_server",
+                "requiredAnyOf": web_servers,
+                "sources": ["nvd_description"],
+                "controllingFact": "The reachable code path must use one of the affected web-server deployments.",
+            }
+        )
+    deployment_rules = (
+        ("php_cgi", r"\bphp[- /]?cgi\b|\bcgi\s+sapi\b|\bcgi\s+mode\b", "deployment", "PHP must execute through the CGI SAPI on the reachable path."),
+        ("affected_code_page", r"\bcode[- ]?page\b|\bbest[- ]fit\b|\bcharacter\s+encoding\b", "configuration", "An affected character/code-page configuration must control request decoding."),
+    )
+    for fact, pattern, kind, controlling_fact in deployment_rules:
+        if re.search(pattern, description):
+            prerequisites.append(
+                {
+                    "id": fact,
+                    "kind": kind,
+                    "requiredAnyOf": [fact],
+                    "sources": ["nvd_description"],
+                    "controllingFact": controlling_fact,
+                }
+            )
+    for module in sorted({match.group(1).lower() for match in re.finditer(r"\b((?:mod_|php-?)[a-z0-9_-]+)\s+module\b", description)}):
+        prerequisites.append(
+            {
+                "id": f"module:{module}",
+                "kind": "module",
+                "requiredAnyOf": [f"module:{module}"],
+                "sources": ["nvd_description"],
+                "controllingFact": f"The reachable code path must load the {module} module.",
+            }
+        )
+    return prerequisites
+
+
+def _evaluate_prerequisites(prerequisites: list[dict[str, Any]], context: dict[str, Any]) -> dict[str, Any]:
+    observed_os = set(context.get("observedOs", []))
+    deployment_facts = set(context.get("deploymentFacts", []))
+    evaluations: list[dict[str, Any]] = []
+    for prerequisite in prerequisites:
+        required = set(prerequisite.get("requiredAnyOf", []))
+        kind = str(prerequisite.get("kind", ""))
+        observed = observed_os if kind == "operating_system" else deployment_facts
+        if required.intersection(observed):
+            status = "satisfied"
+        elif kind == "operating_system" and observed:
+            status = "contradicted"
+        else:
+            status = "unknown"
+        evaluations.append({**prerequisite, "status": status, "observed": sorted(observed), "evidenceIds": context.get("evidenceIds", [])})
+    if any(item["status"] == "contradicted" for item in evaluations):
+        disposition = "contradicted"
+    elif evaluations and all(item["status"] == "satisfied" for item in evaluations):
+        disposition = "satisfied"
+    elif evaluations:
+        disposition = "unknown"
+    else:
+        disposition = "not_required"
+    code_path_requirements = [item for item in evaluations if item.get("kind") in {"web_server", "deployment", "configuration", "module"}]
+    return {
+        "disposition": disposition,
+        "controllingFacts": evaluations,
+        "reachableCodePathIdentified": bool(code_path_requirements) and all(item["status"] == "satisfied" for item in code_path_requirements),
+        "observedContext": context,
+    }
 
 
 def _affected_cpes_from_nvd(cve: dict[str, Any]) -> list[dict[str, Any]]:
@@ -976,6 +1823,7 @@ def _discover_shodan(components: list[dict[str, Any]], args: dict[str, Any]) -> 
 
 def _enrich_cisa_kev(cve_ids: list[str], args: dict[str, Any]) -> dict[str, dict[str, Any]]:
     payload = _fetch_cisa_kev(args)
+    source_result = _matching_query_source_result(args, "cisa_kev", {"feed": "known_exploited_vulnerabilities"})
     vulnerabilities = payload.get("vulnerabilities", []) if isinstance(payload, dict) else []
     wanted = set(cve_ids)
     enriched = {}
@@ -993,6 +1841,7 @@ def _enrich_cisa_kev(cve_ids: list[str], args: dict[str, Any]) -> dict[str, dict
                 str(item.get("dueDate", "")),
             ],
             "source": "cisa_kev",
+            "sourceResults": [source_result] if source_result else [],
         }
     return enriched
 
@@ -1008,7 +1857,8 @@ def _enrich_poc_github_index(cve_ids: list[str], args: dict[str, Any]) -> dict[s
             raise
         refs = _poc_refs_from_payload(payload, "poc_github_index")
         if refs:
-            enriched[cve_id] = {"pocReferences": refs, "source": "poc_github_index"}
+            source_result = _matching_query_source_result(args, "poc_github_index", {"cveId": cve_id})
+            enriched[cve_id] = {"pocReferences": refs, "source": "poc_github_index", "sourceResults": [source_result] if source_result else []}
     return enriched
 
 
@@ -1027,7 +1877,8 @@ def _enrich_github_search(cve_ids: list[str], args: dict[str, Any]) -> dict[str,
             if url:
                 refs.append({"source": "github_search", "url": url, "stars": int(item.get("stargazers_count", 0) or 0)})
         if refs:
-            enriched[cve_id] = {"pocReferences": refs, "source": "github_search"}
+            source_result = _matching_query_source_result(args, "github_search", {"q": f"{cve_id} in:name,description,readme"})
+            enriched[cve_id] = {"pocReferences": refs, "source": "github_search", "sourceResults": [source_result] if source_result else []}
     return enriched
 
 
@@ -1084,6 +1935,7 @@ def _merge_discovery_records(records: list[dict[str, Any]]) -> list[dict[str, An
                 "references": [],
                 "exploitReferences": [],
                 "evidenceIds": [],
+                "sourceResults": [],
                 "cwes": [],
             },
         )
@@ -1094,11 +1946,22 @@ def _merge_discovery_records(records: list[dict[str, Any]]) -> list[dict[str, An
             for value in record.get(field, []):
                 if value and value not in existing[field]:
                     existing[field].append(value)
+        for source_result in record.get("sourceResults", []):
+            if not isinstance(source_result, dict) or not source_result.get("sourceResultId"):
+                continue
+            if not any(item.get("sourceResultId") == source_result["sourceResultId"] for item in existing["sourceResults"] if isinstance(item, dict)):
+                existing["sourceResults"].append(source_result)
         if record.get("vulnClass") and not existing.get("vulnClass"):
             existing["vulnClass"] = record["vulnClass"]
         if record.get("attackVector") and not existing.get("attackVector"):
             existing["attackVector"] = record["attackVector"]
         existing["applicability"] = _stronger_applicability(existing.get("applicability"), record.get("applicability"))
+        existing["versionApplicability"] = _stronger_applicability(existing.get("versionApplicability"), record.get("versionApplicability"))
+        if record.get("prerequisites"):
+            existing["prerequisites"] = record["prerequisites"]
+        if record.get("prerequisiteEvaluation"):
+            existing["prerequisiteEvaluation"] = record["prerequisiteEvaluation"]
+            existing["deploymentDisposition"] = record.get("deploymentDisposition", "unknown")
         if record.get("cvss") is not None and (existing.get("cvss") is None or float(record["cvss"]) > float(existing.get("cvss") or 0)):
             existing["cvss"] = float(record["cvss"])
             existing["severity"] = record.get("severity", "")
@@ -1120,7 +1983,7 @@ def _merge_enrichment(target: dict[str, dict[str, Any]], incoming: dict[str, dic
         cve_id = _normalize_cve_id(cve_id)
         if not cve_id:
             continue
-        record = target.setdefault(cve_id, {"knownExploited": False, "pocReferences": [], "exploitReferences": [], "notes": [], "sources": []})
+        record = target.setdefault(cve_id, {"knownExploited": False, "pocReferences": [], "exploitReferences": [], "notes": [], "sources": [], "sourceResults": []})
         if data.get("knownExploited"):
             record["knownExploited"] = True
         source = data.get("source")
@@ -1130,9 +1993,14 @@ def _merge_enrichment(target: dict[str, dict[str, Any]], incoming: dict[str, dic
             for value in data.get(field, []):
                 if value and value not in record[field]:
                     record[field].append(value)
+        for source_result in data.get("sourceResults", []):
+            if not isinstance(source_result, dict) or not source_result.get("sourceResultId"):
+                continue
+            if not any(item.get("sourceResultId") == source_result["sourceResultId"] for item in record["sourceResults"] if isinstance(item, dict)):
+                record["sourceResults"].append(source_result)
 
 
-def _candidate_from_record(record: dict[str, Any], enrichment: dict[str, Any], source_status: dict[str, dict[str, Any]]) -> dict[str, Any]:
+def _candidate_from_record(record: dict[str, Any], enrichment: dict[str, Any]) -> dict[str, Any]:
     cve_id = record["cveId"]
     component = str(record.get("component", ""))
     version = str(record.get("version", ""))
@@ -1145,12 +2013,44 @@ def _candidate_from_record(record: dict[str, Any], enrichment: dict[str, Any], s
         if ref not in exploit_refs:
             exploit_refs.append(ref)
     exploit_maturity = _exploit_maturity(known_exploited, poc_refs, exploit_refs)
+    source_results = [item for item in record.get("sourceResults", []) if isinstance(item, dict)]
+    for source_result in enrichment.get("sourceResults", []):
+        if not isinstance(source_result, dict) or not source_result.get("sourceResultId"):
+            continue
+        if not any(item.get("sourceResultId") == source_result["sourceResultId"] for item in source_results):
+            source_results.append(source_result)
+    evidence_ids = [str(item) for item in record.get("evidenceIds", []) if item]
+    for source_result in source_results:
+        evidence_id = str(source_result.get("evidenceId", ""))
+        if evidence_id and evidence_id not in evidence_ids:
+            evidence_ids.append(evidence_id)
     vuln_class = str(record.get("vulnClass", "") or "")
     cwes = list(record.get("cwes", []))
     priority, priority_score, tags = _priority(cvss_score, known_exploited, bool(poc_refs), vuln_class)
-    confidence = _applicability_confidence(record)
+    version_confidence = _version_applicability_confidence(record)
+    prerequisite_evaluation = record.get("prerequisiteEvaluation", {}) if isinstance(record.get("prerequisiteEvaluation"), dict) else {}
+    deployment_disposition = str(prerequisite_evaluation.get("disposition") or record.get("deploymentDisposition") or "not_required")
+    if deployment_disposition == "contradicted":
+        confidence = "low"
+        priority, priority_score = "low", 0
+        validation_status = "refuted"
+        reportable = False
+        testable = False
+    elif deployment_disposition == "unknown":
+        confidence = "low"
+        if priority in {"critical", "high"}:
+            priority = "medium"
+        priority_score = min(priority_score, 50)
+        validation_status = "inconclusive"
+        reportable = True
+        testable = False
+    else:
+        confidence = version_confidence
+        validation_status = "proposed"
+        reportable = True
+        testable = True
     candidate_id = f"cve_{cve_id}_{stable_slug(component)}_{stable_slug(version)}"
-    reason = _candidate_reason(cve_id, component, version, confidence, exploit_maturity, vuln_class)
+    reason = _candidate_reason(cve_id, component, version, confidence, exploit_maturity, vuln_class, deployment_disposition)
     summary = str(record.get("summary", ""))[:300]
     class_tags = [stable_slug(vuln_class)] if vuln_class else []
     metadata = {
@@ -1162,10 +2062,17 @@ def _candidate_from_record(record: dict[str, Any], enrichment: dict[str, Any], s
         "version": version,
         "cpe": record.get("cpe", ""),
         "versionPrecision": record.get("versionPrecision", "unknown"),
+        "versionApplicability": record.get("versionApplicability", record.get("applicability", "unconfirmed")),
+        "versionConfidence": version_confidence,
+        "applicabilityConfidence": confidence,
+        "prerequisites": record.get("prerequisites", []),
+        "prerequisiteEvaluation": prerequisite_evaluation,
+        "deploymentDisposition": deployment_disposition,
+        "directReplayEligible": testable,
         "vulnClass": vuln_class,
         "cwes": cwes,
         "attackVector": record.get("attackVector", ""),
-        "webExploitable": bool(vuln_class),
+        "webExploitable": bool(vuln_class) and deployment_disposition != "contradicted",
         "discoverySources": sorted(record.get("discoverySources", [])),
         "knownExploited": known_exploited,
         "providerVerified": bool(record.get("providerVerified")),
@@ -1177,10 +2084,15 @@ def _candidate_from_record(record: dict[str, Any], enrichment: dict[str, Any], s
         "publishedDate": record.get("publishedDate", ""),
         "summary": summary,
         "nucleiTemplate": "",
-        "testable": True,
-        "sourceStatus": source_status,
+        "testable": testable,
+        "sourceResults": source_results,
+        "sourceResultIds": [item["sourceResultId"] for item in source_results if item.get("sourceResultId")],
+        "evidenceIds": evidence_ids,
         "references": record.get("references", []),
-        "validationStatus": "proposed",
+        "validationStatus": validation_status,
+        "isReportable": reportable,
+        "analysisEligible": reportable,
+        "retired": deployment_disposition == "contradicted",
         "snapshotSource": "cve.correlate",
         "tags": ["cve", exploit_maturity, *class_tags, *tags],
     }
@@ -1195,13 +2107,34 @@ def _candidate_from_record(record: dict[str, Any], enrichment: dict[str, Any], s
         metadata=metadata,
     )
     candidate = {"candidateId": candidate_id, "priority": priority, "priorityScore": priority_score, "confidence": confidence, "reason": reason, **metadata}
-    return {"candidate": candidate, "observation": observation}
+    result = {"candidate": candidate, "observation": observation}
+    if deployment_disposition == "unknown":
+        unknown_facts = [
+            item for item in prerequisite_evaluation.get("controllingFacts", [])
+            if isinstance(item, dict) and item.get("status") == "unknown"
+        ]
+        result["gap"] = {
+            "type": "cve_prerequisite_gap",
+            "key": f"cve-prerequisite-gap:{candidate_id}",
+            "value": cve_id,
+            "candidateId": candidate_id,
+            "component": component,
+            "version": version,
+            "confidence": "high",
+            "priority": "medium",
+            "priorityScore": 55,
+            "reason": "CVE version applicability is plausible, but required deployment facts remain unknown.",
+            "controllingFacts": unknown_facts,
+            "evidenceIds": prerequisite_evaluation.get("observedContext", {}).get("evidenceIds", []),
+            "snapshotSource": "cve.correlate",
+        }
+    return result
 
 
-def _candidate_reason(cve_id: str, component: str, version: str, confidence: str, maturity: str, vuln_class: str = "") -> str:
+def _candidate_reason(cve_id: str, component: str, version: str, confidence: str, maturity: str, vuln_class: str = "", deployment_disposition: str = "not_required") -> str:
     subject = " ".join([component, version]).strip()
     class_clause = f" web class={vuln_class};" if vuln_class else ""
-    return f"{cve_id} is associated with {subject};{class_clause} applicability confidence={confidence}; exploitMaturity={maturity}."
+    return f"{cve_id} is associated with {subject};{class_clause} version/deployment applicability confidence={confidence}; deployment={deployment_disposition}; exploitMaturity={maturity}."
 
 
 _APPLICABILITY_RANK = {"affected": 2, "unconfirmed": 1}
@@ -1211,7 +2144,7 @@ def _stronger_applicability(left: Any, right: Any) -> Any:
     return left if _APPLICABILITY_RANK.get(left, 0) >= _APPLICABILITY_RANK.get(right, 0) else right
 
 
-def _applicability_confidence(record: dict[str, Any]) -> str:
+def _version_applicability_confidence(record: dict[str, Any]) -> str:
     sources = set(record.get("discoverySources", []))
     if sources == {"shodan"}:
         return "high" if record.get("providerVerified") else "medium"
@@ -1470,8 +2403,8 @@ def _normalize_cve_id(value: Any) -> str:
 
 
 def _cve_year(cve_id: str) -> str:
-    parts = cve_id.split("-")
-    return parts[1] if len(parts) > 2 and parts[1].isdigit() else "unknown"
+    match = re.fullmatch(r"CVE-((?:19|20)\d{2})-\d{4,}", str(cve_id).strip().upper())
+    return match.group(1) if match else ""
 
 
 def recommended_tests() -> list[RecommendedTest]:
@@ -1524,12 +2457,34 @@ def _coerce_cve_candidate(args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _direct_replay_eligible(candidate: dict[str, Any]) -> bool:
+    disposition = str(candidate.get("deploymentDisposition", "") or "")
+    if not disposition:
+        return candidate.get("testable") is not False
+    if disposition not in {"satisfied", "not_required", "not_assessed"}:
+        return False
+    evaluation = candidate.get("prerequisiteEvaluation")
+    if not isinstance(evaluation, dict):
+        return candidate.get("testable") is not False
+    code_path_requirements = [
+        item
+        for item in evaluation.get("controllingFacts", [])
+        if isinstance(item, dict) and item.get("kind") in {"web_server", "deployment", "configuration", "module"}
+    ]
+    if code_path_requirements and not evaluation.get("reachableCodePathIdentified"):
+        return False
+    return candidate.get("testable") is not False
+
+
 def plan_tests(args: dict[str, Any]) -> str:
     candidate = _coerce_cve_candidate(args)
+    direct_replay_eligible = _direct_replay_eligible(candidate)
+    prerequisite_evaluation = candidate.get("prerequisiteEvaluation", {}) if isinstance(candidate.get("prerequisiteEvaluation"), dict) else {}
+    controlling_facts = prerequisite_evaluation.get("controllingFacts", []) if isinstance(prerequisite_evaluation.get("controllingFacts"), list) else []
     nuclei_template = str(candidate.get("nucleiTemplate", "") or "")
     target = str(args.get("target") or candidate.get("url") or "")
     nuclei_invocation = None
-    if nuclei_template and target:
+    if direct_replay_eligible and nuclei_template and target:
         nuclei_invocation = {
             "tool": "nuclei.build_command",
             "arguments": {
@@ -1547,7 +2502,17 @@ def plan_tests(args: dict[str, Any]) -> str:
         "knownExploited": bool(candidate.get("knownExploited")),
         "exploitMaturity": candidate.get("exploitMaturity", "none"),
         "pocReferencesBySource": _group_refs_by_source(candidate.get("pocReferences", [])),
-        "verificationApproach": "Build one benign replay request, or delegate to the existing nuclei tool when a safe template id is available.",
+        "versionApplicability": candidate.get("versionApplicability", "unconfirmed"),
+        "versionConfidence": candidate.get("versionConfidence", candidate.get("confidence", "low")),
+        "deploymentDisposition": candidate.get("deploymentDisposition", "not_assessed"),
+        "controllingFacts": controlling_facts,
+        "directReplayEligible": direct_replay_eligible,
+        "verificationApproach": (
+            "Build one benign replay request, or delegate to the existing nuclei tool when a safe template id is available."
+            if direct_replay_eligible
+            else "Resolve the prerequisite facts and identify the reachable affected code path before creating any direct replay."
+        ),
+        "blockedReason": "" if direct_replay_eligible else "Deployment prerequisites are contradicted or unresolved; direct replay is not meaningful or safe yet.",
         "nucleiTemplate": nuclei_template,
         "nucleiBuildCommand": nuclei_invocation,
         "expectedSignals": _expected_signals(candidate),
@@ -1567,6 +2532,8 @@ def plan_tests(args: dict[str, Any]) -> str:
 
 def prepare_replay(args: dict[str, Any]) -> str:
     candidate = _coerce_cve_candidate(args)
+    if not _direct_replay_eligible(candidate):
+        raise McpError(-32602, "Direct CVE replay is unavailable until deployment prerequisites are satisfied and the affected reachable code path is identified. Run cve.plan_tests and resolve its controllingFacts first.")
     replay_args = _replay_args(args, candidate)
     replay = build_manual_replay(
         replay_args,
@@ -1589,6 +2556,8 @@ def prepare_replay(args: dict[str, Any]) -> str:
 def execute_test(args: dict[str, Any]) -> str:
     require_confirmed(args, "Running a CVE verification replay requires confirm=true.")
     candidate = _coerce_cve_candidate(args)
+    if not _direct_replay_eligible(candidate):
+        raise McpError(-32602, "CVE verification is blocked because deployment prerequisites are contradicted or unresolved. Resolve cve.plan_tests controllingFacts before active replay.")
     workspace_id = workspace.normalize_workspace_id(args.get("workspaceId") or workspace.default_workspace_id())
     target_url = _target_url(args, candidate)
     scope_result = require_in_scope(target_url, workspace_id)

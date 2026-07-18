@@ -1,8 +1,12 @@
 import json
+import os
+import subprocess
+import time
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
+from urllib import parse
 
 from helpers import isolated_state
 from synapse_mcp.adapters.web import cve_intel
@@ -79,6 +83,60 @@ def seed_named_component(name: str, *, version: str = "", cpe: str = "", precisi
                             "cpe": cpe,
                             "versionPrecision": precision,
                             "source": source,
+                            "confidence": "high",
+                        }
+                    ]
+                }
+            }
+        ),
+    )
+
+
+def seed_target_components(target: str, components: list[dict[str, str]]) -> None:
+    workspace.ensure_workspace("engagement", organization="Example")
+    workspace.add_target("engagement", target)
+    workspace.ingest_data(
+        "engagement",
+        target,
+        "adapter_result",
+        "adapter_result",
+        "json",
+        json.dumps(
+            {
+                "entities": {
+                    "observations": [
+                        {
+                            "type": "technology_component",
+                            "value": f"{component['name']} {component['version']}",
+                            "name": component["name"],
+                            "version": component["version"],
+                            "cpe": component["cpe"],
+                            "versionPrecision": "exact",
+                            "confidence": "high",
+                        }
+                        for component in components
+                    ]
+                }
+            }
+        ),
+    )
+
+
+def add_deployment_context(target: str, value: str) -> None:
+    workspace.ingest_data(
+        "engagement",
+        target,
+        "adapter_result",
+        "adapter_result",
+        "json",
+        json.dumps(
+            {
+                "entities": {
+                    "observations": [
+                        {
+                            "type": "deployment_context",
+                            "value": value,
+                            "reason": f"Observed deployment context: {value}",
                             "confidence": "high",
                         }
                     ]
@@ -433,6 +491,310 @@ class CveIntelTests(unittest.TestCase):
                 self.assertTrue(revived["isReportable"])
                 self.assertTrue(revived["analysisEligible"])
 
+    def test_provider_cache_rate_limit_pause_and_resume_are_shared_across_targets(self) -> None:
+        components = [
+            {
+                "name": "Apache httpd",
+                "version": "2.4.49",
+                "cpe": "cpe:2.3:a:apache:http_server:2.4.49:*:*:*:*:*:*:*",
+            },
+            {
+                "name": "nginx",
+                "version": "1.20.0",
+                "cpe": "cpe:2.3:a:nginx:nginx:1.20.0:*:*:*:*:*:*:*",
+            },
+            {
+                "name": "Drupal",
+                "version": "10.0.0",
+                "cpe": "cpe:2.3:a:drupal:drupal:10.0.0:*:*:*:*:*:*:*",
+            },
+        ]
+        provider_records = {
+            "http_server": ("apache", "2.4.49", "CVE-2021-41773"),
+            "nginx": ("nginx", "1.20.0", "CVE-2022-10001"),
+            "drupal": ("drupal", "10.0.0", "CVE-2023-10002"),
+        }
+
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                seed_target_components("app.example.com", components[:2])
+                calls: dict[str, int] = {}
+
+                def fake_provider(request, *, policy):
+                    del policy
+                    query = parse.parse_qs(parse.urlsplit(request.url).query)
+                    cpe = query.get("cpeName", [""])[0]
+                    fields = cpe.split(":")
+                    product = fields[4] if len(fields) > 5 else ""
+                    calls[product] = calls.get(product, 0) + 1
+                    if product == "drupal" and calls[product] == 1:
+                        return HttpResponse(status=429, headers={"Retry-After": "0.03"}, body="small provider window")
+                    vendor, version, cve_id = provider_records[product]
+                    return HttpResponse(
+                        status=200,
+                        headers={},
+                        body=json.dumps(nvd_payload(cve_id, nvd_config(product, vendor=vendor, cpe_version=version))),
+                    )
+
+                args = {
+                    "workspaceId": "engagement",
+                    "target": "app.example.com",
+                    "sources": ["nvd"],
+                    "confirm": True,
+                    "providerRateLimitCapacity": 100,
+                    "providerRateLimitWindowSeconds": 1,
+                    "providerMaxAttempts": 1,
+                    "providerMaxWaitSeconds": 1,
+                    "providerBackoffBaseSeconds": 0.01,
+                    "providerBackoffJitterSeconds": 0,
+                }
+                with patch.object(cve_intel.http_client, "send", side_effect=fake_provider):
+                    initial = json.loads(cve_intel.correlate(args))
+                    self.assertEqual(initial["candidateCount"], 2)
+                    self.assertEqual(initial["sourceStatus"]["nvd"]["networkRequestCount"], 2)
+
+                    seed_target_components("app.example.com", components)
+                    paused = json.loads(cve_intel.correlate(args))
+                    paused_status = paused["sourceStatus"]["nvd"]
+                    self.assertEqual(paused_status["status"], "rate_limited")
+                    self.assertGreaterEqual(paused_status["cacheHitCount"], 1)
+                    self.assertEqual(paused_status["networkRequestCount"], 1)
+                    self.assertEqual(paused_status["attempt"], 1)
+                    self.assertEqual(paused_status["maxAttempts"], 1)
+                    self.assertGreaterEqual(paused_status["retryAfterSeconds"], 0.03)
+                    self.assertGreaterEqual(paused_status["remainingDelaySeconds"], 0.03)
+                    self.assertEqual(paused["reconciliation"]["retiredCount"], 0)
+                    self.assertEqual(paused["reconciliation"]["protectedCount"], 2)
+                    stored = workspace._load_target_entities("engagement", "app.example.com")["observations"]
+                    self.assertTrue(all(not item.get("retired") for item in stored if item.get("type") == "cve_candidate"))
+
+                    resumed_at = time.monotonic()
+                    resumed = json.loads(cve_intel.correlate(args))
+                    self.assertGreaterEqual(time.monotonic() - resumed_at, 0.02)
+                    self.assertEqual(resumed["sourceStatus"]["nvd"]["status"], "ok")
+                    self.assertEqual(resumed["sourceStatus"]["nvd"]["cacheHitCount"], 2)
+                    self.assertEqual(resumed["sourceStatus"]["nvd"]["networkRequestCount"], 1)
+                    self.assertEqual(resumed["candidateCount"], 3)
+
+                    seed_target_components("mirror.example.com", components)
+                    mirror = json.loads(cve_intel.correlate({**args, "target": "mirror.example.com"}))
+                    self.assertEqual(mirror["candidateCount"], 3)
+                    self.assertEqual(mirror["sourceStatus"]["nvd"]["cacheHitCount"], 3)
+                    self.assertEqual(mirror["sourceStatus"]["nvd"]["networkRequestCount"], 0)
+
+                self.assertEqual(calls, {"http_server": 1, "nginx": 1, "drupal": 2})
+                cache_files = list((Path(tmp) / "cache" / "cve-intelligence" / "responses" / "nvd").glob("*.json"))
+                self.assertEqual(len(cache_files), 3)
+                mirror_evidence = list(workspace.target_path("engagement", "mirror.example.com").glob("evidence/*cve_nvd_raw.json"))
+                self.assertEqual(len(mirror_evidence), 3)
+
+    def test_candidates_retain_exact_per_query_source_results(self) -> None:
+        components = [
+            {
+                "name": "PHP",
+                "version": "8.1.0",
+                "cpe": "cpe:2.3:a:php:php:8.1.0:*:*:*:*:*:*:*",
+            },
+            {
+                "name": "jQuery",
+                "version": "3.6.0",
+                "cpe": "cpe:2.3:a:jquery:jquery:3.6.0:*:*:*:*:*:*:*",
+            },
+            {
+                "name": "jQuery UI",
+                "version": "1.13.0",
+                "cpe": "cpe:2.3:a:jquery:jquery_ui:1.13.0:*:*:*:*:*:*:*",
+            },
+        ]
+        provider_records = {
+            "php": ("php", "8.1.0", "CVE-2024-10001"),
+            "jquery": ("jquery", "3.6.0", "CVE-2024-10002"),
+            "jquery_ui": ("jquery", "1.13.0", "CVE-2024-10003"),
+        }
+
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                seed_target_components("app.example.com", components)
+
+                def fake_provider(request, *, policy):
+                    del policy
+                    query = parse.parse_qs(parse.urlsplit(request.url).query)
+                    cpe = query["cpeName"][0]
+                    fields = cpe.split(":")
+                    product = fields[4]
+                    vendor, version, cve_id = provider_records[product]
+                    return HttpResponse(
+                        status=200,
+                        headers={},
+                        body=json.dumps(nvd_payload(cve_id, nvd_config(product, vendor=vendor, cpe_version=version), cwe="CWE-79")),
+                    )
+
+                with patch.object(cve_intel.http_client, "send", side_effect=fake_provider):
+                    result = json.loads(
+                        cve_intel.correlate(
+                            {
+                                "workspaceId": "engagement",
+                                "target": "app.example.com",
+                                "sources": ["nvd"],
+                                "confirm": True,
+                                "providerRateLimitCapacity": 100,
+                                "providerRateLimitWindowSeconds": 1,
+                            }
+                        )
+                    )
+
+                self.assertEqual(result["candidateCount"], 3)
+                self.assertEqual(len(result["sourceResults"]), 3)
+                aggregate_url = result["sourceStatus"]["nvd"]["url"]
+                candidate_urls = []
+                for candidate in result["candidates"]:
+                    self.assertNotIn("sourceStatus", candidate)
+                    self.assertEqual(len(candidate["sourceResults"]), 1)
+                    source_result = candidate["sourceResults"][0]
+                    candidate_urls.append(source_result["url"])
+                    self.assertEqual(source_result["source"], "nvd")
+                    self.assertEqual(source_result["httpStatus"], 200)
+                    self.assertEqual(source_result["query"]["cpeName"], candidate["cpe"])
+                    self.assertEqual(parse.parse_qs(parse.urlsplit(source_result["url"]).query)["cpeName"][0], candidate["cpe"])
+                    self.assertIn(source_result["sourceResultId"], candidate["sourceResultIds"])
+                    self.assertIn(source_result["evidenceId"], candidate["evidenceIds"])
+                    evidence_meta = workspace._read_json(
+                        workspace.target_path("engagement", "app.example.com") / "evidence" / f"{source_result['evidenceId']}.json",
+                        {},
+                    )
+                    self.assertEqual(evidence_meta["metadata"]["queryHash"], source_result["queryHash"])
+                    self.assertEqual(evidence_meta["metadata"]["query"]["cpeName"], candidate["cpe"])
+                self.assertEqual(len(set(candidate_urls)), 3)
+                self.assertTrue(any(url != aggregate_url for url in candidate_urls))
+
+    def test_php_cve_prerequisites_refute_satisfy_or_gap_by_deployment(self) -> None:
+        php_component = {
+            "name": "PHP",
+            "version": "8.1.0",
+            "cpe": "cpe:2.3:a:php:php:8.1.0:*:*:*:*:*:*:*",
+        }
+        configuration = [
+            {
+                "nodes": [
+                    {
+                        "operator": "AND",
+                        "cpeMatch": [
+                            {
+                                "vulnerable": True,
+                                "criteria": "cpe:2.3:a:php:php:8.1.0:*:*:*:*:*:*:*",
+                            },
+                            {
+                                "vulnerable": False,
+                                "criteria": "cpe:2.3:o:microsoft:windows_server_2022:*:*:*:*:*:*:*:*",
+                            },
+                        ],
+                    }
+                ]
+            }
+        ]
+        payload = nvd_payload("CVE-2024-4577", configuration, cwe="CWE-78")
+        payload["vulnerabilities"][0]["cve"]["descriptions"] = [
+            {
+                "lang": "en",
+                "value": "PHP-CGI on Windows with Apache is affected when an affected Best-Fit code page controls request decoding.",
+            }
+        ]
+
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                contexts = {
+                    "linux.example.com": "Red Hat Enterprise Linux; Apache; PHP-CGI; Best-Fit code page 950",
+                    "windows.example.com": "Microsoft Windows Server 2022; Apache; PHP-CGI; Best-Fit code page 950",
+                    "unknown.example.com": "PHP 8.1.0",
+                }
+                for target, context in contexts.items():
+                    seed_target_components(target, [php_component])
+                    if target != "unknown.example.com":
+                        add_deployment_context(target, context)
+
+                results = {}
+                with patch.object(cve_intel, "_fetch_nvd", return_value=payload):
+                    for target in contexts:
+                        results[target] = json.loads(
+                            cve_intel.correlate(
+                                {
+                                    "workspaceId": "engagement",
+                                    "target": target,
+                                    "sources": ["nvd"],
+                                    "confirm": True,
+                                }
+                            )
+                        )
+
+                linux = results["linux.example.com"]
+                self.assertEqual(linux["candidateCount"], 0)
+                self.assertEqual(linux["refutedCandidateCount"], 1)
+                linux_candidate = linux["refutedCandidates"][0]
+                self.assertEqual(linux_candidate["versionApplicability"], "affected")
+                self.assertEqual(linux_candidate["versionConfidence"], "high")
+                self.assertEqual(linux_candidate["deploymentDisposition"], "contradicted")
+                self.assertEqual(linux_candidate["validationStatus"], "refuted")
+                self.assertFalse(linux_candidate["isReportable"])
+                self.assertFalse(linux_candidate["testable"])
+                self.assertFalse(linux_candidate["webExploitable"])
+                stored_linux = workspace._load_target_entities("engagement", "linux.example.com")["observations"]
+                stored_refuted = next(item for item in stored_linux if item.get("type") == "cve_candidate")
+                self.assertFalse(stored_refuted["isReportable"])
+                self.assertEqual(stored_refuted["validationStatus"], "refuted")
+
+                windows_candidate = results["windows.example.com"]["candidates"][0]
+                self.assertEqual(windows_candidate["deploymentDisposition"], "satisfied")
+                self.assertEqual(windows_candidate["confidence"], "high")
+                self.assertTrue(windows_candidate["testable"])
+                self.assertTrue(windows_candidate["directReplayEligible"])
+                self.assertTrue(windows_candidate["prerequisiteEvaluation"]["reachableCodePathIdentified"])
+
+                unknown = results["unknown.example.com"]
+                unknown_candidate = unknown["candidates"][0]
+                self.assertEqual(unknown_candidate["versionConfidence"], "high")
+                self.assertEqual(unknown_candidate["deploymentDisposition"], "unknown")
+                self.assertEqual(unknown_candidate["confidence"], "low")
+                self.assertFalse(unknown_candidate["testable"])
+                self.assertTrue(any(gap.get("type") == "cve_prerequisite_gap" for gap in unknown["gaps"]))
+
+                plans = [
+                    json.loads(cve_intel.plan_tests({"candidate": candidate, "workspaceId": "engagement", "target": f"https://{target}/"}))
+                    for target, candidate in (
+                        ("linux.example.com", linux_candidate),
+                        ("windows.example.com", windows_candidate),
+                        ("unknown.example.com", unknown_candidate),
+                    )
+                ]
+                self.assertTrue(all(plan["controllingFacts"] for plan in plans))
+                self.assertFalse(plans[0]["directReplayEligible"])
+                self.assertTrue(plans[1]["directReplayEligible"])
+                self.assertFalse(plans[2]["directReplayEligible"])
+                self.assertTrue(all({fact["status"] for fact in plan["controllingFacts"]} for plan in plans))
+                with self.assertRaisesRegex(McpError, "deployment prerequisites"):
+                    cve_intel.prepare_replay({"candidate": unknown_candidate, "target": "https://unknown.example.com/"})
+
+                add_deployment_context(
+                    "unknown.example.com",
+                    "Microsoft Windows Server 2022; Apache; PHP-CGI; Best-Fit code page 950",
+                )
+                with patch.object(cve_intel, "_fetch_nvd", return_value=payload):
+                    resolved = json.loads(
+                        cve_intel.correlate(
+                            {
+                                "workspaceId": "engagement",
+                                "target": "unknown.example.com",
+                                "sources": ["nvd"],
+                                "confirm": True,
+                            }
+                        )
+                    )
+                self.assertEqual(resolved["candidates"][0]["deploymentDisposition"], "satisfied")
+                stored_resolved = workspace._load_target_entities("engagement", "unknown.example.com")["observations"]
+                resolved_candidate = next(item for item in stored_resolved if item.get("type") == "cve_candidate")
+                self.assertTrue(resolved_candidate["isReportable"])
+                self.assertTrue(resolved_candidate["testable"])
+                self.assertEqual(resolved_candidate["validationStatus"], "proposed")
+
     def test_major_only_version_matches_range_and_refutes_ancient(self) -> None:
         # Drupal detected as major "10". A 10.x-range CVE is affected; an ancient <4.7 CVE and a
         # 7.x CVE are refuted (not_affected), even though the version is only a bare major.
@@ -662,6 +1024,65 @@ class CveIntelTests(unittest.TestCase):
         result = json.loads(cve_intel.sources({}))
         self.assertEqual(result["sources"]["nvd"]["url"], "https://override.example/nvd")
         self.assertEqual(result["sources"]["nvd"]["resolvedFrom"], "override")
+
+    def test_poc_endpoint_template_is_exact_and_invalid_configuration_sends_no_traffic(self) -> None:
+        self.assertTrue(cve_intel._STARTUP_SOURCE_VALIDATION["poc_github_index"]["valid"])
+        expected = {
+            "CVE-1999-0001": "https://raw.githubusercontent.com/nomi-sec/PoC-in-GitHub/master/1999/CVE-1999-0001.json",
+            "CVE-2024-4577": "https://raw.githubusercontent.com/nomi-sec/PoC-in-GitHub/master/2024/CVE-2024-4577.json",
+            "CVE-2031-12345": "https://raw.githubusercontent.com/nomi-sec/PoC-in-GitHub/master/2031/CVE-2031-12345.json",
+        }
+        with patch.object(cve_intel, "_fetch_json_source", return_value={}) as fetch:
+            for cve_id in expected:
+                cve_intel._fetch_poc_github_index(cve_id, {})
+        self.assertEqual([call.args[2] for call in fetch.call_args_list], list(expected.values()))
+
+        with patch.object(cve_intel, "_fetch_json_source") as fetch:
+            with self.assertRaisesRegex(cve_intel.SourceFetchError, "strict CVE identifier"):
+                cve_intel._fetch_poc_github_index("CVE-24-4577", {})
+        fetch.assert_not_called()
+
+        malformed = "https://raw.githubusercontent.example/master/{year/{cveId}.json}"
+        with patch.dict(os.environ, {"SYNAPSE_CVE_POC_GITHUB_URL": malformed}):
+            status = json.loads(cve_intel.sources({"sources": ["poc_github_index"]}))["sources"]["poc_github_index"]
+            self.assertTrue(status["configuredEnabled"])
+            self.assertFalse(status["enabled"])
+            self.assertEqual(status["configuration"]["status"], "configuration_error")
+            with TemporaryDirectory() as tmp:
+                with isolated_state(Path(tmp)):
+                    seed_component()
+                    with patch.object(cve_intel, "_fetch_json_source") as fetch:
+                        result = json.loads(
+                            cve_intel.correlate(
+                                {
+                                    "workspaceId": "engagement",
+                                    "target": "app.example.com",
+                                    "sources": ["poc_github_index"],
+                                    "confirm": True,
+                                }
+                            )
+                        )
+                    fetch.assert_not_called()
+                    self.assertEqual(result["sourceStatus"]["poc_github_index"]["status"], "configuration_error")
+            with self.assertRaisesRegex(McpError, "PoC endpoint template"):
+                cve_intel.set_source_endpoint(
+                    {"source": "poc_github_index", "url": malformed, "confirm": True}
+                )
+
+        env_path = Path(__file__).resolve().parents[3] / "config" / "synapse.env"
+        shell = subprocess.run(
+            [
+                "sh",
+                "-c",
+                'unset SYNAPSE_CVE_POC_GITHUB_URL; . "$1"; printf "%s" "$SYNAPSE_CVE_POC_GITHUB_URL"',
+                "sh",
+                str(env_path),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        self.assertEqual(shell.stdout, expected["CVE-2024-4577"].replace("2024/CVE-2024-4577.json", "{year}/{cveId}.json"))
 
     def test_cve_adapter_is_registered(self) -> None:
         names = {entry["name"] for entry in default_registry.list()}
