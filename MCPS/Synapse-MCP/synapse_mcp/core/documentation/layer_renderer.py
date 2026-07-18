@@ -49,6 +49,8 @@ def render_workspace_report(context: dict[str, Any], format_name: str = "html") 
 
 
 def _render_layer_html(context: dict[str, Any]) -> str:
+    single_target = len([item for item in context.get("targets", []) if isinstance(item, dict)]) == 1
+    base_body_class = "high-level" if _presentation_label(_report_mode(context)) == "high_level" else "operator"
     sections = [_render_section_html(section) for section in context.get("sections", []) if isinstance(section, dict) and _section_has_content(section)]
     toc_items = [("summary", "Summary")]
     toc_items.extend((_section_anchor(section), str(section.get("title", "Section"))) for section in context.get("sections", []) if isinstance(section, dict) and _section_has_content(section))
@@ -106,6 +108,7 @@ def _render_layer_html(context: dict[str, Any]) -> str:
         body,
         TREE_SCRIPT,
         {"workspace": context.get("workspaceId", ""), "generated": context.get("generatedAt", "")},
+        body_class=f"{base_body_class} single-target" if single_target else base_body_class,
     )
 
 
@@ -379,7 +382,14 @@ def _report_type_label(mode: str) -> str:
 
 
 def _presentation_label(mode: str) -> str:
-    return {"safe": "high_level", "high_level": "high_level", "internal": "operator", "raw": "operator_raw"}.get(str(mode or "").lower(), "operator")
+    return {
+        "safe": "high_level",
+        "high_level": "high_level",
+        "internal": "operator",
+        "operator": "operator",
+        "raw": "operator_raw",
+        "operator_raw": "operator_raw",
+    }.get(str(mode or "").lower(), "operator")
 
 
 def _layer_head(title: Any, index: Any, subtitle: Any = "") -> str:

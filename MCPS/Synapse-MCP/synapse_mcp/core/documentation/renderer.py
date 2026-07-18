@@ -53,7 +53,7 @@ def _render_report(report: dict[str, Any]) -> str:
         f"- Client: {_text(project.get('client'))}",
         f"- Assessment type: {_text(project.get('assessmentType'))}",
         f"- Dates: {_date_range(project.get('startDate'), project.get('endDate'))}",
-        f"- Presentation mode: `{report.get('redaction', {}).get('mode', 'high_level')}`",
+        f"- Presentation mode: `{_policy_presentation(report.get('redaction'))}`",
         "",
         "## Executive Summary",
         "",
@@ -108,7 +108,7 @@ def _render_assessment_summary_report(report: dict[str, Any]) -> str:
         f"- Assessment type: {_text(project.get('assessmentType')) or 'Security Assessment'}",
         f"- Dates: {_date_range(project.get('startDate'), project.get('endDate'))}",
         f"- Scope: `{len(scope.get('targets', []))}` target(s)",
-        f"- Presentation mode: `{report.get('redaction', {}).get('mode', 'high_level')}`",
+        f"- Presentation mode: `{_policy_presentation(report.get('redaction'))}`",
         "",
         "## 1. General Summary",
         "",
@@ -174,7 +174,7 @@ def _render_evidence_pack(pack: dict[str, Any]) -> str:
         f"# Evidence Pack: {pack.get('target', 'target')}",
         "",
         f"- Workspace: `{pack.get('workspaceId', '')}`",
-        f"- Presentation mode: `{pack.get('policy', {}).get('mode', 'high_level')}`",
+        f"- Presentation mode: `{_policy_presentation(pack.get('policy'))}`",
         "",
     ]
     finding = pack.get("finding")
@@ -196,6 +196,16 @@ def _render_evidence_pack(pack: dict[str, Any]) -> str:
 
 def _render_coverage(coverage: dict[str, Any]) -> str:
     return "# Coverage Summary\n\n" + _render_coverage_body(coverage).rstrip() + "\n"
+
+
+def _policy_presentation(value: Any) -> str:
+    policy = value if isinstance(value, dict) else {}
+    if policy.get("presentation"):
+        return str(policy["presentation"])
+    return {"safe": "high_level", "high_level": "high_level", "internal": "operator", "raw": "operator_raw"}.get(
+        str(policy.get("mode", "high_level") or "high_level").lower(),
+        "high_level",
+    )
 
 
 def _render_coverage_body(coverage: dict[str, Any]) -> str:

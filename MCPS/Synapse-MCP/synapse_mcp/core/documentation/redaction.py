@@ -30,13 +30,25 @@ BODY_FIELDS = {"body", "requestbody", "responsebody", "rawbody", "content"}
 REQUEST_FIELDS = {"request", "rawrequest", "requestbody"}
 RESPONSE_FIELDS = {"response", "rawresponse", "responsebody"}
 REDACTED = evidence.REDACTED_VALUE
+MODE_ALIASES = {"operator": "internal", "operator_raw": "raw"}
+POLICY_MODES = {"safe", "high_level", "internal", "raw"}
+PRESENTATION_BY_POLICY = {
+    "safe": "high_level",
+    "high_level": "high_level",
+    "internal": "operator",
+    "raw": "operator_raw",
+}
 
 
 def policy_from_args(args: dict[str, Any] | None = None) -> RedactionPolicy:
     args = args or {}
-    mode = str(args.get("redactionMode", args.get("mode", "high_level")) or "high_level").lower().replace("-", "_")
-    if mode not in {"safe", "high_level", "internal", "raw"}:
-        raise McpError(-32602, "redactionMode must be one of: high_level, internal, raw. safe is accepted as a deprecated alias.")
+    requested_mode = str(args.get("redactionMode", args.get("mode", "high_level")) or "high_level").lower().replace("-", "_")
+    mode = MODE_ALIASES.get(requested_mode, requested_mode)
+    if mode not in POLICY_MODES:
+        raise McpError(
+            -32602,
+            "redactionMode must be one of: operator, operator_raw, high_level, internal, raw. safe is accepted as a deprecated alias.",
+        )
     include_raw_http = bool(args.get("includeRawHttp", False))
     include_request_bodies = bool(args.get("includeRequestBodies", False))
     include_response_bodies = bool(args.get("includeResponseBodies", False))
@@ -50,6 +62,7 @@ def policy_from_args(args: dict[str, Any] | None = None) -> RedactionPolicy:
         include_credentials = False
     return RedactionPolicy(
         mode=mode,
+        presentation=PRESENTATION_BY_POLICY[mode],
         include_raw_http=include_raw_http,
         include_request_bodies=include_request_bodies,
         include_response_bodies=include_response_bodies,

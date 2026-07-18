@@ -123,6 +123,7 @@ HTTP_POLICY_PROPERTIES: dict[str, Any] = {
     "http2": {"type": "boolean", "default": False},
 }
 CRAWLER_HTTP_POLICY_PROPERTIES = {key: value for key, value in HTTP_POLICY_PROPERTIES.items() if key != "followRedirects"}
+REDACTION_MODE_VALUES = ["operator", "operator_raw", "high_level", "internal", "raw", "safe"]
 
 
 def _tool_deadline_seconds(name: str, _args: dict[str, Any]) -> float:
@@ -343,9 +344,75 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "properties": {
                 "workspaceId": {"type": "string"},
                 "target": {"type": "string"},
+                "targets": {"type": "array", "items": {"type": "string"}},
                 "layers": {"type": "array", "items": {"type": "string"}},
                 "refresh": {"type": "boolean", "default": False},
                 "redactionMode": {"type": "string", "default": "high_level"},
+            },
+            "required": ["workspaceId"],
+        },
+    },
+    {
+        "name": "documentation.plan_scope_groups",
+        "description": "Plan stable logical target groups for bounded analysis and reporting without changing workspace authorization scope.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "workspaceId": {"type": "string"},
+                "targetBatchSize": {"type": "integer", "minimum": 1, "maximum": 40, "default": 20},
+                "groupCursor": {"type": "integer", "minimum": 0, "default": 0},
+                "groupLimit": {"type": "integer", "minimum": 1, "maximum": 40, "default": 5},
+                "includeTargets": {"type": "boolean", "default": False},
+                "scopeGroups": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "targets": {"type": "array", "items": {"type": "string"}},
+                        },
+                        "required": ["targets"],
+                    },
+                },
+                "refreshGroups": {"type": "boolean", "default": False},
+            },
+            "required": ["workspaceId"],
+        },
+    },
+    {
+        "name": "documentation.prepare_validation_batch",
+        "description": "Prepare one passive, resumable page of candidate validations for a scope group. This sends no traffic; execution still requires exact approval.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "workspaceId": {"type": "string"},
+                "groupId": {"type": "string"},
+                "batchSize": {"type": "integer", "minimum": 1, "maximum": 40, "default": 20},
+                "cursor": {"type": "integer", "minimum": 0, "default": 0},
+                "targetBatchSize": {"type": "integer", "minimum": 1, "maximum": 40, "default": 20},
+                "refreshQueue": {"type": "boolean", "default": False},
+            },
+            "required": ["workspaceId"],
+        },
+    },
+    {
+        "name": "documentation.render_workspace_report_batches",
+        "description": "Render bounded, resumable workspace report groups and record-sized report parts under reports/<workspace>/<run>/.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "workspaceId": {"type": "string"},
+                "runId": {"type": "string"},
+                "targetBatchSize": {"type": "integer", "minimum": 1, "maximum": 40, "default": 20},
+                "recordBatchSize": {"type": "integer", "minimum": 1, "maximum": 40, "default": 20},
+                "groupCursor": {"type": "integer", "minimum": 0, "default": 0},
+                "partCursor": {"type": "integer", "minimum": 0, "default": 0},
+                "maxParts": {"type": "integer", "minimum": 1, "maximum": 40, "default": 1},
+                "maxGroups": {"type": "integer", "minimum": 1, "maximum": 10, "default": 1},
+                "layers": {"type": "array", "items": {"type": "string"}},
+                "refresh": {"type": "boolean", "default": False},
+                "refreshGroups": {"type": "boolean", "default": False},
+                "redactionMode": {"type": "string", "default": "internal"},
             },
             "required": ["workspaceId"],
         },
@@ -464,6 +531,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "properties": {
                 "workspaceId": {"type": "string"},
                 "target": {"type": "string"},
+                "targets": {"type": "array", "items": {"type": "string"}},
                 "layers": {"type": "array", "items": {"type": "string"}},
                 "refresh": {"type": "boolean", "default": False},
                 "format": {"type": "string", "enum": ["html", "markdown"], "default": "html"},
@@ -527,6 +595,9 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "notes": {"type": "string"},
                 "organization": {"type": "string"},
                 "workspaceId": {"type": "string"},
+                "cursor": {"type": "string"},
+                "inventoryLimit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 50},
+                "includeInventory": {"type": "boolean", "default": False},
             },
             "required": ["hosts"],
         },
@@ -546,6 +617,9 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "dumpPath": {"type": "string"},
                 "fingerprint": {"type": "boolean", "default": True},
                 "limit": {"type": "integer", "minimum": 1, "default": 5000},
+                "cursor": {"type": "string"},
+                "inventoryLimit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 50},
+                "includeInventory": {"type": "boolean", "default": False},
             },
             "required": ["organization", "hosts"],
         },
@@ -555,7 +629,12 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "description": "Check whether a target host or URL is in the persisted authorized scope.",
         "inputSchema": {
             "type": "object",
-            "properties": {"target": {"type": "string"}},
+            "properties": {
+                "target": {"type": "string"},
+                "cursor": {"type": "string"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 50},
+                "includeInventory": {"type": "boolean", "default": False},
+            },
             "required": ["target"],
         },
     },
@@ -625,7 +704,12 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "description": "Summarize targets and normalized entity counts for one Synapse workspace.",
         "inputSchema": {
             "type": "object",
-            "properties": {"workspaceId": {"type": "string"}},
+            "properties": {
+                "workspaceId": {"type": "string"},
+                "cursor": {"type": "string"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 50},
+                "includeInventory": {"type": "boolean", "default": False},
+            },
             "required": ["workspaceId"],
         },
     },
@@ -1212,13 +1296,22 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "xss.generate_test_code",
-        "description": "Generate manual XSS payloads and browser-console helper code. Does not send traffic.",
+        "description": "Generate an explicit staged XSS test plan. Defaults to an inert reflection marker and does not send traffic.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "parameter": {"type": "string"},
                 "context": {"type": "string", "default": "unknown"},
                 "url": {"type": "string"},
+                "mode": {
+                    "type": "string",
+                    "enum": ["reflection_marker", "context_breakout", "execution"],
+                    "default": "reflection_marker",
+                },
+                "marker": {
+                    "type": "string",
+                    "description": "Optional 4-80 character ASCII alphanumeric marker. Returned and sent without rewriting.",
+                },
             },
             "required": ["parameter"],
         },
@@ -1236,9 +1329,15 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "method": {"type": "string"},
                 "parameter": {"type": "string"},
                 "location": {"type": "string"},
+                "context": {"type": "string", "default": "unknown"},
+                "mode": {
+                    "type": "string",
+                    "enum": ["reflection_marker", "context_breakout", "execution"],
+                    "default": "reflection_marker",
+                },
                 "marker": {"type": "string"},
                 "payload": {"type": "string"},
-                "maxPayloads": {"type": "integer", "minimum": 1, "default": 2},
+                "maxPayloads": {"type": "integer", "minimum": 1, "default": 1},
                 "credentialId": {"type": "string"},
                 "requestTimeout": {"type": "integer", "minimum": 1, "default": 10},
                 **HTTP_POLICY_PROPERTIES,
@@ -1272,7 +1371,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "csrf.analyze_workspace",
-        "description": "Passively identify state-changing forms lacking a recognized anti-CSRF token field. Does not send traffic.",
+        "description": "Passively classify state-changing forms using normalized anti-CSRF token names and workflow-specific login/recovery/registration prerequisites. Does not send traffic.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1281,6 +1380,24 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "maxCandidates": {"type": "integer", "minimum": 1, "default": 50},
                 "minScore": {"type": "integer", "minimum": 0, "maximum": 100, "default": 35},
                 "ingest": {"type": "boolean", "default": True},
+                "workflowContexts": {
+                    "type": "array",
+                    "description": "Operator-reviewed prerequisites keyed by exact form URL. Login requires a scenario, approved credential reference, and approval ID; recovery/registration requires concrete impact plus evidence IDs.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "url": {"type": "string"},
+                            "attackerAccountScenario": {"type": "string"},
+                            "credentialedBaselineApproved": {"type": "boolean"},
+                            "baselineCredentialId": {"type": "string"},
+                            "approvalId": {"type": "string"},
+                            "unauthorizedStateChangeImpact": {"type": "string"},
+                            "impactEvidenceIds": {"type": "array", "items": {"type": "string"}},
+                        },
+                        "required": ["url"],
+                        "additionalProperties": False,
+                    },
+                },
             },
             "required": ["workspaceId", "target"],
         },
@@ -1306,7 +1423,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "cors.analyze_workspace",
-        "description": "Passively identify permissive CORS responses from observed Access-Control-* headers. Does not send traffic.",
+        "description": "Passively classify observed CORS policies using browser response-sharing semantics. Public wildcard and uncorroborated fixed-origin policies are informational. Does not send traffic.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1320,7 +1437,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "cors.generate_test_plan",
-        "description": "Generate a bounded CORS Origin-reflection probe plan for a candidate without sending traffic.",
+        "description": "Generate a bounded CORS Origin probe plan requiring an exact attacker-controlled origin plus credential acceptance for a reportable credentialed-read candidate. Does not send traffic.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1334,7 +1451,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "cors.execute_test",
-        "description": "Send one bounded CORS Origin-reflection probe against an in-scope target. Requires confirm=true.",
+        "description": "Send one bounded CORS Origin probe and apply browser-semantic read/credential verdicts against an in-scope target. Requires confirm=true.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1843,6 +1960,32 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 },
                 "nvdResultsPerComponent": {"type": "integer", "minimum": 1, "maximum": 200, "default": 20},
                 "maxCandidates": {"type": "integer", "minimum": 1, "maximum": 250, "default": 25},
+                "providerRateLimitCapacity": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10000,
+                    "description": "Optional per-source credential-tier token-bucket capacity override; provider-safe defaults apply when omitted.",
+                },
+                "providerRateLimitWindowSeconds": {
+                    "type": "number",
+                    "minimum": 0.01,
+                    "maximum": 3600,
+                    "description": "Optional token-bucket refill window override in seconds.",
+                },
+                "providerMaxAttempts": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5,
+                    "default": 3,
+                    "description": "Maximum attempts for a provider query, including the initial request.",
+                },
+                "providerMaxWaitSeconds": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 300,
+                    "default": 30,
+                    "description": "Maximum cumulative provider-budget and Retry-After wait for one query before returning a resumable rate_limited source status.",
+                },
                 "ingest": {"type": "boolean", "default": True},
                 "requestTimeout": {"type": "integer", "minimum": 1, "default": 20},
                 **HTTP_POLICY_PROPERTIES,
@@ -2221,7 +2364,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "access_control.execute_matrix_test",
-        "description": "Replay an approved access-control matrix test across explicit contexts and compare sanitized responses. Requires confirm=true. Contexts intended to be authenticated must resolve a valid credentialId; otherwise the call fails before replay unless the context is explicitly anonymous or allowAnonymousContexts=true. Redirects are not followed by default so redirect-to-login responses stay visible as denials; pass followRedirects=true to override.",
+        "description": "Replay an approved executable access-control matrix entry across its exact recorded context IDs and compare sanitized responses. Requires confirm=true. Authenticated contexts must resolve a valid credentialId and are never downgraded to anonymous; anonymous traffic requires an explicitly anonymous baseline context. Redirects are not followed by default so redirect-to-login responses stay visible as denials; pass followRedirects=true to override.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -2237,7 +2380,6 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "body": {"type": "string"},
                 "jsonBody": {"type": "object", "additionalProperties": True},
                 "allowStateChanging": {"type": "boolean", "default": False},
-                "allowAnonymousContexts": {"type": "boolean", "default": False},
                 "requestTimeout": {"type": "integer", "minimum": 1},
                 "totalBudgetSeconds": {"type": "number", "minimum": 1, "default": 30},
                 **HTTP_POLICY_PROPERTIES,
@@ -2282,6 +2424,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "maxBytesPerAsset": {"type": "integer", "minimum": 1, "default": 750000},
                 "requestTimeout": {"type": "integer", "minimum": 1, "default": 10},
                 "totalBudgetSeconds": {"type": "number", "minimum": 1, "default": 30},
+                "refresh": {"type": "boolean", "default": False},
                 "credentialId": {"type": "string"},
                 "userAgent": {"type": "string", "default": "SynapseJSIntel/0.1"},
                 **HTTP_POLICY_PROPERTIES,
@@ -2937,6 +3080,20 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
 ]
 
+# Keep every documentation entry point aligned with the shared redaction-policy
+# boundary. `operator`/`operator_raw` are public presentation names;
+# `internal`/`raw` remain compatibility policy names and `safe` is deprecated.
+for _tool_schema in TOOL_SCHEMAS:
+    _input_schema = _tool_schema.get("inputSchema")
+    _properties = _input_schema.get("properties") if isinstance(_input_schema, dict) else None
+    _redaction_schema = _properties.get("redactionMode") if isinstance(_properties, dict) else None
+    if isinstance(_redaction_schema, dict):
+        _redaction_schema["enum"] = list(REDACTION_MODE_VALUES)
+        _redaction_schema["description"] = (
+            "Presentation aliases operator/operator_raw map to compatibility policies internal/raw; "
+            "high_level is the concise internal view and safe is deprecated."
+        )
+
 RESOURCES = [
     {"uri": "synapse://dumps", "name": "Offline Burp Proxy Dumps", "mimeType": "application/json"},
     {"uri": "synapse://scope", "name": "Authorized Scope", "mimeType": "application/json"},
@@ -3139,6 +3296,12 @@ def _call_tool_impl(name: str, args: dict[str, Any]) -> str:
         return json.dumps(documentation.build_layer_report_context(args), indent=2)
     if name == "documentation.build_workspace_report_context":
         return json.dumps(documentation.build_workspace_report_context(args), indent=2)
+    if name == "documentation.plan_scope_groups":
+        return json.dumps(documentation.plan_scope_groups(args), indent=2)
+    if name == "documentation.prepare_validation_batch":
+        return json.dumps(documentation.prepare_validation_batch(args), indent=2)
+    if name == "documentation.render_workspace_report_batches":
+        return json.dumps(documentation.render_workspace_report_batches(args), indent=2)
     if name == "documentation.build_finding_context":
         return json.dumps(documentation.build_finding_context(args), indent=2)
     if name == "documentation.build_finding_draft":
@@ -3164,6 +3327,9 @@ def _call_tool_impl(name: str, args: dict[str, Any]) -> str:
             args.get("organization", ""),
             args.get("patterns"),
             args.get("cidrs"),
+            cursor=args.get("cursor"),
+            limit=int(args.get("inventoryLimit", 50)),
+            include_inventory=bool(args.get("includeInventory", False)),
         )
         if args.get("workspaceId"):
             result["workspace"] = workspace.create_workspace(
@@ -3184,8 +3350,10 @@ def _call_tool_impl(name: str, args: dict[str, Any]) -> str:
                 args["organization"],
                 args.get("patterns"),
                 args.get("cidrs"),
+                cursor=args.get("cursor"),
+                limit=int(args.get("inventoryLimit", 50)),
+                include_inventory=bool(args.get("includeInventory", False)),
             ),
-            "evidenceProject": evidence.ensure_project(args["organization"], args["hosts"]),
             "workspace": workspace.create_workspace(
                 workspace_id,
                 organization=args["organization"],
@@ -3195,6 +3363,14 @@ def _call_tool_impl(name: str, args: dict[str, Any]) -> str:
                 cidrs=args.get("cidrs"),
             ),
             "authenticationGuidance": credentials.auth_process_guidance(),
+        }
+        evidence_project = evidence.ensure_project(args["organization"], args["hosts"])
+        evidence_hosts = evidence_project.get("hosts", [])
+        result["evidenceProject"] = {
+            "initialized": evidence_project.get("initialized", False),
+            "organization": evidence_project.get("organization", args["organization"]),
+            "path": evidence_project.get("path", ""),
+            "hostCount": len(evidence_hosts) if isinstance(evidence_hosts, list) else 0,
         }
         if args.get("dumpPath") and args.get("fingerprint", True):
             result["fingerprint"] = fingerprint.from_dump(
@@ -3219,7 +3395,15 @@ def _call_tool_impl(name: str, args: dict[str, Any]) -> str:
         )
         return json.dumps(result, indent=2)
     if name == "scope.check_target":
-        return json.dumps(scope.check_target(args["target"]), indent=2)
+        return json.dumps(
+            scope.check_target(
+                args["target"],
+                cursor=args.get("cursor"),
+                limit=int(args.get("limit", 50)),
+                include_inventory=bool(args.get("includeInventory", False)),
+            ),
+            indent=2,
+        )
     if name == "workspace.create":
         return json.dumps(
             workspace.create_workspace(
@@ -3261,7 +3445,15 @@ def _call_tool_impl(name: str, args: dict[str, Any]) -> str:
             indent=2,
         )
     if name == "workspace.summary":
-        return json.dumps(workspace.workspace_summary(args["workspaceId"]), indent=2)
+        return json.dumps(
+            workspace.workspace_summary(
+                args["workspaceId"],
+                cursor=args.get("cursor"),
+                limit=int(args.get("limit", 50)),
+                include_inventory=bool(args.get("includeInventory", False)),
+            ),
+            indent=2,
+        )
     if name == "workspace.delete":
         return json.dumps(workspace.delete_workspace(args["workspaceId"], bool(args.get("confirm"))), indent=2)
     if name == "workspace.create_finding":

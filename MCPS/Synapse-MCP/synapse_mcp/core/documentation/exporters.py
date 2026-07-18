@@ -23,6 +23,7 @@ def render_markdown(args: dict[str, Any]) -> dict[str, Any]:
     result = render(template_id, context).as_dict()
     path = _write_output(args, result["content"], "md", _default_markdown_name(template_id))
     result["path"] = str(path)
+    result.update(_context_presentation_metadata(context))
     return result
 
 
@@ -33,6 +34,7 @@ def render_assessment_summary(args: dict[str, Any]) -> dict[str, Any]:
     result = render(template_id, context).as_dict()
     path = _write_output(args, result["content"], "md", "assessment-summary.md")
     result["path"] = str(path)
+    result.update(_context_presentation_metadata(context))
     return result
 
 
@@ -57,7 +59,13 @@ def render_layer_report(args: dict[str, Any]) -> dict[str, Any]:
     evidence.log_event(
         "documentation.render_layer_report",
         f"Rendered {payload.get('layer', 'layer')} report for workspace {args.get('workspaceId', '')}.",
-        {"workspaceId": args.get("workspaceId", ""), "layer": payload.get("layer", ""), "format": format_name, "path": str(path)},
+        {
+            "workspaceId": args.get("workspaceId", ""),
+            "layer": payload.get("layer", ""),
+            "format": format_name,
+            "path": str(path),
+            **_presentation_metadata(payload),
+        },
     )
     return {
         "contextType": "layer_report",
@@ -67,6 +75,7 @@ def render_layer_report(args: dict[str, Any]) -> dict[str, Any]:
         "path": str(path),
         "bytes": len(content.encode("utf-8")),
         "summary": payload.get("summary", {}),
+        **_presentation_metadata(payload),
     } | ({"content": content} if args.get("returnContent") is True else {})
 
 
@@ -87,6 +96,7 @@ def render_workspace_report(args: dict[str, Any]) -> dict[str, Any]:
             "layers": payload.get("summary", {}).get("layers", []),
             "format": format_name,
             "path": str(path),
+            **_presentation_metadata(payload),
         },
     )
     return {
@@ -96,6 +106,7 @@ def render_workspace_report(args: dict[str, Any]) -> dict[str, Any]:
         "path": str(path),
         "bytes": len(content.encode("utf-8")),
         "summary": payload.get("summary", {}),
+        **_presentation_metadata(payload),
     } | ({"content": content} if args.get("returnContent") is True else {})
 
 
@@ -149,3 +160,25 @@ def _default_markdown_name(template_id: str) -> str:
     if template_id == "assessment_summary_report":
         return "assessment-summary.md"
     return "report.md"
+
+
+def _presentation_metadata(payload: dict[str, Any]) -> dict[str, str]:
+    redaction = payload.get("redaction") if isinstance(payload.get("redaction"), dict) else {}
+    if not redaction and isinstance(payload.get("policy"), dict):
+        redaction = payload["policy"]
+    policy_mode = str(redaction.get("mode", "high_level") or "high_level")
+    presentation = str(redaction.get("presentation", "") or "")
+    if not presentation:
+        presentation = {"safe": "high_level", "high_level": "high_level", "internal": "operator", "raw": "operator_raw"}.get(
+            policy_mode,
+            "high_level",
+        )
+    return {"presentation": presentation, "redactionPolicy": policy_mode}
+
+
+def _context_presentation_metadata(context: dict[str, Any]) -> dict[str, str]:
+    for key in ("report", "workspaceReport", "layerReport", "evidencePack", "findingContext"):
+        payload = context.get(key)
+        if isinstance(payload, dict):
+            return _presentation_metadata(payload)
+    return _presentation_metadata(context)

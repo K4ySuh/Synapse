@@ -7,6 +7,7 @@ from unittest.mock import patch
 from helpers import assert_shared_html_shell, isolated_state
 from synapse_mcp.adapters.web import js_intel
 from synapse_mcp.core import credentials, scope, workspace
+from synapse_mcp.core.errors import McpError
 from synapse_mcp.core.documentation.builder import is_active_action
 from synapse_mcp.core.documentation.assets import banner_data_uri, report_css
 from synapse_mcp.core.documentation import layers
@@ -56,6 +57,75 @@ class DocumentationTests(unittest.TestCase):
                 self.assertIn('<body class="high-level single-target">', high_level_html)
                 self.assertNotIn('<body class="operator single-target">', high_level_html)
                 self.assertIn("body.high-level .operator-only{display:none", high_level_html)
+
+    def test_report_presentation_aliases_share_policy_boundary_and_metadata(self) -> None:
+        from synapse_mcp.core.documentation import redaction
+        from synapse_mcp.core.errors import McpError
+
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                workspace.create_workspace("engagement", organization="Example Client", hosts=["app.example.com"])
+
+                def render(tool: str, mode: str) -> dict[str, object]:
+                    layer_args = {"layer": "perimeter"} if tool.endswith("layer_report") else {"layers": ["perimeter"]}
+                    return json.loads(
+                        stdio_server.call_tool(
+                            tool,
+                            {
+                                "workspaceId": "engagement",
+                                **layer_args,
+                                "redactionMode": mode,
+                                "returnContent": True,
+                                "outputPath": f"reports/{tool.rsplit('.', 1)[-1]}-{mode}.html",
+                            },
+                        )
+                    )
+
+                with patch("synapse_mcp.core.documentation.layers.workspace.now_utc", return_value="2026-07-18T00:00:00Z"):
+                    for tool in ("documentation.render_workspace_report", "documentation.render_layer_report"):
+                        results = {mode: render(tool, mode) for mode in ("operator", "operator_raw", "internal", "raw", "high_level")}
+                        self.assertEqual(results["operator"]["content"], results["internal"]["content"])
+                        self.assertEqual(results["operator_raw"]["content"], results["raw"]["content"])
+                        self.assertEqual(results["operator"]["presentation"], "operator")
+                        self.assertEqual(results["operator"]["redactionPolicy"], "internal")
+                        self.assertEqual(results["internal"]["presentation"], "operator")
+                        self.assertEqual(results["operator_raw"]["presentation"], "operator_raw")
+                        self.assertEqual(results["operator_raw"]["redactionPolicy"], "raw")
+                        self.assertEqual(results["high_level"]["presentation"], "high_level")
+                        self.assertEqual(results["high_level"]["redactionPolicy"], "high_level")
+                        self.assertIn('<body class="operator single-target">', results["operator"]["content"])
+                        self.assertIn('<body class="high-level single-target">', results["high_level"]["content"])
+
+                    workspace_context = json.loads(
+                        stdio_server.call_tool(
+                            "documentation.build_workspace_report_context",
+                            {"workspaceId": "engagement", "layers": ["perimeter"], "redactionMode": "operator"},
+                        )
+                    )["workspaceReport"]
+                    layer_context = json.loads(
+                        stdio_server.call_tool(
+                            "documentation.build_layer_report_context",
+                            {"workspaceId": "engagement", "layer": "perimeter", "redactionMode": "operator_raw"},
+                        )
+                    )["layerReport"]
+                self.assertEqual(workspace_context["redaction"]["mode"], "internal")
+                self.assertEqual(workspace_context["redaction"]["presentation"], "operator")
+                self.assertEqual(layer_context["redaction"]["mode"], "raw")
+                self.assertEqual(layer_context["redaction"]["presentation"], "operator_raw")
+
+                with self.assertRaises(McpError) as invalid:
+                    redaction.policy_from_args({"redactionMode": "client_export"})
+                self.assertIn("operator", str(invalid.exception))
+                self.assertIn("operator_raw", str(invalid.exception))
+
+                for schema in stdio_server.TOOL_SCHEMAS:
+                    properties = schema.get("inputSchema", {}).get("properties", {})
+                    if "redactionMode" not in properties:
+                        continue
+                    self.assertEqual(
+                        set(properties["redactionMode"]["enum"]),
+                        {"operator", "operator_raw", "high_level", "internal", "raw", "safe"},
+                    )
 
     def test_layer_renderer_renders_coverage_gaps_once_per_document(self) -> None:
         layer_context = {
@@ -1164,8 +1234,8 @@ class DocumentationTests(unittest.TestCase):
                         },
                     )
                 )
-                self.assertEqual(Path(default_rendered["path"]).name, "engagement-assessment-summary.md")
-                self.assertEqual(Path(default_rendered["path"]).parent.name, "reports")
+                self.assertEqual(Path(default_rendered["path"]).name, "assessment-summary.md")
+                self.assertEqual(Path(default_rendered["path"]).parent.name, "engagement")
 
                 other_default = workspace.resolve_report_output_path(
                     "other-engagement",
@@ -1174,7 +1244,8 @@ class DocumentationTests(unittest.TestCase):
                     default_name="assessment-summary.md",
                 )
                 self.assertNotEqual(Path(default_rendered["path"]), other_default)
-                self.assertEqual(other_default.name, "other-engagement-assessment-summary.md")
+                self.assertEqual(other_default.name, "assessment-summary.md")
+                self.assertEqual(other_default.parent.name, "other-engagement")
 
                 nested_data = stdio_server.handle(
                     {
@@ -1193,6 +1264,248 @@ class DocumentationTests(unittest.TestCase):
                 self.assertIsNotNone(nested_data)
                 self.assertEqual(nested_data["error"]["code"], -32602)
                 self.assertIn("workspace-relative", nested_data["error"]["message"])
+
+                with self.assertRaisesRegex(McpError, "cannot escape reports/engagement"):
+                    workspace.resolve_report_output_path(
+                        "engagement",
+                        "../other-workspace/report.md",
+                        extension="md",
+                        default_name="report.md",
+                    )
+
+    def test_workspace_audit_batches_are_stable_bounded_and_resumable(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                targets = ["app.example.com", "api.example.com", "admin.example.com"]
+                workspace.create_workspace("RT Bit", organization="Example Client", hosts=targets)
+                workspace.add_target("rt-bit", "outside.example.net")
+                for target in targets:
+                    workspace._write_json(
+                        workspace.target_entity_path("rt-bit", target, "endpoints"),
+                        [
+                            {"type": "endpoint", "method": "GET", "url": f"https://{target}/route-{index}", "path": f"/route-{index}"}
+                            for index in range(3)
+                        ],
+                    )
+                workspace._write_json(
+                    workspace.target_entity_path("rt-bit", "app.example.com", "observations"),
+                    [
+                        {
+                            "type": "asset_relation",
+                            "sourceAsset": "app.example.com",
+                            "targetAsset": "api.example.com",
+                            "relationType": "application_api",
+                            "scopeStatus": "in_scope",
+                        },
+                        {
+                            "type": "xss_candidate",
+                            "value": "https://app.example.com/search?q=sample",
+                            "priority": "high",
+                            "priorityScore": 90,
+                        },
+                        {
+                            "type": "sql_injection_candidate",
+                            "value": "https://app.example.com/item?id=1",
+                            "priority": "medium",
+                            "priorityScore": 70,
+                        },
+                    ],
+                )
+
+                plan = json.loads(
+                    stdio_server.call_tool(
+                        "documentation.plan_scope_groups",
+                        {"workspaceId": "rt-bit", "targetBatchSize": 2},
+                    )
+                )
+                self.assertEqual(plan["inventory"]["enumerableTargetCount"], 3)
+                self.assertEqual(plan["inventory"]["outOfScopeWorkspaceTargetCount"], 1)
+                self.assertEqual(plan["groupCount"], 2)
+                self.assertTrue(all("targets" not in group for group in plan["groups"]))
+                self.assertTrue(all(len(group["targetPreview"]) <= 5 for group in plan["groups"]))
+                full_plan = workspace._read_json(Path(plan["manifestPath"]), {})
+                self.assertEqual(full_plan["inventory"]["outOfScopeWorkspaceTargets"], ["outside.example.net"])
+                related_group = next(group for group in full_plan["groups"] if "app.example.com" in group["targets"])
+                self.assertEqual(related_group["targets"], ["api.example.com", "app.example.com"])
+                self.assertTrue(Path(plan["manifestPath"]).is_relative_to(workspace.REPORTS_DIR / "rt-bit"))
+                self.assertTrue(plan["authorizationScopeUnchanged"])
+
+                validation = json.loads(
+                    stdio_server.call_tool(
+                        "documentation.prepare_validation_batch",
+                        {"workspaceId": "rt-bit", "groupId": related_group["groupId"], "batchSize": 1, "targetBatchSize": 2},
+                    )
+                )
+                self.assertFalse(validation["sendsTraffic"])
+                self.assertTrue(validation["requiresApprovalBeforeExecution"])
+                self.assertEqual(validation["returnedCount"], 1)
+                self.assertEqual(validation["remainingCount"], 1)
+                self.assertEqual(validation["nextCursor"], 1)
+
+                observations_path = workspace.target_entity_path("rt-bit", "app.example.com", "observations")
+                updated_observations = workspace._read_json(observations_path, [])
+                updated_observations.append(
+                    {
+                        "type": "ssrf_candidate",
+                        "value": "https://app.example.com/fetch?url=sample",
+                        "priority": "medium",
+                        "priorityScore": 60,
+                    }
+                )
+                workspace._write_json(observations_path, updated_observations)
+                stable_page = json.loads(
+                    stdio_server.call_tool(
+                        "documentation.prepare_validation_batch",
+                        {
+                            "workspaceId": "rt-bit",
+                            "groupId": related_group["groupId"],
+                            "batchSize": 1,
+                            "cursor": 1,
+                            "targetBatchSize": 2,
+                        },
+                    )
+                )
+                self.assertEqual(stable_page["totalCandidates"], 2)
+                self.assertIsNone(stable_page["nextCursor"])
+                refreshed_queue = json.loads(
+                    stdio_server.call_tool(
+                        "documentation.prepare_validation_batch",
+                        {
+                            "workspaceId": "rt-bit",
+                            "groupId": related_group["groupId"],
+                            "batchSize": 1,
+                            "targetBatchSize": 2,
+                            "refreshQueue": True,
+                        },
+                    )
+                )
+                self.assertEqual(refreshed_queue["totalCandidates"], 3)
+
+                rendered = json.loads(
+                    stdio_server.call_tool(
+                        "documentation.render_workspace_report_batches",
+                        {
+                            "workspaceId": "rt-bit",
+                            "runId": "review-1",
+                            "targetBatchSize": 2,
+                            "recordBatchSize": 2,
+                            "maxGroups": 1,
+                            "layers": ["perimeter"],
+                        },
+                    )
+                )
+                self.assertEqual(rendered["renderedGroupCount"], 1)
+                self.assertEqual(rendered["completedGroupCount"], 0)
+                self.assertEqual(rendered["deferredGroupCount"], 2)
+                self.assertEqual(rendered["nextGroupCursor"], 0)
+                self.assertEqual(rendered["nextPartCursor"], 1)
+                self.assertTrue(Path(rendered["indexPath"]).exists())
+                self.assertTrue(Path(rendered["manifestPath"]).exists())
+                self.assertTrue(all(part["recordCount"] <= 2 for part in rendered["groups"][0]["parts"]))
+                self.assertGreater(rendered["groups"][0]["partCount"], 1)
+                self.assertEqual(rendered["groups"][0]["renderedPartCount"], 1)
+                for part in rendered["groups"][0]["parts"]:
+                    self.assertTrue(Path(part["reportPath"]).exists())
+                    self.assertTrue(Path(part["contextPath"]).exists())
+
+                resumed = json.loads(
+                    stdio_server.call_tool(
+                        "documentation.render_workspace_report_batches",
+                        {
+                            "workspaceId": "rt-bit",
+                            "runId": "review-1",
+                            "targetBatchSize": 2,
+                            "recordBatchSize": 2,
+                            "groupCursor": rendered["nextGroupCursor"],
+                            "partCursor": rendered["nextPartCursor"],
+                            "maxParts": 40,
+                            "maxGroups": 1,
+                            "layers": ["perimeter"],
+                        },
+                    )
+                )
+                self.assertEqual(resumed["completedGroupCount"], 1)
+                self.assertEqual(resumed["nextGroupCursor"], 1)
+                self.assertIsNone(resumed["nextPartCursor"])
+
+                resumed = json.loads(
+                    stdio_server.call_tool(
+                        "documentation.render_workspace_report_batches",
+                        {
+                            "workspaceId": "rt-bit",
+                            "runId": "review-1",
+                            "targetBatchSize": 2,
+                            "recordBatchSize": 2,
+                            "groupCursor": resumed["nextGroupCursor"],
+                            "partCursor": 0,
+                            "maxParts": 40,
+                            "maxGroups": 1,
+                            "layers": ["perimeter"],
+                        },
+                    )
+                )
+                self.assertEqual(resumed["renderedGroupCount"], 2)
+                self.assertEqual(resumed["completedGroupCount"], 2)
+                self.assertEqual({group["groupId"] for group in resumed["groups"]}, {"scope-001", "scope-002"})
+                self.assertIsNone(resumed["nextGroupCursor"])
+                for group in resumed["groups"]:
+                    for part in group["parts"]:
+                        part_context = workspace._read_json(Path(part["contextPath"]), {})["workspaceReport"]
+                        for layer in part_context["layers"]:
+                            for section in layer["sections"]:
+                                if section["kind"] != "candidate_groups":
+                                    continue
+                                grouped_rows = sum(len(item["rows"]) for item in section["metadata"]["groups"])
+                                self.assertEqual(grouped_rows, len(section["rows"]))
+                                self.assertLessEqual(grouped_rows, 2)
+
+                workspace.create_workspace("rt-bit", organization="Example Client", hosts=[*targets, "new.example.com"])
+                stable = json.loads(
+                    stdio_server.call_tool(
+                        "documentation.plan_scope_groups",
+                        {"workspaceId": "rt-bit", "targetBatchSize": 2},
+                    )
+                )
+                full_stable = workspace._read_json(Path(stable["manifestPath"]), {})
+                before_assignments = {target: group["groupId"] for group in full_plan["groups"] for target in group["targets"]}
+                after_assignments = {target: group["groupId"] for group in full_stable["groups"] for target in group["targets"]}
+                self.assertTrue(all(after_assignments[target] == group_id for target, group_id in before_assignments.items()))
+                self.assertIn("new.example.com", after_assignments)
+
+    def test_scope_group_planner_response_is_compact_and_paginated(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                hosts = [f"host-{index:03d}.example.com" for index in range(103)]
+                workspace.create_workspace("large", hosts=hosts)
+                first = json.loads(
+                    stdio_server.call_tool(
+                        "documentation.plan_scope_groups",
+                        {"workspaceId": "large", "targetBatchSize": 20, "groupLimit": 2},
+                    )
+                )
+                self.assertLess(len(json.dumps(first)), 5000)
+                self.assertEqual(first["inventory"]["enumerableTargetCount"], 103)
+                self.assertEqual(first["groupCount"], 6)
+                self.assertEqual(len(first["groups"]), 2)
+                self.assertEqual(first["groupPage"]["nextCursor"], 2)
+                self.assertTrue(all("targets" not in group for group in first["groups"]))
+
+                second = json.loads(
+                    stdio_server.call_tool(
+                        "documentation.plan_scope_groups",
+                        {
+                            "workspaceId": "large",
+                            "targetBatchSize": 20,
+                            "groupCursor": first["groupPage"]["nextCursor"],
+                            "groupLimit": 2,
+                            "includeTargets": True,
+                        },
+                    )
+                )
+                self.assertEqual(second["groupPage"]["cursor"], 2)
+                self.assertTrue(all(len(group["targets"]) <= 20 for group in second["groups"]))
+                full = workspace._read_json(Path(first["manifestPath"]), {})
+                self.assertEqual(sum(group["targetCount"] for group in full["groups"]), 103)
 
     def test_documentation_renders_normalized_layer_and_workspace_reports(self) -> None:
         with TemporaryDirectory() as tmp:

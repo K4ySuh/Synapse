@@ -162,7 +162,7 @@ def build_workspace_report_context(args: dict[str, Any]) -> dict[str, Any]:
         summary={
             "layerCount": len(layer_contexts),
             "layers": included_layers,
-            "targetCount": len(_target_names(wid, str(args.get("target", "") or ""))),
+            "targetCount": len(_target_names(wid, str(args.get("target", "") or ""), args.get("targets"))),
         },
         gaps=_dedupe_strings(gaps)[:80],
         recommended_next_steps=workspace_steps[:80],
@@ -228,7 +228,23 @@ def _selected_layers(args: dict[str, Any]) -> list[str]:
 def _perimeter_layer(args: dict[str, Any]) -> dict[str, Any]:
     wid = workspace.normalize_workspace_id(args["workspaceId"])
     policy = policy_from_args(args)
-    payload = perimeter.build_summary({"workspaceId": wid, "target": args.get("target", ""), "refresh": bool(args.get("refresh", False))})
+    requested_targets = _target_names(wid, str(args.get("target", "") or ""), args.get("targets"))
+    single_requested = requested_targets[0] if len(requested_targets) == 1 else ""
+    if isinstance(args.get("targets"), list):
+        filtered = []
+        for requested_target in requested_targets:
+            target_payload = perimeter.build_summary(
+                {"workspaceId": wid, "target": requested_target, "refresh": bool(args.get("refresh", False))}
+            )
+            filtered.extend(item for item in target_payload.get("targets", []) if isinstance(item, dict))
+        payload = {
+            "workspaceId": wid,
+            "targetCount": len(filtered),
+            "summary": perimeter._workspace_perimeter_summary(wid, filtered),
+            "targets": filtered,
+        }
+    else:
+        payload = perimeter.build_summary({"workspaceId": wid, "target": single_requested, "refresh": bool(args.get("refresh", False))})
     summary = payload.get("summary", {})
     counts = summary.get("counts", {}) if isinstance(summary.get("counts"), dict) else {}
     summary_targets = summary.get("targets", []) if isinstance(summary.get("targets"), list) else []
@@ -393,7 +409,7 @@ def _perimeter_layer(args: dict[str, Any]) -> dict[str, Any]:
 def _js_layer(args: dict[str, Any]) -> dict[str, Any]:
     wid = workspace.normalize_workspace_id(args["workspaceId"])
     policy = policy_from_args(args)
-    targets = _target_names(wid, str(args.get("target", "") or ""))
+    targets = _target_names(wid, str(args.get("target", "") or ""), args.get("targets"))
     target_contexts = []
     asset_rows: list[list[Any]] = []
     signal_rows: list[list[Any]] = []
@@ -525,7 +541,7 @@ def _auth_layer(args: dict[str, Any]) -> dict[str, Any]:
 def _access_control_layer(args: dict[str, Any]) -> dict[str, Any]:
     wid = workspace.normalize_workspace_id(args["workspaceId"])
     policy = policy_from_args(args)
-    targets = _target_names(wid, str(args.get("target", "") or ""))
+    targets = _target_names(wid, str(args.get("target", "") or ""), args.get("targets"))
     target_contexts = []
     object_rows: list[list[Any]] = []
     context_rows: list[list[Any]] = []
@@ -619,7 +635,7 @@ def _access_control_layer(args: dict[str, Any]) -> dict[str, Any]:
 def _web_vulnerabilities_layer(args: dict[str, Any]) -> dict[str, Any]:
     wid = workspace.normalize_workspace_id(args["workspaceId"])
     policy = policy_from_args(args)
-    targets = _target_names(wid, str(args.get("target", "") or ""))
+    targets = _target_names(wid, str(args.get("target", "") or ""), args.get("targets"))
     target_contexts = []
     candidate_rows: list[list[Any]] = []
     finding_rows: list[list[Any]] = []
@@ -715,7 +731,7 @@ def _web_vulnerabilities_layer(args: dict[str, Any]) -> dict[str, Any]:
 def _cve_layer(args: dict[str, Any]) -> dict[str, Any]:
     wid = workspace.normalize_workspace_id(args["workspaceId"])
     policy = policy_from_args(args)
-    targets = _target_names(wid, str(args.get("target", "") or ""))
+    targets = _target_names(wid, str(args.get("target", "") or ""), args.get("targets"))
     target_contexts = []
     candidate_rows: list[list[Any]] = []
     finding_rows: list[list[Any]] = []
@@ -816,7 +832,7 @@ def _engagement_layer(args: dict[str, Any]) -> dict[str, Any]:
     wid = workspace.normalize_workspace_id(args["workspaceId"])
     policy = policy_from_args(args)
     safe = str(policy.mode or "").lower() in {"safe", "high_level"}
-    targets = _target_names(wid, str(args.get("target", "") or ""))
+    targets = _target_names(wid, str(args.get("target", "") or ""), args.get("targets"))
     pretext_rows: list[list[Any]] = []
     gap_rows: list[list[Any]] = []
     tier_counts: dict[str, dict[str, int]] = {}
@@ -1089,10 +1105,19 @@ def _cve_steps(target: str, candidates: list[dict[str, Any]], kev_count: int, hi
     return steps
 
 
-def _target_names(workspace_id: str, target: str = "") -> list[str]:
+def _target_names(workspace_id: str, target: str = "", targets: Any = None) -> list[str]:
     workspace.ensure_workspace(workspace_id)
     if target:
         return [workspace.normalize_target(target)]
+    if targets is not None:
+        if not isinstance(targets, list):
+            raise McpError(-32602, "targets must be an array of target names.")
+        normalized: list[str] = []
+        for item in targets:
+            host = workspace.normalize_target(str(item))
+            if host and host not in normalized:
+                normalized.append(host)
+        return normalized
     root = workspace.workspace_path(workspace_id) / "targets"
     targets = []
     for target_dir in sorted(root.glob("*")) if root.exists() else []:
@@ -1466,7 +1491,14 @@ def _candidate_section(section_id: str, title: str, headers: list[str], rows: li
     Flat ``rows`` are kept on the section for content detection and JSON
     consumers; ``metadata.groups`` carries the grouped view the renderer uses.
     """
-    return _section(section_id, title, "candidate_groups", headers=headers, rows=rows, metadata={"groups": _candidate_groups(headers, rows, group_by)})
+    return _section(
+        section_id,
+        title,
+        "candidate_groups",
+        headers=headers,
+        rows=rows,
+        metadata={"groupBy": group_by, "groups": _candidate_groups(headers, rows, group_by)},
+    )
 
 
 def _signal_groups(headers: list[str], rows: list[list[Any]], group_by: str = "Type") -> list[dict[str, Any]]:

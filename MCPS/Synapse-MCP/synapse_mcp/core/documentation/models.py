@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 RedactionMode = Literal["safe", "high_level", "internal", "raw"]
+PresentationMode = Literal["high_level", "operator", "operator_raw"]
 ContextType = Literal["report", "finding", "evidence_pack", "coverage", "layer_report", "workspace_report"]
 
 
@@ -26,6 +27,7 @@ class DocumentationModel(BaseModel):
 
 class RedactionPolicy(DocumentationModel):
     mode: RedactionMode = "high_level"
+    presentation: PresentationMode = "high_level"
     include_raw_http: bool = False
     include_request_bodies: bool = False
     include_response_bodies: bool = False

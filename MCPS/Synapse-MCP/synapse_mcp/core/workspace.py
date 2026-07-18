@@ -20,6 +20,14 @@ from . import evidence, scope
 from .adapters.results import surface_candidate, surface_candidate_id
 from .errors import McpError
 from .paths import DATA_DIR, REPORTS_DIR as _CONFIGURED_REPORTS_DIR
+from .url_hygiene import (
+    canonical_url_identity,
+    normalize_parameter_name,
+    redact_url_query_values,
+    redact_value_preview as redact_sensitive_preview,
+    safe_query_items,
+    url_identity_key,
+)
 
 
 WORKSPACES_DIR = DATA_DIR / "workspaces"
@@ -46,6 +54,9 @@ FINDING_STATUSES = {"candidate", "confirmed", "false_positive", "accepted_risk",
 FINDING_SEVERITIES = {"info", "low", "medium", "high", "critical"}
 FINDING_CONFIDENCES = {"low", "medium", "high"}
 DEFAULT_REPLACEABLE_EVIDENCE_SOURCES = {"sitemap", "crawler", "js_intelligence"}
+DEFAULT_SUMMARY_PREVIEW = 5
+DEFAULT_SUMMARY_PAGE_SIZE = 50
+MAX_SUMMARY_PAGE_SIZE = 500
 
 
 def now_utc() -> str:
@@ -463,11 +474,11 @@ def _entity_key(entity: dict[str, Any]) -> str:
     if entity_type == "endpoint":
         if entity.get("graphqlOperation"):
             return f"endpoint:{entity.get('method', '')}|{entity.get('url', '')}|graphql:{entity.get('graphqlOperationType', '')}:{entity.get('graphqlOperation', '')}"
-        return f"endpoint:{entity.get('method', '')}|{entity.get('url', '')}"
+        return f"endpoint:{entity.get('method', '')}|{url_identity_key(entity.get('url', '')) or entity.get('canonicalUrl') or entity.get('url', '')}"
     if entity_type == "parameter":
         if entity.get("graphqlOperation"):
             return f"parameter:{entity.get('method', '')}|{entity.get('url', '')}|graphql:{entity.get('graphqlOperationType', '')}:{entity.get('graphqlOperation', '')}|{entity.get('name', '')}"
-        return f"parameter:{entity.get('method', '')}|{entity.get('url', '')}|{entity.get('location', '')}|{entity.get('name', '')}"
+        return f"parameter:{entity.get('method', '')}|{url_identity_key(entity.get('url', '')) or entity.get('canonicalUrl') or entity.get('url', '')}|{entity.get('location', '')}|{normalize_parameter_name(entity.get('name', ''))}"
     if entity_type == "finding":
         if entity.get("id"):
             return f"finding:{entity['id']}"
@@ -477,6 +488,15 @@ def _entity_key(entity: dict[str, Any]) -> str:
     for id_field in ("id", "candidateId"):
         if entity.get(id_field):
             return f"{entity_type}:{entity[id_field]}"
+    form_action_identity = canonical_url_identity(entity.get("value", "")) or canonical_url_identity(entity.get("url", ""))
+    form_page_identity = canonical_url_identity(entity.get("pageUrl", ""))
+    if entity_type in {"form_endpoint", "post_form_candidate", "sitemap_finding_candidate"} and form_action_identity and form_page_identity and (
+        entity_type != "sitemap_finding_candidate" or entity.get("category") == "high_value_form"
+    ):
+        page_url = form_page_identity
+        action_url = form_action_identity
+        inputs = ",".join(sorted(normalize_parameter_name(item) for item in entity.get("inputNames", []) if normalize_parameter_name(item)))
+        return f"{entity_type}:form:{page_url}|{action_url}|{entity.get('method', '')}|{inputs}"
     if entity_type and entity.get("value") not in ("", None):
         discriminator = "|".join(str(entity.get(field, "")) for field in ("value", "url", "parameter", "method"))
         return f"{entity_type}:{discriminator}"
@@ -681,6 +701,8 @@ def _normalize_entity_for_workspace(workspace_id: str, target: str, entity_name:
         return _normalize_observation_for_workspace(item)
     if entity_name == "endpoints":
         return _normalize_endpoint_for_workspace(item)
+    if entity_name == "parameters":
+        return _normalize_parameter_for_workspace(item)
     if entity_name == "pretextCandidates":
         return _normalize_pretext_for_workspace(workspace_id, target, item)
     if entity_name == "detectionGaps":
@@ -721,12 +743,15 @@ def _normalize_affected_asset(value: Any) -> str:
         return ""
     parsed = urlsplit(text)
     if parsed.scheme in {"http", "https"} and parsed.netloc:
-        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path or "/", parsed.query, ""))
+        return redact_url_query_values(text)
     return normalize_target(text)
 
 
 def _normalize_action_for_workspace(action: dict[str, Any]) -> dict[str, Any]:
     item = dict(action)
+    for field in ("target", "url", "requestUrl", "pageUrl", "sourceUrl", "targetUrl", "redirectLocation"):
+        if item.get(field) and urlsplit(str(item[field])).scheme in {"http", "https"}:
+            item[field] = redact_url_query_values(item[field]) or ""
     if not item.get("actionId"):
         # A content-derived id keeps re-ingested transcripts deduplicable.
         item["actionId"] = "act_" + _stable_hash(
@@ -767,6 +792,15 @@ def _normalize_detection_gap_for_workspace(target: str, gap: dict[str, Any]) -> 
 
 def _normalize_observation_for_workspace(observation: dict[str, Any]) -> dict[str, Any]:
     item = dict(observation)
+    for field in ("url", "requestUrl", "pageUrl", "sourceUrl", "targetUrl"):
+        if item.get(field):
+            item[field] = redact_url_query_values(item[field]) or ""
+    if isinstance(item.get("value"), str) and urlsplit(str(item["value"])).scheme in {"http", "https"}:
+        item["value"] = redact_url_query_values(item["value"]) or ""
+    if item.get("parameter"):
+        item["parameter"] = normalize_parameter_name(item["parameter"])
+    if isinstance(item.get("inputNames"), list):
+        item["inputNames"] = sorted({normalize_parameter_name(name) for name in item["inputNames"] if normalize_parameter_name(name)})
     if not str(item.get("type", "") or ""):
         item["type"] = "observation"
     if item.get("confidence") not in FINDING_CONFIDENCES:
@@ -790,11 +824,49 @@ def _normalize_endpoint_for_workspace(endpoint: dict[str, Any]) -> dict[str, Any
     item["method"] = str(item.get("method", "GET") or "GET").upper()
     url = str(item.get("url", "") or "")
     if url:
-        parsed = urlsplit(url)
+        item["url"] = redact_url_query_values(url) or ""
+        item["canonicalUrl"] = canonical_url_identity(url)
+        parsed = urlsplit(item["url"])
         if not item.get("host"):
             item["host"] = parsed.hostname or ""
         if not item.get("path"):
             item["path"] = parsed.path or "/"
+        item["queryParameters"] = sorted({query["name"] for query in safe_query_items(item["url"])})
+    if item.get("pageUrl"):
+        item["pageUrl"] = redact_url_query_values(item["pageUrl"]) or ""
+    if isinstance(item.get("redirectLocations"), list):
+        item["redirectLocations"] = sorted({redact_url_query_values(value) for value in item["redirectLocations"] if redact_url_query_values(value)})
+    return item
+
+
+def _normalize_parameter_for_workspace(parameter: dict[str, Any]) -> dict[str, Any]:
+    item = dict(parameter)
+    item["name"] = normalize_parameter_name(item.get("name", ""))
+    url = str(item.get("url", "") or "")
+    if url:
+        item["url"] = redact_url_query_values(url) or ""
+        item["canonicalUrl"] = canonical_url_identity(url)
+        item.setdefault("path", urlsplit(item["url"]).path or "/")
+    if item.get("valuePreview"):
+        raw_preview = str(item["valuePreview"])
+        if raw_preview.startswith(("rO0AB", "\\xac\\xed\\x00\\x05")):
+            item["valueShape"] = "java_serialized"
+        elif raw_preview.startswith("/wEP"):
+            item["valueShape"] = "dotnet_viewstate"
+        elif raw_preview.startswith(("gAS", "gAJ", "\\x80\\x04", "\\x80\\x02")):
+            item["valueShape"] = "python_pickle"
+        elif raw_preview.startswith("BAh"):
+            item["valueShape"] = "ruby_marshal"
+        elif re.match(r'^(?:a:\d+:\{|O:\d+:"|s:\d+:")', raw_preview):
+            item["valueShape"] = "php_serialized"
+        if item.get("valueRedacted"):
+            item["valuePreview"] = "<redacted>"
+        else:
+            preview, fingerprint = redact_sensitive_preview(item["name"], item["valuePreview"])
+            item["valuePreview"] = preview
+            if fingerprint:
+                item["valueFingerprint"] = fingerprint
+                item["valueRedacted"] = True
     return item
 
 
@@ -908,11 +980,13 @@ def _parse_json(raw_data: str) -> Any:
 
 
 def _endpoint_from_url(url: str, method: str = "GET", extra: dict[str, Any] | None = None) -> dict[str, Any]:
-    parsed = urlsplit(url)
-    query_parameters = sorted({name for name, _ in parse_qsl(parsed.query, keep_blank_values=True) if name})
+    safe_url = redact_url_query_values(url)
+    parsed = urlsplit(safe_url)
+    query_parameters = sorted({item["name"] for item in safe_query_items(safe_url)})
     return {
         "type": "endpoint",
-        "url": url,
+        "url": safe_url,
+        "canonicalUrl": canonical_url_identity(url),
         "method": method or "GET",
         "host": (parsed.hostname or "").lower(),
         "path": parsed.path or "/",
@@ -922,9 +996,12 @@ def _endpoint_from_url(url: str, method: str = "GET", extra: dict[str, Any] | No
 
 
 def _parameters_from_url(url: str, method: str = "GET") -> list[dict[str, Any]]:
-    parsed = urlsplit(url)
+    safe_url = redact_url_query_values(url)
+    parsed = urlsplit(safe_url)
     params = []
-    for name, value in parse_qsl(parsed.query, keep_blank_values=True):
+    for query_item in safe_query_items(url):
+        name = query_item["name"]
+        value = query_item["value"]
         if not name:
             continue
         param = {
@@ -932,15 +1009,15 @@ def _parameters_from_url(url: str, method: str = "GET") -> list[dict[str, Any]]:
             "name": name,
             "location": "query",
             "method": method or "GET",
-            "url": url,
+            "url": safe_url,
+            "canonicalUrl": canonical_url_identity(url),
             "path": parsed.path or "/",
         }
-        # The query value is already present verbatim in the stored url, so
-        # surfacing a bounded preview adds no new exposure but lets value-aware
-        # candidate scoring (SSRF/open-redirect/LFI/SSTI, access-control value
-        # shape) actually fire instead of always seeing an empty value.
         if value:
             param["valuePreview"] = value[:120]
+        if query_item.get("valueFingerprint"):
+            param["valueFingerprint"] = query_item["valueFingerprint"]
+            param["valueRedacted"] = True
         params.append(param)
     return params
 
@@ -1036,6 +1113,7 @@ def _form_candidate_observations(form: dict[str, Any], action: str, method: str,
             {
                 "type": "post_form_candidate",
                 "value": action,
+                "method": method,
                 "pageUrl": form.get("pageUrl", ""),
                 "inputNames": input_names,
                 "confidence": "medium",
@@ -1273,10 +1351,12 @@ def parse_sitemap(raw_data: str) -> dict[str, list[dict[str, Any]]]:
         for form in host.get("forms", []):
             if not isinstance(form, dict):
                 continue
-            action = str(form.get("action", ""))
+            action = redact_url_query_values(form.get("action", ""))
             method = str(form.get("method", "GET")).upper()
             inputs = [item for item in form.get("inputs", []) if isinstance(item, dict)]
-            input_names = [str(item.get("name", "")) for item in inputs if item.get("name")]
+            input_names = sorted({normalize_parameter_name(item.get("name", "")) for item in inputs if normalize_parameter_name(item.get("name", ""))})
+            safe_page_url = redact_url_query_values(form.get("pageUrl", ""))
+            safe_form = {**form, "pageUrl": safe_page_url, "action": action}
             if action:
                 entities["endpoints"].append(
                     _endpoint_from_url(
@@ -1284,7 +1364,7 @@ def parse_sitemap(raw_data: str) -> dict[str, list[dict[str, Any]]]:
                         method,
                         {
                             "source": "sitemap_form",
-                            "pageUrl": form.get("pageUrl", ""),
+                            "pageUrl": safe_page_url,
                             "formId": form.get("id", ""),
                             "formName": form.get("name", ""),
                             "inputNames": input_names,
@@ -1292,20 +1372,24 @@ def parse_sitemap(raw_data: str) -> dict[str, list[dict[str, Any]]]:
                         },
                     )
                 )
-            entities["observations"].extend(_form_candidate_observations(form, action, method, input_names))
+                entities["parameters"].extend(_parameters_from_url(action, method))
+            entities["observations"].extend(_form_candidate_observations(safe_form, action, method, input_names))
             for input_item in form.get("inputs", []):
                 if isinstance(input_item, dict) and input_item.get("name"):
                     parameter = {
                         "type": "parameter",
-                        "name": input_item["name"],
+                        "name": normalize_parameter_name(input_item["name"]),
                         "location": "form",
                         "method": method,
                         "url": action,
                         "inputType": input_item.get("type", ""),
                     }
-                    preview = str(input_item.get("valuePreview", ""))[:120]
+                    preview, fingerprint = redact_sensitive_preview(parameter["name"], input_item.get("valuePreview", ""))
                     if preview:
                         parameter["valuePreview"] = preview
+                    if fingerprint:
+                        parameter["valueFingerprint"] = fingerprint
+                        parameter["valueRedacted"] = True
                     entities["parameters"].append(parameter)
     for relation in payload.get("relations", []):
         if not isinstance(relation, dict):
@@ -1608,6 +1692,30 @@ def parse_open_redirect_analysis(raw_data: str, metadata: dict[str, Any] | None 
                 "testPlanSummary": candidate.get("testPlanSummary", ""),
             }
         )
+    for classification in payload.get("classifications", []):
+        if not isinstance(classification, dict):
+            continue
+        entities["observations"].append(
+            {
+                "type": "open_redirect_surface_classification",
+                "key": classification.get("candidateId", ""),
+                "value": classification.get("canonicalRoute") or classification.get("url", ""),
+                "url": classification.get("url", ""),
+                "method": classification.get("method", ""),
+                "parameter": classification.get("parameter", ""),
+                "location": classification.get("location", ""),
+                "classification": classification.get("classification", ""),
+                "candidateFor": classification.get("candidateFor", []),
+                "suggestedAdapter": classification.get("suggestedAdapter", ""),
+                "confidence": classification.get("confidence", "medium"),
+                "priority": "low",
+                "priorityScore": classification.get("priorityScore", 20),
+                "reason": classification.get("reason", ""),
+                "reasons": classification.get("reasons", []),
+                "isReportable": False,
+                "analysisEligible": False,
+            }
+        )
     return entities
 
 
@@ -1740,21 +1848,43 @@ def parse_ssi_test(raw_data: str, metadata: dict[str, Any] | None = None) -> dic
 def parse_cors_test(raw_data: str, metadata: dict[str, Any] | None = None) -> dict[str, list[dict[str, Any]]]:
     payload = _parse_json(raw_data)
     entities = {"observations": []}
-    if not isinstance(payload, dict) or payload.get("assessment") != "possible_cors_misconfiguration":
+    if not isinstance(payload, dict):
         return entities
+    verdict = payload.get("verdict") if isinstance(payload.get("verdict"), dict) else {}
+    if not verdict:
+        # Safely retain legacy reflected-origin results without reproducing the old
+        # wildcard/null shortcut. New executions always persist a normalized verdict.
+        response = payload.get("response", {}) if isinstance(payload.get("response"), dict) else {}
+        reflected = payload.get("originReflected") is True
+        wildcard = str(response.get("accessControlAllowOrigin", "")).strip() == "*"
+        creds = bool(response.get("accessControlAllowCredentials"))
+        verdict = {
+            "code": "credentialed_cross_origin_read_candidate" if reflected and creds and not wildcard else "legacy_inconclusive",
+            "reason": "Legacy approved CORS probe allowed the exact probe origin with credentials." if reflected and creds and not wildcard else "Legacy CORS result did not establish a credentialed browser read.",
+            "isReportable": reflected and creds and not wildcard,
+            "browserAllowsRead": reflected and not wildcard,
+            "browserAllowsCredentialedRead": reflected and creds and not wildcard,
+            "attackerControlledOriginAllowed": reflected and not wildcard,
+            "credentialAcceptance": creds,
+        }
     candidate = payload.get("candidate", {}) if isinstance(payload.get("candidate"), dict) else {}
-    response = payload.get("response", {}) if isinstance(payload.get("response"), dict) else {}
-    creds = bool(response.get("accessControlAllowCredentials"))
+    reportable = verdict.get("isReportable") is True and verdict.get("browserAllowsCredentialedRead") is True
     entities["observations"].append(
         {
-            "type": "possible_cors_misconfiguration",
+            "type": "possible_cors_misconfiguration" if reportable else "cors_probe_verdict",
             "value": candidate.get("url", (metadata or {}).get("target", "")),
             "method": candidate.get("method", ""),
-            "confidence": "medium",
-            "priority": "high" if creds else "medium",
-            "priorityScore": 80 if creds else 60,
-            "reason": "Approved CORS probe origin was reflected"
-            + (" with credentials enabled." if creds else " in the response."),
+            "confidence": "high",
+            "priority": "high" if reportable else "info",
+            "priorityScore": 90 if reportable else 0,
+            "reason": str(verdict.get("reason", "CORS probe completed without a browser-readable credentialed response.")),
+            "corsVerdict": verdict.get("code", "unknown"),
+            "browserAllowsRead": verdict.get("browserAllowsRead") is True,
+            "browserAllowsCredentialedRead": verdict.get("browserAllowsCredentialedRead") is True,
+            "attackerControlledOriginAllowed": verdict.get("attackerControlledOriginAllowed") is True,
+            "credentialAcceptance": verdict.get("credentialAcceptance") is True,
+            "isReportable": reportable,
+            "analysisEligible": reportable,
         }
     )
     return entities
@@ -2196,11 +2326,23 @@ def ingest_data(
     if scope_context["scopeStatus"] != "in_scope":
         warnings.append(f"Target scope status is {scope_context['scopeStatus']}: {scope_context['scopeReason']}")
     add_target(wid, target)
-    evidence_record = store_raw_evidence(wid, target, source, data_type, format_name, raw_data, metadata)
+    evidence_metadata = dict(metadata or {})
+    if source.lower().replace("-", "_") in {"sitemap", "crawler", "crawler_crawl", "sitemap_from_dump"}:
+        evidence_metadata.setdefault("sensitiveData", {"rawQueryValuesMayBePresent": True, "normalizedOutputsRedacted": True})
+    evidence_record = store_raw_evidence(wid, target, source, data_type, format_name, raw_data, evidence_metadata)
     parsed_entities = parse_by_source(source, format_name, raw_data, metadata)
     counts = {name: 0 for name in ENTITY_FILES}
     stored: dict[str, list[dict[str, Any]]] = {}
-    observations = parsed_entities.get("observations", [])
+    normalized_observations = [
+        _normalize_observation_for_workspace(item)
+        for item in parsed_entities.get("observations", [])
+        if isinstance(item, dict)
+    ]
+    observations_by_key: dict[str, dict[str, Any]] = {}
+    for item in normalized_observations:
+        observations_by_key.setdefault(_entity_key(item), item)
+    observations = list(observations_by_key.values())
+    parsed_entities["observations"] = observations
     retention: dict[str, Any] | None = None
     with workspace_lock(wid):
         for entity_name in ENTITY_FILES:
@@ -2265,8 +2407,21 @@ def ingest_data(
 
 def recommended_next_actions(stored: dict[str, list[dict[str, Any]]], observations: list[dict[str, Any]]) -> list[dict[str, str]]:
     actions = []
+    seen_surfaces: set[str] = set()
     prioritized_observations = sorted(observations, key=lambda item: int(item.get("priorityScore", 0) or 0), reverse=True)
     for observation in prioritized_observations[:5]:
+        if observation.get("type") in {"form_endpoint", "post_form_candidate", "sitemap_finding_candidate"}:
+            surface = "|".join(
+                [
+                    canonical_url_identity(observation.get("pageUrl", "")),
+                    canonical_url_identity(observation.get("value", "") or observation.get("url", "")),
+                    str(observation.get("method", "")),
+                    ",".join(sorted(str(name) for name in observation.get("inputNames", []) if name)),
+                ]
+            )
+            if surface in seen_surfaces:
+                continue
+            seen_surfaces.add(surface)
         if observation.get("type") == "sensitive_file_candidate":
             actions.append(
                 {
@@ -2329,13 +2484,13 @@ def record_action(
     add_target(wid, host)
     stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
     action_id = action.get("actionId") or f"act_{stamp}_{time.time_ns() % 1_000_000:06d}"
-    item = {
+    item = _normalize_action_for_workspace({
         "type": action.get("type", "action"),
         "key": action_id,
         "actionId": action_id,
         "createdAt": now_utc(),
         **action,
-    }
+    })
     with workspace_lock(wid):
         _, created = _merge_entities(target_entity_path(wid, host, "actions"), [item], evidence_id)
     return {"created": bool(created), "workspaceId": wid, "target": host, "action": item}
@@ -2493,8 +2648,28 @@ def prepare_target_context(workspace_id: str, target: str, purpose: str = "next_
     return summary
 
 
-def workspace_summary(workspace_id: str) -> dict[str, Any]:
+def _summary_cursor(value: str | None) -> int:
+    if value in (None, ""):
+        return 0
+    try:
+        cursor = int(value)
+    except (TypeError, ValueError) as exc:
+        raise McpError(-32602, "cursor must be a non-negative integer offset.") from exc
+    if cursor < 0:
+        raise McpError(-32602, "cursor must be a non-negative integer offset.")
+    return cursor
+
+
+def workspace_summary(
+    workspace_id: str,
+    cursor: str | None = None,
+    limit: int = DEFAULT_SUMMARY_PAGE_SIZE,
+    include_inventory: bool = False,
+) -> dict[str, Any]:
     wid = normalize_workspace_id(workspace_id)
+    page_limit = int(limit)
+    if page_limit < 1 or page_limit > MAX_SUMMARY_PAGE_SIZE:
+        raise McpError(-32602, f"limit must be between 1 and {MAX_SUMMARY_PAGE_SIZE}.")
     path = workspace_path(wid)
     workspace = _read_json(path / "workspace.json", {})
     targets = []
@@ -2524,7 +2699,40 @@ def workspace_summary(workspace_id: str) -> dict[str, Any]:
                 "observationCount": len(entities["observations"]),
             }
         )
-    return {"workspace": workspace, "targetCount": len(targets), "targets": targets}
+    totals = {
+        "services": sum(item["serviceCount"] for item in targets),
+        "analysisEligibleServices": sum(item["analysisEligibleServiceCount"] for item in targets),
+        "suppressedServices": sum(item["suppressedServiceCount"] for item in targets),
+        "endpoints": sum(item["endpointCount"] for item in targets),
+        "parameters": sum(item["parameterCount"] for item in targets),
+        "findings": sum(item["findingCount"] for item in targets),
+        "observations": sum(item["observationCount"] for item in targets),
+    }
+    offset = _summary_cursor(cursor)
+    if include_inventory:
+        page = targets
+        offset = 0
+    else:
+        effective_limit = page_limit if cursor is not None else min(DEFAULT_SUMMARY_PREVIEW, page_limit)
+        page = targets[offset : offset + effective_limit]
+    next_offset = offset + len(page)
+    has_more = next_offset < len(targets)
+    return {
+        "workspace": workspace,
+        "path": str(path),
+        "targetCount": len(targets),
+        "entityTotals": totals,
+        "targets": page,
+        "inventoryIncluded": include_inventory,
+        "pagination": {
+            "cursor": str(offset),
+            "limit": len(page),
+            "returned": len(page),
+            "total": len(targets),
+            "hasMore": has_more,
+            "nextCursor": str(next_offset) if has_more else None,
+        },
+    }
 
 
 def _directory_stats(path: Path) -> dict[str, int]:
@@ -2854,9 +3062,14 @@ def mark_finding_reviewed(
 
 
 def report_decisions_path(workspace_id: str) -> Path:
-    # Lives in the top-level reports root (not the workspace folder), so a workspace's
-    # review decisions sit next to the reports they shape and are not duplicated.
-    return REPORTS_DIR / f"{normalize_workspace_id(workspace_id)}.report-decisions.json"
+    return workspace_report_dir(workspace_id) / "report-decisions.json"
+
+
+def workspace_report_dir(workspace_id: str) -> Path:
+    """Return the workspace-owned report root, separate from workspace state."""
+    path = REPORTS_DIR / normalize_workspace_id(workspace_id)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 def resolve_report_output_path(
@@ -2870,30 +3083,34 @@ def resolve_report_output_path(
 ) -> Path:
     """Resolve where a rendered report/export is written.
 
-    All reports land in the top-level reports root (REPORTS_DIR), never inside the
-    workspace state folder. An explicit outputPath is interpreted relative to that
-    root; a redundant leading ``reports/`` segment is dropped. Escaping the root
-    requires allow_external=true. Returns a path whose parent directory exists.
+    Reports land below ``REPORTS_DIR/<workspace>/``, never inside workspace state.
+    A relative outputPath is interpreted relative to that workspace report root;
+    redundant leading ``reports/<workspace>/`` segments are accepted. Escaping the
+    shared reports root requires allow_external=true.
     """
     reports_root = REPORTS_DIR
+    workspace_root = workspace_report_dir(workspace_id)
     if output_path:
         path = Path(str(output_path)).expanduser()
-        if not path.is_absolute():
+        relative_output = not path.is_absolute()
+        if relative_output:
             _reject_workspace_relative_output(path)
             parts = path.parts
             if parts and parts[0] == "reports":
                 path = Path(*parts[1:]) if len(parts) > 1 else Path(default_name)
-            path = reports_root / path
+            if path.parts and path.parts[0] == normalize_workspace_id(workspace_id):
+                path = Path(*path.parts[1:]) if len(path.parts) > 1 else Path(default_name)
+            path = workspace_root / path
         resolved = path.resolve()
+        if relative_output and not _is_within(resolved, workspace_root.resolve()):
+            raise McpError(-32602, f"Relative {artifact} output paths cannot escape reports/{normalize_workspace_id(workspace_id)}/.")
         if not _is_within(resolved, reports_root.resolve()) and allow_external is not True:
             raise McpError(-32602, f"External {artifact} output paths require allowExternalOutput=true.")
         resolved.parent.mkdir(parents=True, exist_ok=True)
         return resolved
     if not default_name.endswith(f".{extension}"):
         default_name = f"{default_name}.{extension}"
-    workspace_prefix = f"{normalize_workspace_id(workspace_id)}-"
-    namespaced_name = default_name if Path(default_name).name.startswith(workspace_prefix) else f"{workspace_prefix}{default_name}"
-    resolved = reports_root / namespaced_name
+    resolved = workspace_root / default_name
     resolved.parent.mkdir(parents=True, exist_ok=True)
     return resolved
 
@@ -3365,7 +3582,7 @@ def read_workspace_resource(uri: str) -> tuple[str, str] | None:
     if len(parts) == 1:
         return "application/json", json.dumps(workspace_summary(workspace_id), indent=2)
     if len(parts) == 2 and parts[1] == "targets":
-        return "application/json", json.dumps(workspace_summary(workspace_id)["targets"], indent=2)
+        return "application/json", json.dumps(workspace_summary(workspace_id, include_inventory=True)["targets"], indent=2)
     if len(parts) >= 4 and parts[1] == "target":
         target = parts[2]
         view = parts[3]

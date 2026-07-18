@@ -10,6 +10,7 @@ from .builder import (
     build_report_context,
     summarize_coverage,
 )
+from .batching import plan_scope_groups, prepare_validation_batch, render_workspace_report_batches
 from .exporters import (
     build_layer_report_context,
     build_workspace_report_context,
@@ -32,9 +33,12 @@ __all__ = [
     "export_json",
     "list_layers",
     "list_templates",
+    "plan_scope_groups",
+    "prepare_validation_batch",
     "render_layer_report",
     "render_markdown",
     "render_assessment_summary",
     "render_workspace_report",
+    "render_workspace_report_batches",
     "summarize_coverage",
 ]

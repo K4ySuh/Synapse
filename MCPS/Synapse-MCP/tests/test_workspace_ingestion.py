@@ -9,10 +9,88 @@ from synapse_mcp.core import cache, evidence, fingerprint, perimeter, scope, wor
 from synapse_mcp.core.adapters import surface_candidate
 from synapse_mcp.core.documentation import builder as documentation_builder
 from synapse_mcp.core.errors import McpError
+from synapse_mcp.adapters.web import crawler_adapter, xss_adapter
 from synapse_mcp.transport import stdio_server
 
 
 class WorkspaceIngestionTests(unittest.TestCase):
+    def test_dynamic_auth_urls_are_canonical_redacted_and_deduplicated(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                scope.save_scope(["example.com"], "test", "Example Client")
+                tokens = [
+                    "AbCDef0123456789AbCDef0123456789AbCDef0123456789",
+                    "ZyXWvu9876543210ZyXWvu9876543210ZyXWvu9876543210",
+                    "MnBvcX4567890123MnBvcX4567890123MnBvcX4567890123",
+                ]
+                urls = []
+                forms = []
+                for token in tokens:
+                    page_url = f"https://example.com/search?context={token}&%3Fquery%3D{token}"
+                    action = f"https://example.com/oam/auth?session={token}"
+                    urls.append({"url": page_url, "methods": ["GET"], "statusCodes": [200], "contentTypes": ["text/html"], "fetched": True})
+                    forms.append(
+                        {
+                            "pageUrl": page_url,
+                            "method": "POST",
+                            "action": action,
+                            "inputs": [
+                                {"name": "context", "type": "hidden", "valuePreview": token},
+                                {"name": "query", "type": "text", "valuePreview": token},
+                            ],
+                        }
+                    )
+                raw_payload = {
+                    "source": {"type": "active-crawl", "target": urls[0]["url"]},
+                    "hosts": [{"host": "example.com", "urlCount": 3, "formCount": 3, "urls": urls, "forms": forms}],
+                    "summary": {"hostCount": 1, "urlCount": 3, "formCount": 3},
+                }
+
+                public_payload = crawler_adapter.sanitize_sitemap_payload(raw_payload)
+                public_text = json.dumps(public_payload, sort_keys=True)
+                for token in tokens:
+                    self.assertNotIn(token, public_text)
+                self.assertEqual(public_payload["summary"]["urlCount"], 1)
+                self.assertEqual(public_payload["summary"]["formCount"], 1)
+                self.assertEqual(
+                    public_payload["hosts"][0]["urls"][0]["canonicalUrl"],
+                    "https://example.com/search?context&query",
+                )
+
+                result = workspace.ingest_data(
+                    "engagement",
+                    "example.com",
+                    "crawler",
+                    "tool_output",
+                    "json",
+                    json.dumps(raw_payload),
+                )
+                result_text = json.dumps(result, sort_keys=True)
+                for token in tokens:
+                    self.assertNotIn(token, result_text)
+                self.assertEqual(len(result["recommendedNextActions"]), 1)
+
+                entities = workspace._load_target_entities("engagement", "example.com")
+                normalized_text = json.dumps(entities, sort_keys=True)
+                for token in tokens:
+                    self.assertNotIn(token, normalized_text)
+                self.assertEqual(len(entities["endpoints"]), 2)
+                self.assertEqual({item["name"] for item in entities["parameters"] if item["location"] == "query"}, {"context", "query", "session"})
+                self.assertTrue(all(item.get("valuePreview") == "<redacted>" for item in entities["parameters"] if item.get("valuePreview")))
+                observation_types = [item["type"] for item in entities["observations"]]
+                self.assertEqual(observation_types.count("form_endpoint"), 1)
+                self.assertEqual(observation_types.count("post_form_candidate"), 1)
+                self.assertEqual(observation_types.count("sitemap_finding_candidate"), 1)
+
+                candidates = xss_adapter.find_workspace_candidates(entities, target="example.com")
+                candidate_text = json.dumps(candidates, sort_keys=True)
+                for token in tokens:
+                    self.assertNotIn(token, candidate_text)
+                self.assertTrue(any(candidate["parameter"] == "query" for candidate in candidates))
+
+                evidence_meta = json.loads(Path(result["rawPath"]).with_name(f"{result['evidenceId']}.json").read_text(encoding="utf-8"))
+                self.assertTrue(evidence_meta["metadata"]["sensitiveData"]["rawQueryValuesMayBePresent"])
+
     def test_workspace_lock_times_out_contending_entity_writer(self) -> None:
         with TemporaryDirectory() as tmp:
             with isolated_state(Path(tmp)):
@@ -737,9 +815,10 @@ class ReportabilityTests(unittest.TestCase):
                 self.assertEqual(decisions[0]["matched"], 1)
                 self.assertEqual(decisions[0]["entityType"], "observations")
                 self.assertIs(decisions[0]["isReportable"], False)
-                # Decision archive lives in the top-level reports root, not the workspace folder.
+                # Decision archive lives in the workspace-owned report root, not workspace state.
                 archive = workspace.report_decisions_path("engagement").resolve()
                 self.assertTrue(archive.is_relative_to(workspace.REPORTS_DIR.resolve()))
+                self.assertEqual(archive.parent.name, "engagement")
                 self.assertFalse(archive.is_relative_to(workspace.workspace_path("engagement").resolve()))
 
     def test_reingest_does_not_resurrect_non_reportable_decision(self) -> None:
