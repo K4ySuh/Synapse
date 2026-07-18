@@ -117,10 +117,9 @@ when results matter beyond the immediate response. This creates a raw evidence
 artifact, merges normalized entities, logs a `workspace.ingest` event, and keeps
 the target context compact.
 
-Rendered report artifacts use the top-level `reports/` root with
-workspace-qualified implicit names. Non-report adapter artifacts use the
+Rendered report artifacts use `reports/<workspace>/`. Non-report adapter artifacts use the
 adapter target's `outputs/<tool>/` tree. Keep relative report paths
-report-root-relative and require `allowExternalOutput=true` for external
+workspace-report-root-relative and require `allowExternalOutput=true` for external
 absolute paths, matching the documentation, perimeter, and JS app-map
 exporters.
 

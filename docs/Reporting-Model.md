@@ -44,6 +44,15 @@ The consolidated report opens on the **Operator** view by default; render with
 High-Level view. The document title stays view-neutral because both views ship in
 the same HTML file.
 
+Callers should use the presentation names `operator`, `operator_raw`, and
+`high_level`. The shared policy boundary maps `operator` to the legacy
+compatibility policy `internal` and `operator_raw` to `raw`; legacy callers may
+continue supplying `internal` or `raw`. Structured contexts expose both
+`redaction.presentation` and `redaction.mode`, while render results expose
+`presentation` and `redactionPolicy`. This keeps the displayed view name distinct
+from compatibility policy mechanics. Deprecated `safe` remains accepted as a
+high-level compatibility input.
+
 The view switch is implemented with static CSS and minimal inline JavaScript.
 For example, high-level mode can hide cells marked `operator-only`:
 

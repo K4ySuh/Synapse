@@ -168,7 +168,9 @@ prior assessment knowledge available through MCP tools and resources.
   redirect, command injection, SSTI, LFI/RFI, SSI, XXE, CORS, and GraphQL
   introspection, plus approved access-control matrix replay across credential
   contexts. Every active probe is scope-checked, `confirm=true` gated, and
-  benign by construction.
+  bounded by adapter-specific safety policy. XSS validation defaults to an
+  inert reflection-only marker; syntax-breakout and execution-capable payloads
+  require explicit modes and higher risk tiers.
 - CVE intelligence and verification: approval-gated correlation of
   fingerprinted components against multiple online sources (NVD, CISA KEV,
   public PoC indexes, Shodan) into candidate CVEs with applicability confidence
@@ -176,11 +178,27 @@ prior assessment knowledge available through MCP tools and resources.
   one-click confirmed benign replay or delegation to a Nuclei template to
   verify a candidate; and bounded active version probing to raise fingerprint
   precision. Source endpoints are config-driven and can be re-pointed at
-  runtime, and only product/version/CPE/CVE identifiers ever leave the
-  workspace.
+  runtime. Provider/query-hash responses are shared across targets under the
+  local DATA cache, while each target retains its own evidence reference.
+  Cross-process token buckets coordinate each source and credential tier,
+  honor `Retry-After`, and expose bounded retry/pause state; only
+  product/version/CPE/CVE identifiers ever leave the workspace.
+  Template-bearing sources are validated at MCP startup, in `cve.sources`, and
+  before correlation. Invalid templates are disabled with a configuration
+  error and cannot send a request; PoC paths accept only strict CVE IDs and the
+  explicit `{year}/{cveId}.json` fields.
+  Run-level `sourceStatus` remains aggregate provider health; candidates carry
+  only their exact per-query `sourceResults` with normalized query hash,
+  resolved URL, HTTP status, stable result ID, and target-local evidence ID.
 - Version-unknown components produce explicit precision gaps and skip broad
   NVD correlation by default. `includeVersionUnknown=true` is an opt-in broad
   run, and only externally corroborated KEV/PoC/exploit leads survive it.
+- Version applicability and deployment applicability are separate. NVD
+  configuration CPEs and explicit advisory preconditions are compared with
+  independent workspace OS, web-server, module, CGI/code-path, and
+  configuration evidence. Contradictions are retained as non-reportable
+  refutations; unknown controlling facts lower confidence, emit a prerequisite
+  gap, and block direct replay until the reachable affected path is identified.
 - Long-running tools run as workspace-scoped background jobs by default with
   durable `jobs.list` / `jobs.status` / `jobs.cancel` records that survive MCP
   restarts; lazy finalization ingests completed output into the workspace.
@@ -197,7 +215,9 @@ prior assessment knowledge available through MCP tools and resources.
   self-contained HTML with inline assets and no external runtime dependency.
 - Report, finding-draft, evidence-pack, coverage, and assessment-summary
   contexts. HTML reports are internal operator artifacts with Operator /
-  High-Level presentation views. Report generation never sends active traffic.
+  High-Level presentation views. Public modes `operator`, `operator_raw`, and
+  `high_level` map centrally to compatibility policies while render metadata
+  reports both names. Report generation never sends active traffic.
 
 ## Mental Model
 
@@ -360,6 +380,12 @@ Synapse exposes tools for:
   (`cve.sources`, `cve.set_source_endpoint`), and `fingerprint.probe_versions`.
 - Infrastructure and OSINT adapters: nmap and Shodan.
 
+Crawler job process status and assessment coverage are reported separately.
+A successfully finalized worker can retain `status=completed` while
+`resultDisposition` is `complete`, `partial`, or `no_coverage`; compact job
+summaries include request, response, successful-fetch, visited, blocked-
+redirect, queued, and categorized error counts.
+
 Representative entity and event schemas are documented in the
 [Implementation Map](docs/Implementation-Map.md).
 
@@ -395,8 +421,8 @@ DATA/
         |-- outputs/                  tool and JS-intelligence outputs
         `-- evidence/                 raw artifacts and Burp dumps
 
-reports/                              local internal reports and decision archives;
-                                      implicit filenames are workspace-qualified
+reports/<workspace-id>/               local internal reports, batch manifests,
+                                      report runs, and decision archives
 ```
 
 The full annotated layout is in the
@@ -417,7 +443,7 @@ in control:
 - Credentials are scoped to authorized hosts and returned redacted; evidence
   events are sanitized for secrets before writing.
 - Tool outputs default under workspace folders. Rendered reports default under
-  top-level `reports/` with workspace-qualified names; paths outside that root
+  `reports/<workspace>/`; paths outside the shared reports root
   require `allowExternalOutput=true`.
 - Cleanup of dumps and generated artifacts is inspect-first and
   confirm-before-delete.

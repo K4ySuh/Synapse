@@ -162,6 +162,12 @@ global scope file. The response also includes authentication guidance for the
 first run: if authentication is required, collect the login-flow description
 before storing credentials or running authenticated tooling.
 
+Project, scope-check, and workspace-summary responses expose counts, paths, and
+a five-record preview by default. Follow `pagination.nextCursor` with `cursor`
+and `limit` (`inventoryLimit` on `project.start`/`scope.set`) to enumerate large
+inventories without truncation, or use `includeInventory=true` only when the
+complete response is deliberately required.
+
 ## Workspace Context
 
 The workspace layer is the preferred place for engagement knowledge. It stores
@@ -244,6 +250,27 @@ candidates preserved in workspace context, pass `workspaceId`, `target`, and
 `xss_candidate`, `xss_reflection`, and `xss_sink` through the adapter result
 model.
 
+Stage XSS validation with a no-traffic plan. The conservative default returns
+one inert marker and the exact wire payload, without HTML, script syntax, or a
+browser helper:
+
+```text
+xss.generate_test_code(
+  parameter="q",
+  context="html",
+  url="https://example.com/search",
+  mode="reflection_marker",
+  marker="SYNAPSEXSS20260718"
+)
+```
+
+Carry the returned `mode`, `marker`, and one value from `exactWirePayloads` into
+the separately approved call to `xss.execute_test`. The marker is sent without
+rewriting. Select `context_breakout` only for an approved medium-risk syntax
+test and `execution` only for an approved high-risk execution-capable test; the
+tool rejects a lower `riskTier` before traffic and accepts only payloads from
+the matching plan.
+
 ## Site Maps And Crawling
 
 Prefer passive site map generation when you already have a Burp-style dump:
@@ -319,6 +346,11 @@ the operator approves that broader state-changing coverage.
 `jobs.status(jobId="<job-id>")`; finalization ingests the sitemap, refreshes
 workspace fingerprinting, and refreshes perimeter inventory. Pass
 `background=false` only when the operator explicitly wants a blocking run.
+Treat `status` as worker-process health and `resultDisposition` as crawl
+coverage: a completed worker may report `partial` or `no_coverage`. The compact
+`resultSummary` includes attempted requests, HTTP responses, successful
+fetches, visited pages, blocked redirects, queued remainder, and categorized
+errors; failed seed attempts are not counted as visited pages.
 
 Site-map and crawl artifacts include a `flowGraph` object for first-glance
 workflow review. It links hosts, endpoints, and forms with request, navigation,
@@ -404,8 +436,8 @@ js.render_app_map(
 
 Supported formats are `html`, `markdown`, and `json`. Without `outputPath`,
 reports are written to
-`reports/<workspace>-js-app-map-<target>.html` or the matching extension.
-Relative report paths resolve under the top-level `reports/` root; external
+`reports/<workspace>/js-app-map-<target>.html` or the matching extension.
+Relative report paths resolve under `reports/<workspace>/`; external
 absolute paths require `allowExternalOutput=true`.
 
 The app map combines observed workspace requests and JS-inferred requests in a
@@ -468,9 +500,9 @@ perimeter.render_report(workspaceId="<workspace>", refresh=true, format="html")
 ```
 
 Without an explicit `outputPath`, generated perimeter reports are written to
-`reports/<workspace>-perimeter.html` or
-`reports/<workspace>-perimeter.md`. If you provide a relative path, keep it
-report-root-relative, for example `reports/perimeter.html`; do not prefix it
+`reports/<workspace>/perimeter.html` or
+`reports/<workspace>/perimeter.md`. If you provide a relative path, keep it
+workspace-report-root-relative, for example `reports/perimeter.html`; do not prefix it
 with `DATA/workspaces/...`.
 
 Only after reviewing these outputs should the next plan suggest deeper
@@ -569,11 +601,24 @@ command_injection.analyze_workspace(
 )
 ```
 
-These tools do not send traffic. They store `ssrf_candidate` and
-`open_redirect_candidate` observations when ingestion is enabled. Command
-injection analysis stores `command_injection_candidate` observations and reads
+These tools do not send traffic. They store `ssrf_candidate` and reportable
+`open_redirect_candidate` observations when ingestion is enabled. Open-redirect
+analysis canonicalizes repeated method/route/location/parameter surfaces and
+requires navigation semantics: an observed `Location`, a client navigation
+sink, a redirect-specific route, or authentication continuation context. A URL
+value alone is insufficient. WordPress oEmbed URL inputs and uncorroborated
+search configuration are stored as non-reportable
+`open_redirect_surface_classification` observations; oEmbed remains eligible
+for SSRF review. Re-running analysis suppresses stale redirect candidates while
+preserving their history. Command injection analysis stores
+`command_injection_candidate` observations and reads
 `fingerprint.json` when available to infer `unix`, `windows`, or `unknown`
-payload syntax. Use the test plan helpers to prepare manual validation inputs
+payload syntax. A reportable command-injection candidate requires boundary-
+matched parameter semantics plus independent route, observed-request,
+JavaScript execution-API, or OS command-response corroboration. A weak single
+signal is stored as a low-confidence, non-reportable
+`command_injection_discovery` observation and should not enter an active
+validation queue. Use the test plan helpers to prepare manual validation inputs
 and guardrails:
 
 ```text
@@ -657,11 +702,22 @@ access_control.plan_tests(matrixEntry=<matrix-entry>)
 ```
 
 The adapter stores its extended model under the target's `models/access-control/`
-folder while also creating normal workspace observations. Use
+folder while also creating normal workspace observations. `objects.json` and
+`matrix.json` are current reportable snapshots; `classifications.json` retains
+framework/public fields, identifiers without object shape or authorization
+context, dependency/example-only inferred routes, and routes consistently
+observed as 404/410. Mixed status evidence prevents automatic refutation.
+Only reportable protected-object or privileged-function candidates enter the
+matrix, while stale observations remain stored with `isReportable=false`. Use
 `record_context` to map authorized user, role, and credential labels before
 building the matrix. Matrix entries describe BOLA, BOPLA, and BFLA test ideas,
 required contexts, risk tier, and missing information. Request replay is not
-performed by the planner. To confirm a specific matrix entry, the operator must
+performed by the planner. BOLA/BOPLA comparisons require two authenticated
+peers and BFLA requires privileged plus non-privileged authenticated roles.
+Missing roles are written to `coverage-gaps.json` as blocked, non-executable
+coverage gaps. An explicitly recorded anonymous context creates a separate
+`ANONYMOUS_BASELINE` entry and never substitutes for an authenticated role.
+To confirm a specific executable matrix entry, the operator must
 approve an exact replay with concrete contexts and a concrete request URL:
 
 ```text
@@ -690,9 +746,10 @@ denied receives a similar successful response. Identical 2xx application-error
 JSON is downgraded with `downgradeReason: identical_error_shaped_json` unless
 success markers or data-bearing JSON keys are present.
 If an authenticated replay context has no usable `credentialId` for the target,
-Synapse fails that context by default. Anonymous replay requires an explicitly
-anonymous context or `allowAnonymousContexts=true`; it is never a silent
-downgrade.
+Synapse fails before traffic. Replay context IDs must exactly match the matrix's
+`requiredContexts`. Anonymous replay requires an explicitly anonymous baseline
+context; the tool does not convert missing or invalid authenticated roles to
+anonymous requests.
 
 The passive API, auth, and misconfiguration analyzers run the same way: read
 existing workspace state, optionally `ingest=true`, and send no traffic.
@@ -712,9 +769,17 @@ jwt.analyze(token="<operator-supplied-jwt>")
 `spec_import` normalizes documented OpenAPI/Swagger/Postman endpoints as inferred
 (not observed) surface. `headers_cookies` reports missing or weak security
 headers and insecure cookie flags from already-captured responses (cookie names
-and flags only, never values). `csrf` flags state-changing forms with no
-recognized anti-CSRF token, cross-referenced with weak `SameSite` signals. `xxe`
-and `insecure_deser` raise XML-parser and serialized-blob candidates.
+and flags only, never values). `csrf` recognizes normalized framework token
+names and separates authenticated state changes from login, logout, recovery,
+and registration. Ordinary untokenized authentication forms do not enter the
+candidate queue by default. Supply exact-URL `workflowContexts` only after
+operator review: login requires an attacker-account/session-switch description,
+`credentialedBaselineApproved=true`, a stored target-scoped
+`baselineCredentialId`, and `approvalId`; recovery/registration requires a
+concrete `unauthorizedStateChangeImpact` plus `impactEvidenceIds`. Missing
+prerequisites and recognized-token forms remain non-reportable classifications.
+Weak `SameSite` signals adjust priority only after eligibility. `xxe` and
+`insecure_deser` raise XML-parser and serialized-blob candidates.
 `tls_posture` normalizes certificate and protocol issues from existing
 Shodan/perimeter SSL data. `jwt.analyze` performs offline structural analysis of
 an operator-supplied token and never echoes the token or any matched secret.
@@ -727,8 +792,21 @@ cors.execute_test(workspaceId="<workspace>", candidate=<cors-candidate>, confirm
 graphql.execute_test(workspaceId="<workspace>", candidate=<graphql-candidate>, confirm=true, approvalReason="<approved introspection probe>")
 ```
 
-`cors.execute_test` sends one Origin-reflection request and only records
-`possible_cors_misconfiguration` when the supplied origin is reflected.
+`cors.analyze_workspace` separates browser-readable credentialed-origin
+candidates from informational policy observations. Public wildcard reads and
+wildcard-plus-credentials do not enter the vulnerability queue; fixed
+credentialed allowlists also remain informational unless workspace evidence
+shows that the allowed origin was supplied cross-origin. Credentialed `null`
+policies remain candidates because a sandboxed attacker context can serialize a
+null origin.
+
+`cors.execute_test` sends one Origin request and records a normalized browser
+verdict. A reportable `possible_cors_misconfiguration` requires the exact
+attacker-controlled probe origin (including an explicitly selected `null`
+origin) and `Access-Control-Allow-Credentials: true`. Wildcard plus credentials
+is `invalid_noncredentialed_wildcard`: the response may be public without
+credentials, but the browser rejects a credentialed read. Public reads remain
+informational until response sensitivity is reviewed separately.
 `graphql.execute_test` sends one introspection POST and, on a successful schema,
 normalizes GraphQL operations and arguments into workspace endpoints and
 parameters without executing discovered operations.
@@ -1017,13 +1095,50 @@ Sources are selectable per call with `sources`, and their endpoints are
 config-driven. When a source URL changes or fails, inspect
 `cve.sources` (resolved endpoints plus last per-source status, including the URL
 tried and HTTP status), re-point it with `cve.set_source_endpoint`, and re-run
-`cve.correlate` with `refresh=true`. A single failing or rate-limited source
-degrades to a recorded status and never fails the run.
+`cve.correlate` with `refresh=true`. Provider responses are shared across
+targets by source/endpoint/query hash under `DATA/cache/cve-intelligence/`;
+each correlation still records target-local evidence. Source-and-credential-
+tier token buckets coordinate all MCP processes. A 429 honors `Retry-After`,
+uses bounded exponential backoff, and returns `status=rate_limited` with
+attempt, retry, remaining-delay, cache-hit, and network-request state if the
+bounded wait is exhausted. Re-run the same correlation to reuse completed
+queries and continue at the first missing query. `providerMaxAttempts` and
+`providerMaxWaitSeconds` bound one query; provider-safe budget defaults apply
+unless the rate capacity/window overrides are deliberately configured. A
+single failing or rate-limited source degrades to a recorded status and never
+fails the run.
 After a successful discovery-source refresh, Synapse retires prior unreviewed
 CVE candidates that the evaluated source no longer returns. The rows remain in
 workspace history but leave planning/report output; they revive automatically
 if a later successful refresh returns them. A failed provider refresh does not
 retire prior candidates.
+
+Treat `versionApplicability` as package-range evidence, not as the final target
+conclusion. `deploymentDisposition` evaluates NVD platform/configuration CPEs
+and explicit advisory preconditions against independent workspace context. A
+`contradicted` candidate is retained as a non-reportable refutation. An
+`unknown` disposition remains a low-confidence candidate, emits a
+`cve_prerequisite_gap`, and has `testable=false`. Use `cve.plan_tests` to review
+the returned `controllingFacts`; `cve.prepare_replay` and `cve.execute_test`
+remain blocked until those facts identify the reachable affected code path.
+Adding later fingerprint or operator-reviewed deployment context updates the
+same candidate and can make it testable without losing its history.
+
+The PoC index environment default is assigned in `config/synapse.env` outside
+shell `${VAR:-default}` expansion so the literal formatter braces survive as
+`{year}/{cveId}.json`. Inspect `cve.sources` after startup: the source entry
+shows `configuredEnabled`, effective `enabled`, and startup/current
+`configuration` validation. A malformed template is disabled with
+`configuration_error` before correlation traffic. Runtime endpoint overrides
+are rejected unless they contain exactly `{year}` and `{cveId}` and interpolate
+to an absolute HTTP(S) URL; only strict CVE identifiers can construct a path.
+
+For correlation review, use top-level `sourceStatus` only for aggregate
+provider health. Reproduce an individual candidate from its `sourceResults`:
+each entry has a stable `sourceResultId`, normalized `queryHash`/`query`, exact
+resolved `url`, `httpStatus`, cache state, and target-local `evidenceId`.
+Candidate `evidenceIds` include those query snapshots. A candidate never copies
+the run's last-request URL.
 
 ## Shodan Exposure Intelligence
 
@@ -1109,6 +1224,7 @@ documentation.render_workspace_report(
   workspaceId="<workspace>",
   layers=["perimeter", "js", "auth", "access_control", "web_vulnerabilities", "cve", "engagement"],
   format="html",
+  redactionMode="operator",
   outputPath="reports/workspace-report.html"
 )
 ```
@@ -1121,8 +1237,74 @@ per-target context, coverage gaps, and recommended next steps. Omit `layers`
 to include the default set. HTML reports embed the repository Synapse banner
 and shared report styling so the output is portable and visually consistent
 with the project assets. Without `outputPath`, reports use
-`reports/<workspace>-<artifact>.<ext>` so separate workspaces cannot overwrite
-one another.
+`reports/<workspace>/<artifact>.<ext>` so each workspace has one navigable
+report directory.
+
+For broad workspaces, keep the complete authorization scope and workspace state,
+but process the audit through stable bounded groups:
+
+```text
+documentation.plan_scope_groups(
+  workspaceId="<workspace>",
+  targetBatchSize=20,
+  groupCursor=0,
+  groupLimit=5
+)
+
+documentation.prepare_validation_batch(
+  workspaceId="<workspace>",
+  groupId="scope-001",
+  batchSize=20,
+  cursor=0
+)
+
+documentation.render_workspace_report_batches(
+  workspaceId="<workspace>",
+  runId="review-2026-07-18",
+  targetBatchSize=20,
+  recordBatchSize=40,
+  groupCursor=0,
+  partCursor=0,
+  maxParts=1,
+  maxGroups=1
+)
+```
+
+The scope-group manifest is stored at
+`reports/<workspace>/scope-groups.json`. Existing target assignments remain
+stable as the workspace grows; known `asset_relation` records keep related
+assets together when the batch limit permits. Wildcard and CIDR authorization
+rules are never silently expanded and appear as non-enumerable coverage gaps.
+The MCP response is compact by default: it returns counts, five-target previews,
+and a paginated group page rather than echoing the complete target/relation
+inventory. Set `includeTargets=true` only for the requested group page; the full
+auditable inventory remains in the manifest. An unchanged plan reuses that
+snapshot until `refreshGroups=true` or scope membership changes.
+
+Validation batching is passive planning only. It never sends traffic and does
+not replace the exact scope check, action explanation, or explicit approval
+required before an active test. Its cursor pages a deterministic, target-fair
+candidate queue without deleting deferred candidates.
+
+Batch rendering writes
+`reports/<workspace>/<run>/manifest.json`, a self-contained `index.html`, and
+`scope-NNN/part-NNN.html` plus JSON context siblings. `targetBatchSize` and
+`recordBatchSize` accept 1–40; `maxGroups` defaults to one so a single call does
+not regenerate the whole engagement. `maxParts` also defaults to one and caps
+the number of record-bounded report files written by the call. When a group has
+more records, resume it with the returned `nextGroupCursor` and
+`nextPartCursor`; after its final part, `nextGroupCursor` advances and
+`nextPartCursor` becomes null. Deferred group/part counts and per-part coverage
+metadata prevent a partial report from appearing complete.
+
+Use the public presentation names `operator` (detailed operational view),
+`operator_raw` (detailed raw compatibility policy), or `high_level` (concise
+internal view). Existing callers may continue to pass `internal` or `raw`; they
+select the same underlying compatibility policies. Results return both the
+user-facing `presentation` and underlying `redactionPolicy`, while built
+contexts carry `redaction.presentation` and `redaction.mode`. `safe` is accepted
+only as a deprecated compatibility input. These modes remain internal report
+presentation/policy controls, not client-export security boundaries.
 
 Render a single normalized layer report:
 
@@ -1132,6 +1314,7 @@ documentation.render_layer_report(
   target="example.com",
   layer="js",
   format="html",
+  redactionMode="operator",
   outputPath="reports/js-layer-example.html"
 )
 ```

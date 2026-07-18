@@ -10,6 +10,45 @@ committed history for the project. The format is loosely based on
 > on setup. At ship time, the relevant entries from that local log are summarized
 > into this file.
 
+## [Unreleased]
+
+Post-demo Beta workflow hardening. This set keeps large authorized workspaces
+complete while bounding control-plane responses, candidate review, and report
+generation; it also tightens passive candidate semantics across the web and CVE
+layers.
+
+### Added
+
+- **Bounded workspace audit batches.** Stable related-asset scope groups,
+  snapshot-stable passive validation queues, and target/record/part cursors for
+  resumable report runs under `reports/<workspace>/`. Full manifests remain
+  local while MCP responses return compact paginated summaries.
+- **Shared URL hygiene.** Canonical URL and parameter identities redact dynamic
+  authentication/session values, collapse equivalent request surfaces, and let
+  crawler-fetched JavaScript be reused by static analysis.
+
+### Changed
+
+- **Candidate precision.** Command injection, XSS, access control, open redirect,
+  CORS, and CSRF now require semantic or workflow-specific corroboration instead
+  of relying on broad name/path heuristics. Active validation preserves the
+  requested safety mode and exact actor context.
+- **CVE correlation reliability.** Provider rate coordination, deployment
+  prerequisite checks, valid PoC endpoint templates, and per-query provenance
+  improve applicability and source-status accuracy.
+- **Report organization and presentation.** Reports and decision archives are
+  workspace-owned; public `operator`, `operator_raw`, and `high_level`
+  presentation labels map consistently to compatibility policies.
+
+### Fixed
+
+- Large scope/project/workspace responses are compact and explicitly paginated.
+- Crawl jobs expose per-target partial failures instead of reporting only an
+  aggregate successful job state.
+- Browser-rejected wildcard credential CORS responses are no longer labeled as
+  credentialed-read candidates, and tokenized/authentication CSRF workflows no
+  longer become blanket candidates.
+
 ## [0.6.0-beta.0] — 2026-07-10
 
 Beta operational-precision release. This release reduces candidate noise,

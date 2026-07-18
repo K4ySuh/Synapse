@@ -145,6 +145,42 @@ nmap and Shodan. Shared active-tool guardrails live in
 `adapters/command_utils.py`, and shared active HTTP execution policy lives in
 `core/http/`.
 
+Crawler finalization does not equate a zero-exit worker with target coverage.
+The job keeps its process status while its compact result independently reports
+`complete`, `partial`, or `no_coverage` plus attempted-request, HTTP-response,
+successful-fetch, visited, blocked-redirect, queued, and categorized error
+counts. Only successful fetches contribute to the visited-page inventory.
+
+CVE intelligence responses use a DATA-local provider/query-hash cache rather
+than target-local caches. Per-query file locks deduplicate concurrent callers,
+while source-and-credential-tier token buckets persist a shared request budget
+across MCP processes. A target correlation still writes its own evidence for a
+cache hit. Successful query snapshots remain reusable when a later query is
+rate-limited, and only a fully successful discovery source participates in
+candidate retirement.
+
+Provider health and candidate provenance are separate models. Aggregate
+`sourceStatus` belongs to the adapter run. Each successful provider/query hash
+creates a source-result record containing its normalized query, exact resolved
+URL, HTTP status, stable result ID, cache state, and target-local evidence ID.
+Discovery and enrichment attach only their matching records to a candidate, so
+a later component request cannot overwrite earlier traceability.
+
+Template-bearing CVE source configuration is validated when the adapter loads
+and again at resolution time. The PoC index accepts exactly the `year` and
+`cveId` fields, validates a representative absolute URL, and derives the year
+only from a strict CVE identifier. Invalid environment or runtime templates
+produce a disabled `configuration_error` source before any provider request.
+
+CVE version-range matching is only one layer of applicability. NVD
+configuration-tree platform CPEs and explicit advisory conditions become
+controlling prerequisite facts, evaluated against independent normalized
+target context. A contradictory deployment produces a retained but
+non-reportable refutation; missing facts produce a prerequisite-gap observation
+and keep active replay disabled. When later fingerprint evidence satisfies the
+same facts, snapshot reconciliation updates and revives the existing candidate
+instead of creating a parallel identity.
+
 The intended data flow for structured output is:
 
 ```text
@@ -167,6 +203,14 @@ pure deduplication step that unions list fields, refreshes seen timestamps,
 and escalates non-operator-reviewed finding severity, but never invents
 missing authoritative fields.
 
+URL-bearing crawl/sitemap data crosses an additional hygiene boundary before
+agent-facing output and workspace normalization. Canonical identities contain
+scheme, host, path, and sorted parameter names; sensitive or high-entropy query
+values are replaced and fingerprinted, malformed encoded parameter fragments
+are repaired, and form/candidate identities use the canonical page/action/
+method/input-name surface. Any retained raw external input stays in the bounded
+evidence artifact with sensitive-data metadata.
+
 Site-map and crawler output also includes a workflow graph:
 
 ```text
@@ -186,8 +230,8 @@ JavaScript intelligence adds a static client-side enrichment flow:
 
 ```text
 stored sitemap/crawler/workspace endpoints
-    |-- passively discover JavaScript asset URLs
-    |-- fetch approved in-scope JS assets through core/http policy
+    |-- passively discover JavaScript asset URLs and crawler-retained bodies
+    |-- reuse valid URL+content-hash cache entries, or fetch missing/refresh-approved assets through core/http policy
     |-- statically extract endpoints, methods, API bases, GraphQL, WebSockets,
     |   storage keys, auth/CSRF header names, and object identifiers
     |-- normalize inferred endpoints and parameters with sourceAsset and confidence
@@ -268,8 +312,8 @@ DATA/
 `-- workspaces/<id>/      workspace scope snapshot, jobs, outputs, and
     `-- targets/<host>/   per-target entities, models, outputs, and evidence
 
-reports/                  local rendered reports and report-decision archives;
-                          implicit filenames are workspace-qualified
+reports/<workspace>/      local rendered reports, scope-group/batch manifests,
+                          report runs, and report-decision archives
 ```
 
 The full annotated layout, including every entity file and output folder, is

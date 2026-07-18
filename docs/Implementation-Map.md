@@ -99,12 +99,20 @@ DATA/
 |   |-- events.jsonl
 |   `-- fingerprint.json
 
-reports/                         local perimeter, layer, workspace, and app-map reports;
-                                 implicit names are prefixed by workspace ID
+reports/<workspace>/             local perimeter, layer, workspace, and app-map reports,
+                                 audit manifests/runs, and decision archives
 ```
 
 Runtime data is local file-backed state. Only `.gitkeep` placeholders should be
 committed from `DATA/`.
+
+Crawler/sitemap entities use a shared URL-hygiene layer. Display URLs retain
+ordinary query values for operational context but redact known sensitive names
+and opaque high-entropy values; `canonicalUrl` retains only sorted parameter
+names for stable correlation. Redacted values may carry a truncated SHA-256
+fingerprint, never the original value. Crawler result payloads, flow graphs,
+job results, workspace observations, recommendations, and downstream candidate
+serializers consume the sanitized representation.
 
 ## Representative Entity Schemas
 
@@ -523,7 +531,12 @@ draft, evidence pack, coverage, normalized layer report, workspace report,
 template, render-result, and redaction-policy models.
 `builder.py` turns normalized workspace entities, action records, and evidence
 metadata into structured contexts. `redaction.py` retains compatibility modes
-for internal presentation; those modes are not a client-export boundary.
+for internal presentation; those modes are not a client-export boundary. The
+public presentation inputs `operator` and `operator_raw` normalize centrally to
+compatibility policies `internal` and `raw`. Redaction-policy metadata preserves
+both fields (`presentation` and `mode`), and render results return
+`presentation` separately from `redactionPolicy`. `high_level`, `internal`, and
+`raw` remain accepted for existing clients; `safe` remains deprecated.
 `templates.py` registers built-in Markdown templates, and
 `html_templates/` stores standalone HTML report templates and mockups.
 `renderer.py` renders deterministic Markdown for reports, assessment summaries,
@@ -535,9 +548,16 @@ workspace entities and model artifacts, then returns the same normalized shape:
 summary values, sections, per-target context, evidence ids, gaps, and
 recommended next steps. `layer_renderer.py` renders those normalized layer
 contexts and all-layer workspace contexts as HTML or Markdown with shared table
-and expandable tree helpers. `exporters.py` writes JSON, Markdown, or HTML
-report exports under the top-level `reports/` directory by default with
-workspace-qualified implicit filenames,
+and expandable tree helpers. Standalone and consolidated HTML both derive their
+initial Operator/High-Level body class from the normalized presentation.
+`exporters.py` writes JSON, Markdown, or HTML report exports under
+`reports/<workspace>/` by default. `batching.py` keeps authorization and
+workspace state complete while creating stable related-asset scope groups,
+passive candidate-validation queue pages, and record-bounded report parts with
+resumable manifests and an HTML run index. It caps target and record batches at
+40, returns compact paginated group summaries while keeping the full inventory
+on disk, reuses unchanged plan snapshots, caps report files per call with a
+part cursor/budget, and makes deferred coverage explicit,
 rejects repo-root-looking relative paths such as `DATA/workspaces/...`, and
 requires `allowExternalOutput=true` for external paths.
 
@@ -567,8 +587,8 @@ workspace services, endpoints, observations, findings, and actions; classifies
 host assets, web applications, technology components by layer, canonical login
 portals, protected resources, perimeter observations, and review candidates;
 writes per-target `models/perimeter.json` plus workspace `perimeter-summary.json`; and
-renders Markdown or HTML tables under the top-level `reports/` directory by
-default. Login portal grouping uses scheme, host,
+renders Markdown or HTML tables under `reports/<workspace>/` by default. Login
+portal grouping uses scheme, host,
 normalized path, provider/form signature, and ignores common workflow/query
 variants such as `PAGE_CODE`, `APP_CODE`, `lang`, `returnUrl`, `next`,
 `continue`, and `RelayState`. It filters weak 404 auth-looking paths and keeps
@@ -706,10 +726,15 @@ adapters/web/xss_adapter.py
 
 Passive XSS triage over offline dumps. It parses requests and responses, checks
 headers and content types, finds request sources, response sinks, reflections,
-and likely browser contexts, and can generate manual payload/helper code.
-`xss.execute_test` requires `confirm=true`, scope, and approval metadata, sends
-allowlisted benign marker/tag reflection probes, records redacted request
-headers plus HTTP exchange evidence, and does not execute browser JavaScript.
+and likely browser contexts. Test generation uses an explicit staged mode model:
+`reflection_marker` (the low-risk default) emits only one exact validated
+alphanumeric marker and no browser helper; `context_breakout` emits explicit
+medium-risk non-executing syntax probes; and `execution` emits explicit high-
+risk execution-capable payloads. The shared planner is the execution allowlist,
+so `xss.execute_test` sends only exact reviewed bytes for the selected mode,
+marker, and context and rejects a lower approval risk tier. It also requires
+`confirm=true` and scope, records redacted request headers plus HTTP exchange
+evidence, and does not itself execute browser JavaScript.
 Optional workspace ingestion stores `xss_candidate`, `xss_reflection`, and
 `xss_sink` observations through the adapter result model.
 
@@ -757,15 +782,26 @@ generic `jobId` for `jobs.status`. Blocking crawls refresh workspace
 fingerprinting and perimeter summaries directly; background crawls defer that
 refresh to `jobs.status` finalization after sitemap ingestion.
 
+Crawler results include a coverage disposition independent of job process
+status. The worker finalizer merges `disposition`, `attemptedCount`,
+`successfulFetchCount`, `httpResponseCount`, `visitedCount`, `errorCount`,
+`blockedRedirectCount`, `categorizedErrorCounts`, and `queuedRemaining` into
+the default `resultSummary`; `jobs.list` and `jobs.status` also expose
+`resultDisposition` without requiring the full result payload.
+
 ```text
 adapters/web/js_intel.py
 ```
 
 JavaScript workspace enrichment adapter. `js.discover_assets` passively finds
 JavaScript asset URLs from stored sitemap/crawler/workspace data.
-`js.fetch_assets` requires approval and scope, uses `core/http`
-direct/proxy/disabled backend policy, and stores bounded JS assets under the
-target `outputs/js-intelligence/` tree. `js.analyze_static` reads
+Eligible scripts already fetched by an approved crawler are retained under a
+normalized-URL plus content-hash key with local path, SHA-256, response
+metadata, crawl approval, and crawl evidence in `cache-index.json`.
+`js.fetch_assets` validates cached file size and digest and skips valid hits by
+default; missing assets and explicit `refresh=true` use the approved, scoped
+`core/http` direct/proxy/disabled backend policy. Bounded JS assets remain under
+the target `outputs/js-intelligence/` tree. `js.analyze_static` reads
 stored JS files without executing them and writes static-analysis JSON. It runs
 as a venv-aware background worker by default, with a default cap of 3 concurrent
 JS analysis/normalization jobs and optional `normalizeAfter=true` chaining.
@@ -776,8 +812,7 @@ workspace adapter-result path while keeping inferred endpoints distinct from
 observed endpoints; it also runs as a background worker by default.
 `js.build_app_model`
 returns a compact agent/operator summary. `js.render_app_map` writes HTML,
-Markdown, or JSON reports under the top-level `reports/` directory by default,
-using a workspace-qualified implicit filename,
+Markdown, or JSON reports under `reports/<workspace>/` by default,
 combining observed requests and JS-inferred requests in a sitemap-style tree
 with source assets, parameters, confidence, and JS signals.
 
@@ -829,9 +864,15 @@ proxy paths, and high-value forms. `ssrf.execute_test` requires an
 operator-controlled external callback URL, rejects localhost/private/metadata
 callback targets, sends one approved canary payload, and records that
 out-of-band verification is still required before confirmation. Open redirect
-analysis scores redirect-like parameters, auth/callback/logout paths, and
-continuation forms. `open_redirect.execute_test` sends one harmless external URL
-payload and captures redirect responses without following them.
+analysis groups inputs by canonical method/route/location/parameter and requires
+navigation semantics rather than an absolute URL alone. Observed `Location`
+responses, client navigation sinks, redirect-specific routes, and authentication
+continuation context determine reportability and priority. WordPress oEmbed URL
+inputs remain available to SSRF analysis, while oEmbed and uncorroborated search
+configuration are stored as non-reportable surface classifications. Re-analysis
+suppresses stale redirect candidates without deleting their history.
+`open_redirect.execute_test` sends one harmless external URL payload and
+captures redirect responses without following them.
 
 ```text
 adapters/web/ssti.py
@@ -872,19 +913,32 @@ adapters/web/access_control.py
 Flagship workspace-first access-control planner for BOLA, BOPLA, and BFLA
 analysis. It extracts object identifiers from path segments, query parameters,
 JSON/body/form parameter names, REST-style routes, and GraphQL-like context
-without storing raw sensitive identifier values. It writes an adapter-specific
+without storing raw sensitive identifier values. Reportability requires an
+object-reference shape plus protected-resource operation for BOLA/BOPLA, or
+privileged-function semantics for BFLA. Framework/public vocabulary and weak
+dependency/example inferences are stored as non-reportable classifications;
+first-party sources receive more weight. Consistent observed 404/410 status
+refutes a route unless another observed status contradicts it. Current object
+and matrix snapshots exclude refuted surfaces and reconcile older observations
+to non-reportable without deleting their history. It writes an adapter-specific
 model under `DATA/workspaces/<workspace>/targets/<target>/models/access-control/`:
-`objects.json`, `contexts.json`, and `matrix.json`. Standard workspace
+`objects.json`, `classifications.json`, `contexts.json`, `matrix.json`, and
+`coverage-gaps.json`. Standard workspace
 observations are still created through `AdapterResult`, including
 `access_control_object_candidate` and `access_control_test_candidate`, so agents
 can reason over candidates through normal target context. The module records
 authorized user/role context labels and credential IDs, builds test matrices
 grouped by endpoint pattern, method, object type, role context, and
-state-changing behavior, and emits detailed no-traffic test plans.
+state-changing behavior, and emits detailed no-traffic test plans. Executable
+entries contain only exact recorded context IDs: BOLA/BOPLA requires two
+authenticated peers and BFLA requires privileged and non-privileged
+authenticated roles. Impossible comparisons are stored in `coverage-gaps.json`
+as blocked records. Explicit anonymous contexts can produce separate
+`ANONYMOUS_BASELINE` entries but cannot fill an authenticated role gap.
 `access_control.execute_matrix_test` performs approved cross-context replay only
 when `confirm=true` is supplied for a concrete request URL and explicit
-contexts. It enforces scope, uses credential IDs when they are available, falls
-back to unauthenticated replay for contexts without a usable target credential,
+contexts. It enforces scope, requires valid credential IDs for authenticated
+roles, never downgrades them to anonymous replay,
 blocks state-changing methods unless `allowStateChanging=true`, compares
 responses in memory, stores sanitized response summaries in `replays.json`,
 writes raw adapter-result evidence, and records an action. Each replay stores a
@@ -921,11 +975,17 @@ adapters/web/command_injection_adapter.py
 ```
 
 Passive workspace analyzer and guarded active validator for command injection
-candidates. Passive analysis scores command, shell, process, diagnostic, host,
-domain, and target-like parameters or paths. It reads host `fingerprint.json`
-when available and carries `possibleOs` into candidate output so generated
-payloads use Unix or Windows echo syntax when supported by evidence. Test-plan
-generation and `command_injection.prepare_replay` do not send traffic.
+candidates. Passive analysis uses accent-insensitive, camel-case and delimiter-
+aware whole-token matching rather than raw substring matches. Reportable
+candidates require a command/diagnostic parameter concept plus an independent
+diagnostic route, observed command-like request, JavaScript execution API, or
+OS command-response signal. Business vocabulary suppresses contextual false
+positives, and weak single-signal surfaces are stored separately as non-
+reportable `command_injection_discovery` observations. The adapter reads host
+`fingerprint.json` when available and carries `possibleOs` into candidate
+output so generated payloads use Unix or Windows echo syntax when supported by
+evidence. Test-plan generation and `command_injection.prepare_replay` do not
+send traffic.
 `command_injection.execute_test` requires `confirm=true`, scope, and approval
 metadata, sends one benign marker request, supports `credentialId`, redacts
 secret-bearing request headers from evidence, and records
@@ -975,11 +1035,19 @@ adapters/web/csrf.py
 ```
 
 Passive CSRF candidate analyzer. `csrf.analyze_workspace` pairs crawler-discovered
-state-changing forms with cookie `SameSite` signals and flags forms that lack a
-recognized anti-CSRF token field. `csrf.generate_test_plan` produces a no-traffic
-manual validation outline. Detection is name-based, so double-submit-cookie or
-header-token schemes may not be visible passively; absence of a token field is a
-candidate, not proof.
+state-changing forms with cookie `SameSite` signals and normalized token names,
+including `requesttoken`, `_token`, verification/authenticity/framework form
+tokens, and nonce variants. It classifies authenticated state changes separately
+from login, logout, recovery, and registration. Untokenized login requires a
+documented attacker-account/session-switch scenario, explicit baseline approval,
+a stored credential reference scoped to the form host, and approval ID before it
+becomes reportable. Recovery/registration require concrete unauthorized-impact
+text plus evidence references. Tokenized forms and unsatisfied prerequisites are
+stored as non-reportable `csrf_form_classification` observations; stale blanket
+candidates are suppressed on ingesting re-analysis without deleting history.
+`csrf.generate_test_plan` produces workflow-specific no-traffic manual outlines.
+Detection remains name-based, so double-submit-cookie or header-token schemes may
+not be visible passively; a candidate is not proof.
 
 ```text
 adapters/web/cors.py
@@ -987,11 +1055,19 @@ adapters/web/cors.py
 
 Passive CORS analysis plus one bounded active probe. `cors.analyze_workspace`
 reviews observed `Access-Control-Allow-Origin`/`Access-Control-Allow-Credentials`
-responses. `cors.execute_test` is scope-checked and `confirm=true` gated, sends a
-single Origin-reflection request, records evidence plus a workspace action with
-redacted headers, and emits `possible_cors_misconfiguration` only when the probe
-parser confirms the supplied origin is reflected. It is one of the few web
-adapters that can send traffic, and only after explicit approval.
+responses using browser response-sharing semantics. Public wildcard reads,
+wildcard-plus-credentials, public/fixed origins, and credentialed allowlists
+without observed attacker control are stored as non-reportable policy
+classifications. Credentialed `null` policies and observed exact cross-origin
+matches remain passive validation candidates. `cors.execute_test` is scope-
+checked and `confirm=true` gated, sends a single Origin request, and records
+evidence plus a workspace action with redacted headers. One normalized verdict
+drives the result, action, and workspace observation: only an exact attacker-
+controlled origin plus credential acceptance permits a reportable credentialed
+browser-read candidate. Wildcard plus credentials is explicitly non-reportable
+because browsers reject credentialed wildcard sharing. Stale passive candidates
+are suppressed on ingesting re-analysis without deleting history. It is one of
+the few web adapters that can send traffic, and only after explicit approval.
 
 ```text
 adapters/web/xxe.py
@@ -1090,12 +1166,42 @@ applicability confidence and exploit maturity. Version-unknown components emit
 `cve_version_precision_gap` and skip NVD keyword lookup by default;
 `includeVersionUnknown=true` enables a broad run whose uncorroborated results
 are still suppressed. Results are ranked and capped with explicit suppression
-counts. Successful source snapshots retire no-longer-returned unreviewed
-candidates without deleting history and revive them if they reappear; failed
+counts. Provider responses are cached under the shared DATA cache by source,
+endpoint, and query hash; a cache hit is reused across targets but still emits
+target-local evidence. Per-query file locks deduplicate concurrent lookups, and
+cross-process token buckets keyed by source and credential tier apply provider
+budgets. HTTP 429 handling honors `Retry-After`, uses bounded exponential
+backoff with jitter, and reports cache/network counts, attempts, retries, and
+remaining delay in `sourceStatus`. Completed query snapshots let a later run
+resume after a paused query without repeating earlier requests. Successful
+source snapshots retire no-longer-returned unreviewed candidates without
+deleting history and revive them if they reappear; failed or rate-limited
 providers do not retire prior data. `cve.plan_tests` and
 `cve.prepare_replay` send no traffic. `cve.execute_test` sends one bounded
 benign in-scope request or delegates to the existing nuclei tool when a
 template id is available; it never fetches or executes PoC code.
+NVD configuration-tree operating-system CPEs and explicit description
+conditions are normalized into prerequisite evaluations for OS family,
+web-server deployment, PHP-CGI/code path, affected code-page configuration,
+and named modules. Candidate metadata keeps `versionApplicability` and
+`versionConfidence` separate from overall confidence. Contradicted deployment
+facts yield non-reportable `validationStatus=refuted` records; unknown facts
+yield `cve_prerequisite_gap`, lower priority/confidence, and
+`directReplayEligible=false`. `cve.plan_tests` lists every controlling fact,
+and replay preparation/execution refuses unresolved or contradicted candidates.
+Source validation runs at adapter startup and on each resolution.
+`poc_github_index` requires exactly `{year}` and `{cveId}` without nested
+formatting, derives the year from a strict `CVE-YYYY-NNNN...` identifier, and
+validates the interpolated absolute URL. `cve.sources` reports configured versus
+effective enablement plus startup/current validation; an invalid template
+returns `configuration_error` and is never passed to the HTTP client.
+Every provider response also registers an immutable per-query source result.
+The identity is the provider plus a hash of the canonical endpoint and
+normalized query; the record carries the exact URL/status and the current
+target's evidence ID. NVD discovery and KEV/PoC/GitHub enrichment attach their
+matching `sourceResults` and evidence IDs to candidates. Aggregate
+`sourceStatus` is serialized only on the adapter result, preventing the final
+component query from being misattributed to every candidate.
 
 ```text
 adapters/social/pretext_generator.py
@@ -1137,6 +1243,12 @@ Project, scope, and workspace setup:
 - `workspace.prepare_target_context`
 - `workspace.summary`
 - `workspace.delete`
+
+Routine scope/project/summary calls use compact response envelopes. Scope and
+target totals, local paths, match state, aggregate entity counts, a five-record
+preview, and cursor metadata remain in the default response. Inventory pages
+use integer-offset string cursors with a maximum page size of 500;
+`includeInventory=true` explicitly selects the complete inventory.
 
 Evidence, ingestion, and finding lifecycle:
 
@@ -1205,9 +1317,12 @@ Documentation and reporting:
 - `documentation.summarize_coverage`
 - `documentation.build_layer_report_context`
 - `documentation.build_workspace_report_context`
+- `documentation.plan_scope_groups`
+- `documentation.prepare_validation_batch`
 - `documentation.render_markdown`
 - `documentation.render_layer_report`
 - `documentation.render_workspace_report`
+- `documentation.render_workspace_report_batches`
 - `documentation.render_assessment_summary`
 - `documentation.export_json`
 - `perimeter.analyze_workspace`
@@ -1357,7 +1472,8 @@ jobs.list(activeOnly=true, workspaceId="<workspace>")
 |-- perimeter.analyze_workspace
 |-- perimeter.build_summary
 |-- perimeter.render_report
-`-- documentation.render_workspace_report(format="html")
+|-- documentation.render_workspace_report(format="html")
+`-- documentation.render_workspace_report_batches(recordBatchSize=20)
 ```
 
 This is the default follow-up after crawl or recon ingestion. Completed crawl,

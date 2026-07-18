@@ -34,6 +34,8 @@ fallback prompt; the repository launcher remains the preferred Beta runtime.
 - `documentation.build_report_context`
 - `documentation.build_layer_report_context`
 - `documentation.build_workspace_report_context`
+- `documentation.plan_scope_groups`
+- `documentation.prepare_validation_batch`
 - `documentation.build_finding_context`
 - `documentation.build_finding_draft`
 - `documentation.build_evidence_pack`
@@ -41,6 +43,7 @@ fallback prompt; the repository launcher remains the preferred Beta runtime.
 - `documentation.render_markdown`
 - `documentation.render_layer_report`
 - `documentation.render_workspace_report`
+- `documentation.render_workspace_report_batches`
 - `documentation.render_assessment_summary`
 - `documentation.export_json`
 - `perimeter.analyze_workspace`
@@ -211,6 +214,14 @@ Intelligence layer report (the same document as
 `documentation.render_layer_report(layer="js")` for that target); Markdown and
 JSON outputs keep the compact app-map format.
 
+When `crawler.crawl(analyzeScripts=true)` successfully retrieves an eligible
+JavaScript response, the body is retained in the canonical JS asset cache under
+its normalized URL plus content hash. The cache index carries crawl approval,
+evidence, response metadata, content hash, size, and local path. Asset discovery
+reuses these records, and `js.fetch_assets` skips valid cached bodies without
+requiring a second traffic approval. `refresh=true` explicitly opts into a
+confirmed re-fetch.
+
 ## Design
 
 ```text
@@ -323,9 +334,20 @@ coverage, and pending observations. Pretext bodies/personas render only in
 internal mode; high-level mode shows aggregate pretext counts. Detection coverage
 is internal-only. Raw HTTP and request/response bodies are omitted by default;
 external output paths require `allowExternalOutput=true`.
-Rendered reports default to top-level `reports/`; implicit filenames are
-prefixed with the workspace ID to prevent cross-workspace overwrites. HTML
+Documentation tools accept public `redactionMode` values `operator`,
+`operator_raw`, and `high_level`. Legacy `internal` and `raw` remain compatible
+and select the same underlying policies; deprecated `safe` remains accepted.
+Contexts expose `redaction.presentation` separately from `redaction.mode`, and
+render results expose `presentation` separately from `redactionPolicy`.
+Rendered reports default to `reports/<workspace>/`; implicit filenames are
+local to that workspace-owned report directory. HTML
 embeds its report assets and has no external runtime dependency.
+Scope-group planning responses are compact and paginate groups with
+`groupCursor`/`groupLimit`; complete targets and relations remain in the local
+manifest instead of flooding MCP context.
+Batch rendering separately bounds written files with `partCursor`/`maxParts`
+(one part by default), so a dense target group cannot generate every report
+part in one call.
 
 ## Adapter Policy
 
@@ -389,6 +411,14 @@ provided or the organization name by default. Its response includes first-run
 authentication guidance so the operator can describe complex or multi-step
 login flows before storing credentials or refreshing cookies.
 
+Large-scope control-plane responses are bounded by default. `project.start`,
+`scope.set`, and `scope.check_target` return scope counts and a five-entry
+inventory preview; `workspace.summary` returns aggregate entity counts and a
+five-target preview. Pass a string offset in `cursor` with a bounded `limit`
+(`inventoryLimit` for `project.start` and `scope.set`) to retrieve subsequent
+pages. `includeInventory=true` is the explicit full-inventory compatibility
+mode.
+
 Use `workspace.ingest_data` for external or manually supplied data. Supported
 parsers include ffuf JSON, Nuclei JSONL, Synapse site map JSON, crawler JSON,
 nmap XML, Shodan summaries, workspace-native adapter results, SSRF/open-
@@ -401,6 +431,14 @@ currently authorized. Use `workspace.prepare_target_context` before planning
 next steps so the agent reads normalized services, interesting endpoints,
 auth/state-changing surfaces, parameters, observations, findings, recent
 actions, recommended next steps, and missing information instead of raw logs.
+
+Crawler and sitemap URL normalization treats scheme, host, path, and sorted
+query-parameter names as the canonical identity. Known authentication/session
+values and high-entropy query values are replaced before tool summaries and
+workspace entities are built; one-way fingerprints preserve correlation where
+needed. Malformed encoded `name=value` query fragments are normalized to the
+actual parameter name. Raw externally supplied crawl material remains only in
+the referenced evidence artifact and is marked as potentially sensitive.
 
 Use `sitemap.from_dump` to build a Burp-like site map passively from an offline
 dump. Use `crawler.crawl` only after scope is set and operator approval is
@@ -476,19 +514,31 @@ privileged claims. It sends no traffic and never stores or echoes the token or
 any matched secret value; optional ingestion records only redacted observations.
 
 Use `csrf.analyze_workspace` after crawler/dump ingestion to passively flag
-state-changing forms (POST/PUT/PATCH/DELETE) that lack a recognized anti-CSRF
-token field, raising priority for sensitive workflows and when session cookies
-use weak SameSite. Use `csrf.generate_test_plan` to produce a manual
+eligible state-changing forms (POST/PUT/PATCH/DELETE) that lack a normalized
+anti-CSRF token name. `requesttoken`, `_token`, common framework verification,
+authenticity/form tokens, and nonce variants are recognized. Login, logout,
+recovery, and registration are modeled separately from authenticated state
+changes. Login requires an operator-reviewed session-switch scenario, explicit
+baseline approval, a valid target-scoped credential reference, and approval ID;
+recovery/registration requires concrete unauthorized impact plus evidence.
+Forms without those prerequisites and tokenized forms are stored as non-
+reportable classifications, while weak SameSite adjusts eligible candidate
+priority. Use `csrf.generate_test_plan` to produce a workflow-specific manual
 reproduction outline; it sends no traffic and does not submit forms.
 
 Use `cors.analyze_workspace` after crawler/dump ingestion to passively flag
-permissive CORS responses (wildcard or `null` Access-Control-Allow-Origin,
-credentialed cross-origin allowances) from observed headers. `cors.execute_test`
-sends exactly one bounded Origin-reflection probe against an in-scope target and
-requires `confirm=true` and operator approval; it reports
-`possible_cors_misconfiguration` when the probe origin is reflected (especially
-with credentials). `cors.generate_test_plan` prepares the probe without sending
-traffic.
+CORS policies from observed headers using browser response-sharing semantics.
+Public wildcard reads, wildcard-plus-credentials, fixed public origins, and
+credentialed allowlists without observed attacker control are informational;
+credentialed `null` policies and observed exact cross-origin matches remain
+validation candidates. `cors.execute_test` sends exactly one bounded Origin
+probe against an in-scope target and requires `confirm=true` and operator
+approval. Only an exact attacker-controlled origin plus credential acceptance
+produces a reportable `possible_cors_misconfiguration`. Wildcard plus
+credentials becomes non-reportable `invalid_noncredentialed_wildcard` because a
+browser rejects credentialed wildcard sharing. The normalized verdict is reused
+by the result, action, and workspace observation so labels cannot contradict.
+`cors.generate_test_plan` prepares the probe without sending traffic.
 
 Use `insecure_deser.analyze_workspace` to passively flag recognizable serialized
 object markers in bounded parameter previews and cookie names. It records only
@@ -520,12 +570,17 @@ canary URL to an in-scope parameter and records evidence, but out-of-band
 callback verification is still required before treating SSRF as confirmed.
 
 Use `open_redirect.analyze_workspace` after sitemap/crawler ingestion to
-passively score redirect-like parameters, authentication/callback/logout paths,
-and continuation forms. It stores `open_redirect_candidate` observations when
-ingestion is enabled. Use `open_redirect.generate_test_plan` to prepare harmless
-redirect payloads without traffic. `open_redirect.execute_test` sends one
-approved harmless external URL payload and captures redirect responses without
-following redirects.
+passively classify canonical redirect surfaces using observed `Location`
+responses, client navigation sinks, redirect-specific routes, and
+authentication continuation context. An absolute URL value alone is not a
+redirect signal. WordPress oEmbed inputs and uncorroborated search configuration
+are stored as non-reportable surface classifications, with oEmbed retained for
+SSRF review. Reportable surfaces are deduplicated by canonical method, route,
+location, and parameter, and stale candidates are suppressed on re-analysis.
+Use `open_redirect.generate_test_plan` to prepare harmless redirect payloads
+without traffic. `open_redirect.execute_test` sends one approved harmless
+external URL payload and captures redirect responses without following
+redirects.
 
 Use `credentials.set` to store reusable HTTP credentials only after authorized
 scope is persisted. Credentials are bound to one or more scoped hosts, saved
@@ -574,9 +629,23 @@ ingests JSONL output, and stores matches as candidate findings plus
 `nuclei_result` observations. Nuclei runs return a generic Synapse background
 `jobId` by default; poll with `jobs.status(jobId=...)`.
 
+XSS validation is staged and mode-enforced. `xss.generate_test_code` defaults
+to low-risk `reflection_marker` mode, returning one exact 4-80 character ASCII
+alphanumeric wire value, encoding metadata, and no browser helper.
+`context_breakout` is an explicit medium-risk syntax test without execution
+handlers, while `execution` is an explicit high-risk payload set. The same
+planner allowlist drives `xss.execute_test`: supplied markers are never
+rewritten, only an exact planned payload is accepted, and an approval risk tier
+below the selected mode is rejected before traffic.
+
 Command-injection analysis is workspace-driven. `command_injection.analyze_workspace`
-scores command, shell, process, diagnostic, host, domain, and target-like inputs
-and uses host fingerprints to carry Unix/Windows payload hints when available.
+tokenizes parameter and path names at semantic boundaries and requires a
+command/diagnostic parameter concept plus independent route, observed-request,
+JavaScript execution-API, or OS command-response corroboration before emitting
+a reportable candidate. Contextual host-like names mixed with known business
+vocabulary are suppressed; weak single-signal surfaces are retained only as
+non-reportable `command_injection_discovery` observations. Host fingerprints
+carry Unix/Windows payload hints when available.
 `command_injection.generate_test_plan` returns only benign echo-style marker
 payloads. `command_injection.prepare_replay` builds a redacted, no-traffic
 manual replay request for one allowlisted benign payload. `command_injection.execute_test`
@@ -592,12 +661,25 @@ replay requests for allowlisted benign payloads. Active validation requires scop
 credential-bearing headers when `credentialId` is used.
 
 Access-control analysis is workspace-first and no-traffic until replay is
-explicitly approved. It identifies object candidates, records authorized
-user/role contexts, builds BOLA/BOPLA/BFLA-style matrix entries, and emits
-manual test plans. `access_control.execute_matrix_test` performs approved
+explicitly approved. Identification classifies framework tokens, public
+taxonomy fields, unshaped identifiers, dependency/example-only inferences, and
+consistently observed 404/410 routes as non-reportable. BOLA/BOPLA candidates
+require a concrete object-reference shape and authorization-relevant protected
+operation; BFLA requires privileged-function semantics. First-party sources
+receive more weight, and contradictory reachable status evidence prevents a
+404/410 refutation. Only current reportable objects feed BOLA/BOPLA/BFLA matrix
+entries; classifications and stale candidates remain inspectable outside the
+active validation queue. The adapter records authorized user/role contexts and
+emits manual test plans. Matrix construction preserves exact supplied/recorded
+IDs: BOLA/BOPLA needs two authenticated peers and BFLA needs privileged plus
+non-privileged authenticated roles. Unsupported comparisons are persisted as
+blocked `access_control_coverage_gap` records; an explicitly anonymous context
+may create a separate `ANONYMOUS_BASELINE`, but it never substitutes for a
+missing authenticated role. `access_control.execute_matrix_test` performs approved
 cross-context replay only for a concrete request URL and explicit contexts,
 enforces scope and credential handling, fails authenticated contexts that lack
-a usable target credential unless anonymous replay is explicitly selected,
+a usable target credential without downgrading them, rejects blocked gaps and
+context-ID mismatches,
 blocks state-changing requests
 unless `allowStateChanging=true`, stores sanitized response summaries, and
 records possible broken-access-control observations when comparison signals are
@@ -619,6 +701,12 @@ blocking command runs also terminate their process group on adapter timeout.
 Nonzero exits, missing/corrupt worker results, and finalizer failures remain
 terminal `failed` jobs with `finalized=true`; concurrent polling finalizes a
 job once.
+Crawler job process status and assessment coverage are separate. A worker that
+exits normally remains `status=completed`, while `resultDisposition` reports
+`complete`, `partial`, or `no_coverage`. Default job summaries include attempted
+requests, successful fetches, HTTP responses, visited pages, errors, blocked
+redirects, and categorized error counts. A failed seed attempt is attempted but
+is not a visited page.
 Nmap imports dominated by `tcpwrapped` rows emit `scan_interference`; raw rows
 remain stored but are excluded from planning, fingerprinting, perimeter, and
 CVE correlation.
@@ -639,6 +727,28 @@ by default and records `cve_version_precision_gap`. An explicit
 `includeVersionUnknown=true` run still suppresses candidates that lack KEV,
 public-PoC, or exploit-reference corroboration. Results are ranked and bounded
 by `maxCandidates`, with all suppression counts returned.
+Provider responses are cached once per source/endpoint/query hash under
+`DATA/cache/cve-intelligence/` and reused across targets with target-local
+evidence. Cross-process source/credential-tier token buckets honor
+`Retry-After`, apply bounded retry/backoff, and expose cache, network, attempt,
+retry, and remaining-delay state in `sourceStatus`. A rate-limited source is
+resumable and is never treated as a successful negative snapshot.
+NVD configuration OS CPEs and explicit advisory preconditions are evaluated
+separately from version ranges. Candidates expose version confidence,
+deployment disposition, controlling facts, and direct-replay eligibility.
+Contradicted deployments are stored as non-reportable refutations; unknown
+facts emit prerequisite gaps and block replay preparation/execution until the
+affected reachable code path is established.
+The PoC source template is startup-validated and must contain exactly
+`{year}/{cveId}`. `cve.sources` exposes startup/current configuration status and
+effective enablement. Invalid environment or runtime templates produce
+`configuration_error` without traffic, and path construction accepts only
+strict CVE identifiers.
+Aggregate provider health stays in top-level `sourceStatus`. Candidate
+provenance uses matching per-query `sourceResults`, keyed by provider and a
+canonical endpoint/query hash and carrying exact URL, HTTP status, stable ID,
+cache state, and target-local evidence ID. Discovery and enrichment results
+cannot inherit the final unrelated component request.
 
 Findings have an explicit lifecycle. `workspace.create_finding` records an
 operator-reviewed finding by default, while
@@ -686,9 +796,9 @@ selector — so operators can discard reviewed false positives from the generate
 reports while the records stay in workspace state for later granular analysis.
 Non-reportable records are excluded at the report boundary only; agent-facing
 context, counts, and resource reads keep the full state. Each disposition is
-appended to a small archive at `reports/<workspace>.report-decisions.json`.
-Rendered reports and this archive live in the top-level `reports/` directory, not
-inside the workspace state folder.
+appended to a small archive at
+`reports/<workspace>/report-decisions.json`. Rendered reports and this archive
+live in the workspace-owned report directory, not inside workspace state.
 
 Shodan network-touching tools require `confirm=true` because they contact an
 external service; API-backed calls may also consume credits. Set the API key at
