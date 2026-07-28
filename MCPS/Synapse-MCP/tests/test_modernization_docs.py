@@ -12,6 +12,8 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 MODERNIZATION_DOCS = REPOSITORY_ROOT / "docs" / "modernization"
 ADR_DIR = MODERNIZATION_DOCS / "adr"
 BASELINE_PATH = MODERNIZATION_DOCS / "baseline.md"
+PYPROJECT_PATH = REPOSITORY_ROOT / "pyproject.toml"
+CI_WORKFLOW_PATH = REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml"
 VALID_ADR_STATUSES = {"Proposed", "Accepted", "Superseded", "Rejected"}
 REQUIRED_ADR_SECTIONS = (
     "Context",
@@ -72,6 +74,35 @@ class ModernizationDocumentationTests(unittest.TestCase):
             _baseline_integer("Tools with `confirm`", baseline),
             confirm_tools,
         )
+
+    def test_ci_matrix_covers_the_declared_requires_python(self) -> None:
+        pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
+        workflow = CI_WORKFLOW_PATH.read_text(encoding="utf-8")
+        requires_python = re.search(
+            r'^requires-python\s*=\s*"[^"]*>=\s*(\d+)\.(\d+)',
+            pyproject,
+            flags=re.MULTILINE,
+        )
+        self.assertIsNotNone(
+            requires_python,
+            "Could not parse requires-python floor",
+        )
+        matrix = re.search(
+            r"python-version:\s*\[([^\]]+)\]",
+            workflow,
+        )
+        self.assertIsNotNone(matrix, "Could not parse CI Python matrix")
+        matrix_versions = [
+            tuple(int(part) for part in version.split("."))
+            for version in re.findall(r"""["'](\d+\.\d+)["']""", matrix.group(1))
+        ]
+        self.assertTrue(matrix_versions, "CI Python matrix is empty")
+
+        declared_floor = (
+            int(requires_python.group(1)),
+            int(requires_python.group(2)),
+        )
+        self.assertEqual(min(matrix_versions), declared_floor)
 
     def test_every_adr_has_required_sections_and_a_valid_status(self) -> None:
         adr_paths = sorted(ADR_DIR.glob("ADR-*.md"))

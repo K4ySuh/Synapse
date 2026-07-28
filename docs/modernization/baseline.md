@@ -67,6 +67,8 @@ contract and benchmark tests do not rewrite the baseline.
 | P0-2a `4cd07bb` | 389 | 2 |
 | P0-2b `9a8d6c5` | 395 | 2 |
 | P0-3 `fc15cff` | 404 | 2 |
+| P0-4 `52a200a` | 407 | 2 |
+| P0-5 | 408 | 2 |
 
 ## Contract fixtures
 

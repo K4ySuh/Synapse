@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - Beta
+      - main
+      - "modernization/**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      # Follow-up: replacing major action tags with commit SHAs requires a
+      # separate operator supply-chain decision.
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Select matrix Python explicitly
+        shell: bash
+        run: echo "SYNAPSE_PYTHON=$(command -v python)" >> "$GITHUB_ENV"
+
+      - name: Run full test suite
+        run: bin/test
+
+      - name: Re-run contract suite
+        run: bin/test --core -k contracts
+
+      - name: Assert clean working tree
+        shell: bash
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git status --short
+            exit 1
+          fi
