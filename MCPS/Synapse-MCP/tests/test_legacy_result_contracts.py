@@ -23,11 +23,14 @@ import unittest
 from unittest.mock import patch
 from urllib.parse import urlsplit
 
+import httpx
+
 from contract_support import (
     ALLOWED_FIXTURE_HOSTS,
     CANARY_VALUES,
     PATH_BEARING_RESULT_FIXTURES,
     RESULT_FIXTURE_NAMES,
+    all_contract_fixture_paths,
     assert_response_matches_fixture,
     assert_result_response_matches_fixture,
     describe_json_difference,
@@ -37,11 +40,19 @@ from contract_support import (
     result_fixture_path,
 )
 from helpers import isolated_state
+from http_stub import stub_httpx
 from synapse_mcp.transport import stdio_server
 
 
 FORBIDDEN_PUBLIC_HOST_PATTERN = re.compile(
     r"(?i)\b(?:[a-z0-9-]+\.)+(?:com|net|org|io)\b"
+)
+RESIDUAL_GENERATED_IDENTIFIER_PATTERN = re.compile(
+    r"(?:"
+    r"(?:ev|ing|act|job)_\d{8}-\d{6}"
+    r"|finding-\d{8}-\d{6}"
+    r"|acr_[0-9a-f]+_[0-9a-f]{8}\b"
+    r")"
 )
 HOST_VALUE_KEYS = frozenset({"target", "host", "hostname"})
 HOST_LIST_KEYS = frozenset({"hosts", "scopes"})
@@ -84,7 +95,7 @@ def _result_contracts_for_comparison() -> dict[str, str]:
         101,
         "scope.set",
         {
-            "hosts": [ALLOWED_FIXTURE_HOSTS[0]],
+            "hosts": [ALLOWED_FIXTURE_HOSTS[0], ALLOWED_FIXTURE_HOSTS[1]],
             "organization": "Acme Demo",
         },
     )
@@ -141,6 +152,142 @@ def _result_contracts_for_comparison() -> dict[str, str]:
             {},
         ),
     }
+
+    analyzer_seed = json.dumps(
+        {
+            "hosts": [
+                {
+                    "host": ALLOWED_FIXTURE_HOSTS[0],
+                    "urls": [
+                        {
+                            "url": f"https://{ALLOWED_FIXTURE_HOSTS[0]}/app",
+                            "methods": ["GET"],
+                            "statusCodes": [200],
+                            "responseHeaders": {"content-type": "text/html"},
+                            "responseCookieFlags": [
+                                {
+                                    "name": "sessionid",
+                                    "httpOnly": False,
+                                    "secure": False,
+                                    "sameSite": "",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+            "summary": {"hostCount": 1, "urlCount": 1, "formCount": 0},
+        },
+        separators=(",", ":"),
+    )
+    _result_tool_call_for_comparison(
+        106,
+        "workspace.ingest_data",
+        {
+            "workspaceId": "acme",
+            "target": ALLOWED_FIXTURE_HOSTS[0],
+            "source": "sitemap",
+            "dataType": "tool_output",
+            "format": "json",
+            "rawData": analyzer_seed,
+        },
+    )
+
+    cache_fixture_dir = (
+        Path(os.environ["SYNAPSE_ROOT"]) / "workspaces" / "cache-fixture"
+    )
+    cache_fixture_dir.mkdir(parents=True)
+    (cache_fixture_dir / "history.jsonl").write_text(
+        json.dumps(
+            {"host": ALLOWED_FIXTURE_HOSTS[3]},
+            separators=(",", ":"),
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    captures["headers_cookies_analyze_workspace.json"] = (
+        _result_tool_call_for_comparison(
+            206,
+            "headers_cookies.analyze_workspace",
+            {
+                "workspaceId": "acme",
+                "target": ALLOWED_FIXTURE_HOSTS[0],
+                "ingest": False,
+            },
+        )
+    )
+    captures["cors_execute_test_disabled_traffic.json"] = (
+        _result_tool_call_for_comparison(
+            207,
+            "cors.execute_test",
+            {
+                "workspaceId": "acme",
+                "url": f"http://{ALLOWED_FIXTURE_HOSTS[0]}/api",
+                "method": "GET",
+                "disableTraffic": True,
+                "confirm": True,
+            },
+        )
+    )
+    captures["cache_inspect_scope_data.json"] = _result_tool_call_for_comparison(
+        208,
+        "cache.inspect_scope_data",
+        {},
+    )
+    captures["cache_clean_out_of_scope.json"] = _result_tool_call_for_comparison(
+        209,
+        "cache.clean_out_of_scope",
+        {"confirm": True},
+    )
+
+    def internetdb_response(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "ip": ALLOWED_FIXTURE_HOSTS[1],
+                "hostnames": [ALLOWED_FIXTURE_HOSTS[0]],
+                "ports": [80, 443],
+                "cpes": ["cpe:2.3:a:acme:demo:1.0:*:*:*:*:*:*:*"],
+                "vulns": ["CVE-2025-0001"],
+                "tags": ["fixture"],
+            },
+        )
+
+    with stub_httpx(internetdb_response):
+        captures["shodan_internetdb.json"] = _result_tool_call_for_comparison(
+            210,
+            "shodan.internetdb",
+            {
+                "ip": ALLOWED_FIXTURE_HOSTS[1],
+                "ingest": False,
+                "confirm": True,
+            },
+        )
+    captures["crawler_crawl_unconfirmed.json"] = (
+        _result_tool_call_for_comparison(
+            211,
+            "crawler.crawl",
+            {
+                "target": f"http://{ALLOWED_FIXTURE_HOSTS[0]}",
+                "workspaceId": "acme",
+            },
+            expect_error=True,
+        )
+    )
+    captures["crawler_crawl_out_of_scope.json"] = (
+        _result_tool_call_for_comparison(
+            212,
+            "crawler.crawl",
+            {
+                "target": f"http://{ALLOWED_FIXTURE_HOSTS[3]}",
+                "workspaceId": "acme",
+                "confirm": True,
+                "disableTraffic": True,
+            },
+            expect_error=True,
+        )
+    )
     return {
         name: stdio_server.json_line(response)
         for name, response in captures.items()
@@ -279,6 +426,53 @@ class LegacyResultContractTests(unittest.TestCase):
         normalized_payload = json.loads(json.loads(normalized)["result"]["content"][0]["text"])
         self.assertEqual(normalized_payload["jobId"], "<ID:1>")
 
+    def test_normalizer_skips_empty_identifier_values(self) -> None:
+        response = json.dumps(
+            {
+                "candidateId": "",
+                "evidenceIds": ["   "],
+                "note": "unchanged",
+            },
+            separators=(",", ":"),
+        )
+
+        normalized = normalize_result_response(response, self.synapse_root)
+
+        self.assertEqual(normalized, response)
+        self.assertEqual(json.loads(normalized), json.loads(response))
+        self.assertNotIn("<ID:", normalized)
+
+    def test_normalizer_raises_on_unsafely_short_identifier(self) -> None:
+        response = json.dumps(
+            {
+                "jobId": "c1",
+                "note": "account c1 is a specific c1 reference",
+            },
+            separators=(",", ":"),
+        )
+
+        with self.assertRaises(AssertionError) as caught:
+            normalize_result_response(response, self.synapse_root)
+
+        self.assertIn("jobId", str(caught.exception))
+        self.assertIn("'c1'", str(caught.exception))
+
+    def test_normalizer_does_not_rewrite_unrelated_text(self) -> None:
+        response = json.dumps(
+            {
+                "jobId": "generated-job-123",
+                "note": "account c1 is a specific c1 reference",
+            },
+            separators=(",", ":"),
+        )
+
+        normalized = normalize_result_response(response, self.synapse_root)
+
+        self.assertEqual(
+            normalized,
+            '{"jobId":"<ID:1>","note":"account c1 is a specific c1 reference"}',
+        )
+
     def test_result_fixtures_match_after_normalization(self) -> None:
         captures = _result_contracts_for_comparison()
 
@@ -312,6 +506,16 @@ class LegacyResultContractTests(unittest.TestCase):
             for canary in CANARY_VALUES:
                 self.assertNotIn(canary, text, f"{name} contains planted canary")
 
+    def test_no_fixture_contains_a_residual_generated_identifier(self) -> None:
+        for path in all_contract_fixture_paths():
+            text = path.read_text(encoding="utf-8")
+            matches = RESIDUAL_GENERATED_IDENTIFIER_PATTERN.findall(text)
+            self.assertEqual(
+                matches,
+                [],
+                f"{path.name} contains residual generated identifier(s): {matches}",
+            )
+
     def test_path_bearing_fixtures_contain_the_root_placeholder(self) -> None:
         for name in PATH_BEARING_RESULT_FIXTURES:
             text = result_fixture_path(name).read_text(encoding="utf-8")
@@ -333,6 +537,35 @@ class LegacyResultContractTests(unittest.TestCase):
                 set(),
                 f"{name} contains hosts outside the fixture allowlist",
             )
+
+    def test_active_tool_gates_are_frozen(self) -> None:
+        approval = json.loads(
+            result_fixture_path("crawler_crawl_unconfirmed.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        out_of_scope = json.loads(
+            result_fixture_path("crawler_crawl_out_of_scope.json").read_text(
+                encoding="utf-8"
+            )
+        )
+
+        self.assertIn("error", approval)
+        self.assertIn("error", out_of_scope)
+        self.assertIn("confirm=true", approval["error"]["message"])
+
+    def test_third_party_fixture_uses_no_real_network(self) -> None:
+        real_client = httpx.Client
+
+        def guarded_client(*args, **kwargs):
+            if not isinstance(kwargs.get("transport"), httpx.MockTransport):
+                raise AssertionError("httpx.Client constructed without MockTransport")
+            return real_client(*args, **kwargs)
+
+        with patch.object(httpx, "Client", guarded_client):
+            captures = _result_contracts_for_comparison()
+
+        self.assertIn("shodan_internetdb.json", captures)
 
     def test_describe_json_difference_reports_changed_key_paths(self) -> None:
         expected = json.loads(fixture_bytes("initialize.json"))
@@ -362,6 +595,28 @@ class LegacyResultContractTests(unittest.TestCase):
         self.assertIn(
             "result.content[0].text.targetCount",
             str(caught.exception),
+        )
+
+        cors_response = json.loads(
+            captures["cors_execute_test_disabled_traffic.json"]
+        )
+        cors_payload = json.loads(cors_response["result"]["content"][0]["text"])
+        cors_payload["test"]["assessment"] = "changed-assessment"
+        cors_response["result"]["content"][0]["text"] = json.dumps(
+            cors_payload,
+            indent=2,
+        )
+        mutated_cors_response = json.dumps(cors_response, separators=(",", ":"))
+
+        with self.assertRaises(AssertionError) as cors_caught:
+            assert_result_response_matches_fixture(
+                "cors_execute_test_disabled_traffic.json",
+                mutated_cors_response,
+                self.synapse_root,
+            )
+        self.assertIn(
+            "result.content[0].text.test.assessment",
+            str(cors_caught.exception),
         )
 
 

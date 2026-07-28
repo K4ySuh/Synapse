@@ -3,11 +3,15 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
 import re
 from typing import Any
 from unittest.mock import patch
 
+import httpx
+
+from http_stub import stub_httpx
 from synapse_mcp.transport import stdio_server
 
 
@@ -26,30 +30,48 @@ RESULT_FIXTURE_NAMES = (
     "credentials_set_confirmed.json",
     "credentials_set_unconfirmed.json",
     "credentials_list.json",
+    "headers_cookies_analyze_workspace.json",
+    "cors_execute_test_disabled_traffic.json",
+    "cache_inspect_scope_data.json",
+    "cache_clean_out_of_scope.json",
+    "shodan_internetdb.json",
+    "crawler_crawl_unconfirmed.json",
+    "crawler_crawl_out_of_scope.json",
 )
 PATH_BEARING_RESULT_FIXTURES = (
     "workspace_summary.json",
     "credentials_set_confirmed.json",
     "credentials_list.json",
+    "cors_execute_test_disabled_traffic.json",
+    "cache_inspect_scope_data.json",
+    "cache_clean_out_of_scope.json",
 )
 CANARY_VALUES = (
     "CANARY-SECRET-a1b2c3",
     "CANARY-TOKEN-d4e5f6",
     "CANARY-PASSWORD-g7h8i9",
 )
-ALLOWED_FIXTURE_HOSTS = ("app.acme-demo.test", "127.0.0.1", "localhost")
+ALLOWED_FIXTURE_HOSTS = (
+    "app.acme-demo.test",
+    "127.0.0.1",
+    "localhost",
+    "not-authorized.acme-demo.test",
+)
 IDENTIFIER_KEYS = frozenset(
     {
         "jobId",
         "evidenceId",
         "evidenceIds",
+        "ingestId",
         "actionId",
+        "findingId",
         "candidateId",
         "replayId",
         "contextId",
         "matrixId",
         "approvalId",
         "runId",
+        "exchangeEvidenceId",
     }
 )
 TIMESTAMP_PATTERN = re.compile(
@@ -234,16 +256,27 @@ def assert_response_matches_fixture(name: str, actual: dict[str, Any]) -> None:
 def _identifier_values_in_document_order(value: Any) -> list[str]:
     identifiers: list[str] = []
 
+    def append_identifier(key: str, identifier: str) -> None:
+        if not identifier.strip():
+            return
+        if len(identifier) < 8:
+            raise AssertionError(
+                f"Identifier value for key {key!r} is unsafe for textual "
+                f"normalization because it is shorter than 8 characters: "
+                f"{identifier!r}"
+            )
+        identifiers.append(identifier)
+
     def walk(item: Any) -> None:
         if isinstance(item, dict):
             for key, nested in item.items():
                 if key in IDENTIFIER_KEYS:
                     if isinstance(nested, str):
-                        identifiers.append(nested)
+                        append_identifier(key, nested)
                     elif isinstance(nested, list):
-                        identifiers.extend(
-                            element for element in nested if isinstance(element, str)
-                        )
+                        for element in nested:
+                            if isinstance(element, str):
+                                append_identifier(key, element)
                 walk(nested)
             return
         if isinstance(item, list):
@@ -498,7 +531,7 @@ def _result_contracts_for_regeneration() -> dict[str, str]:
         101,
         "scope.set",
         {
-            "hosts": [ALLOWED_FIXTURE_HOSTS[0]],
+            "hosts": [ALLOWED_FIXTURE_HOSTS[0], ALLOWED_FIXTURE_HOSTS[1]],
             "organization": "Acme Demo",
         },
     )
@@ -555,6 +588,148 @@ def _result_contracts_for_regeneration() -> dict[str, str]:
             {},
         ),
     }
+
+    analyzer_seed = json.dumps(
+        {
+            "hosts": [
+                {
+                    "host": ALLOWED_FIXTURE_HOSTS[0],
+                    "urls": [
+                        {
+                            "url": f"https://{ALLOWED_FIXTURE_HOSTS[0]}/app",
+                            "methods": ["GET"],
+                            "statusCodes": [200],
+                            "responseHeaders": {"content-type": "text/html"},
+                            "responseCookieFlags": [
+                                {
+                                    "name": "sessionid",
+                                    "httpOnly": False,
+                                    "secure": False,
+                                    "sameSite": "",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+            "summary": {"hostCount": 1, "urlCount": 1, "formCount": 0},
+        },
+        separators=(",", ":"),
+    )
+    _result_tool_call_for_regeneration(
+        106,
+        "workspace.ingest_data",
+        {
+            "workspaceId": "acme",
+            "target": ALLOWED_FIXTURE_HOSTS[0],
+            "source": "sitemap",
+            "dataType": "tool_output",
+            "format": "json",
+            "rawData": analyzer_seed,
+        },
+    )
+
+    cache_fixture_dir = (
+        Path(os.environ["SYNAPSE_ROOT"]) / "workspaces" / "cache-fixture"
+    )
+    cache_fixture_dir.mkdir(parents=True)
+    (cache_fixture_dir / "history.jsonl").write_text(
+        json.dumps(
+            {"host": ALLOWED_FIXTURE_HOSTS[3]},
+            separators=(",", ":"),
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    captures["headers_cookies_analyze_workspace.json"] = (
+        _result_tool_call_for_regeneration(
+            206,
+            "headers_cookies.analyze_workspace",
+            {
+                "workspaceId": "acme",
+                "target": ALLOWED_FIXTURE_HOSTS[0],
+                "ingest": False,
+            },
+        )
+    )
+    captures["cors_execute_test_disabled_traffic.json"] = (
+        _result_tool_call_for_regeneration(
+            207,
+            "cors.execute_test",
+            {
+                "workspaceId": "acme",
+                "url": f"http://{ALLOWED_FIXTURE_HOSTS[0]}/api",
+                "method": "GET",
+                "disableTraffic": True,
+                "confirm": True,
+            },
+        )
+    )
+    captures["cache_inspect_scope_data.json"] = (
+        _result_tool_call_for_regeneration(
+            208,
+            "cache.inspect_scope_data",
+            {},
+        )
+    )
+    captures["cache_clean_out_of_scope.json"] = (
+        _result_tool_call_for_regeneration(
+            209,
+            "cache.clean_out_of_scope",
+            {"confirm": True},
+        )
+    )
+
+    def internetdb_response(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "ip": ALLOWED_FIXTURE_HOSTS[1],
+                "hostnames": [ALLOWED_FIXTURE_HOSTS[0]],
+                "ports": [80, 443],
+                "cpes": ["cpe:2.3:a:acme:demo:1.0:*:*:*:*:*:*:*"],
+                "vulns": ["CVE-2025-0001"],
+                "tags": ["fixture"],
+            },
+        )
+
+    with stub_httpx(internetdb_response):
+        captures["shodan_internetdb.json"] = (
+            _result_tool_call_for_regeneration(
+                210,
+                "shodan.internetdb",
+                {
+                    "ip": ALLOWED_FIXTURE_HOSTS[1],
+                    "ingest": False,
+                    "confirm": True,
+                },
+            )
+        )
+    captures["crawler_crawl_unconfirmed.json"] = (
+        _result_tool_call_for_regeneration(
+            211,
+            "crawler.crawl",
+            {
+                "target": f"http://{ALLOWED_FIXTURE_HOSTS[0]}",
+                "workspaceId": "acme",
+            },
+            expect_error=True,
+        )
+    )
+    captures["crawler_crawl_out_of_scope.json"] = (
+        _result_tool_call_for_regeneration(
+            212,
+            "crawler.crawl",
+            {
+                "target": f"http://{ALLOWED_FIXTURE_HOSTS[3]}",
+                "workspaceId": "acme",
+                "confirm": True,
+                "disableTraffic": True,
+            },
+            expect_error=True,
+        )
+    )
     return {
         name: stdio_server.json_line(response)
         for name, response in captures.items()
