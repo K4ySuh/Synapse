@@ -15,22 +15,20 @@ from __future__ import annotations
 
 import copy
 from contextlib import ExitStack
-import getpass
 import io
 import json
 import os
 from pathlib import Path
-import socket
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
 from contract_support import (
-    FIXTURE_NAMES,
+    all_contract_fixture_paths,
     assert_response_matches_fixture,
     assert_tools_list_matches_fixture,
     compact_json_bytes,
-    fixture_path,
+    environment_path_values,
     regenerate_contract_fixtures,
 )
 from helpers import isolated_state
@@ -234,23 +232,14 @@ class LegacyContractTests(unittest.TestCase):
         self.assertEqual(captures[0], captures[1])
 
     def test_fixtures_contain_no_environment_leakage(self) -> None:
-        repository_root = Path(__file__).resolve().parents[3]
-        environment_values = (
-            "/home/",
-            "/Users/",
-            "/tmp/",
-            "/var/",
-            str(repository_root),
-            str(Path.home()),
-            getpass.getuser(),
-            socket.gethostname(),
-        )
-
-        for name in FIXTURE_NAMES:
-            text = fixture_path(name).read_text(encoding="utf-8")
-            for value in environment_values:
-                if value:
-                    self.assertNotIn(value, text, f"{name} contains environment value {value!r}")
+        for path in all_contract_fixture_paths():
+            text = path.read_text(encoding="utf-8")
+            for value in environment_path_values():
+                self.assertNotIn(
+                    value,
+                    text,
+                    f"{path.name} contains environment value {value!r}",
+                )
 
     def test_renaming_a_tool_fails_the_contract_test(self) -> None:
         renamed_tools = copy.deepcopy(stdio_server.TOOL_SCHEMAS)
