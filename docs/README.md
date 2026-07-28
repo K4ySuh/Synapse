@@ -7,6 +7,7 @@ next to the component under `MCPS/`.
 
 - [Root README](../README.md): project overview, setup, and current runtime.
 - [Architecture](Architecture.md): system boundaries and data flow.
+- [Modernization](modernization/README.md): reviewed baseline, architecture decisions, and phase evidence.
 - [Implementation Map](Implementation-Map.md): current modules, tool surface, and workflows.
 - [Reporting Model](Reporting-Model.md): internal HTML report views, presentation toggle, and what reports must not do.
 - [Operations](Operations.md): practical setup, workflows, cleanup, and tests.
