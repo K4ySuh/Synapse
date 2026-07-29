@@ -6,8 +6,12 @@ Regenerate both contract tiers deliberately with:
 
 The comparison scenario below is deliberately separate from the regeneration
 scenario in ``contract_support``. Fixtures preserve the serialized MCP response
-and the indented JSON inside text content, modulo only the three declared
+and the indented JSON inside text content, modulo only the five declared
 normalization rules.
+
+The environment-dependent ``-32000`` response and
+``jobs.status(includeResult=True)`` are shape-asserted rather than frozen. The
+latter embeds the interpreter path in ``run.command`` and ``run.shellCommand``.
 """
 
 from __future__ import annotations
@@ -39,7 +43,7 @@ from contract_support import (
     regenerate_result_contract_fixtures,
     result_fixture_path,
 )
-from helpers import isolated_state
+from helpers import isolated_state, wait_for_job
 from http_stub import stub_httpx
 from synapse_mcp.transport import stdio_server
 
@@ -288,6 +292,43 @@ def _result_contracts_for_comparison() -> dict[str, str]:
             expect_error=True,
         )
     )
+    background_root = Path(os.environ["SYNAPSE_ROOT"])
+    background_environment = {
+        "SYNAPSE_DATA_DIR": str(background_root),
+        "SYNAPSE_DUMP_DIR": str(background_root / "workspaces"),
+        "SYNAPSE_REPORTS_DIR": str(background_root / "reports"),
+        "SYNAPSE_PROMPT_PATH": str(background_root / "AGENTS.md"),
+    }
+    with patch.dict(os.environ, background_environment, clear=False):
+        background_submission = _result_tool_call_for_comparison(
+            213,
+            "crawler.crawl",
+            {
+                "target": f"http://{ALLOWED_FIXTURE_HOSTS[0]}",
+                "workspaceId": "acme",
+                "confirm": True,
+                "disableTraffic": True,
+                "background": True,
+            },
+        )
+        try:
+            background_payload = json.loads(
+                background_submission["result"]["content"][0]["text"]
+            )
+            job_id = background_payload["job"]["jobId"]
+        except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
+            raise AssertionError(
+                "crawler.crawl returned an invalid background submission payload"
+            ) from exc
+        if not isinstance(job_id, str) or len(job_id) < 8:
+            raise AssertionError("crawler.crawl returned an unsafe background jobId")
+        wait_for_job(job_id, timeout_seconds=60)
+        captures["crawler_crawl_background_submitted.json"] = background_submission
+        captures["jobs_status_terminal.json"] = _result_tool_call_for_comparison(
+            214,
+            "jobs.status",
+            {"jobId": job_id},
+        )
     return {
         name: stdio_server.json_line(response)
         for name, response in captures.items()
@@ -383,6 +424,26 @@ class LegacyResultContractTests(unittest.TestCase):
             normalized,
             '{"path":"<ROOT>/workspaces/acme","createdAt":"<TS>",'
             '"jobId":"<ROOT>","evidenceIds":["<TS>","<ID:3>"]}',
+        )
+
+    def test_normalizer_replaces_pid_and_run_stamps_after_identifiers(self) -> None:
+        job_id = "job_20260729-161430_crawler-crawl_fixture"
+        response = json.dumps(
+            {
+                "jobId": job_id,
+                "pid": 12345,
+                "resultPath": "/fixture/20260729-161430-result.json",
+                "related": job_id,
+            },
+            separators=(",", ":"),
+        )
+
+        normalized = normalize_result_response(response, self.synapse_root)
+
+        self.assertEqual(
+            normalized,
+            '{"jobId":"<ID:1>","pid":"<PID>",'
+            '"resultPath":"/fixture/<STAMP>-result.json","related":"<ID:1>"}',
         )
 
     def test_normalizer_raises_on_residual_absolute_path(self) -> None:
@@ -482,6 +543,71 @@ class LegacyResultContractTests(unittest.TestCase):
                 response_text,
                 self.synapse_root,
             )
+
+    def test_background_submission_matches_fixture(self) -> None:
+        captures = _result_contracts_for_comparison()
+
+        assert_result_response_matches_fixture(
+            "crawler_crawl_background_submitted.json",
+            captures["crawler_crawl_background_submitted.json"],
+            self.synapse_root,
+        )
+
+    def test_jobs_status_terminal_matches_fixture(self) -> None:
+        captures = _result_contracts_for_comparison()
+
+        assert_result_response_matches_fixture(
+            "jobs_status_terminal.json",
+            captures["jobs_status_terminal.json"],
+            self.synapse_root,
+        )
+
+    def test_jobs_status_include_result_shape_is_asserted_not_frozen(self) -> None:
+        captures = _result_contracts_for_comparison()
+        submission_response = json.loads(
+            captures["crawler_crawl_background_submitted.json"]
+        )
+        submission = json.loads(
+            submission_response["result"]["content"][0]["text"]
+        )
+        terminal_response = json.loads(captures["jobs_status_terminal.json"])
+        terminal = json.loads(terminal_response["result"]["content"][0]["text"])
+        included_response = _result_tool_call_for_comparison(
+            215,
+            "jobs.status",
+            {
+                "jobId": submission["job"]["jobId"],
+                "includeResult": True,
+            },
+        )
+        included = json.loads(included_response["result"]["content"][0]["text"])
+
+        self.assertNotIn("result", terminal)
+        self.assertIn("result", included)
+        command = included["run"]["command"]
+        self.assertIsInstance(command, list)
+        self.assertTrue(command)
+        self.assertIsInstance(command[0], str)
+        # The interpreter path here makes the full includeResult envelope unfreezable.
+        self.assertTrue(command[0])
+        self.assertEqual(included["result"]["summary"], terminal["resultSummary"])
+
+    def test_live_background_fields_have_expected_types(self) -> None:
+        captures = _result_contracts_for_comparison()
+        submission_response = json.loads(
+            captures["crawler_crawl_background_submitted.json"]
+        )
+        submission = json.loads(
+            submission_response["result"]["content"][0]["text"]
+        )
+        terminal_response = json.loads(captures["jobs_status_terminal.json"])
+        terminal = json.loads(terminal_response["result"]["content"][0]["text"])
+        job_id = submission["job"]["jobId"]
+
+        self.assertIsInstance(terminal["pid"], int)
+        self.assertIsInstance(job_id, str)
+        self.assertGreaterEqual(len(job_id), 8)
+        self.assertEqual(terminal["jobId"], job_id)
 
     def test_result_output_is_identical_across_two_distinct_synapse_roots(self) -> None:
         normalized_captures = []

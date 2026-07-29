@@ -1,3 +1,10 @@
+"""Shared helpers for the frozen legacy MCP contracts.
+
+Tier-2 responses are normalized by exactly five ordered rules: the Synapse
+root, ISO-8601 UTC timestamps, generated identifiers, PID values, and compact
+run stamps. The residual-absolute-path check remains a final guard.
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -6,12 +13,14 @@ import json
 import os
 from pathlib import Path
 import re
+import time
 from typing import Any
 from unittest.mock import patch
 
 import httpx
 
 from http_stub import stub_httpx
+from helpers import wait_for_job
 from synapse_mcp.transport import stdio_server
 
 
@@ -37,6 +46,8 @@ RESULT_FIXTURE_NAMES = (
     "shodan_internetdb.json",
     "crawler_crawl_unconfirmed.json",
     "crawler_crawl_out_of_scope.json",
+    "crawler_crawl_background_submitted.json",
+    "jobs_status_terminal.json",
 )
 PATH_BEARING_RESULT_FIXTURES = (
     "workspace_summary.json",
@@ -45,6 +56,8 @@ PATH_BEARING_RESULT_FIXTURES = (
     "cors_execute_test_disabled_traffic.json",
     "cache_inspect_scope_data.json",
     "cache_clean_out_of_scope.json",
+    "crawler_crawl_background_submitted.json",
+    "jobs_status_terminal.json",
 )
 CANARY_VALUES = (
     "CANARY-SECRET-a1b2c3",
@@ -77,6 +90,8 @@ IDENTIFIER_KEYS = frozenset(
 TIMESTAMP_PATTERN = re.compile(
     r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z"
 )
+PID_PATTERN = re.compile(r'"pid":\s*(?:\d+|null)')
+RUN_STAMP_PATTERN = re.compile(r"\d{8}-\d{6}")
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 ENVIRONMENT_PATH_VALUES = (
     "/home/",
@@ -292,6 +307,16 @@ def _identifier_values_in_document_order(value: Any) -> list[str]:
     return identifiers
 
 
+def _replace_pid_values(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _replace_pid_values(nested) for key, nested in value.items()}
+    if isinstance(value, list):
+        return [_replace_pid_values(nested) for nested in value]
+    if isinstance(value, str):
+        return PID_PATTERN.sub('"pid":"<PID>"', value)
+    return value
+
+
 def normalize_result_response(response_text: str, synapse_root: str | Path) -> str:
     parsed = json.loads(response_text)
     normalized = response_text.replace(str(synapse_root), "<ROOT>")
@@ -303,6 +328,15 @@ def normalize_result_response(response_text: str, synapse_root: str | Path) -> s
             identifier_map[identifier] = f"<ID:{len(identifier_map) + 1}>"
     for identifier in sorted(identifier_map, key=len, reverse=True):
         normalized = normalized.replace(identifier, identifier_map[identifier])
+
+    normalized = PID_PATTERN.sub('"pid":"<PID>"', normalized)
+    # Tool payloads are serialized JSON strings inside the MCP envelope, so the
+    # same key-anchored rule must also run within parsed string values.
+    normalized = json.dumps(
+        _replace_pid_values(json.loads(normalized)),
+        separators=(",", ":"),
+    )
+    normalized = RUN_STAMP_PATTERN.sub("<STAMP>", normalized)
 
     residual = [value for value in environment_path_values() if value in normalized]
     if residual:
@@ -408,6 +442,37 @@ def _parse_error_for_regeneration() -> dict[str, Any]:
 
 
 def _error_contracts_for_regeneration() -> dict[str, dict[str, Any]]:
+    real_call_tool = stdio_server.call_tool
+
+    def delayed_call_tool(name: str, arguments: dict[str, Any]) -> str:
+        if name == "workspace.summary":
+            time.sleep(0.05)
+        return real_call_tool(name, arguments)
+
+    with patch.object(
+        stdio_server,
+        "_tool_deadline_seconds",
+        return_value=0.001,
+    ), patch.object(
+        stdio_server,
+        "call_tool",
+        side_effect=delayed_call_tool,
+    ):
+        tool_timeout = _require_response(
+            stdio_server.handle(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 11,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "workspace.summary",
+                        "arguments": {"workspaceId": "acme"},
+                    },
+                }
+            ),
+            "tools/call timeout",
+        )
+
     return {
         "parse_error": _parse_error_for_regeneration(),
         "unsupported_method": _require_response(
@@ -467,6 +532,7 @@ def _error_contracts_for_regeneration() -> dict[str, dict[str, Any]]:
             ),
             "tools/call unknown background job",
         ),
+        "tool_timeout": tool_timeout,
     }
 
 
@@ -730,6 +796,43 @@ def _result_contracts_for_regeneration() -> dict[str, str]:
             expect_error=True,
         )
     )
+    background_root = Path(os.environ["SYNAPSE_ROOT"])
+    background_environment = {
+        "SYNAPSE_DATA_DIR": str(background_root),
+        "SYNAPSE_DUMP_DIR": str(background_root / "workspaces"),
+        "SYNAPSE_REPORTS_DIR": str(background_root / "reports"),
+        "SYNAPSE_PROMPT_PATH": str(background_root / "AGENTS.md"),
+    }
+    with patch.dict(os.environ, background_environment, clear=False):
+        background_submission = _result_tool_call_for_regeneration(
+            213,
+            "crawler.crawl",
+            {
+                "target": f"http://{ALLOWED_FIXTURE_HOSTS[0]}",
+                "workspaceId": "acme",
+                "confirm": True,
+                "disableTraffic": True,
+                "background": True,
+            },
+        )
+        try:
+            background_payload = json.loads(
+                background_submission["result"]["content"][0]["text"]
+            )
+            job_id = background_payload["job"]["jobId"]
+        except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
+            raise AssertionError(
+                "crawler.crawl returned an invalid background submission payload"
+            ) from exc
+        if not isinstance(job_id, str) or len(job_id) < 8:
+            raise AssertionError("crawler.crawl returned an unsafe background jobId")
+        wait_for_job(job_id, timeout_seconds=60)
+        captures["crawler_crawl_background_submitted.json"] = background_submission
+        captures["jobs_status_terminal.json"] = _result_tool_call_for_regeneration(
+            214,
+            "jobs.status",
+            {"jobId": job_id},
+        )
     return {
         name: stdio_server.json_line(response)
         for name, response in captures.items()
@@ -742,7 +845,10 @@ def regenerate_result_contract_fixtures(synapse_root: str | Path) -> None:
     captures = _result_contracts_for_regeneration()
     normalized: dict[str, str] = {}
     for name, response_text in captures.items():
-        fixture_text = normalize_result_response(response_text, synapse_root)
+        try:
+            fixture_text = normalize_result_response(response_text, synapse_root)
+        except AssertionError as exc:
+            raise AssertionError(f"{name}: {exc}") from exc
         leaked_canaries = [canary for canary in CANARY_VALUES if canary in fixture_text]
         if leaked_canaries:
             raise AssertionError(

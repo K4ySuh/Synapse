@@ -20,6 +20,7 @@ import json
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
+import time
 import unittest
 from unittest.mock import patch
 
@@ -29,6 +30,7 @@ from contract_support import (
     assert_tools_list_matches_fixture,
     compact_json_bytes,
     environment_path_values,
+    fixture_bytes,
     regenerate_contract_fixtures,
 )
 from helpers import isolated_state
@@ -55,6 +57,37 @@ def _parse_error_for_comparison() -> dict:
 
 
 def _error_contracts_for_comparison() -> dict[str, dict]:
+    real_call_tool = stdio_server.call_tool
+
+    def delayed_call_tool(name: str, arguments: dict) -> str:
+        if name == "workspace.summary":
+            time.sleep(0.05)
+        return real_call_tool(name, arguments)
+
+    with patch.object(
+        stdio_server,
+        "_tool_deadline_seconds",
+        return_value=0.001,
+    ), patch.object(
+        stdio_server,
+        "call_tool",
+        side_effect=delayed_call_tool,
+    ):
+        tool_timeout = _require_response(
+            stdio_server.handle(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 11,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "workspace.summary",
+                        "arguments": {"workspaceId": "acme"},
+                    },
+                }
+            ),
+            "tools/call timeout",
+        )
+
     return {
         "parse_error": _parse_error_for_comparison(),
         "unsupported_method": _require_response(
@@ -114,6 +147,7 @@ def _error_contracts_for_comparison() -> dict[str, dict]:
             ),
             "tools/call unknown background job",
         ),
+        "tool_timeout": tool_timeout,
     }
 
 
@@ -219,6 +253,12 @@ class LegacyContractTests(unittest.TestCase):
         self.assertEqual(error["code"], -32000)
         self.assertIsInstance(error["message"], str)
         self.assertTrue(error["message"])
+
+    def test_tool_timeout_envelope_matches_fixture(self) -> None:
+        actual = _error_contracts_for_comparison()["tool_timeout"]
+        expected = json.loads(fixture_bytes("errors.json"))["tool_timeout"]
+
+        self.assertEqual(compact_json_bytes(actual), compact_json_bytes(expected))
 
     def test_contract_output_is_identical_across_two_distinct_synapse_roots(self) -> None:
         captures = []
