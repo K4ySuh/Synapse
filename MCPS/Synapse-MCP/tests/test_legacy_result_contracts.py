@@ -49,7 +49,8 @@ from synapse_mcp.transport import stdio_server
 
 
 FORBIDDEN_PUBLIC_HOST_PATTERN = re.compile(
-    r"(?i)\b(?:[a-z0-9-]+\.)+(?:com|net|org|io)\b"
+    r"(?i)\b(?:[a-z0-9-]+\.)+"
+    r"(?:com|net|org|io|dev|app|cloud|ai|co|edu|gov|uk|ie)\b"
 )
 RESIDUAL_GENERATED_IDENTIFIER_PATTERN = re.compile(
     r"(?:"
@@ -678,6 +679,8 @@ class LegacyResultContractTests(unittest.TestCase):
 
         self.assertIn("error", approval)
         self.assertIn("error", out_of_scope)
+        self.assertEqual(approval["error"]["code"], -32001)
+        self.assertEqual(out_of_scope["error"]["code"], -32002)
         self.assertIn("confirm=true", approval["error"]["message"])
 
     def test_third_party_fixture_uses_no_real_network(self) -> None:

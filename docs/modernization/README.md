@@ -8,6 +8,7 @@ compatibility evidence build on that immutable reference.
 ## Baseline
 
 - [Reproducible baseline](baseline.md)
+- [Phase 0 handoff](phase-0-handoff.md)
 
 ## Architecture decisions
 

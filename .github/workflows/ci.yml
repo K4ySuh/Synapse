@@ -23,7 +23,8 @@ jobs:
 
     steps:
       # Follow-up: replacing major action tags with commit SHAs requires a
-      # separate operator supply-chain decision.
+      # separate operator supply-chain decision. actions/setup-python@v4 is one
+      # major behind v5 and should be reviewed in that same decision.
       - name: Check out repository
         uses: actions/checkout@v4
 

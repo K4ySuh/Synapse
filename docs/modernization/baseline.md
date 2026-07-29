@@ -68,12 +68,15 @@ contract and benchmark tests do not rewrite the baseline.
 | P0-2b `9a8d6c5` | 395 | 2 |
 | P0-3 `fc15cff` | 404 | 2 |
 | P0-4 `52a200a` | 407 | 2 |
-| P0-5 | 408 | 2 |
+| P0-5 `633e656` | 408 | 2 |
+| P0-extra-1 `fe4b61a` | 414 | 2 |
+| P0-extra-2 (this change) | 414 | 2 |
 
 ## Contract fixtures
 
-Phase 0 commits 5 protocol fixtures (Tier 1) and 12 normalized result fixtures
-(Tier 2), for 17 contract fixtures in total.
+Phase 0 commits 5 protocol fixtures (Tier 1) and 14 normalized result fixtures
+(Tier 2), for 19 contract fixtures in total. The Tier-1 `errors.json` fixture
+contains seven frozen cases, including the `-32003` tool-timeout envelope.
 
 ## Error-code taxonomy
 
@@ -192,9 +195,9 @@ PY
 
 ```bash
 baseline_commit=099ba1aec4873b3ac08ffbecd82a45c06753880f
-git ls-tree -r --name-only "$baseline_commit" | rg '\.py$' | wc -l
+git ls-tree -r --name-only "$baseline_commit" | grep '\.py$' | wc -l
 git ls-tree -r --name-only "$baseline_commit" |
-  rg '\.py$' |
+  grep '\.py$' |
   while IFS= read -r source_file; do
     git show "${baseline_commit}:${source_file}"
   done |
@@ -223,18 +226,21 @@ done
 ### Contract fixtures
 
 ```bash
-rg --files MCPS/Synapse-MCP/tests/fixtures/legacy_contracts |
-  rg -v '/results/' |
+find MCPS/Synapse-MCP/tests/fixtures/legacy_contracts -type f |
+  grep -v '/results/' |
   wc -l
-rg --files MCPS/Synapse-MCP/tests/fixtures/legacy_contracts/results | wc -l
+find MCPS/Synapse-MCP/tests/fixtures/legacy_contracts/results -type f | wc -l
 ```
 
 ### Error-code taxonomy
 
 ```bash
-rg -o 'McpError\(-32000' MCPS/Synapse-MCP/synapse_mcp -g '*.py' | wc -l
-rg -o 'McpError\(-32001' MCPS/Synapse-MCP/synapse_mcp -g '*.py' | wc -l
-rg -o 'McpError\(-32002' MCPS/Synapse-MCP/synapse_mcp -g '*.py' | wc -l
+find MCPS/Synapse-MCP/synapse_mcp -name '*.py' -type f \
+  -exec grep -ho 'McpError(-32000' {} + | wc -l
+find MCPS/Synapse-MCP/synapse_mcp -name '*.py' -type f \
+  -exec grep -ho 'McpError(-32001' {} + | wc -l
+find MCPS/Synapse-MCP/synapse_mcp -name '*.py' -type f \
+  -exec grep -ho 'McpError(-32002' {} + | wc -l
 ```
 
 ### Context budget and benchmark corpus

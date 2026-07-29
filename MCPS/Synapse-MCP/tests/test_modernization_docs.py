@@ -48,6 +48,17 @@ def _baseline_integer(label: str, text: str) -> int:
     return int(match.group(1).replace(",", ""))
 
 
+def _baseline_string(label: str, text: str) -> str:
+    match = re.search(
+        rf"^\|\s*{re.escape(label)}\s*\|\s*`([^`]+)`\s*\|$",
+        text,
+        flags=re.MULTILINE,
+    )
+    if match is None:
+        raise AssertionError(f"Could not parse baseline metric {label!r}")
+    return match.group(1)
+
+
 class ModernizationDocumentationTests(unittest.TestCase):
     def test_baseline_metrics_match_runtime(self) -> None:
         baseline = BASELINE_PATH.read_text(encoding="utf-8")
@@ -56,10 +67,15 @@ class ModernizationDocumentationTests(unittest.TestCase):
         compact_bytes = len(
             json.dumps(tools, separators=(",", ":")).encode()
         )
+        pretty_bytes = len(json.dumps(tools, indent=2).encode())
         confirm_tools = sum(
             "confirm" in tool.get("inputSchema", {}).get("properties", {})
             for tool in tools
         )
+        namespaces = len({name.split(".", 1)[0] for name in names})
+        output_schemas = sum("outputSchema" in tool for tool in tools)
+        annotations = sum("annotations" in tool for tool in tools)
+        titles = sum("title" in tool for tool in tools)
 
         self.assertEqual(_baseline_integer("Tools", baseline), len(tools))
         self.assertEqual(
@@ -71,8 +87,23 @@ class ModernizationDocumentationTests(unittest.TestCase):
             compact_bytes,
         )
         self.assertEqual(
+            _baseline_integer("Pretty schema bytes", baseline),
+            pretty_bytes,
+        )
+        self.assertEqual(
             _baseline_integer("Tools with `confirm`", baseline),
             confirm_tools,
+        )
+        self.assertEqual(_baseline_integer("Namespaces", baseline), namespaces)
+        self.assertEqual(
+            _baseline_integer("Output schemas", baseline),
+            output_schemas,
+        )
+        self.assertEqual(_baseline_integer("Annotations", baseline), annotations)
+        self.assertEqual(_baseline_integer("Titles", baseline), titles)
+        self.assertEqual(
+            _baseline_string("Advertised protocol", baseline),
+            stdio_server.PROTOCOL_VERSION,
         )
 
     def test_ci_matrix_covers_the_declared_requires_python(self) -> None:

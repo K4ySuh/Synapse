@@ -59,11 +59,9 @@ PATH_BEARING_RESULT_FIXTURES = (
     "crawler_crawl_background_submitted.json",
     "jobs_status_terminal.json",
 )
-CANARY_VALUES = (
-    "CANARY-SECRET-a1b2c3",
-    "CANARY-TOKEN-d4e5f6",
-    "CANARY-PASSWORD-g7h8i9",
-)
+# This tuple must contain exactly the values seeded into the fixture-generation
+# scenario; nothing may be added unless it is actually planted there.
+CANARY_VALUES = ("CANARY-SECRET-a1b2c3",)
 ALLOWED_FIXTURE_HOSTS = (
     "app.acme-demo.test",
     "127.0.0.1",
