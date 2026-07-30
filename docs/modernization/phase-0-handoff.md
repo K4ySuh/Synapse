@@ -5,8 +5,8 @@
 - Phase: 0 — freeze and baseline
 - Branch: `modernization/phase-0-baseline`
 - Baseline commit: `099ba1aec4873b3ac08ffbecd82a45c06753880f`
-- Head commit: `HEAD` (the P0-extra-2 handoff commit)
-- Commit range: `099ba1a..HEAD`
+- Head commit: `72b7205` (the P0-extra-2 handoff commit)
+- Commit range: `099ba1a..72b7205` (8 commits)
 - Implementer/model: OpenAI Codex
 - Date: 2026-07-29
 
@@ -38,8 +38,10 @@ prove compatibility against evidence rather than assumption.
 - No production code under `synapse_mcp/` changed.
 - No public tool name, schema, protocol version, authority behavior, storage
   format, dependency range, or runtime default changed.
-- Across the full range, exactly one file that existed at the baseline was
-  modified: `docs/README.md`, by one added pointer line.
+- Across the phase-output range, exactly one file that existed at the baseline
+  was modified: `docs/README.md`, by one added pointer line. One post-handoff
+  hygiene commit follows `72b7205` on this branch; it touches `.gitignore` and
+  this document only, and changes no production code.
 - No tag, push, release, migration, or CI execution was performed.
 
 ## Architecture decisions
@@ -136,9 +138,10 @@ prove compatibility against evidence rather than assumption.
 
 ## Worktree status
 
-After the handoff commit, tracked files are clean. The untracked
-`Modernization/` planning and review pack remains the expected local source
-material and is not part of the committed phase output.
+After the handoff commit, tracked files are clean. The `Modernization/`
+planning and review pack remains the expected local source material and is not
+part of the committed phase output; it is now gitignored so that its private
+findings cannot be committed by an accidental broad `git add`.
 
 ## Recommended gate
 
