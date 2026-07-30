@@ -5,6 +5,14 @@
 - Owners: Synapse architectural lead
 - Applies from: Phase 1
 - Supersedes: None
+- Amended: 2026-07-30, during the Phase 1 Stage A design checkpoint. Two changes:
+  the Decision gained the `InputContractDocument` single-source rule, and the
+  invariant "An executor cannot bypass policy evaluation" was restated as a
+  routing requirement through `ActionRegistry.execute()` with an explicit Phase 1
+  compatibility pass-through. Rationale and the amendment record are in
+  `../contract-changes.md`; the design that motivated it is `../phase-1-stage-a.md`
+  and ADR-0007. **An Accepted ADR is a binding standard; amending one requires
+  the operator's sign-off, recorded in the ledger — not a silent edit.**
 
 ## Context
 
@@ -24,12 +32,21 @@ contracts.
 
 Extract use-case services that accept typed commands and return typed results, with exactly one authoritative `ActionDescriptor` per action. MCP becomes one protocol adapter over those services. Protocol schemas, annotations, discovery results, and dispatch wiring are generated or projected from the descriptor rather than hand-maintained.
 
+For legacy byte equality, the descriptor's `input_model` is generated from one
+typed `InputContractDocument` retained on the model class. The transport projects
+that document; it does not keep a second schema literal. The transport map owns
+only the legacy public name and serializer/argument-adapter choice.
+
 ## Invariants
 
 - Application services must not import MCP request, result, context, or content classes; an architecture test enforces this.
 - Duplicate action IDs or inconsistent descriptors fail at registration.
 - Risk, side-effect class, scope, credentials, idempotency, and task behaviour are descriptor data, never inferred from a tool name at dispatch time.
-- An executor cannot bypass policy evaluation.
+- Protocol adapters cannot invoke descriptor executors directly:
+  `ActionRegistry.execute()` evaluates policy before invocation. In Phase 1 the
+  evaluator is an explicit compatibility pass-through and the wrapped legacy
+  implementation retains its existing confirm/scope/credential gates; durable
+  authority enforcement begins only after ADR-0003 is accepted.
 - Phase 1 changes no public tool name, protocol version, authority behaviour, or storage. The Tier-1 and Tier-2 contract fixtures are the proof.
 
 ## Alternatives considered
@@ -67,7 +84,8 @@ Extract use-case services that accept typed commands and return typed results, w
 - Operational: Registration failures become startup/test failures rather than
   runtime surprises.
 - Security: Policy-relevant attributes become explicit data and executors must
-  pass through policy evaluation.
+  be reached through policy evaluation. Phase 1 does not claim the declared
+  metadata is already enforced.
 - Compatibility: The legacy profile remains byte-checked against the Phase 0
   fixtures.
 
@@ -85,7 +103,9 @@ public names.
 - Add architecture tests preventing MCP-type imports in application services.
 - Fail registration on duplicate IDs and inconsistent descriptors.
 - Assert projected schema, metadata, and dispatch all resolve from the same
-  descriptor.
+  descriptor/input contract, with no transport-owned schema duplicate.
+- Assert protocol projection calls `ActionRegistry.execute()` rather than the
+  executor field.
 - Run all Tier-1 and Tier-2 fixtures and the P0-3 corpus after every migrated
   action.
 - Confirm Phase 1 changes no protocol version, authority behavior, or storage.

@@ -32,6 +32,7 @@ FIXTURE_NAMES = (
     "resources_list.json",
     "prompts_list.json",
     "errors.json",
+    "confirm_omission.json",
 )
 RESULT_FIXTURE_NAMES = (
     "workspace_summary.json",
@@ -41,6 +42,7 @@ RESULT_FIXTURE_NAMES = (
     "credentials_list.json",
     "headers_cookies_analyze_workspace.json",
     "cors_execute_test_disabled_traffic.json",
+    "cors_execute_test_unconfirmed.json",
     "cache_inspect_scope_data.json",
     "cache_clean_out_of_scope.json",
     "shodan_internetdb.json",
@@ -134,6 +136,53 @@ def environment_path_values() -> tuple[str, ...]:
 
 def compact_json_bytes(value: Any) -> bytes:
     return json.dumps(value, separators=(",", ":")).encode()
+
+
+def capture_confirm_omission_contract() -> dict[str, Any]:
+    """Replay the pinned omission cases without assuming every case is an error."""
+
+    plan = json.loads(fixture_bytes("confirm_omission.json"))
+    cases = plan.get("tools")
+    if not isinstance(cases, list):
+        raise AssertionError("confirm_omission.json must contain a tools list")
+
+    captured: list[dict[str, Any]] = []
+    for request_id, case in enumerate(cases, start=1000):
+        if not isinstance(case, dict):
+            raise AssertionError("confirm_omission.json contains a non-object case")
+        name = case.get("name")
+        arguments = case.get("arguments")
+        if not isinstance(name, str) or not isinstance(arguments, dict):
+            raise AssertionError(
+                "confirm_omission.json cases require string name and object arguments"
+            )
+        response = stdio_server.handle(
+            {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "method": "tools/call",
+                "params": {"name": name, "arguments": arguments},
+            }
+        )
+        if response is None:
+            raise AssertionError(f"{name} unexpectedly returned no response")
+        if "error" in response:
+            error = response["error"]
+            outcome = {
+                "kind": "error",
+                "code": error.get("code"),
+                "message": error.get("message"),
+            }
+        else:
+            outcome = {"kind": "success"}
+        captured.append(
+            {
+                "name": name,
+                "arguments": arguments,
+                "outcome": outcome,
+            }
+        )
+    return {"tools": captured}
 
 
 def _contract_digest_message(name: str, expected_bytes: bytes, actual_bytes: bytes) -> str:
@@ -443,7 +492,7 @@ def _error_contracts_for_regeneration() -> dict[str, dict[str, Any]]:
     real_call_tool = stdio_server.call_tool
 
     def delayed_call_tool(name: str, arguments: dict[str, Any]) -> str:
-        if name == "workspace.summary":
+        if name in {"workspace.summary", "jobs.status"}:
             time.sleep(0.05)
         return real_call_tool(name, arguments)
 
@@ -469,6 +518,20 @@ def _error_contracts_for_regeneration() -> dict[str, dict[str, Any]]:
                 }
             ),
             "tools/call timeout",
+        )
+        jobs_status_tool_timeout = _require_response(
+            stdio_server.handle(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 12,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "jobs.status",
+                        "arguments": {"jobId": "does-not-exist"},
+                    },
+                }
+            ),
+            "jobs.status timeout",
         )
 
     return {
@@ -531,6 +594,7 @@ def _error_contracts_for_regeneration() -> dict[str, dict[str, Any]]:
             "tools/call unknown background job",
         ),
         "tool_timeout": tool_timeout,
+        "jobs_status_tool_timeout": jobs_status_tool_timeout,
     }
 
 
@@ -555,6 +619,7 @@ def regenerate_contract_fixtures() -> None:
             "prompts/list",
         ),
         "errors.json": _error_contracts_for_regeneration(),
+        "confirm_omission.json": capture_confirm_omission_contract(),
     }
 
     FIXTURE_DIR.mkdir(parents=True, exist_ok=True)
@@ -728,6 +793,19 @@ def _result_contracts_for_regeneration() -> dict[str, str]:
                 "disableTraffic": True,
                 "confirm": True,
             },
+        )
+    )
+    captures["cors_execute_test_unconfirmed.json"] = (
+        _result_tool_call_for_regeneration(
+            216,
+            "cors.execute_test",
+            {
+                "workspaceId": "acme",
+                "url": f"http://{ALLOWED_FIXTURE_HOSTS[0]}/api",
+                "method": "GET",
+                "disableTraffic": True,
+            },
+            expect_error=True,
         )
     )
     captures["cache_inspect_scope_data.json"] = (

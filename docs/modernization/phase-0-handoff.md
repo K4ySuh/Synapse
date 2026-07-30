@@ -5,8 +5,8 @@
 - Phase: 0 — freeze and baseline
 - Branch: `modernization/phase-0-baseline`
 - Baseline commit: `099ba1aec4873b3ac08ffbecd82a45c06753880f`
-- Head commit: `72b7205` (the P0-extra-2 handoff commit)
-- Commit range: `099ba1a..72b7205` (8 commits)
+- Head commit: `4bcba55` (post-handoff hygiene/backfill)
+- Commit range: `099ba1a..4bcba55` (9 commits)
 - Implementer/model: OpenAI Codex
 - Date: 2026-07-29
 
@@ -42,7 +42,9 @@ prove compatibility against evidence rather than assumption.
   was modified: `docs/README.md`, by one added pointer line. One post-handoff
   hygiene commit follows `72b7205` on this branch; it touches `.gitignore` and
   this document only, and changes no production code.
-- No tag, push, release, migration, or CI execution was performed.
+- No tag, release, migration, or production deployment was performed. The Phase
+  0 head now exists on `origin/Beta`; no successful remote Python-matrix run is
+  cited by this handoff.
 
 ## Architecture decisions
 
@@ -117,8 +119,14 @@ prove compatibility against evidence rather than assumption.
 
 ## Known limitations
 
-- The CI matrix has never executed. The branch is unpushed, and the
-  `requires-python = ">=3.10"` claim remains unverified below Python 3.13.
+- The Phase 0 head is present on `origin/Beta`, closing the earlier unpushed
+  condition (M-2). The operator confirmed on 2026-07-30 that the four-version
+  matrix (3.10–3.13) ran green on this head, which is the basis for treating the
+  `requires-python = ">=3.10"` floor as exercised rather than asserted.
+  **Run reference: _to be backfilled_** — until a workflow run URL or ID is
+  recorded here, the evidence for that claim exists only as operator attestation
+  and cannot be re-checked from the repository. Backfill it before this handoff
+  is cited in a gate decision.
 - `jobs.status(includeResult=True)` is shape-asserted rather than frozen because
   its `run` block embeds the environment-specific interpreter path.
 - The generic `-32000` response is shape-asserted rather than frozen because
@@ -148,7 +156,7 @@ findings cannot be committed by an accidental broad `git add`.
 CONDITIONAL
 
 The local compatibility, determinism, documentation, and benchmark evidence is
-green, and Phase 0 changed no production behavior. The operator should push the
-branch, require the full Python matrix to pass, and obtain independent
-adversarial review before the Phase 0 gate is promoted to PASS or Phase 1
-begins.
+green, and Phase 0 changed no production behavior. The push condition is closed.
+The operator should attach evidence of a successful full Python matrix and
+independent adversarial sign-off before the Phase 0 program gate is promoted to
+PASS or Phase 1 Stage B begins.

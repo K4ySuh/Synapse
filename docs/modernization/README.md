@@ -10,6 +10,12 @@ compatibility evidence build on that immutable reference.
 - [Reproducible baseline](baseline.md)
 - [Phase 0 handoff](phase-0-handoff.md)
 
+## Phase 1
+
+- [Stage A design checkpoint](phase-1-stage-a.md) — revised/proposed; Stage B is
+  gated on its approval and the Phase 0 program gate
+- [Contract-change ledger](contract-changes.md)
+
 ## Architecture decisions
 
 | ADR | Decision | Status |
@@ -20,6 +26,8 @@ compatibility evidence build on that immutable reference.
 | [ADR-0004](adr/ADR-0004-mcp-compatibility-profiles.md) | Legacy and modern MCP compatibility profiles | Proposed |
 | [ADR-0005](adr/ADR-0005-sqlite-artifact-store.md) | SQLite and a content-addressed artifact store | Proposed |
 | [ADR-0006](adr/ADR-0006-context-revisions-budget-behaviour.md) | Context revisions and budget behaviour | Proposed |
+| [ADR-0007](adr/ADR-0007-application-outcome-model-and-error-boundary.md) | Application outcome model and the protocol error boundary | Proposed |
+| [ADR-0008](adr/ADR-0008-action-identity-and-packs.md) | Action identity and pack scheme | Proposed |
 
 ## Cross-cutting pattern
 

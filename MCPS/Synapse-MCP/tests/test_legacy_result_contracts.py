@@ -235,6 +235,19 @@ def _result_contracts_for_comparison() -> dict[str, str]:
             },
         )
     )
+    captures["cors_execute_test_unconfirmed.json"] = (
+        _result_tool_call_for_comparison(
+            216,
+            "cors.execute_test",
+            {
+                "workspaceId": "acme",
+                "url": f"http://{ALLOWED_FIXTURE_HOSTS[0]}/api",
+                "method": "GET",
+                "disableTraffic": True,
+            },
+            expect_error=True,
+        )
+    )
     captures["cache_inspect_scope_data.json"] = _result_tool_call_for_comparison(
         208,
         "cache.inspect_scope_data",
@@ -676,12 +689,20 @@ class LegacyResultContractTests(unittest.TestCase):
                 encoding="utf-8"
             )
         )
+        cors_approval = json.loads(
+            result_fixture_path("cors_execute_test_unconfirmed.json").read_text(
+                encoding="utf-8"
+            )
+        )
 
         self.assertIn("error", approval)
         self.assertIn("error", out_of_scope)
+        self.assertIn("error", cors_approval)
         self.assertEqual(approval["error"]["code"], -32001)
         self.assertEqual(out_of_scope["error"]["code"], -32002)
+        self.assertEqual(cors_approval["error"]["code"], -32001)
         self.assertIn("confirm=true", approval["error"]["message"])
+        self.assertIn("confirm=true", cors_approval["error"]["message"])
 
     def test_third_party_fixture_uses_no_real_network(self) -> None:
         real_client = httpx.Client
