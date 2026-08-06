@@ -32,6 +32,8 @@ from .policies import (
     SideEffectClass,
     TaskPolicy,
 )
+from .registry import ActionRegistry, PassThroughPolicyEvaluator, PolicyEvaluator, REGISTRY
+from . import packs as _packs
 
 __all__ = [
     "ActionDescriptor",
@@ -41,6 +43,7 @@ __all__ = [
     "ActionOutcome",
     "ActionOutput",
     "ActionRequest",
+    "ActionRegistry",
     "ApprovalRequired",
     "Availability",
     "CredentialAccess",
@@ -55,6 +58,9 @@ __all__ = [
     "IdempotencyPolicy",
     "InputContractDocument",
     "PolicyDenial",
+    "PolicyEvaluator",
+    "PassThroughPolicyEvaluator",
+    "REGISTRY",
     "RiskClass",
     "ScopePolicy",
     "ScopeRequirement",
