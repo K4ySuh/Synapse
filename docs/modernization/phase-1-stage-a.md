@@ -1,15 +1,12 @@
 # Phase 1 Stage A — Application Core and Typed Action Registry: design checkpoint
 
 - Phase: 1, Stage A (design only — no production code)
-- Precondition: Phase 0 local compatibility evidence **PASS**; the program gate
-  remains **CONDITIONAL** until the remote Python 3.10–3.13 matrix and external
-  sign-off are evidenced in the Phase 0 handoff
+- Precondition: Phase 0 local compatibility evidence and program gate **PASS**
 - Baseline for this design: `4bcba55`
 - Governing ADR: `ADR-0002-typed-core-action-registry.md` (Accepted)
 - New ADRs justified here: `ADR-0007` (outcome model and error boundary), `ADR-0008` (action identity)
 - Author: architectural lead
-- Status: **revised after independent review — awaiting checkpoint approval.
-  Stage B requires both this approval and the Phase 0 program gate.**
+- Status: **approved by Javier Roldán Ortiz on 2026-08-06; Stage B cleared.**
 
 Every measurement below was derived from the live `TOOL_SCHEMAS` and the dispatch
 body at `4bcba55`, not from prior documents. Reproduction commands are in §10.

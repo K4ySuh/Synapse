@@ -122,11 +122,10 @@ prove compatibility against evidence rather than assumption.
 - The Phase 0 head is present on `origin/Beta`, closing the earlier unpushed
   condition (M-2). The operator confirmed on 2026-07-30 that the four-version
   matrix (3.10–3.13) ran green on this head, which is the basis for treating the
-  `requires-python = ">=3.10"` floor as exercised rather than asserted.
-  **Run reference: _to be backfilled_** — until a workflow run URL or ID is
-  recorded here, the evidence for that claim exists only as operator attestation
-  and cannot be re-checked from the repository. Backfill it before this handoff
-  is cited in a gate decision.
+  `requires-python = ">=3.10"` floor as exercised rather than asserted. The
+  evidence of record is Javier Roldán Ortiz's local full-matrix attestation dated
+  2026-07-30. No remote CI run URL exists or is expected because remote CI is
+  deliberately deferred for this project.
 - `jobs.status(includeResult=True)` is shape-asserted rather than frozen because
   its `run` block embeds the environment-specific interpreter path.
 - The generic `-32000` response is shape-asserted rather than frozen because
@@ -153,10 +152,10 @@ findings cannot be committed by an accidental broad `git add`.
 
 ## Recommended gate
 
-CONDITIONAL
+PASS
 
 The local compatibility, determinism, documentation, and benchmark evidence is
-green, and Phase 0 changed no production behavior. The push condition is closed.
-The operator should attach evidence of a successful full Python matrix and
-independent adversarial sign-off before the Phase 0 program gate is promoted to
-PASS or Phase 1 Stage B begins.
+green, and Phase 0 changed no production behavior. The gate is promoted on that
+record, Javier Roldán Ortiz's Python 3.10–3.13 full-matrix attestation, and his
+checkpoint sign-off on 2026-08-06. Remote CI evidence is explicitly out of scope
+by operator decision.

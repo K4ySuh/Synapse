@@ -12,8 +12,8 @@ compatibility evidence build on that immutable reference.
 
 ## Phase 1
 
-- [Stage A design checkpoint](phase-1-stage-a.md) — revised/proposed; Stage B is
-  gated on its approval and the Phase 0 program gate
+- [Stage A design checkpoint](phase-1-stage-a.md) — approved; the Phase 0
+  program gate is PASS and Stage B is cleared
 - [Contract-change ledger](contract-changes.md)
 
 ## Architecture decisions
