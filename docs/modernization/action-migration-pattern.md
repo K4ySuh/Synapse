@@ -77,16 +77,18 @@ same class objects carried by the descriptor. Its call path is:
 2. Invoke the exact callable and argument adaptation recorded in Appendix A,
    including the same positional/keyword arrangement, defaults, and explicit
    `int()` or `bool()` conversions.
-3. Return the raw legacy dict or serialized string in `Success`; do not run an
-   output through `model_dump()` or otherwise reorder it.
+3. Return the raw legacy dict or serialized string through
+   `success_from_legacy_payload()` so `Success.payload_signals_error` truthfully
+   records an error-bearing legacy payload. Do not run an output through
+   `model_dump()` or otherwise reorder it.
 4. Catch only `McpError` and return `outcome_from_mcp_error`, supplying
    `confirm_declared` and the caller's `confirm` value when the frozen schema
    declares confirmation.
 
-The transport projection serializes raw dicts with the frozen `indent=2` shape,
-leaves executor-owned strings verbatim, and computes
-`Success.payload_signals_error` from that serialized form. Application pack
-modules must not import transport helpers to compute the flag; the AST boundary
+The protocol-independent helper computes the legacy payload signal for both raw
+dicts and serialized strings. The transport projection serializes raw dicts with
+the frozen `indent=2` shape and leaves executor-owned strings verbatim.
+Application pack modules must not import transport helpers; the AST boundary
 test enforces that direction.
 
 ## 5. Add the legacy projection row
@@ -102,6 +104,10 @@ explicitly:
 Import the new pack module from `app/actions/packs/__init__.py` so registration
 occurs during application-action discovery. Do not add a public generic action
 execution tool.
+
+Add the action id to `LEGACY_DISPATCH_ACTIONS` while registry dispatch is
+enabled. The projection row remains the durable schema/name/serializer record;
+the dispatch set is the reversible routing switch.
 
 Once the mapping is active, remove only that action's raw transport
 `inputSchema`. Leave its old `_call_tool_impl` branch in place as the reversible
@@ -130,10 +136,11 @@ reviewed contract change recorded in `contract-changes.md`.
 
 ## 7. Roll back one migration
 
-Remove the action's row from `LEGACY_PROJECTION_MAP`. Dispatch then falls through
-to the retained legacy `_call_tool_impl` branch. Restore the raw transport
-`inputSchema` from the unchanged frozen contract when fully reverting the
-single-source move.
+Remove the action id from `LEGACY_DISPATCH_ACTIONS`. Dispatch then falls through
+to the retained legacy `_call_tool_impl` branch while discovery and validation
+continue to resolve the descriptor-owned schema through
+`LEGACY_PROJECTION_MAP`. Do not remove the projection row or restore a duplicate
+raw transport `inputSchema` for a dispatch-only rollback.
 
 Rollback changes no public tool name and requires no storage migration. Run the
 same fixture and full-suite proof after the reversal.

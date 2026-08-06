@@ -21,15 +21,23 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 STAGE_A_PATH = REPOSITORY_ROOT / "docs" / "modernization" / "phase-1-stage-a.md"
 
 
-def _stage_a_recordable_tools() -> set[str]:
-    recordable: set[str] = set()
+def _stage_a_inventory() -> dict[str, list[str]]:
+    inventory: dict[str, list[str]] = {}
     for line in STAGE_A_PATH.read_text(encoding="utf-8").splitlines():
         if not line.startswith("| "):
             continue
         cells = [cell.strip().strip("`") for cell in line.strip().strip("|").split("|")]
-        if len(cells) == 15 and cells[0].isdigit() and cells[12] == "Y":
-            recordable.add(cells[1])
-    return recordable
+        if len(cells) == 15 and cells[0].isdigit():
+            inventory[cells[1]] = cells
+    return inventory
+
+
+def _stage_a_recordable_tools() -> set[str]:
+    return {
+        name
+        for name, cells in _stage_a_inventory().items()
+        if cells[12] == "Y"
+    }
 
 
 def _tool_call(request_id: int, name: str, arguments: dict) -> dict:
@@ -48,17 +56,19 @@ def _tool_call(request_id: int, name: str, arguments: dict) -> dict:
 
 class SliceProjectionContractTests(unittest.TestCase):
     def test_descriptor_deadline_matches_legacy_for_all_tools(self) -> None:
+        inventory = _stage_a_inventory()
+        tier_seconds = {"FAST": 15.0, "STATUS": 30.0, "DEFAULT": 45.0}
         expected_by_name = {
-            tool["name"]: (
-                30.0
-                if tool["name"] == "jobs.status"
-                else 15.0
-                if tool["name"] in stdio_server.FAST_TOOLS
-                else 45.0
-            )
-            for tool in stdio_server.TOOL_SCHEMAS
+            name: tier_seconds[cells[9].split("/", 1)[1]]
+            for name, cells in inventory.items()
         }
+        runtime_names = {tool["name"] for tool in stdio_server.TOOL_SCHEMAS}
         self.assertEqual(len(expected_by_name), 174)
+        self.assertEqual(set(expected_by_name), runtime_names)
+        self.assertEqual(
+            stdio_server.FAST_TOOLS,
+            {name for name, cells in inventory.items() if cells[9].endswith("/FAST")},
+        )
         for name, expected in expected_by_name.items():
             self.assertEqual(stdio_server._tool_deadline_seconds(name, {}), expected)
 

@@ -101,6 +101,22 @@ class ActionRegistryTests(unittest.TestCase):
         registry.register(descriptor)
         self.assert_registration_error_for_registry(registry, descriptor, "stub.read")
 
+    def test_duplicate_input_model_fails_registration(self) -> None:
+        registry = ActionRegistry()
+        first = _descriptor("stub.read")
+        second = _descriptor("other.read")
+        second = replace(
+            second,
+            input_model=first.input_model,
+            executor=StubExecutor(first.input_model, first.output_model),
+        )
+        registry.register(first)
+        with self.assertRaisesRegex(
+            ValueError,
+            r"other\.read: input model is already registered by stub\.read",
+        ):
+            registry.register(second)
+
     def assert_registration_error_for_registry(self, registry, descriptor, action_id) -> None:
         with self.assertRaisesRegex(ValueError, action_id.replace(".", r"\.")):
             registry.register(descriptor)

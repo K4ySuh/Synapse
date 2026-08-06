@@ -13,7 +13,7 @@ from synapse_mcp.core.errors import McpError
 from ..contracts import ActionOutput, InputContractDocument, make_input_model
 from ..descriptor import ActionDescriptor, ActionRequest
 from ..identity import ActionId
-from ..outcomes import Success, outcome_from_mcp_error
+from ..outcomes import outcome_from_mcp_error, success_from_legacy_payload
 from ..policies import (
     Availability,
     CredentialAccess,
@@ -54,7 +54,7 @@ class HeadersCookiesAnalyzeWorkspaceExecutor:
             result = headers_cookies.analyze_workspace(args)
         except McpError as exc:
             return outcome_from_mcp_error(exc)
-        return Success(payload=result)
+        return success_from_legacy_payload(result)
 
 
 HEADERS_COOKIES_ANALYZE_WORKSPACE = ActionDescriptor(

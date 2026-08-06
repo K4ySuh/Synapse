@@ -15,7 +15,9 @@ from .outcomes import (
     Success,
     UnavailableCapability,
     ValidationFailure,
+    legacy_payload_signals_error,
     outcome_from_mcp_error,
+    success_from_legacy_payload,
 )
 from .policies import (
     Availability,
@@ -69,6 +71,8 @@ __all__ = [
     "TaskPolicy",
     "UnavailableCapability",
     "ValidationFailure",
+    "legacy_payload_signals_error",
     "make_input_model",
     "outcome_from_mcp_error",
+    "success_from_legacy_payload",
 ]

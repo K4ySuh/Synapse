@@ -32,3 +32,8 @@ LEGACY_PROJECTION_MAP = {
     "cors.execute_test": LegacyProjection("cors.execute_test", "executor"),
     "crawler.crawl": LegacyProjection("crawler.crawl", "executor"),
 }
+
+# Schema ownership remains stable when one action rolls back to its retained
+# legacy dispatch branch. Remove an id from this set to disable only registry
+# dispatch; do not delete its projection row or descriptor schema.
+LEGACY_DISPATCH_ACTIONS = frozenset(LEGACY_PROJECTION_MAP)

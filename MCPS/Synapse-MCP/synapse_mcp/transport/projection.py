@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 import json
 from typing import Any
 from uuid import uuid4
@@ -19,7 +18,7 @@ from synapse_mcp.app.actions import (
 )
 from synapse_mcp.core.errors import McpError
 
-from .legacy_projection_map import LEGACY_PROJECTION_MAP
+from .legacy_projection_map import LEGACY_DISPATCH_ACTIONS, LEGACY_PROJECTION_MAP
 
 
 def _legacy_tool_schemas() -> list[dict[str, Any]]:
@@ -28,9 +27,11 @@ def _legacy_tool_schemas() -> list[dict[str, Any]]:
     return stdio_server._LEGACY_TOOL_SCHEMAS
 
 
-def _projection_by_legacy_name(name: str):
+def _projection_by_legacy_name(name: str, *, dispatch_only: bool = False):
     for action_id, projection in LEGACY_PROJECTION_MAP.items():
         if projection.legacy_name == name:
+            if dispatch_only and action_id not in LEGACY_DISPATCH_ACTIONS:
+                return None
             return action_id, projection
     return None
 
@@ -38,7 +39,7 @@ def _projection_by_legacy_name(name: str):
 def project_call(name: str, args: dict[str, Any]) -> str | None:
     """Execute a migrated legacy name through the application registry."""
 
-    matched = _projection_by_legacy_name(name)
+    matched = _projection_by_legacy_name(name, dispatch_only=True)
     if matched is None:
         return None
     action_id, legacy = matched
@@ -64,10 +65,6 @@ def project_call(name: str, args: dict[str, Any]) -> str | None:
             if not isinstance(outcome.payload, str):
                 raise TypeError(f"{name} executor must return a serialized string")
             serialized = outcome.payload
-        outcome = replace(
-            outcome,
-            payload_signals_error=stdio_server._tool_result_has_error(serialized),
-        )
         return serialized
     if isinstance(outcome, ExecutionUnknown):
         raise RuntimeError("ExecutionUnknown is produced only by the transport timeout boundary")

@@ -176,11 +176,9 @@ def _is_recordable_passive_analysis_tool(name: str) -> bool:
 
 
 def _tool_result_has_error(result: str) -> bool:
-    try:
-        payload = json.loads(result)
-    except Exception:
-        return False
-    return isinstance(payload, dict) and bool(payload.get("error"))
+    from ..app.actions.outcomes import legacy_payload_signals_error
+
+    return legacy_payload_signals_error(result)
 
 
 def _record_passive_analysis_action(name: str, args: dict[str, Any], result: str) -> None:

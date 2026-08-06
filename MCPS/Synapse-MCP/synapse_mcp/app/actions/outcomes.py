@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import json
 from typing import Any, Generic, Literal, TypeAlias, TypeVar, Union
 
 from synapse_mcp.core.errors import McpError
@@ -73,6 +74,27 @@ ActionOutcome: TypeAlias = Union[
     ExecutionFailure,
     ExecutionUnknown,
 ]
+
+
+def legacy_payload_signals_error(payload: object) -> bool:
+    """Return the legacy error-within-success signal for a raw payload."""
+
+    parsed = payload
+    if isinstance(payload, str):
+        try:
+            parsed = json.loads(payload)
+        except Exception:
+            return False
+    return isinstance(parsed, dict) and bool(parsed.get("error"))
+
+
+def success_from_legacy_payload(payload: T) -> Success[T]:
+    """Build a truthful typed success outcome from an unmodified legacy result."""
+
+    return Success(
+        payload=payload,
+        payload_signals_error=legacy_payload_signals_error(payload),
+    )
 
 
 def outcome_from_mcp_error(

@@ -17,8 +17,10 @@ from synapse_mcp.app.actions import (
     SideEffectClass,
     UnavailableCapability,
     ValidationFailure,
+    legacy_payload_signals_error,
     make_input_model,
     outcome_from_mcp_error,
+    success_from_legacy_payload,
 )
 from synapse_mcp.core.errors import McpError
 
@@ -149,6 +151,17 @@ class ActionContractTests(unittest.TestCase):
         self.assertIsInstance(asserted, UnavailableCapability)
         self.assertEqual(approval.legacy_code, -32001)
         self.assertEqual(unavailable.legacy_code, -32001)
+
+    def test_legacy_success_payload_signal_handles_raw_and_serialized_results(self) -> None:
+        raw = {"error": "legacy payload error"}
+        serialized = json.dumps(raw)
+
+        self.assertTrue(legacy_payload_signals_error(raw))
+        self.assertTrue(legacy_payload_signals_error(serialized))
+        self.assertTrue(success_from_legacy_payload(raw).payload_signals_error)
+        self.assertTrue(success_from_legacy_payload(serialized).payload_signals_error)
+        self.assertFalse(legacy_payload_signals_error({"error": ""}))
+        self.assertFalse(legacy_payload_signals_error("not-json"))
 
     def test_descriptor_has_exactly_the_fourteen_fields(self) -> None:
         self.assertEqual(

@@ -13,7 +13,7 @@ from synapse_mcp.core.errors import McpError
 from ..contracts import ActionOutput, InputContractDocument, make_input_model
 from ..descriptor import ActionDescriptor, ActionRequest
 from ..identity import ActionId
-from ..outcomes import Success, outcome_from_mcp_error
+from ..outcomes import outcome_from_mcp_error, success_from_legacy_payload
 from ..policies import (
     Availability,
     CredentialAccess,
@@ -71,7 +71,7 @@ class WorkspaceSummaryExecutor:
             )
         except McpError as exc:
             return outcome_from_mcp_error(exc)
-        return Success(payload=result)
+        return success_from_legacy_payload(result)
 
 
 class WorkspacePrepareTargetContextExecutor:
@@ -89,7 +89,7 @@ class WorkspacePrepareTargetContextExecutor:
             )
         except McpError as exc:
             return outcome_from_mcp_error(exc)
-        return Success(payload=result)
+        return success_from_legacy_payload(result)
 
 
 WORKSPACE_SUMMARY = ActionDescriptor(

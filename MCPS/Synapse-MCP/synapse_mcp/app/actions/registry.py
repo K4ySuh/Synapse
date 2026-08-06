@@ -65,6 +65,9 @@ class ActionRegistry:
             invalid("descriptor pack does not match action id pack")
         if not _is_action_model(descriptor.input_model, ActionInput):
             invalid("input model must be an ActionInput subclass")
+        for existing in self._descriptors.values():
+            if existing.input_model is descriptor.input_model:
+                invalid(f"input model is already registered by {existing.id}")
         if not _is_action_model(descriptor.output_model, ActionOutput):
             invalid("output model must be an ActionOutput subclass")
         if not callable(descriptor.executor):
