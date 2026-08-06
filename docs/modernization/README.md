@@ -15,6 +15,8 @@ compatibility evidence build on that immutable reference.
 - [Stage A design checkpoint](phase-1-stage-a.md) — approved; the Phase 0
   program gate is PASS and Stage B is cleared
 - [Contract-change ledger](contract-changes.md)
+- [Action migration pattern](action-migration-pattern.md) — contributor guide
+  proven by the six-action vertical slice
 
 ## Architecture decisions
 
