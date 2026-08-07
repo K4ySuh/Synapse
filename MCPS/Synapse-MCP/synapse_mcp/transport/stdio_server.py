@@ -176,11 +176,9 @@ def _is_recordable_passive_analysis_tool(name: str) -> bool:
 
 
 def _tool_result_has_error(result: str) -> bool:
-    try:
-        payload = json.loads(result)
-    except Exception:
-        return False
-    return isinstance(payload, dict) and bool(payload.get("error"))
+    from ..app.actions.outcomes import legacy_payload_signals_error
+
+    return legacy_payload_signals_error(result)
 
 
 def _record_passive_analysis_action(name: str, args: dict[str, Any], result: str) -> None:
@@ -201,7 +199,7 @@ def _record_passive_analysis_action(name: str, args: dict[str, Any], result: str
     )
 
 
-TOOL_SCHEMAS: list[dict[str, Any]] = [
+_LEGACY_TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
         "name": "jobs.list",
         "description": "List recent Synapse background jobs, optionally limited to active jobs.",
@@ -218,11 +216,6 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
         "name": "jobs.status",
         "description": "Return status and final result metadata for a Synapse background job.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {"jobId": {"type": "string"}, "includeResult": {"type": "boolean", "default": False}},
-            "required": ["jobId"],
-        },
     },
     {
         "name": "jobs.cancel",
@@ -688,30 +681,10 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
         "name": "workspace.prepare_target_context",
         "description": "Return compact target context assembled from normalized workspace entities and evidence references.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "workspaceId": {"type": "string"},
-                "target": {"type": "string"},
-                "purpose": {"type": "string", "default": "next_step_planning"},
-                "maxTokens": {"type": "integer", "minimum": 100, "default": 1500},
-            },
-            "required": ["workspaceId", "target"],
-        },
     },
     {
         "name": "workspace.summary",
         "description": "Summarize targets and normalized entity counts for one Synapse workspace.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "workspaceId": {"type": "string"},
-                "cursor": {"type": "string"},
-                "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 50},
-                "includeInventory": {"type": "boolean", "default": False},
-            },
-            "required": ["workspaceId"],
-        },
     },
     {
         "name": "workspace.delete",
@@ -1452,25 +1425,6 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
         "name": "cors.execute_test",
         "description": "Send one bounded CORS Origin probe and apply browser-semantic read/credential verdicts against an in-scope target. Requires confirm=true.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "workspaceId": {"type": "string"},
-                "candidate": {"type": "object", "additionalProperties": True},
-                "candidateId": {"type": "string"},
-                "url": {"type": "string"},
-                "method": {"type": "string", "default": "GET"},
-                "probeOrigin": {"type": "string"},
-                "credentialId": {"type": "string"},
-                "requestTimeout": {"type": "integer", "minimum": 1, "default": 10},
-                **HTTP_POLICY_PROPERTIES,
-                "confirm": {"type": "boolean"},
-                "approvalId": {"type": "string"},
-                "approvalReason": {"type": "string"},
-                "riskTier": {"type": "string"},
-            },
-            "required": ["confirm"],
-        },
     },
     {
         "name": "insecure_deser.capabilities",
@@ -1636,17 +1590,6 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
         "name": "headers_cookies.analyze_workspace",
         "description": "Passively analyze recorded response security headers and cookie flags for hygiene weaknesses. Does not send traffic.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "workspaceId": {"type": "string"},
-                "target": {"type": "string"},
-                "maxCandidates": {"type": "integer", "minimum": 1, "default": 100},
-                "dedupeScope": {"type": "string", "enum": ["host", "endpoint"], "default": "host"},
-                "ingest": {"type": "boolean", "default": True},
-            },
-            "required": ["workspaceId", "target"],
-        },
     },
     {
         "name": "spec_import.import_spec",
@@ -2527,34 +2470,6 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
         "name": "crawler.crawl",
         "description": "Actively crawl one authorized in-scope HTTP(S) target and build a Burp-like site map. Runs as a background job by default. Requires confirm=true.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "target": {"type": "string"},
-                "maxPages": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 200},
-                "maxDepth": {"type": "integer", "minimum": 0, "maximum": 10, "default": 6},
-                "requestTimeout": {"type": "integer", "minimum": 1, "maximum": 60, "default": 15},
-                "delayMillis": {"type": "integer", "minimum": 0, "maximum": 10000, "default": 0},
-                "userAgent": {"type": "string", "default": "SynapseCrawler/0.1"},
-                "credentialId": {"type": "string"},
-                "workspaceId": {"type": "string"},
-                "includeStatic": {"type": "boolean", "default": False},
-                "includeInScopeHosts": {"type": "boolean", "default": True},
-                "analyzeScripts": {"type": "boolean", "default": True},
-                "followGetForms": {"type": "boolean", "default": True},
-                "submitPostForms": {"type": "boolean", "default": False},
-                **CRAWLER_HTTP_POLICY_PROPERTIES,
-                "output": {"type": "string"},
-                "allowExternalOutput": {"type": "boolean"},
-                "timeoutSeconds": {"type": "integer", "minimum": 30},
-                "background": {"type": "boolean", "default": True},
-                "approvalId": {"type": "string"},
-                "approvalReason": {"type": "string"},
-                "riskTier": {"type": "string"},
-                "confirm": {"type": "boolean"},
-            },
-            "required": ["target", "confirm"],
-        },
     },
     {
         "name": "crawler.extended",
@@ -3083,7 +2998,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
 # Keep every documentation entry point aligned with the shared redaction-policy
 # boundary. `operator`/`operator_raw` are public presentation names;
 # `internal`/`raw` remain compatibility policy names and `safe` is deprecated.
-for _tool_schema in TOOL_SCHEMAS:
+for _tool_schema in _LEGACY_TOOL_SCHEMAS:
     _input_schema = _tool_schema.get("inputSchema")
     _properties = _input_schema.get("properties") if isinstance(_input_schema, dict) else None
     _redaction_schema = _properties.get("redactionMode") if isinstance(_properties, dict) else None
@@ -3093,6 +3008,11 @@ for _tool_schema in TOOL_SCHEMAS:
             "Presentation aliases operator/operator_raw map to compatibility policies internal/raw; "
             "high_level is the concise internal view and safe is deprecated."
         )
+
+from . import projection
+
+
+TOOL_SCHEMAS = projection.projected_tools_list()
 
 RESOURCES = [
     {"uri": "synapse://dumps", "name": "Offline Burp Proxy Dumps", "mimeType": "application/json"},
@@ -3230,12 +3150,7 @@ def _validate_schema_value(name: str, field: str, value: Any, schema: dict[str, 
 
 
 def validate_tool_arguments(name: str, args: dict[str, Any]) -> None:
-    schema = _tool_schema(name)
-    if not schema:
-        return
-    input_schema = schema.get("inputSchema", {})
-    if not isinstance(input_schema, dict):
-        return
+    input_schema = projection.resolved_input_schema(name)
     required = input_schema.get("required", [])
     if isinstance(required, list):
         for field in required:
@@ -3262,6 +3177,9 @@ def call_tool(name: str, args: dict[str, Any]) -> str:
 
 
 def _call_tool_impl(name: str, args: dict[str, Any]) -> str:
+    projected = projection.project_call(name, args)
+    if projected is not None:
+        return projected
     if name == "jobs.list":
         return json.dumps(
             background_jobs.list_jobs(
@@ -3918,7 +3836,7 @@ def handle(request: dict[str, Any]) -> dict[str, Any] | None:
                 "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
             }
         elif method == "tools/list":
-            result = {"tools": TOOL_SCHEMAS}
+            result = {"tools": projection.projected_tools_list()}
         elif method == "tools/call":
             params = request.get("params", {})
             tool_name = params.get("name", "")

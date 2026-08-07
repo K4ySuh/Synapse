@@ -28,6 +28,7 @@ from contract_support import (
     all_contract_fixture_paths,
     assert_response_matches_fixture,
     assert_tools_list_matches_fixture,
+    capture_confirm_omission_contract,
     compact_json_bytes,
     environment_path_values,
     fixture_bytes,
@@ -60,7 +61,7 @@ def _error_contracts_for_comparison() -> dict[str, dict]:
     real_call_tool = stdio_server.call_tool
 
     def delayed_call_tool(name: str, arguments: dict) -> str:
-        if name == "workspace.summary":
+        if name in {"workspace.summary", "jobs.status"}:
             time.sleep(0.05)
         return real_call_tool(name, arguments)
 
@@ -86,6 +87,20 @@ def _error_contracts_for_comparison() -> dict[str, dict]:
                 }
             ),
             "tools/call timeout",
+        )
+        jobs_status_tool_timeout = _require_response(
+            stdio_server.handle(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 12,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "jobs.status",
+                        "arguments": {"jobId": "does-not-exist"},
+                    },
+                }
+            ),
+            "jobs.status timeout",
         )
 
     return {
@@ -148,6 +163,7 @@ def _error_contracts_for_comparison() -> dict[str, dict]:
             "tools/call unknown background job",
         ),
         "tool_timeout": tool_timeout,
+        "jobs_status_tool_timeout": jobs_status_tool_timeout,
     }
 
 
@@ -259,6 +275,44 @@ class LegacyContractTests(unittest.TestCase):
         expected = json.loads(fixture_bytes("errors.json"))["tool_timeout"]
 
         self.assertEqual(compact_json_bytes(actual), compact_json_bytes(expected))
+
+    def test_jobs_status_timeout_message_variant_is_frozen(self) -> None:
+        actual = _error_contracts_for_comparison()["jobs_status_tool_timeout"]
+        expected = json.loads(fixture_bytes("errors.json"))[
+            "jobs_status_tool_timeout"
+        ]
+
+        self.assertEqual(compact_json_bytes(actual), compact_json_bytes(expected))
+
+    def test_required_confirm_omission_contract_for_all_tools(self) -> None:
+        expected = json.loads(fixture_bytes("confirm_omission.json"))
+        expected_names = [case["name"] for case in expected["tools"]]
+        runtime_names = [
+            tool["name"]
+            for tool in stdio_server.TOOL_SCHEMAS
+            if "confirm" in tool.get("inputSchema", {}).get("required", [])
+        ]
+
+        self.assertEqual(runtime_names, expected_names)
+        self.assertEqual(len(runtime_names), 44)
+        self.assertEqual(capture_confirm_omission_contract(), expected)
+
+    def test_fixture_inventory_is_pinned(self) -> None:
+        fixture_root = Path(__file__).parent / "fixtures" / "legacy_contracts"
+        discovered = tuple(
+            sorted(
+                path.relative_to(fixture_root).as_posix()
+                for path in fixture_root.rglob("*.json")
+            )
+        )
+        expected = tuple(
+            sorted(
+                path.relative_to(fixture_root).as_posix()
+                for path in all_contract_fixture_paths()
+            )
+        )
+
+        self.assertEqual(discovered, expected)
 
     def test_contract_output_is_identical_across_two_distinct_synapse_roots(self) -> None:
         captures = []
