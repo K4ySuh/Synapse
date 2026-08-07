@@ -16,7 +16,7 @@ from typing import Any
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
 from xml.etree import ElementTree
 
-from . import evidence, scope
+from . import atomic_io, evidence, scope
 from .adapters.results import surface_candidate, surface_candidate_id
 from .errors import McpError
 from .paths import DATA_DIR, REPORTS_DIR as _CONFIGURED_REPORTS_DIR
@@ -230,10 +230,12 @@ def _read_json(path: Path, default: Any) -> Any:
 
 
 def _write_json(path: Path, payload: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(path)
+    atomic_io.atomic_write_text(
+        path,
+        json.dumps(payload, indent=2, ensure_ascii=False),
+        mode=None,
+        fsync=False,
+    )
 
 
 def list_workspaces() -> dict[str, Any]:

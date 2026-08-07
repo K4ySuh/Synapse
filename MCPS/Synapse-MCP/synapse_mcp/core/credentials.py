@@ -12,7 +12,7 @@ from typing import Any
 from urllib.parse import urlencode, urlsplit
 from uuid import uuid4
 
-from . import evidence, scope
+from . import atomic_io, evidence, scope
 from .errors import McpError
 from .http import HttpClientPolicy, HttpRequest, http_client
 from .paths import DATA_DIR, synapse_python
@@ -100,20 +100,23 @@ def load_credentials() -> dict[str, Any]:
 
 
 def _write_credentials(payload: dict[str, Any]) -> None:
-    CREDENTIALS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    CREDENTIALS_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    try:
-        os.chmod(CREDENTIALS_FILE, 0o600)
-    except OSError:
-        pass
+    with atomic_io.file_lock(CREDENTIALS_FILE):
+        atomic_io.atomic_write_text(
+            CREDENTIALS_FILE,
+            json.dumps(payload, indent=2),
+            mode=0o600,
+            fsync=True,
+        )
 
 
 def _write_private_json(path: Any, payload: dict[str, Any]) -> None:
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-    try:
-        os.chmod(path, 0o600)
-    except OSError:
-        pass
+    with atomic_io.file_lock(path):
+        atomic_io.atomic_write_text(
+            path,
+            json.dumps(payload, indent=2, ensure_ascii=False),
+            mode=0o600,
+            fsync=True,
+        )
 
 
 def _strip_worker_secrets(value: Any) -> Any:

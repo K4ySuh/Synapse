@@ -1,4 +1,6 @@
+import inspect
 import json
+import os
 import threading
 import time
 import unittest
@@ -9,11 +11,81 @@ from unittest.mock import patch
 from urllib.parse import parse_qs
 
 from helpers import isolated_state
-from synapse_mcp.core import background_jobs, credentials, dumps, evidence, scope, workspace
+from synapse_mcp.core import atomic_io, background_jobs, credentials, dumps, evidence, scope, workspace
 from synapse_mcp.transport import stdio_server
 
 
 class CoreStateTests(unittest.TestCase):
+    def test_save_scope_is_crash_atomic(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                scope.save_scope(["app.acme-demo.test"], "initial")
+                committed = json.loads(scope.SCOPE_FILE.read_text(encoding="utf-8"))
+
+                with patch.object(atomic_io.os, "replace", side_effect=OSError("replace failed")):
+                    with self.assertRaisesRegex(OSError, "replace failed"):
+                        scope.save_scope(["other.acme-demo.test"], "replacement")
+
+                self.assertEqual(json.loads(scope.SCOPE_FILE.read_text(encoding="utf-8")), committed)
+
+    def test_credentials_store_written_atomically_at_0600(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with isolated_state(root):
+                scope.save_scope(["app.acme-demo.test"], "test")
+                private_path = root / "worker" / "args.json"
+
+                with patch.object(os, "chmod", side_effect=AssertionError("post-write chmod called")):
+                    credentials.save_credential(
+                        {
+                            "id": "demo-session",
+                            "type": "cookie",
+                            "scopes": ["app.acme-demo.test"],
+                            "secret": "DEMO_SESSION=fake-value",
+                        }
+                    )
+                    credentials._write_private_json(private_path, {"credentialId": "demo-session"})
+
+                self.assertEqual(credentials.CREDENTIALS_FILE.stat().st_mode & 0o777, 0o600)
+                self.assertEqual(private_path.stat().st_mode & 0o777, 0o600)
+                self.assertEqual(credentials.load_credentials()["credentials"][0]["id"], "demo-session")
+                self.assertEqual(json.loads(private_path.read_text(encoding="utf-8")), {"credentialId": "demo-session"})
+                for writer in (credentials._write_credentials, credentials._write_private_json):
+                    source = inspect.getsource(writer)
+                    self.assertNotIn(".write_text(", source)
+                    self.assertNotIn("os.chmod", source)
+
+    def test_credentials_replace_failure_preserves_prior_store(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                scope.save_scope(["app.acme-demo.test"], "test")
+                credentials.save_credential(
+                    {
+                        "id": "first-session",
+                        "type": "cookie",
+                        "scopes": ["app.acme-demo.test"],
+                        "secret": "DEMO_SESSION=first-value",
+                    }
+                )
+                committed = json.loads(credentials.CREDENTIALS_FILE.read_text(encoding="utf-8"))
+
+                with patch.object(atomic_io.os, "replace", side_effect=OSError("replace failed")):
+                    with self.assertRaisesRegex(OSError, "replace failed"):
+                        credentials.save_credential(
+                            {
+                                "id": "second-session",
+                                "type": "cookie",
+                                "scopes": ["app.acme-demo.test"],
+                                "secret": "DEMO_SESSION=second-value",
+                            }
+                        )
+
+                self.assertEqual(json.loads(credentials.CREDENTIALS_FILE.read_text(encoding="utf-8")), committed)
+                self.assertEqual(
+                    [item["id"] for item in credentials.load_credentials()["credentials"]],
+                    ["first-session"],
+                )
+
     def test_jobs_status_omits_full_result_by_default(self) -> None:
         with TemporaryDirectory() as tmp:
             with isolated_state(Path(tmp)):

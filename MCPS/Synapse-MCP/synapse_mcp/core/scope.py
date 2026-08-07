@@ -11,7 +11,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from .paths import DATA_DIR
-from . import evidence
+from . import atomic_io, evidence
 from .errors import McpError
 from .url_hygiene import redact_url_query_values
 
@@ -119,7 +119,13 @@ def save_scope(
         payload["cidrs"] = normalized_cidrs
     if organization:
         payload["organization"] = organization
-    SCOPE_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    with atomic_io.file_lock(SCOPE_FILE):
+        atomic_io.atomic_write_text(
+            SCOPE_FILE,
+            json.dumps(payload, indent=2),
+            mode=None,
+            fsync=True,
+        )
     initialized = evidence.ensure_project(organization, normalized) if organization else None
     evidence.log_event(
         "scope.set",
