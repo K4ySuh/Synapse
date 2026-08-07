@@ -13,7 +13,13 @@ compatibility evidence build on that immutable reference.
 ## Phase 1
 
 - [Stage A design checkpoint](phase-1-stage-a.md) — approved; the Phase 0
-  program gate is PASS and Stage B is cleared
+  program gate is PASS
+- [Stage B task brief](phase-1-stage-b-tasks.md) — the ordered Codex
+  implementation spec for the Action Registry and six-action slice
+- [Stage B review brief](phase-1-stage-b-review-brief.md) — the independent
+  adversarial-review gate
+- [Stage B handoff](phase-1-stage-b-handoff.md) — Action Registry and the
+  six-action vertical slice landed; gate PASS (2026-08-07)
 - [Contract-change ledger](contract-changes.md)
 - [Action migration pattern](action-migration-pattern.md) — contributor guide
   proven by the six-action vertical slice

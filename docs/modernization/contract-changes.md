@@ -12,6 +12,7 @@ approval.
 | `MCPS/Synapse-MCP/tests/fixtures/legacy_contracts/confirm_omission.json` | same commit | exact | Freezes the current outcomes for all 44 schemas whose required list contains `confirm`: 42 approval errors and two successful dry-run cache cleanups. | Javier Roldán Ortiz |
 | `MCPS/Synapse-MCP/tests/fixtures/legacy_contracts/results/cors_execute_test_unconfirmed.json` | same commit | exact | Adds the missing `-32001` approval fixture for the CORS operation in the Phase 1 vertical slice. | Javier Roldán Ortiz |
 | Stage B commit 1 (`fbc6949`) | same commit | no public-surface delta | Ratifies the code-only typed action-contract foundation under the Phase 0 promotion and Stage A checkpoint approval recorded on 2026-08-06. | Javier Roldán Ortiz |
+| Stage B code commits (`c8ec933..33691ff`) | `c8ec933..33691ff` | no public-surface delta | Action Registry and consistency checks, six-action descriptor projection, contract-equivalence proof, migration-pattern guide, and closure of four adversarial-review findings; independently verified at 174 tools / 99,337 compact bytes with no fixture change. Gate promoted to PASS on 2026-08-07. | Javier Roldán Ortiz |
 
 ## Amendments to Accepted ADRs
 
