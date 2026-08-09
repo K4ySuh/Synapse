@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "synapse-modern-spike": {
+      "command": ".venv/bin/python",
+      "args": [
+        "-m",
+        "synapse_mcp.transport.modern_spike",
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "SYNAPSE_ENABLE_MODERN_SPIKE": "1"
+      }
+    }
+  }
+}

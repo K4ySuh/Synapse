@@ -33,9 +33,13 @@ browser = [
     "playwright>=1.44,<2",
     "selenium>=4.20,<5",
 ]
+modern-spike = [
+    "mcp==2.0.0",
+]
 
 [project.scripts]
 synapse-mcp = "synapse_mcp.transport.stdio_server:main"
+synapse-mcp-modern-spike = "synapse_mcp.transport.modern_spike:main"
 
 [tool.setuptools.packages.find]
 where = ["MCPS/Synapse-MCP"]
