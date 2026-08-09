@@ -73,6 +73,7 @@ DATA/
 |-- workspaces/<workspace-id>/    normalized engagement/target knowledge
 |   |-- workspace.json
 |   |-- scope.json                workspace-owned hosts, patterns, and CIDRs
+|   |-- authority/state.json      grants, budgets, decisions, dispatch/continuation truth (0600)
 |   |-- jobs/<job-id>/job.json    background job records (sidecars embedded on finalization)
 |   |-- outputs/                  workspace-level generated outputs
 |   `-- targets/<host>/
@@ -325,17 +326,23 @@ The protocol-independent Phase 2 authority model is under
 `synapse_mcp/policy/`:
 
 - `authority.py` defines immutable, serializable Authority Grants, configurable
-  request/rate/parallelism budgets, exact step-up authorizations, and the
+  dispatch-total/rate-window/active budgets, exact step-up authorizations, and the
   `Allow` / `ApprovalRequired` / `ScopeDenied` decision union;
 - `evaluate_authority()` compares a sealed `ExecutionPlan` against current
   scope and every grant dimension: target selection, redirect policy, provider
   routes and identities, exact local outputs, methods, credential references,
   effects/replay safety, risk, mode, lifecycle, and budgets.
+- `repository.py` owns the storage-neutral repository contract and the locked,
+  crash-atomic workspace JSON implementation for grants, request states,
+  reservations, decisions, dispatches, continuations, and reconciliation;
+- `integration.py` maps typed policy decisions onto Registry outcomes and
+  advances durable dispatch truth around the sole executor seam;
+- `operator_service.py` and `operator_cli.py` expose trusted local management
+  without registering model-executable self-granting actions.
 
-This is currently a pure model only. It performs no I/O and is not yet wired to
-the Action Registry or legacy transport. Durable authority state, transactional
-budget reservation, dispatch records, and profile-aware enforcement belong to
-the subsequent Phase 2 tasks.
+The default legacy context remains pass-through and preserves its established
+adapter confirmation gates. Authority-aware contexts (`observe`, `supervised`,
+`full_delegated`) reload and reserve durable state immediately before dispatch.
 
 `synapse_mcp.transport.stdio_server` implements the MCP JSON-RPC boundary.
 

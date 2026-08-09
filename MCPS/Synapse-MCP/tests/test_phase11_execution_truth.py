@@ -33,7 +33,11 @@ from synapse_mcp.app.actions import (
 )
 from synapse_mcp.app.actions.packs.crawler import CRAWLER_CRAWL
 from synapse_mcp.core import background_jobs, evidence, job_worker, scope, workspace
-from synapse_mcp.core.execution import write_planned_text
+from synapse_mcp.core.execution import (
+    public_request_fingerprint,
+    trusted_runtime_fingerprint,
+    write_planned_text,
+)
 from synapse_mcp.core.http import HttpClientPolicy, HttpRequest, http_client
 
 
@@ -515,11 +519,61 @@ class IntentAndCrawlerPlanTests(unittest.TestCase):
                 mutated = {**worker_args, "target": "https://b.example/", "output": str(root / "changed.json")}
                 with self.assertRaisesRegex(ExecutionPlanError, "differs"):
                     job_worker._run_tool_with_plan("crawler.crawl", mutated, str(plan_path))
+                trusted_flag_mutation = {**worker_args, "_deferWorkflowRefreshToFinalizer": False}
+                with self.assertRaisesRegex(ExecutionPlanError, "differs"):
+                    job_worker._run_tool_with_plan("crawler.crawl", trusted_flag_mutation, str(plan_path))
+                self.assertEqual(
+                    public_request_fingerprint(worker_args),
+                    public_request_fingerprint(trusted_flag_mutation),
+                )
+                self.assertNotEqual(
+                    trusted_runtime_fingerprint(worker_args),
+                    trusted_runtime_fingerprint(trusted_flag_mutation),
+                )
                 self.assertFalse((root / "approved.json").exists())
                 self.assertFalse((root / "changed.json").exists())
 
 
 class JobContinuationTests(unittest.TestCase):
+    def test_conditional_plan_cannot_authorize_non_idempotent_finalizer(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                workspace.create_workspace("fixture", hosts=["127.0.0.1"])
+                base_plan = _http_plan(["http://127.0.0.1/fixture"])
+                plan = replace(
+                    base_plan,
+                    effects=base_plan.effects.__class__(replay_safety="conditional"),
+                    plan_fingerprint="",
+                )._sealed()
+                calls = 0
+
+                def finalizer(_record, _run, _data):
+                    nonlocal calls
+                    calls += 1
+                    return {"summary": {"calls": calls}}
+
+                name = "unit.phase2-conditional-finalizer"
+                background_jobs.register_finalizer(name, finalizer)
+                try:
+                    started = background_jobs.start_command(
+                        ["sh", "-c", "exit 0"],
+                        timeout_seconds=30,
+                        event_type="unit.phase2.effects",
+                        summary="conditional continuation",
+                        tool="fixture.http",
+                        workspace_id="fixture",
+                        target="http://127.0.0.1/fixture",
+                        finalizer_name=name,
+                        execution_plan=plan,
+                        finalizer_effects=base_plan.effects.__class__(replay_safety="non_idempotent"),
+                    )
+                    terminal = wait_for_job(started["jobId"])
+                    self.assertEqual(terminal["status"], "failed")
+                    self.assertIn("finalizer_effects_exceeded", terminal["error"])
+                    self.assertEqual(calls, 0)
+                finally:
+                    background_jobs._FINALIZERS.pop(name, None)
+
     def test_snapshot_is_observational_while_status_has_continuation_effects(self) -> None:
         with TemporaryDirectory() as tmp:
             with isolated_state(Path(tmp)):

@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 from ..execution import ExecutionPlan
 
@@ -42,6 +42,7 @@ class HttpResponse:
     url: str = ""
     cookies: list[dict[str, str]] = field(default_factory=list)
     redirect_chain: list[dict[str, Any]] = field(default_factory=list)
+    credential_coverage: list[dict[str, Any]] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -51,6 +52,7 @@ class HttpResponse:
             "error": self.error,
             "effectiveUrl": self.url,
             "redirectChain": self.redirect_chain,
+            "credentialCoverage": self.credential_coverage,
         }
 
 
@@ -67,6 +69,10 @@ class HttpClientPolicy:
     execution_plan: ExecutionPlan | None = None
     proxy_credential_ref: str | None = None
     proxy_headers: dict[str, str] = field(default_factory=dict, repr=False)
+    target_header_resolver: Callable[[str], tuple[dict[str, str], dict[str, Any]]] | None = field(
+        default=None,
+        repr=False,
+    )
 
     def __post_init__(self) -> None:
         if self.backend not in {"direct", "proxy", "disabled"}:

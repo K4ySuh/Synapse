@@ -35,9 +35,10 @@ compatibility evidence build on that immutable reference.
 - [Input-schema keyword inventory](input-schema-keyword-inventory.md)
 - [Capability-gap inventory](capability-gap-inventory.md)
 - [Stage A Authority Engine design checkpoint](phase-2-stage-a.md) — the
-  ADR-0009-corrected checkpoint is approved; Stage B is underway in strict
-  dependency order, with Task 1's pure grant/decision model complete and no
-  persistence or dispatch wiring yet
+  ADR-0009-corrected checkpoint approved before implementation
+- [Stage B authority integration handoff](phase-2-stage-b-handoff.md) — durable
+  grants, Registry enforcement, dispatch truth, trusted operator management,
+  credential confinement, and continuation recovery integrated
 - Crash-atomic scope and credential storage prerequisite — integrated before
   the Phase 1 Action Registry merge and covered by the combined Beta gate
 
@@ -47,7 +48,7 @@ compatibility evidence build on that immutable reference.
 | --- | --- | --- |
 | [ADR-0001](adr/ADR-0001-generic-agents-operational-plane.md) | Generic agents as cognitive plane, Synapse as operational plane | Accepted |
 | [ADR-0002](adr/ADR-0002-typed-core-action-registry.md) | Typed application core and Action Registry | Accepted |
-| [ADR-0003](adr/ADR-0003-durable-authority-grants.md) | Durable Authority Grants | Proposed |
+| [ADR-0003](adr/ADR-0003-durable-authority-grants.md) | Durable Authority Grants | Accepted |
 | [ADR-0004](adr/ADR-0004-mcp-compatibility-profiles.md) | Legacy and modern MCP compatibility profiles | Proposed |
 | [ADR-0005](adr/ADR-0005-sqlite-artifact-store.md) | SQLite and a content-addressed artifact store | Proposed |
 | [ADR-0006](adr/ADR-0006-context-revisions-budget-behaviour.md) | Context revisions and budget behaviour | Proposed |
@@ -63,6 +64,6 @@ enforce. ADR-0003 fixes the authority case in Phase 2; ADR-0006 fixes the budget
 case in Phase 4. Recording it once prevents them from being treated as
 unrelated coincidences.
 
-The modern spike confirms that protocol `input_required` can represent the
-active no-dispatch state, but it intentionally implements neither durable
-grants nor resume flows. `confirm=true` remains legacy-only authority.
+The modern profile uses protocol `input_required` for a durable uncovered
+request state and evaluates server-held grants through the Registry.
+`confirm=true` remains legacy-only authority.

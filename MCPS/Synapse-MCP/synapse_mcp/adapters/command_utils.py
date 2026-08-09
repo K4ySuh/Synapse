@@ -19,8 +19,22 @@ def stringify_command(cmd: list[str]) -> str:
     return shlex.join(cmd)
 
 
-def require_confirmed(args: dict[str, Any], message: str) -> None:
-    if args.get("confirm") is not True:
+def _grant_authorized(authorization: object | None) -> bool:
+    # Authority crosses the Registry/worker executor boundary as a typed,
+    # server-created receipt. Never interpret action-input mappings (including
+    # worker sidecar fields) as authorization.
+    from ..policy.repository import AuthorizationReceipt
+
+    return bool(
+        isinstance(authorization, AuthorizationReceipt)
+        and getattr(authorization, "authority_source", "") == "grant"
+        and getattr(authorization, "grant_id", "")
+        and getattr(authorization, "dispatch_id", "")
+    )
+
+
+def require_confirmed(args: dict[str, Any], message: str, *, authorization: object | None = None) -> None:
+    if args.get("confirm") is not True and not _grant_authorized(authorization):
         raise McpError(-32001, message)
 
 
@@ -157,7 +171,16 @@ def list_background_jobs(limit: int = 20, workspace_id: str = "") -> dict[str, A
     return background_jobs.list_jobs(limit, workspace_id=workspace_id)
 
 
-def approval_metadata(args: dict[str, Any]) -> dict[str, Any]:
+def approval_metadata(args: dict[str, Any], *, authorization: object | None = None) -> dict[str, Any]:
+    if _grant_authorized(authorization):
+        return {
+            "authoritySource": "grant",
+            "grantId": str(getattr(authorization, "grant_id")),
+            "grantRevision": int(getattr(authorization, "grant_revision")),
+            "dispatchId": str(getattr(authorization, "dispatch_id")),
+            "decisionReason": str(getattr(authorization, "decision_reason")),
+            "compatibilityShim": bool(args.get("_authorityCompatibilityShim")),
+        }
     confirmed = args.get("confirm") is True
     metadata = {"confirm": confirmed, "operatorApproved": confirmed, "approved": confirmed}
     for source, destination in (

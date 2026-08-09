@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Callable
 from uuid import uuid4
 
-from . import evidence, workspace
+from . import atomic_io, evidence, workspace
 from .errors import McpError
 from .execution import (
     AuthorizationIntent,
@@ -40,6 +40,36 @@ _WATCHDOGS: dict[str, threading.Thread] = {}
 _FINALIZERS: dict[str, Finalizer] = {}
 MIN_TIMEOUT_SECONDS = 30
 MAX_TIMEOUT_SECONDS = 86400
+ACTIVE_STATUSES = frozenset({"queued", "running"})
+TERMINAL_STATUSES = frozenset({"completed", "timed_out", "canceled", "failed"})
+LEGAL_STATUS_TRANSITIONS = {
+    "queued": frozenset({"running", "timed_out", "canceled", "failed"}),
+    "running": frozenset({"completed", "timed_out", "canceled", "failed"}),
+    "completed": frozenset({"failed"}),
+    "timed_out": frozenset({"failed"}),
+    "canceled": frozenset({"failed"}),
+    "failed": frozenset(),
+}
+
+
+class JobRevisionConflict(McpError):
+    """A stale job snapshot attempted to replace newer durable state."""
+
+    def __init__(self, job_id: str, expected: int, actual: int) -> None:
+        super().__init__(
+            -32000,
+            f"Stale background job revision for {job_id}: expected {expected}, current {actual}.",
+        )
+
+
+class JobTransitionError(McpError):
+    """A caller attempted an invalid backward or cross-terminal transition."""
+
+    def __init__(self, job_id: str, current: str, requested: str) -> None:
+        super().__init__(
+            -32000,
+            f"Invalid background job transition for {job_id}: {current} -> {requested}.",
+        )
 
 
 def _utc_now() -> str:
@@ -184,20 +214,44 @@ def _validate_runtime_record_paths(record: dict[str, Any]) -> None:
         )
 
 
-def _write_record(record: dict[str, Any]) -> None:
+def _ensure_lifecycle_fields(record: dict[str, Any]) -> dict[str, Any]:
+    record.setdefault("revision", 0)
+    record.setdefault("controlReservation", None)
+    if not isinstance(record.get("finalization"), dict):
+        record["finalization"] = {
+            "state": "applied" if record.get("finalized") else "pending",
+            "attempts": 1 if record.get("finalized") else 0,
+            "token": "",
+            "error": str(record.get("error") or "") if record.get("finalized") else "",
+        }
+    record.setdefault("reconciliationRequired", False)
+    return record
+
+
+def _write_record(record: dict[str, Any], *, expected_revision: int | None = None) -> None:
+    """Persist one revision under the workspace lock, rejecting stale writers."""
+
     job_id = str(record["jobId"])
-    root = _job_dir_for_record(record)
-    root.mkdir(parents=True, exist_ok=True)
-    record_path = root / "job.json"
-    tmp = record_path.with_name(f".{record_path.name}.{uuid4().hex}.tmp")
-    try:
-        tmp.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
-        tmp.replace(record_path)
-    finally:
-        try:
-            tmp.unlink(missing_ok=True)
-        except OSError:
-            pass
+    workspace_id = str(record.get("workspaceId", "")).strip() or workspace.default_workspace_id()
+    with workspace.workspace_lock(workspace_id):
+        root = _job_dir_for_record(record)
+        root.mkdir(parents=True, exist_ok=True)
+        record_path = root / "job.json"
+        current = _read_json(record_path, None)
+        actual_revision = int(current.get("revision", 0)) if isinstance(current, dict) else 0
+        expected = int(record.get("revision", 0)) if expected_revision is None else int(expected_revision)
+        if isinstance(current, dict) and actual_revision != expected:
+            raise JobRevisionConflict(job_id, expected, actual_revision)
+        persisted = _ensure_lifecycle_fields(json.loads(json.dumps(record)))
+        persisted["revision"] = actual_revision + 1
+        atomic_io.atomic_write_text(
+            record_path,
+            json.dumps(persisted, indent=2, ensure_ascii=False),
+            mode=0o600,
+            fsync=True,
+        )
+        record.clear()
+        record.update(persisted)
 
 
 def _read_record(job_id: str) -> dict[str, Any]:
@@ -205,7 +259,16 @@ def _read_record(job_id: str) -> dict[str, Any]:
     record = _read_json(record_path, None) if record_path else None
     if not isinstance(record, dict):
         raise McpError(-32602, f"Unknown background job: {job_id}")
-    return record
+    return _ensure_lifecycle_fields(record)
+
+
+def _transition_status(record: dict[str, Any], requested: str) -> None:
+    current = str(record.get("status") or "")
+    if requested == current:
+        return
+    if requested not in LEGAL_STATUS_TRANSITIONS.get(current, frozenset()):
+        raise JobTransitionError(str(record.get("jobId") or ""), current, requested)
+    record["status"] = requested
 
 
 def snapshot_record(job_id: str) -> dict[str, Any]:
@@ -557,20 +620,21 @@ def _watch_process(job_id: str, proc: subprocess.Popen[str], timeout_seconds: in
     except subprocess.TimeoutExpired:
         timed_out = True
         try:
-            record = _read_record(job_id)
-            if str(record.get("status", "")) in {"queued", "running"}:
-                record["status"] = "timed_out"
-                record["timedOut"] = True
-                record["completedAt"] = _utc_now()
-                record["lastObservedAt"] = record["completedAt"]
-                record["error"] = record.get("error") or "Job exceeded timeout and was terminated by watchdog."
-                _write_record(record)
+            token, _ = _reserve_control(job_id, "watchdog_timeout")
+            if token:
+                terminate_process_group(proc.pid)
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    pass
+                _complete_control(
+                    job_id,
+                    token,
+                    status_value="timed_out",
+                    error="Job exceeded timeout and was terminated by watchdog.",
+                    timed_out=True,
+                )
         except Exception:
-            pass
-        terminate_process_group(proc.pid)
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
             pass
     finally:
         try:
@@ -644,71 +708,125 @@ def _finalize_record(record: dict[str, Any]) -> dict[str, Any]:
 
 
 def _finalize_record_locked(record: dict[str, Any]) -> dict[str, Any]:
+    _ensure_lifecycle_fields(record)
     if record.get("finalized"):
-        if any(str(record.get(key, "") or "") for key in ("stdoutPath", "stderrPath", "returnCodePath")):
-            try:
-                _validate_continuation(record)
-            except ExecutionPlanError as exc:
-                record["status"] = "failed"
-                record["error"] = f"Continuation rejected [{exc.reason_code}]: {exc}"
-                _write_record(record)
-                return record
-            removed_sidecars = _cleanup_sidecar_files(record)
-            if removed_sidecars:
-                record["sidecarCleanup"] = {"removed": sorted(removed_sidecars), "completedAt": _utc_now()}
-                _write_record(record)
         return record
     run = _run_payload(record)
     record["run"] = run
     try:
         _validate_continuation(record)
     except ExecutionPlanError as exc:
-        record["status"] = "failed"
+        _transition_status(record, "failed")
         record["error"] = f"Continuation rejected [{exc.reason_code}]: {exc}"
         record["completedAt"] = record.get("completedAt") or _utc_now()
         record["result"] = {"isError": True, "error": record["error"]}
         record["finalized"] = True
+        record["reconciliationRequired"] = exc.reason_code == "continuation_plan_missing"
+        record["finalization"] = {
+            "state": "failed",
+            "attempts": int(record["finalization"].get("attempts", 0)),
+            "token": "",
+            "error": record["error"],
+            "reasonCode": (
+                "legacy_job_adoption_required"
+                if exc.reason_code == "continuation_plan_missing"
+                else exc.reason_code
+            ),
+        }
         _write_record(record)
         _forget_process(str(record["jobId"]))
         return record
+    finalization = record["finalization"]
+    if str(finalization.get("state") or "pending") == "applying":
+        _transition_status(record, "failed")
+        record["error"] = (
+            "Background job finalization was interrupted after its durable reservation; "
+            "operator reconciliation is required before any retry."
+        )
+        record["result"] = {"isError": True, "error": record["error"]}
+        record["finalized"] = True
+        record["reconciliationRequired"] = True
+        record["finalization"] = {
+            **finalization,
+            "state": "failed",
+            "token": "",
+            "error": record["error"],
+            "reasonCode": "finalization_interrupted",
+        }
+        _write_record(record)
+        _forget_process(str(record["jobId"]))
+        return record
+
+    finalization_token = uuid4().hex
+    record["finalization"] = {
+        "state": "applying",
+        "attempts": int(finalization.get("attempts", 0)) + 1,
+        "token": finalization_token,
+        "error": "",
+        "startedAt": _utc_now(),
+    }
+    # Persist the reservation before any finalizer, evidence, or cleanup effect.
+    # A process crash can therefore require reconciliation instead of replaying
+    # an effect whose completion cannot be proven.
+    _write_record(record)
+
     finalizer_name = str(record.get("finalizerName", ""))
-    if finalizer_name:
-        finalizer = _FINALIZERS.get(finalizer_name)
-        if not finalizer:
-            record["status"] = "failed"
-            record["error"] = f"Finalizer is not registered: {finalizer_name}"
-            record["completedAt"] = record.get("completedAt") or _utc_now()
-            record["finalized"] = True
-            _write_record(record)
-            _forget_process(str(record["jobId"]))
-            return record
-        try:
+    removed_sidecars: list[str] = []
+    finalization_error = ""
+    try:
+        if finalizer_name:
+            finalizer = _FINALIZERS.get(finalizer_name)
+            if not finalizer:
+                raise RuntimeError(f"Finalizer is not registered: {finalizer_name}")
             record["result"] = finalizer(record, run, record.get("finalizerData", {})) or None
-        except Exception as exc:  # pragma: no cover - defensive guard for lazy finalizers.
-            record["status"] = "failed"
-            record["error"] = f"{type(exc).__name__}: {exc}"
-            record["completedAt"] = record.get("completedAt") or _utc_now()
-            record["result"] = {"isError": True, "error": record["error"]}
         if isinstance(record.get("result"), dict) and record["result"].get("isError"):
-            record["status"] = "failed"
+            _transition_status(record, "failed")
             record["error"] = str(record["result"].get("error") or "Background job finalization failed.")
+    except Exception as exc:  # finalizer failures must never auto-replay.
+        finalization_error = f"{type(exc).__name__}: {exc}"
+        _transition_status(record, "failed")
+        record["error"] = finalization_error
+        record["result"] = {"isError": True, "error": finalization_error}
+        record["reconciliationRequired"] = True
+
+    # Cleanup and the one completion audit are attempted once even when the
+    # application finalizer reports or raises an error.
+    try:
+        removed_sidecars = _cleanup_sidecar_files(record)
+        if removed_sidecars:
+            record["sidecarCleanup"] = {"removed": sorted(removed_sidecars), "completedAt": _utc_now()}
+        evidence.log_event(
+            str(record.get("eventType", "jobs.run")),
+            str(record.get("summary", f"Background job {record['jobId']} completed.")),
+            {
+                **(record.get("eventData", {}) if isinstance(record.get("eventData"), dict) else {}),
+                "jobId": record["jobId"],
+                "shellCommand": record.get("shellCommand", ""),
+                "returnCode": run.get("returnCode"),
+                "timeoutSeconds": run.get("timeoutSeconds"),
+                "timedOut": run.get("timedOut", False),
+                "sidecarCleanup": removed_sidecars,
+                "finalizationToken": finalization_token,
+            },
+        )
+    except Exception as exc:  # cleanup/evidence failures are also non-replayable.
+        effect_error = f"{type(exc).__name__}: {exc}"
+        finalization_error = f"{finalization_error}; {effect_error}" if finalization_error else effect_error
+        _transition_status(record, "failed")
+        record["error"] = finalization_error
+        record["result"] = {"isError": True, "error": finalization_error}
+        record["reconciliationRequired"] = True
+
+    record["completedAt"] = record.get("completedAt") or _utc_now()
     record["finalized"] = True
-    removed_sidecars = _cleanup_sidecar_files(record)
-    if removed_sidecars:
-        record["sidecarCleanup"] = {"removed": sorted(removed_sidecars), "completedAt": _utc_now()}
-    evidence.log_event(
-        str(record.get("eventType", "jobs.run")),
-        str(record.get("summary", f"Background job {record['jobId']} completed.")),
-        {
-            **(record.get("eventData", {}) if isinstance(record.get("eventData"), dict) else {}),
-            "jobId": record["jobId"],
-            "shellCommand": record.get("shellCommand", ""),
-            "returnCode": run.get("returnCode"),
-            "timeoutSeconds": run.get("timeoutSeconds"),
-            "timedOut": run.get("timedOut", False),
-            "sidecarCleanup": removed_sidecars,
-        },
-    )
+    record["finalization"] = {
+        **record["finalization"],
+        "state": "failed" if finalization_error else "applied",
+        "token": "",
+        "error": finalization_error,
+        "completedAt": _utc_now(),
+        **({"reasonCode": "finalizer_application_failed"} if finalization_error else {}),
+    }
     _write_record(record)
     _forget_process(str(record["jobId"]))
     return record
@@ -741,37 +859,14 @@ def _validate_continuation(record: dict[str, Any]) -> ExecutionPlan:
     return plan
 
 
-def _refresh(record: dict[str, Any]) -> dict[str, Any]:
-    workspace_id = str(record.get("workspaceId", "")).strip() or workspace.default_workspace_id()
-    with workspace.workspace_lock(workspace_id):
-        latest = _read_json(_find_record_path(str(record["jobId"]), workspace_id), None)
-        return _refresh_locked(latest if isinstance(latest, dict) else record)
-
-
-def _refresh_locked(record: dict[str, Any]) -> dict[str, Any]:
-    try:
-        _validate_continuation(record)
-    except ExecutionPlanError as exc:
-        record["status"] = "failed"
-        record["error"] = f"Continuation rejected [{exc.reason_code}]: {exc}"
-        record["completedAt"] = record.get("completedAt") or _utc_now()
-        record["result"] = {"isError": True, "error": record["error"]}
-        record["finalized"] = True
-        _write_record(record)
-        _forget_process(str(record["jobId"]))
-        return record
-    status_value = str(record.get("status", ""))
-    if status_value not in {"queued", "running"}:
-        if status_value in {"completed", "timed_out", "canceled", "failed"}:
-            return _finalize_record_locked(record)
-        return record
-
+def _process_observation(record: dict[str, Any]) -> dict[str, Any]:
     job_id = str(record["jobId"])
     proc = _PROCESSES.get(job_id)
     if proc is not None and proc.poll() is not None and _return_code(record) is None:
-        Path(str(record["returnCodePath"])).write_text(str(proc.returncode), encoding="utf-8")
-
-    started_at = str(record.get("startedAt") or record.get("createdAt") or "")
+        return_code_path = Path(str(record.get("returnCodePath") or ""))
+        if str(return_code_path):
+            atomic_io.atomic_write_text(return_code_path, str(proc.returncode), mode=0o600, fsync=True)
+    started_at = str(record.get("startedAt") or "")
     timeout_seconds = int(record.get("timeoutSeconds") or 0)
     timed_out = False
     if timeout_seconds and started_at:
@@ -780,37 +875,209 @@ def _refresh_locked(record: dict[str, Any]) -> dict[str, Any]:
             timed_out = (datetime.now(timezone.utc) - started).total_seconds() > timeout_seconds
         except ValueError:
             timed_out = False
-
-    rc = _return_code(record)
     pid = record.get("pid")
-    alive = bool(isinstance(pid, int) and _is_pid_alive(pid))
+    return {
+        "returnCode": _return_code(record),
+        "alive": bool(isinstance(pid, int) and _is_pid_alive(pid)),
+        "timedOut": timed_out,
+        "pid": pid,
+        "hasProcessHandle": proc is not None,
+    }
+
+
+def _reserve_control(job_id: str, kind: str) -> tuple[str, dict[str, Any]]:
+    record = _read_record(job_id)
+    workspace_id = str(record.get("workspaceId") or workspace.default_workspace_id())
+    with workspace.workspace_lock(workspace_id):
+        latest = _read_json(_find_record_path(job_id, workspace_id), None)
+        if not isinstance(latest, dict):
+            raise McpError(-32602, f"Unknown background job: {job_id}")
+        _ensure_lifecycle_fields(latest)
+        if str(latest.get("status")) not in ACTIVE_STATUSES or latest.get("controlReservation"):
+            return "", latest
+        token = uuid4().hex
+        latest["controlReservation"] = {"kind": kind, "token": token, "reservedAt": _utc_now()}
+        latest["lastObservedAt"] = _utc_now()
+        _write_record(latest)
+        return token, latest
+
+
+def _complete_control(
+    job_id: str,
+    token: str,
+    *,
+    status_value: str,
+    error: str,
+    timed_out: bool = False,
+) -> dict[str, Any]:
+    record = _read_record(job_id)
+    workspace_id = str(record.get("workspaceId") or workspace.default_workspace_id())
+    with workspace.workspace_lock(workspace_id):
+        latest = _read_json(_find_record_path(job_id, workspace_id), None)
+        if not isinstance(latest, dict):
+            raise McpError(-32602, f"Unknown background job: {job_id}")
+        _ensure_lifecycle_fields(latest)
+        reservation = latest.get("controlReservation")
+        if not isinstance(reservation, dict) or str(reservation.get("token")) != token:
+            return latest
+        if str(latest.get("status")) in ACTIVE_STATUSES:
+            _transition_status(latest, status_value)
+            latest["completedAt"] = _utc_now()
+            latest["lastObservedAt"] = latest["completedAt"]
+            latest["timedOut"] = timed_out
+            latest["error"] = latest.get("error") or error
+        latest["controlReservation"] = None
+        _write_record(latest)
+        return _finalize_record_locked(latest) if str(latest.get("status")) in TERMINAL_STATUSES else latest
+
+
+def _complete_control_reconciliation(
+    job_id: str,
+    token: str,
+    *,
+    status_value: str,
+    error: str,
+    reason_code: str,
+    timed_out: bool = False,
+) -> dict[str, Any]:
+    """Close an unprovable control attempt without applying continuation effects."""
+
+    record = _read_record(job_id)
+    workspace_id = str(record.get("workspaceId") or workspace.default_workspace_id())
+    with workspace.workspace_lock(workspace_id):
+        latest = _read_json(_find_record_path(job_id, workspace_id), None)
+        if not isinstance(latest, dict):
+            raise McpError(-32602, f"Unknown background job: {job_id}")
+        _ensure_lifecycle_fields(latest)
+        reservation = latest.get("controlReservation")
+        if not isinstance(reservation, dict) or str(reservation.get("token")) != token:
+            return latest
+        if str(latest.get("status")) in ACTIVE_STATUSES:
+            _transition_status(latest, status_value)
+            latest["completedAt"] = _utc_now()
+            latest["lastObservedAt"] = latest["completedAt"]
+            latest["timedOut"] = timed_out
+            latest["error"] = latest.get("error") or error
+            latest["result"] = {"isError": True, "error": latest["error"]}
+            latest["finalized"] = True
+            latest["reconciliationRequired"] = True
+            latest["finalization"] = {
+                "state": "failed",
+                "attempts": int(latest["finalization"].get("attempts", 0)),
+                "token": "",
+                "error": latest["error"],
+                "reasonCode": reason_code,
+            }
+        latest["controlReservation"] = None
+        _write_record(latest)
+        _forget_process(job_id)
+        return latest
+
+
+def _refresh(record: dict[str, Any]) -> dict[str, Any]:
+    job_id = str(record["jobId"])
+    latest = _read_record(job_id)
+    if str(latest.get("status")) in ACTIVE_STATUSES and not latest.get("controlReservation"):
+        observation = _process_observation(latest)
+        if observation["returnCode"] is None and observation["timedOut"] and observation["alive"]:
+            token, reserved = _reserve_control(job_id, "status_timeout")
+            if token:
+                pid = reserved.get("pid")
+                if observation["hasProcessHandle"] and isinstance(pid, int):
+                    _terminate_process_group(pid)
+                    proc = _PROCESSES.get(job_id)
+                    if proc is not None:
+                        try:
+                            proc.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            pass
+                    error = "Job exceeded timeout and was terminated."
+                else:
+                    error = "Job exceeded timeout, but process handle is unavailable after MCP restart."
+                    return _complete_control_reconciliation(
+                        job_id,
+                        token,
+                        status_value="timed_out",
+                        error=error,
+                        reason_code="timeout_process_handle_unavailable",
+                        timed_out=True,
+                    )
+                return _complete_control(
+                    job_id,
+                    token,
+                    status_value="timed_out",
+                    error=error,
+                    timed_out=True,
+                )
+        workspace_id = str(latest.get("workspaceId") or workspace.default_workspace_id())
+        with workspace.workspace_lock(workspace_id):
+            current = _read_json(_find_record_path(job_id, workspace_id), None)
+            return _refresh_locked(
+                _ensure_lifecycle_fields(current) if isinstance(current, dict) else latest,
+                observation,
+            )
+    workspace_id = str(latest.get("workspaceId") or workspace.default_workspace_id())
+    with workspace.workspace_lock(workspace_id):
+        current = _read_json(_find_record_path(job_id, workspace_id), None)
+        current = _ensure_lifecycle_fields(current) if isinstance(current, dict) else latest
+        if str(current.get("status")) in TERMINAL_STATUSES:
+            return _finalize_record_locked(current)
+        return current
+
+
+def _refresh_locked(record: dict[str, Any], observation: dict[str, Any]) -> dict[str, Any]:
+    try:
+        _validate_continuation(record)
+    except ExecutionPlanError as exc:
+        _transition_status(record, "failed")
+        record["error"] = f"Continuation rejected [{exc.reason_code}]: {exc}"
+        record["completedAt"] = record.get("completedAt") or _utc_now()
+        record["result"] = {"isError": True, "error": record["error"]}
+        record["finalized"] = True
+        record["reconciliationRequired"] = exc.reason_code == "continuation_plan_missing"
+        record["finalization"] = {
+            "state": "failed",
+            "attempts": 0,
+            "token": "",
+            "error": record["error"],
+            "reasonCode": (
+                "legacy_job_adoption_required"
+                if exc.reason_code == "continuation_plan_missing"
+                else exc.reason_code
+            ),
+        }
+        _write_record(record)
+        _forget_process(str(record["jobId"]))
+        return record
+    status_value = str(record.get("status", ""))
+    if status_value not in ACTIVE_STATUSES:
+        if status_value in TERMINAL_STATUSES:
+            return _finalize_record_locked(record)
+        return record
+    if record.get("controlReservation"):
+        return record
+    # A newly durable queued record may be observed while its non-blocking
+    # process launch is still in progress. It is not a failed process.
+    if status_value == "queued" and not record.get("startedAt"):
+        return record
+
+    rc = observation.get("returnCode")
+    alive = bool(observation.get("alive"))
     record["lastObservedAt"] = _utc_now()
-    if rc is None and timed_out and alive:
-        if proc is not None:
-            _terminate_process_group(int(pid))
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                pass
-        else:
-            record["error"] = record.get("error") or "Job exceeded timeout, but process handle is unavailable after MCP restart."
-        record["status"] = "timed_out"
-        record["timedOut"] = True
-        record["completedAt"] = _utc_now()
-    elif rc is None and alive:
-        record["status"] = "running"
+    if rc is None and alive:
+        _transition_status(record, "running")
     elif rc is None:
-        record["status"] = "failed"
+        _transition_status(record, "failed")
         record["completedAt"] = _utc_now()
         record["error"] = record.get("error") or "Process exited before writing a return code."
     else:
-        record["status"] = "completed" if rc == 0 else "failed"
+        _transition_status(record, "completed" if rc == 0 else "failed")
         record["returnCode"] = rc
         record["completedAt"] = record.get("completedAt") or _utc_now()
         if rc != 0:
             record["error"] = record.get("error") or f"Process exited with return code {rc}."
     _write_record(record)
-    if record["status"] in {"completed", "timed_out", "failed", "canceled"}:
+    if record["status"] in TERMINAL_STATUSES:
         return _finalize_record_locked(record)
     return record
 
@@ -870,6 +1137,10 @@ def _job_response(record: dict[str, Any], *, include_result: bool = False) -> di
             response["resultDisposition"] = result["summary"]["disposition"]
     if isinstance(result.get("counts"), dict):
         response["counts"] = result["counts"]
+    if record.get("reconciliationRequired"):
+        finalization = record.get("finalization") if isinstance(record.get("finalization"), dict) else {}
+        response["reconciliationRequired"] = True
+        response["reconciliationReason"] = str(finalization.get("reasonCode") or "job_state_unknown")
     if include_result:
         response["run"] = record.get("run")
         response["result"] = record.get("result")
@@ -885,29 +1156,46 @@ def _job_record_paths(workspace_id: str = "") -> list[Path]:
 
 
 def cancel(job_id: str) -> dict[str, Any]:
-    record = _read_record(job_id)
-    refreshed = _refresh(record)
-    if refreshed.get("status") not in {"queued", "running"}:
+    refreshed = _refresh(_read_record(job_id))
+    if refreshed.get("status") not in ACTIVE_STATUSES:
         return refreshed
-    pid = refreshed.get("pid")
+    token, reserved = _reserve_control(job_id, "operator_cancel")
+    if not token:
+        return _refresh(_read_record(job_id))
+    pid = reserved.get("pid")
+    proc = _PROCESSES.get(job_id)
+    if not isinstance(pid, int) or proc is None or proc.pid != pid:
+        completed = _complete_control_reconciliation(
+            job_id,
+            token,
+            status_value="failed",
+            error="Cancellation could not authenticate the process handle after MCP restart.",
+            reason_code="cancel_process_handle_unavailable",
+        )
+        evidence.log_event(
+            str(completed.get("eventType", "jobs.cancel")),
+            f"Background job {job_id} requires cancellation reconciliation.",
+            {"jobId": job_id, "pid": pid, "reasonCode": "cancel_process_handle_unavailable"},
+        )
+        return completed
     if isinstance(pid, int):
         _terminate_process_group(pid)
-        proc = _PROCESSES.get(job_id)
-        if proc is not None:
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                pass
-    refreshed["status"] = "canceled"
-    refreshed["completedAt"] = _utc_now()
-    refreshed["error"] = "Canceled by operator request."
-    _write_record(refreshed)
-    evidence.log_event(
-        str(refreshed.get("eventType", "jobs.cancel")),
-        f"Canceled background job {job_id}.",
-        {"jobId": job_id, "pid": pid, "shellCommand": refreshed.get("shellCommand", "")},
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+    completed = _complete_control(
+        job_id,
+        token,
+        status_value="canceled",
+        error="Canceled by operator request.",
     )
-    return _finalize_record(refreshed)
+    evidence.log_event(
+        str(completed.get("eventType", "jobs.cancel")),
+        f"Canceled background job {job_id}.",
+        {"jobId": job_id, "pid": pid, "shellCommand": completed.get("shellCommand", "")},
+    )
+    return completed
 
 
 def terminate_process_group(pid: int) -> None:

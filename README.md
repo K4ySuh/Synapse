@@ -94,7 +94,7 @@ prior assessment knowledge available through MCP tools and resources.
 
 ## Modernization Status
 
-Phase 2 is underway at the application boundary. Six actions now
+Phase 2 Stage B is integrated at the application boundary. Six actions now
 execute only by canonical `action_id` through Action Registry v2, validate typed
 outputs, resolve request-effective multidimensional effects and immutable
 authorization intents, and feed migrated adapter discovery from the same
@@ -103,19 +103,21 @@ envelope, provider/proxy route, methods, credential references, and exact local
 outputs. The legacy 174-tool stdio profile remains the default compatibility
 surface and still uses its existing `confirm=true` gates.
 
-The first Phase 2 task adds the pure Authority Grant and policy-decision model:
-typed coverage for exact or whole-scope targets, redirects, providers, local
-outputs, methods, credential references, effects, risk, modes, lifecycle,
-step-up authorization, and configurable budgets. It deliberately performs no
-persistence or dispatch enforcement yet; the durable transactional authority
-repository is the next dependency.
+Authority-aware execution now persists workspace-local grants, revisions,
+step-ups, opaque request states, dispatch budgets, decisions, dispatch truth,
+continuation bindings, and reconciliation under
+`DATA/workspaces/<workspace>/authority/state.json`. One locked atomic
+transaction evaluates an exact sealed plan and reserves its dispatch budget.
+Covered `full_delegated` work executes without caller `confirm=true` or a new
+pause; `supervised` returns an exact resumable step-up when required; uncovered
+work does not dispatch. The local `synapse-authority` entry point manages this
+state and is intentionally absent from model-executable actions.
 
-An isolated, opt-in spike proves exactly three actions with the official Python
+An isolated, opt-in authority-aware profile proves exactly three actions with the official Python
 MCP SDK 2.0.0 and protocol revision `2026-07-28` over stdio and loopback
-Streamable HTTP. It is a feasibility profile, not the default server and not a
-partial Authority Grants implementation. See
+Streamable HTTP. It remains opt-in rather than the default stable server. See
 [the Phase 1.1 handoff](docs/modernization/phase-1.1-handoff.md) and
-[the approved Phase 2 checkpoint](docs/modernization/phase-2-stage-a.md).
+[the Phase 2 Stage B handoff](docs/modernization/phase-2-stage-b-handoff.md).
 
 ## Main Features
 
@@ -137,10 +139,10 @@ partial Authority Grants implementation. See
 - Persisted authorization scope (hosts, patterns, CIDRs) at global and
   workspace level; active adapters validate against the owning workspace's
   scope before the global file.
-- Scope and execution approval are separate gates. The legacy profile requires
-  in-scope validation plus `confirm=true`; the modern spike never treats that
-  input as authority and leaves active dispatch in `input_required` until Phase
-  2 provides server-held grants.
+- Scope and execution authority are separate gates. The legacy profile requires
+  in-scope validation plus `confirm=true`. Authority-aware profiles ignore that
+  caller field as authority, evaluate durable grants immediately before
+  dispatch, and return typed `input_required` state when uncovered.
 - Scoped credentials (`bearer`, `basic`, `cookie`, `header`, browser-derived
   `session`) stored locally with `0600` permissions, redacted in every
   response, and resolved per request target. Browser authentication profiles
@@ -193,8 +195,9 @@ partial Authority Grants implementation. See
 - Bounded, operator-approved single-shot HTTP probes for XSS, SSRF, open
   redirect, command injection, SSTI, LFI/RFI, SSI, XXE, CORS, and GraphQL
   introspection, plus approved access-control matrix replay across credential
-  contexts. Every active probe is scope-checked, `confirm=true` gated, and
-  bounded by adapter-specific safety policy. XSS validation defaults to an
+  contexts. Every active probe is scope-checked and bounded by adapter-specific
+  safety policy; the stable legacy profile remains `confirm=true` gated, while
+  migrated authority-aware actions consume trusted grant receipts. XSS validation defaults to an
   inert reflection-only marker; syntax-breakout and execution-capable payloads
   require explicit modes and higher risk tiers.
 - CVE intelligence and verification: approval-gated correlation of

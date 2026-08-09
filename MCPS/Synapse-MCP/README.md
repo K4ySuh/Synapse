@@ -10,6 +10,24 @@ evidence, dump handling, and policy-aware adapters for analysis tools.
 For the full project layout, see [Architecture](../../docs/Architecture.md).
 For setup and workflow steps, see [Operations](../../docs/Operations.md).
 
+## Execution Profiles And Authority
+
+The default stdio server remains the frozen `legacy` profile: its active tools
+retain their exact `confirm=true` behavior. Migrated actions can also run under
+server-owned `observe`, `supervised`, or `full_delegated` contexts. Those
+profiles evaluate a sealed Registry plan against durable workspace-local
+Authority Grants and atomically reserve a dispatch before the executor runs.
+Caller input cannot select or enlarge the profile, grant, step-up, request
+state, dispatch, or continuation.
+
+Authority state lives at
+`DATA/workspaces/<workspace>/authority/state.json`. Manage it with the local
+`synapse-authority` console entry point described in
+[Operations](../../docs/Operations.md); no `authority.*` MCP tools exist.
+Covered full-delegated work does not require caller confirmation. Uncovered
+work returns approval-required (`-32001`) without dispatch; scope denial remains
+`-32002`. Dispatch budgets count actions, not outbound HTTP requests.
+
 ## Runtime Python
 
 Run this MCP through `MCPS/Synapse-MCP/bin/synapse-mcp`. The launcher sources

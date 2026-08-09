@@ -19,19 +19,25 @@ layers.
 
 The staged modernization foundation now includes the frozen compatibility
 baseline, typed application action contracts, a registry-projected six-action
-vertical slice, and crash-atomic state prerequisites. The corrected Phase 2
-Authority Engine checkpoint is approved and its first strictly ordered task—the
-pure grant and decision model—is complete without changing dispatch behavior.
+vertical slice, and an integrated Phase 2 Authority Engine with durable
+dispatch and continuation truth.
 
 ### Added
+
+- **Phase 2 durable authority integration.** Added workspace-local crash-atomic
+  grant/revision storage, exact step-ups, opaque resumable request states,
+  dispatch-total/rate-window/active budgets, decision audit, legal dispatch
+  transitions, continuation bindings, reconciliation, and a trusted local
+  `synapse-authority` management entry point. Authority-aware Registry profiles
+  now execute covered full-delegated work without caller confirmation and keep
+  uncovered or scope-denied work non-dispatched.
 
 - **Phase 2 Authority Grant decision model.** Added immutable, serializable
   grants, budgets, exact step-up authorization, stable policy decisions/reasons,
   and pure coverage checks over sealed execution plans. Coverage distinguishes
   exact versus whole-scope targets, redirects, providers, local outputs,
   methods, credential references, multidimensional effects, risk, lifecycle,
-  modes, and budget ceilings; persistence and dispatch wiring remain later
-  Phase 2 tasks.
+  modes, and budget ceilings; Stage B now persists and enforces this model.
 
 - **Phase 1.1 execution truth gate.** Added protocol-independent
   `AuthorizationIntent`, target/scope/output envelopes, provider routes,
@@ -78,6 +84,14 @@ pure grant and decision model—is complete without changing dispatch behavior.
   presentation labels map consistently to compatibility policies.
 
 ### Fixed
+
+- Target credential headers are re-resolved for every redirect/discovered
+  origin and never inherit across uncovered origins; proxy credentials use a
+  separate exact provider scope and `Proxy-Authorization` cannot become a
+  target header. Background job transitions are revision-safe, race winners are
+  durable, finalization/cleanup is single-application, and no process wait
+  occurs while holding the workspace state lock. Restart recovery never signals
+  an unauthenticated persisted PID or applies uncertain continuation effects.
 
 - `jobs.status` now declares refresh/finalizer/workspace/evidence/cleanup
   effects instead of pure read; jobs preserve and validate creation-time

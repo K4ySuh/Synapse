@@ -21,8 +21,12 @@ legacy stdio projection                 modern spike (opt-in, three actions)
                    -> runtime availability
                    -> request-effective ActionEffects
                    -> immutable AuthorizationIntent / ExecutionPlan
-                   -> policy evaluator -----------+
-                   -> registered executor <-------+ (same plan object)
+                   -> profile policy evaluator
+                        |-- legacy pass-through
+                        `-- locked Authority repository transaction
+                              -> typed decision + dispatch reservation
+                   -> registered executor (same sealed plan + trusted receipt)
+                   -> dispatch result/continuation ledger update
                    -> canonical output-model validation
 ```
 
@@ -41,6 +45,17 @@ destinations. `ActionRegistry` seals it with the effective effects and validated
 input fingerprint as one `ExecutionPlan`; policy and executor receive that same
 immutable instance. Caller input describes a request and cannot manufacture a
 grant.
+
+Authority-aware profiles reload
+`DATA/workspaces/<workspace>/authority/state.json` for each decision while
+holding the existing workspace lock. The schema-versioned private JSON file is
+replaced crash-atomically and contains grant revision history, exact step-ups,
+opaque request states, dispatch-total/rate-window/active budgets, audit
+decisions, dispatch state, job continuation bindings, and reconciliation. It
+contains fingerprints and credential references, never request bodies or
+credential values. The minimum dispatch state machine is
+`authorized -> dispatched -> succeeded|failed|unknown` and
+`authorized -> cancelled`; unknown state-changing work is never replayed.
 
 ```text
 MCP client

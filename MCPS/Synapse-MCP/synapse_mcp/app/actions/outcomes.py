@@ -45,6 +45,7 @@ class PolicyDenial:
     message: str
     legacy_code: int | None = None
     reason_code: str | None = None
+    details: dict[str, Any] | None = None
     kind: Literal["policy_denial"] = field(init=False, default="policy_denial")
 
 
@@ -53,6 +54,7 @@ class ApprovalRequired:
     message: str
     legacy_code: int | None = None
     reason_code: str | None = None
+    details: dict[str, Any] | None = None
     kind: Literal["approval_required"] = field(init=False, default="approval_required")
 
 

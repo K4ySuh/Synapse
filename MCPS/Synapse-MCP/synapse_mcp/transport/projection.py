@@ -17,6 +17,7 @@ from synapse_mcp.app.actions import (
     Success,
 )
 from synapse_mcp.core.errors import McpError
+from synapse_mcp.core.execution import ExecutionPlanError, reject_reserved_runtime_fields
 
 from .legacy_projection_map import LEGACY_DISPATCH_ACTIONS, LEGACY_PROJECTION_MAP
 
@@ -44,6 +45,10 @@ def project_call(name: str, args: dict[str, Any]) -> str | None:
         return None
     action_id, legacy = matched
     descriptor = REGISTRY.get(action_id)
+    try:
+        reject_reserved_runtime_fields(args)
+    except ExecutionPlanError as exc:
+        raise McpError(-32602, str(exc)) from exc
     typed_input = descriptor.input_model.model_validate(args)
 
     from . import stdio_server

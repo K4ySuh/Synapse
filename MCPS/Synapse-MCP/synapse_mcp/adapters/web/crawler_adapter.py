@@ -952,7 +952,12 @@ def response_result_metadata(response: dict[str, Any], url: str, status: int | N
     return metadata
 
 
-def crawl_http_policy(args: dict[str, Any], timeout: int, execution_plan: ExecutionPlan | None = None) -> HttpClientPolicy:
+def crawl_http_policy(
+    args: dict[str, Any],
+    timeout: int,
+    execution_plan: ExecutionPlan | None = None,
+    target_header_resolver: Any | None = None,
+) -> HttpClientPolicy:
     policy_args = {
         **args,
         "followRedirects": False,
@@ -963,14 +968,16 @@ def crawl_http_policy(args: dict[str, Any], timeout: int, execution_plan: Execut
         proxy_url = str(args.get("proxyUrl") or "")
         if not proxy_url:
             raise McpError(-32602, "proxyCredentialId requires proxyUrl.")
-        proxy_credential = credentials.credential_for_target(str(args["proxyCredentialId"]), proxy_url)
+        proxy_credential = credentials.credential_for_provider(str(args["proxyCredentialId"]), proxy_url)
         proxy_headers = credentials.proxy_headers_for_credential_target(proxy_credential, proxy_url)
-    return HttpClientPolicy.from_args(
+    policy = HttpClientPolicy.from_args(
         policy_args,
         timeout_seconds=timeout,
         execution_plan=execution_plan,
         proxy_headers=proxy_headers,
     )
+    policy.target_header_resolver = target_header_resolver
+    return policy
 
 
 def fetch_crawl_url(
@@ -988,14 +995,23 @@ def fetch_crawl_url(
     redirects = 0
     attempted_requests = 0
     http_responses = 0
+    all_credential_coverage: list[dict[str, Any]] = []
 
     def finish(payload: dict[str, Any]) -> dict[str, Any]:
-        return {**payload, "attemptedCount": attempted_requests, "httpResponseCount": http_responses}
+        return {
+            **payload,
+            "attemptedCount": attempted_requests,
+            "httpResponseCount": http_responses,
+            **({"credentialCoverage": all_credential_coverage} if all_credential_coverage else {}),
+        }
 
     while True:
         request = HttpRequest(url=current_url, headers=request_headers)
         attempted_requests += 1
         response = http_session.send(request) if http_session is not None else http_client.send(request, policy=policy)
+        for coverage in response.credential_coverage:
+            if coverage not in all_credential_coverage:
+                all_credential_coverage.append(dict(coverage))
         if response.status is None:
             return finish({"finalUrl": current_url, "status": None, "contentType": "", "body": "", "error": response.error})
         http_responses += 1
@@ -1101,6 +1117,7 @@ def submit_post_form(
         "error": response.error,
         "parameterNames": sorted(values),
         "submittedValues": redacted_form_values(values),
+        "credentialCoverage": response.credential_coverage,
     }
 
 
@@ -1799,10 +1816,19 @@ def crawl_error_category(error: str, *, status: Any = None) -> str:
     return "other"
 
 
-def crawl(args: dict[str, Any], *, execution_plan: ExecutionPlan | None = None) -> str:
+def crawl(
+    args: dict[str, Any],
+    *,
+    execution_plan: ExecutionPlan | None = None,
+    authorization_receipt: object | None = None,
+) -> str:
     if execution_plan is not None:
         execution_plan.assert_runtime_input(args)
-    require_confirmed(args, "Active crawling requires confirm=true.")
+    require_confirmed(
+        args,
+        "Active crawling requires confirm=true.",
+        authorization=authorization_receipt,
+    )
     target = normalize_url(args["target"])
     if not target:
         raise McpError(-32602, "target must be an http(s) URL or hostname.")
@@ -1842,7 +1868,7 @@ def crawl(args: dict[str, Any], *, execution_plan: ExecutionPlan | None = None) 
             raise McpError(-32602, "crawler.extended requires credentialId so POST form submissions run in an authorized authenticated context.")
         if not args.get("_previousCrawlVerified"):
             require_previous_crawl(workspace_id, scope_result["host"])
-    approval = approval_metadata(args)
+    approval = approval_metadata(args, authorization=authorization_receipt)
     require_external_output_allowed(
         args,
         "output",
@@ -1868,14 +1894,17 @@ def crawl(args: dict[str, Any], *, execution_plan: ExecutionPlan | None = None) 
             approval,
             tool_name,
             execution_plan,
+            authorization_receipt,
         )
     request_headers = {"User-Agent": user_agent, "Accept": "text/html,application/xhtml+xml,*/*;q=0.8"}
     credential_meta = None
+    target_header_resolver = None
     if args.get("credentialId"):
-        credential = credentials.credential_for_target(str(args["credentialId"]), target)
-        request_headers.update(credentials.headers_for_credential_target(credential, target))
+        credential_id = str(args["credentialId"])
+        credential = credentials.credential_for_target(credential_id, target)
+        target_header_resolver = lambda url: credentials.target_headers_with_coverage(credential_id, url)
         credential_meta = credentials.redact_credential(credential)
-    http_policy = crawl_http_policy(args, timeout, execution_plan)
+    http_policy = crawl_http_policy(args, timeout, execution_plan, target_header_resolver)
     sitemap = new_sitemap(
         {
             "type": "active-crawl",
@@ -1907,6 +1936,18 @@ def crawl(args: dict[str, Any], *, execution_plan: ExecutionPlan | None = None) 
     post_form_keys: set[tuple[str, str, tuple[str, ...]]] = set()
     discovered_relations: dict[tuple[str, str, str], dict[str, Any]] = {}
     cached_script_urls: dict[str, list[str]] = {}
+    credential_coverage: dict[tuple[str, str], dict[str, Any]] = {}
+
+    def record_credential_coverage(items: Any) -> None:
+        if not isinstance(items, list):
+            return
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            origin = str(item.get("targetOrigin") or "")
+            status_value = str(item.get("status") or "")
+            if origin and status_value:
+                credential_coverage[(origin, status_value)] = dict(item)
 
     def consider_discovered(url: str, source_url: str, relation_type: str, *, followed: bool = False) -> bool:
         allowed = crawl_host_allowed(
@@ -1962,6 +2003,7 @@ def crawl(args: dict[str, Any], *, execution_plan: ExecutionPlan | None = None) 
             workspace_id,
             execution_plan,
         )
+        record_credential_coverage(fetch_result.get("credentialCoverage"))
         attempted_count += int(fetch_result.get("attemptedCount", 1) or 0)
         http_response_count += int(fetch_result.get("httpResponseCount", 0) or 0)
         blocked_redirect = str(fetch_result.get("blockedRedirect") or "")
@@ -2135,6 +2177,7 @@ def crawl(args: dict[str, Any], *, execution_plan: ExecutionPlan | None = None) 
                             workspace_id,
                             execution_plan,
                         )
+                        record_credential_coverage(post_result.get("credentialCoverage"))
                         if post_result.get("submitted"):
                             record_crawl_relation(
                                 discovered_relations,
@@ -2159,6 +2202,7 @@ def crawl(args: dict[str, Any], *, execution_plan: ExecutionPlan | None = None) 
                             "redirectLocation": post_result.get("redirectLocation", ""),
                             "sensitiveForm": bool(sensitivity_reason),
                             "sensitivityReason": sensitivity_reason,
+                            "credentialCoverage": post_result.get("credentialCoverage", []),
                             "error": post_result.get("error", ""),
                         }
                         post_submissions.append(submission)
@@ -2176,6 +2220,7 @@ def crawl(args: dict[str, Any], *, execution_plan: ExecutionPlan | None = None) 
                                 "parameterNames": submission["parameterNames"],
                                 "submittedValues": submission["submittedValues"],
                                 "sensitiveForm": submission["sensitiveForm"],
+                                "credentialCoverage": submission["credentialCoverage"],
                                 "approval": approval,
                             },
                         )
@@ -2200,6 +2245,7 @@ def crawl(args: dict[str, Any], *, execution_plan: ExecutionPlan | None = None) 
                                 "sensitiveForm": submission["sensitiveForm"],
                                 "sensitivityReason": submission["sensitivityReason"],
                                 "credential": credential_meta,
+                                "credentialCoverage": submission["credentialCoverage"],
                                 "approval": approval,
                             },
                         )
@@ -2218,7 +2264,11 @@ def crawl(args: dict[str, Any], *, execution_plan: ExecutionPlan | None = None) 
                                 "bodyParameters": list(submission["parameterNames"]),
                                 "requestContentTypes": ["application/x-www-form-urlencoded"],
                                 "stateChanging": True,
-                                "hasAuthorization": bool(credential_meta),
+                                "hasAuthorization": any(
+                                    item.get("status") == "credential_applied"
+                                    for item in submission["credentialCoverage"]
+                                    if isinstance(item, dict)
+                                ),
                                 "observedRequests": [
                                     {
                                         "method": "POST",
@@ -2347,6 +2397,11 @@ def crawl(args: dict[str, Any], *, execution_plan: ExecutionPlan | None = None) 
         "postSubmissions": post_submissions,
         "includeSensitivePostForms": include_sensitive_post_forms,
     }
+    if credential_meta is not None:
+        flattened["crawl"]["credentialCoverage"] = sorted(
+            credential_coverage.values(),
+            key=lambda item: (str(item.get("targetOrigin", "")), str(item.get("status", ""))),
+        )
     flattened["resultSummary"] = {
         "disposition": disposition,
         "attemptedCount": attempted_count,
@@ -2489,12 +2544,22 @@ def _start_background_crawl(
     approval: dict[str, Any],
     tool_name: str = "crawler.crawl",
     execution_plan: ExecutionPlan | None = None,
+    authorization_receipt: object | None = None,
 ) -> str:
     public_target = redact_url_query_values(target) or target
     public_scope = {**scope_result, "target": public_target}
     worker_args = dict(args)
     worker_args["background"] = False
     worker_args["_deferWorkflowRefreshToFinalizer"] = True
+    if authorization_receipt is not None:
+        receipt_dict = getattr(authorization_receipt, "to_dict", None)
+        if not callable(receipt_dict):
+            raise ExecutionPlanError(
+                "authorization_receipt_invalid",
+                "Background authority receipt cannot be serialized.",
+            )
+        worker_args["_authorityCompatibilityShim"] = True
+        worker_args["_authorityReceipt"] = receipt_dict()
     if execution_plan is not None:
         args_path = Path(execution_plan.output("crawler.worker_args").path)
         result_path = Path(execution_plan.output("crawler.worker_result").path)

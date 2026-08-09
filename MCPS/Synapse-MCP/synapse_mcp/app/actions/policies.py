@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import FrozenSet
 
+from synapse_mcp.core.effects import replay_safety_covers, validate_effect_names, validate_replay_safety
+
 try:
     from enum import StrEnum
 except ImportError:  # pragma: no cover - exercised by the Python 3.10 CI job
@@ -152,6 +154,10 @@ class ActionEffects:
     replay_safety: Idempotency = Idempotency.PURE_READ
     resolution_notes: tuple[str, ...] = ()
 
+    def __post_init__(self) -> None:
+        validate_effect_names(traffic=self.traffic, local_writes=self.local_writes)
+        validate_replay_safety(self.replay_safety)
+
     def permits(self, effective: "ActionEffects") -> bool:
         """Return whether effective effects stay within this maximum envelope."""
 
@@ -168,15 +174,7 @@ class ActionEffects:
             return False
         if not effective.local_writes.issubset(self.local_writes):
             return False
-        if self.replay_safety is Idempotency.PURE_READ:
-            return effective.replay_safety is Idempotency.PURE_READ
-        if self.replay_safety in {Idempotency.IDEMPOTENT_WRITE, Idempotency.IDEMPOTENT_CONTROL}:
-            return effective.replay_safety in {
-                Idempotency.PURE_READ,
-                Idempotency.IDEMPOTENT_WRITE,
-                Idempotency.IDEMPOTENT_CONTROL,
-            }
-        return True
+        return replay_safety_covers(self.replay_safety, effective.replay_safety)
 
     def with_resolution_note(self, note: str) -> "ActionEffects":
         return ActionEffects(

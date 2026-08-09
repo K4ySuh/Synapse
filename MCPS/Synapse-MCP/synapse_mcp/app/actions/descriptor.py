@@ -34,6 +34,13 @@ class ExecutionContext:
     deadline_seconds: float
     legacy_approval_asserted: bool | None
     execution_plan: ExecutionPlan | None = None
+    execution_profile: str = "legacy"
+    authority_session_id: str = ""
+    selected_grant_id: str = ""
+    idempotency_key: str = ""
+    request_state_id: str = ""
+    continuation_dispatch_id: str = ""
+    authorization_receipt: object | None = None
 
 
 @dataclass(frozen=True, slots=True)

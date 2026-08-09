@@ -831,6 +831,8 @@ class ToolWrapperTests(unittest.TestCase):
                 self.assertTrue(timed_out["timedOut"])
                 self.assertIn("process handle is unavailable", timed_out["error"])
                 self.assertIn("lastObservedAt", timed_out)
+                self.assertTrue(timed_out["reconciliationRequired"])
+                self.assertEqual(timed_out["reconciliationReason"], "timeout_process_handle_unavailable")
 
     def test_run_command_timeout_kills_process_group(self) -> None:
         with TemporaryDirectory() as tmp:

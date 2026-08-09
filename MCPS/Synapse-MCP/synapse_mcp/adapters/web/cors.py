@@ -302,8 +302,17 @@ def generate_test_plan(args: dict[str, Any]) -> str:
     return json.dumps(plan, indent=2)
 
 
-def execute_test(args: dict[str, Any], *, execution_plan: ExecutionPlan | None = None) -> str:
-    require_confirmed(args, "Running a CORS active probe requires confirm=true.")
+def execute_test(
+    args: dict[str, Any],
+    *,
+    execution_plan: ExecutionPlan | None = None,
+    authorization_receipt: object | None = None,
+) -> str:
+    require_confirmed(
+        args,
+        "Running a CORS active probe requires confirm=true.",
+        authorization=authorization_receipt,
+    )
     candidate = _coerce_candidate(args)
     target_url = str(candidate.get("url", ""))
     if not target_url:
@@ -325,17 +334,19 @@ def execute_test(args: dict[str, Any], *, execution_plan: ExecutionPlan | None =
     probe_origin = str(args.get("probeOrigin") or DEFAULT_PROBE_ORIGIN)
     method = str(candidate.get("method", "GET")).upper()
     headers = {"User-Agent": "Synapse-MCP/0.1", "Origin": probe_origin}
+    target_header_resolver = None
     if args.get("credentialId"):
-        credential = credentials.credential_for_target(str(args["credentialId"]), target_url)
-        headers.update(credentials.headers_for_credential_target(credential, target_url))
-    approval = approval_metadata(args)
+        credential_id = str(args["credentialId"])
+        credentials.credential_for_target(credential_id, target_url)
+        target_header_resolver = lambda url: credentials.target_headers_with_coverage(credential_id, url)
+    approval = approval_metadata(args, authorization=authorization_receipt)
     timeout = int(args.get("requestTimeout", 10))
     proxy_headers: dict[str, str] = {}
     if args.get("proxyCredentialId"):
         proxy_url = str(args.get("proxyUrl") or "")
         if not proxy_url:
             raise McpError(-32602, "proxyCredentialId requires proxyUrl.")
-        proxy_credential = credentials.credential_for_target(str(args["proxyCredentialId"]), proxy_url)
+        proxy_credential = credentials.credential_for_provider(str(args["proxyCredentialId"]), proxy_url)
         proxy_headers = credentials.proxy_headers_for_credential_target(proxy_credential, proxy_url)
     policy = HttpClientPolicy.from_args(
         args,
@@ -343,6 +354,7 @@ def execute_test(args: dict[str, Any], *, execution_plan: ExecutionPlan | None =
         execution_plan=execution_plan,
         proxy_headers=proxy_headers,
     )
+    policy.target_header_resolver = target_header_resolver
     response_payload = http_client.send(HttpRequest(url=target_url, method=method, headers=headers), policy=policy).as_dict()
     exchange_evidence = store_http_exchange_evidence(
         workspace_id,
@@ -363,6 +375,11 @@ def execute_test(args: dict[str, Any], *, execution_plan: ExecutionPlan | None =
         "probeOrigin": probe_origin,
         "request": {"url": target_url, "method": method},
         "requestHeaders": redact_headers(headers),
+        **(
+            {"credentialCoverage": response_payload.get("credentialCoverage", [])}
+            if args.get("credentialId")
+            else {}
+        ),
         "response": {
             "status": response_payload.get("status"),
             "accessControlAllowOrigin": acao,

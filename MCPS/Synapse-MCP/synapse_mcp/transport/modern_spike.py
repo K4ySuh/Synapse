@@ -14,6 +14,7 @@ from uuid import uuid4
 from synapse_mcp import __version__
 from synapse_mcp.app.actions import (
     ActionRequest,
+    ApprovalRequired,
     ExecutionContext,
     Idempotency,
     REGISTRY,
@@ -22,6 +23,10 @@ from synapse_mcp.app.actions import (
 
 
 MODERN_SPIKE_ENV = "SYNAPSE_ENABLE_MODERN_SPIKE"
+MODERN_AUTHORITY_PROFILE_ENV = "SYNAPSE_MODERN_AUTHORITY_PROFILE"
+MODERN_AUTHORITY_GRANT_ENV = "SYNAPSE_MODERN_AUTHORITY_GRANT_ID"
+MODERN_AUTHORITY_SESSION_ENV = "SYNAPSE_MODERN_AUTHORITY_SESSION_ID"
+MODERN_REQUEST_STATE_ENV = "SYNAPSE_MODERN_REQUEST_STATE_ID"
 MODERN_PROTOCOL_REVISION = "2026-07-28"
 MODERN_SDK_VERSION = "2.0.0"
 MODERN_ACTION_IDS = (
@@ -96,25 +101,13 @@ def _projected_callable(
 
     def dispatch(**arguments: Any) -> Any:
         context = arguments.pop("ctx")
-        if action_id == ACTIVE_ACTION_ID:
-            # Phase 2 authority grants intentionally do not exist yet. In particular,
-            # confirm is absent from this signature and cannot authorize modern dispatch.
-            if context.protocol_version == MODERN_PROTOCOL_REVISION:
-                return input_required_result(
-                    meta={
-                        "synapse/status": "approval_required",
-                        "synapse/actionId": action_id,
-                        "synapse/dispatch": "not_started",
-                    },
-                    requestState="approval-required:no-authority-grant-model",
-                )
-            raise RuntimeError(
-                "approval_required[modern_authority_missing]: active dispatch was not started"
-            )
-
         # The SDK materializes omitted optional parameters as their None default;
         # legacy-derived action models distinguish omission from an explicit null.
         canonical_arguments = {key: value for key, value in arguments.items() if value is not None}
+        if "confirm" in descriptor.input_model.model_fields:
+            # Temporary input-shape compatibility only. False cannot authorize
+            # execution; the trusted grant receipt is the sole modern signal.
+            canonical_arguments["confirm"] = False
         validated_input = descriptor.input_model.model_validate(canonical_arguments)
         request = ActionRequest(
             input=validated_input,
@@ -123,9 +116,26 @@ def _projected_callable(
                 correlation_id=f"modern-spike-{uuid4().hex}",
                 deadline_seconds=descriptor.task_policy.deadline_tier.value,
                 legacy_approval_asserted=None,
+                execution_profile=os.environ.get(MODERN_AUTHORITY_PROFILE_ENV, "observe"),
+                authority_session_id=os.environ.get(MODERN_AUTHORITY_SESSION_ENV, "local-modern-spike"),
+                selected_grant_id=os.environ.get(MODERN_AUTHORITY_GRANT_ENV, ""),
+                idempotency_key=f"modern-{uuid4().hex}",
+                request_state_id=os.environ.get(MODERN_REQUEST_STATE_ENV, ""),
             ),
         )
         outcome = REGISTRY.execute(action_id, request)
+        if isinstance(outcome, ApprovalRequired) and context.protocol_version == MODERN_PROTOCOL_REVISION:
+            details = outcome.details or {}
+            return input_required_result(
+                meta={
+                    "synapse/status": "approval_required",
+                    "synapse/actionId": action_id,
+                    "synapse/dispatch": "not_started",
+                    "synapse/reason": outcome.reason_code or "approval_required",
+                    "synapse/requirement": details.get("requirement"),
+                },
+                requestState=str(details.get("requestStateId") or "approval-required:authority-state"),
+            )
         if not isinstance(outcome, Success):
             reason = getattr(outcome, "reason_code", None) or outcome.kind
             raise RuntimeError(f"{outcome.kind}[{reason}]: {outcome.message}")
@@ -177,7 +187,7 @@ def build_server() -> Any:
             description=descriptor.summary,
             annotations=_annotations(descriptor, ToolAnnotations),
             meta={
-                "synapse/profile": "modern-spike",
+                "synapse/profile": "authority-aware-modern-spike",
                 "synapse/protocolRevision": MODERN_PROTOCOL_REVISION,
                 "synapse/sdkVersion": MODERN_SDK_VERSION,
                 "synapse/effectsSource": "action_registry_v2",

@@ -14,12 +14,23 @@ from .authority import (
     BudgetDemand,
     BudgetLimits,
     BudgetUsage,
+    ContinuationAuthorization,
     PolicyDecision,
     ScopeDenied,
     StateChangePolicy,
     StepUpAuthorization,
     evaluate_authority,
 )
+from .repository import (
+    AuthorizationReceipt,
+    AuthorizationResult,
+    AuthorityRepository,
+    AuthorityRepositoryError,
+    AuthorityRevisionConflict,
+    DispatchTransitionError,
+    WorkspaceAuthorityRepository,
+)
+from .operator_service import AuthorityOperatorService, OperatorPrincipal
 
 __all__ = [
     "Allow",
@@ -32,9 +43,19 @@ __all__ = [
     "BudgetDemand",
     "BudgetLimits",
     "BudgetUsage",
+    "ContinuationAuthorization",
     "PolicyDecision",
     "ScopeDenied",
     "StateChangePolicy",
     "StepUpAuthorization",
     "evaluate_authority",
+    "AuthorizationReceipt",
+    "AuthorizationResult",
+    "AuthorityRepository",
+    "AuthorityRepositoryError",
+    "AuthorityRevisionConflict",
+    "DispatchTransitionError",
+    "WorkspaceAuthorityRepository",
+    "AuthorityOperatorService",
+    "OperatorPrincipal",
 ]

@@ -212,6 +212,40 @@ def _normalize_scopes(values: list[str]) -> list[str]:
     return normalized
 
 
+def _normalize_origins(values: list[str], *, require_target_scope: bool) -> list[str]:
+    normalized: set[str] = set()
+    known_scope = set(scope.load_scope().get("hosts", [])) if require_target_scope else set()
+    for value in values:
+        raw = str(value or "").strip()
+        parsed = urlsplit(raw)
+        if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+            raise McpError(-32602, "Credential origins must be explicit http(s) origins.")
+        if parsed.username is not None or parsed.password is not None:
+            raise McpError(-32602, "Credential origins cannot contain userinfo.")
+        if parsed.query or parsed.fragment or parsed.path not in {"", "/"}:
+            raise McpError(-32602, "Credential origins cannot contain a path, query, or fragment.")
+        try:
+            port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
+        except ValueError as exc:
+            raise McpError(-32602, "Credential origin has an invalid port.") from exc
+        host = scope.normalize_host(parsed.hostname)
+        if require_target_scope and host not in known_scope:
+            raise McpError(-32002, f"Credential target origin is not in authorized scope: {host}")
+        normalized.add(f"{parsed.scheme.lower()}://{host}:{port}")
+    return sorted(normalized)
+
+
+def _target_origin(target: str) -> str:
+    parsed = urlsplit(str(target) if "://" in str(target) else f"https://{target}")
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+        raise McpError(-32602, "Credential target must be an http(s) URL or hostname.")
+    try:
+        port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
+    except ValueError as exc:
+        raise McpError(-32602, "Credential target has an invalid port.") from exc
+    return f"{parsed.scheme.lower()}://{scope.normalize_host(parsed.hostname)}:{port}"
+
+
 def _validate_record(args: dict[str, Any]) -> dict[str, Any]:
     credential_id = str(args.get("id", "")).strip()
     if not ID_RE.fullmatch(credential_id):
@@ -219,12 +253,24 @@ def _validate_record(args: dict[str, Any]) -> dict[str, Any]:
     credential_type = str(args.get("type", "")).strip().lower()
     if credential_type not in SUPPORTED_TYPES:
         raise McpError(-32602, f"Credential type must be one of: {', '.join(sorted(SUPPORTED_TYPES))}.")
+    target_scopes = _normalize_scopes(args.get("scopes", [])) if args.get("scopes") else []
+    target_origins = _normalize_origins(args.get("targetOrigins", []), require_target_scope=True)
+    provider_origins = _normalize_origins(args.get("providerScopes", []), require_target_scope=False)
+    if not target_scopes and not target_origins and not provider_origins:
+        raise McpError(
+            -32602,
+            "Credential scopes must include a target hostname/origin or a provider origin.",
+        )
     record: dict[str, Any] = {
         "id": credential_id,
         "type": credential_type,
-        "scopes": _normalize_scopes(args.get("scopes", [])),
+        "scopes": target_scopes,
         "label": str(args.get("label", "")).strip(),
     }
+    if target_origins:
+        record["targetOrigins"] = target_origins
+    if provider_origins:
+        record["providerScopes"] = provider_origins
     secret = str(args.get("secret", ""))
     if not secret:
         raise McpError(-32602, "Credential secret is required.")
@@ -242,6 +288,11 @@ def _validate_record(args: dict[str, Any]) -> dict[str, Any]:
             raise McpError(-32602, "Header credential headerName must be a valid HTTP token and must not contain CR/LF.")
         if "\r" in secret or "\n" in secret:
             raise McpError(-32602, "Header credential secret must not contain CR/LF.")
+        if header_name.lower() == "proxy-authorization" and (target_scopes or target_origins):
+            raise McpError(
+                -32602,
+                "Proxy-Authorization credentials may use providerScopes only and cannot be target-scoped.",
+            )
         record["headerName"] = header_name
     return record
 
@@ -261,8 +312,18 @@ def save_credential(args: dict[str, Any]) -> dict[str, Any]:
     _upsert_credential(record)
     evidence.log_event(
         "credentials.set",
-        f"Stored credential {record['id']} for {len(record['scopes'])} scoped host(s).",
-        {"id": record["id"], "type": record["type"], "scopes": record["scopes"]},
+        (
+            f"Stored credential {record['id']} for {len(record['scopes'])} target host(s), "
+            f"{len(record.get('targetOrigins', []))} target origin(s), and "
+            f"{len(record.get('providerScopes', []))} provider origin(s)."
+        ),
+        {
+            "id": record["id"],
+            "type": record["type"],
+            "scopes": record["scopes"],
+            "targetOrigins": record.get("targetOrigins", []),
+            "providerScopes": record.get("providerScopes", []),
+        },
     )
     return {"saved": True, "path": str(CREDENTIALS_FILE), "credential": redact_credential(record)}
 
@@ -312,10 +373,57 @@ def get_credential(credential_id: str, *, include_secret: bool = False) -> dict[
 
 def credential_for_target(credential_id: str, target: str) -> dict[str, Any]:
     record = get_credential(credential_id, include_secret=True)
+    exact_origins = set(str(item) for item in record.get("targetOrigins", []))
+    if exact_origins:
+        origin = _target_origin(target)
+        if origin not in exact_origins:
+            raise McpError(-32002, f"Credential {credential_id} is not scoped for target origin: {origin}")
+        return record
     host = scope.normalize_host(target)
     if host not in set(record.get("scopes", [])):
         raise McpError(-32002, f"Credential {credential_id} is not scoped for target host: {host}")
     return record
+
+
+def credential_for_provider(credential_id: str, provider_url: str) -> dict[str, Any]:
+    """Resolve a credential only for an explicitly bound provider origin."""
+
+    record = get_credential(credential_id, include_secret=True)
+    origin = _target_origin(provider_url)
+    if origin not in set(str(item) for item in record.get("providerScopes", [])):
+        raise McpError(-32002, f"Credential {credential_id} is not scoped for provider origin: {origin}")
+    return record
+
+
+def target_headers_with_coverage(credential_id: str, target: str) -> tuple[dict[str, str], dict[str, Any]]:
+    """Resolve target headers at send time, or describe an anonymous fallback.
+
+    The returned observation contains only the opaque credential reference and
+    canonical destination origin. Secret material stays solely in the header
+    mapping and callers must keep that mapping out of plans, logs, and results.
+    """
+
+    origin = _target_origin(target)
+    try:
+        record = credential_for_target(credential_id, target)
+    except McpError as exc:
+        if exc.code != -32002:
+            raise
+        return {}, {
+            "credentialRef": credential_id,
+            "targetOrigin": origin,
+            "status": "anonymous_credential_not_scoped",
+            "reasonCode": "credential_target_not_covered",
+        }
+    target_headers = headers_for_credential_target(record, target)
+    if any(str(name).lower() == "proxy-authorization" for name in target_headers):
+        raise McpError(-32602, "Proxy-Authorization cannot be emitted as a target request header.")
+    return target_headers, {
+        "credentialRef": credential_id,
+        "targetOrigin": origin,
+        "status": "credential_applied",
+        "reasonCode": "credential_target_covered",
+    }
 
 
 def headers_for_credential(record: dict[str, Any]) -> dict[str, str]:

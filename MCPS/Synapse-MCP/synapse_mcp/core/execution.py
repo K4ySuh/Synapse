@@ -21,6 +21,7 @@ from typing import Any, Literal, Mapping
 from urllib.parse import urlsplit
 
 from . import atomic_io, scope, workspace
+from .effects import replay_safety_covers, validate_effect_names, validate_replay_safety
 
 
 PLAN_VERSION = 1
@@ -391,6 +392,13 @@ class EffectEnvelope:
     secret_use: bool = False
     replay_safety: str = "pure_read"
 
+    def __post_init__(self) -> None:
+        try:
+            validate_effect_names(traffic=self.traffic, local_writes=self.local_writes)
+            validate_replay_safety(self.replay_safety)
+        except ValueError as exc:
+            raise ExecutionPlanError("invalid_effect_envelope", str(exc)) from exc
+
     @classmethod
     def from_effects(cls, effects: Any) -> "EffectEnvelope":
         return cls(
@@ -416,15 +424,7 @@ class EffectEnvelope:
         ):
             if actual and not maximum:
                 return False
-        if self.replay_safety == "pure_read" and required.replay_safety != "pure_read":
-            return False
-        if self.replay_safety in {"idempotent_write", "idempotent_control"} and required.replay_safety not in {
-            "pure_read",
-            "idempotent_write",
-            "idempotent_control",
-        }:
-            return False
-        return True
+        return replay_safety_covers(self.replay_safety, required.replay_safety)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -523,10 +523,37 @@ class AuthorizationIntent:
         )
 
 
-def request_fingerprint(arguments: Mapping[str, Any]) -> str:
-    material = {key: value for key, value in arguments.items() if key not in LEGACY_APPROVAL_FIELDS and not key.startswith("_")}
-    encoded = json.dumps(material, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")
+def _fingerprint(arguments: Mapping[str, Any]) -> str:
+    encoded = json.dumps(arguments, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def public_request_fingerprint(arguments: Mapping[str, Any]) -> str:
+    """Fingerprint caller-controlled fields while excluding legacy approval syntax."""
+
+    material = {key: value for key, value in arguments.items() if key not in LEGACY_APPROVAL_FIELDS and not key.startswith("_")}
+    return _fingerprint(material)
+
+
+def trusted_runtime_fingerprint(arguments: Mapping[str, Any]) -> str:
+    """Fingerprint all behavior-affecting server-owned runtime fields."""
+
+    material = {key: value for key, value in arguments.items() if key not in LEGACY_APPROVAL_FIELDS}
+    return _fingerprint(material)
+
+
+# Backward-compatible name for callers that explicitly need the public request
+# identity. Trusted worker/continuation paths must use trusted_runtime_fingerprint.
+request_fingerprint = public_request_fingerprint
+
+
+def reject_reserved_runtime_fields(arguments: Mapping[str, Any]) -> None:
+    reserved = sorted(str(key) for key in arguments if str(key).startswith("_"))
+    if reserved:
+        raise ExecutionPlanError(
+            "reserved_runtime_field",
+            f"Caller input cannot set reserved runtime fields: {', '.join(reserved)}",
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -550,7 +577,7 @@ class ExecutionPlan:
         effects: Any,
         arguments: Mapping[str, Any],
     ) -> "ExecutionPlan":
-        fingerprint = request_fingerprint(arguments)
+        fingerprint = public_request_fingerprint(arguments)
         plan = cls(action_id, correlation_id, intent, EffectEnvelope.from_effects(effects), fingerprint, fingerprint)
         return plan._sealed()
 
@@ -576,7 +603,7 @@ class ExecutionPlan:
         return replace(
             self,
             intent=replace(self.intent, lineage=lineage),
-            runtime_input_fingerprint=request_fingerprint(runtime_arguments),
+            runtime_input_fingerprint=trusted_runtime_fingerprint(runtime_arguments),
             plan_fingerprint="",
         )._sealed()
 
@@ -627,7 +654,7 @@ class ExecutionPlan:
 
     def assert_runtime_input(self, arguments: Mapping[str, Any]) -> None:
         self.verify()
-        if request_fingerprint(arguments) != self.runtime_input_fingerprint:
+        if trusted_runtime_fingerprint(arguments) != self.runtime_input_fingerprint:
             raise ExecutionPlanError("runtime_input_diverged", "Runtime action input differs from the input covered by policy.")
 
     def assert_http_policy(self, backend: str, proxy_url: str | None, credential_ref: str | None = None) -> None:

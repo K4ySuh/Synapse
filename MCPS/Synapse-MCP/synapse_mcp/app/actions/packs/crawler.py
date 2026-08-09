@@ -209,7 +209,11 @@ class CrawlerCrawlExecutor:
             if plan is None:
                 raise ExecutionPlanError("execution_plan_missing", "Crawler execution requires a Registry execution plan.")
             plan.assert_runtime_input(args)
-            result = crawler_adapter.crawl(args, execution_plan=plan)
+            result = crawler_adapter.crawl(
+                args,
+                execution_plan=plan,
+                authorization_receipt=request.context.authorization_receipt,
+            )
         except ExecutionPlanError as exc:
             return ValidationFailure(str(exc), legacy_code=-32602, reason_code=exc.reason_code)
         except McpError as exc:

@@ -45,8 +45,34 @@ def _run_tool_with_plan(tool: str, args: dict[str, Any], plan_path: str) -> str:
     plan.assert_runtime_input(args)
     if tool == "crawler.crawl":
         from ..adapters.web import crawler_adapter
+        authorization = None
+        if args.get("_authorityCompatibilityShim") is True:
+            from ..policy.repository import AuthorizationReceipt, WorkspaceAuthorityRepository
 
-        return crawler_adapter.crawl(args, execution_plan=plan)
+            raw_receipt = args.get("_authorityReceipt")
+            if not isinstance(raw_receipt, dict):
+                raise ValueError("Authority worker shim has no receipt.")
+            authorization = AuthorizationReceipt.from_dict(raw_receipt)
+            dispatch = WorkspaceAuthorityRepository(authorization.workspace_id).inspect_dispatch(
+                authorization.dispatch_id
+            )
+            if (
+                authorization.action_id != tool
+                or plan.intent.workspace_id != authorization.workspace_id
+                or plan.intent.lineage.parent_plan_fingerprint != authorization.plan_fingerprint
+                or dispatch.get("state") != "dispatched"
+                or dispatch.get("authoritySessionId") != authorization.authority_session_id
+                or dispatch.get("planFingerprint") != authorization.plan_fingerprint
+                or dispatch.get("grantId") != authorization.grant_id
+                or int(dispatch.get("grantRevision") or 0) != authorization.grant_revision
+            ):
+                raise ValueError("Authority worker receipt does not match durable dispatch truth.")
+
+        return crawler_adapter.crawl(
+            args,
+            execution_plan=plan,
+            authorization_receipt=authorization,
+        )
     raise ValueError(f"Execution plans are not supported for worker tool: {tool}")
 
 

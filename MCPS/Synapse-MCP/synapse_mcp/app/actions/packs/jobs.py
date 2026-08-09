@@ -144,6 +144,8 @@ def resolve_jobs_status_intent(request: ActionRequest) -> AuthorizationIntent:
             origin_correlation_id=origin.intent.lineage.origin_correlation_id or origin.correlation_id,
             parent_plan_fingerprint=origin.plan_fingerprint,
             job_id=job_id,
+            handler=origin.intent.lineage.handler,
+            binding_fingerprint=origin.intent.lineage.binding_fingerprint,
         )
         return replace(origin.intent, action_id="jobs.status", lineage=lineage)
     target = str(record.get("target") or "")

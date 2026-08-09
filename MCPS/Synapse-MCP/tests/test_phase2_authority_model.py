@@ -22,7 +22,8 @@ from synapse_mcp.app.actions import (
     TargetSelector,
     TrafficDestination,
 )
-from synapse_mcp.core.execution import EffectEnvelope, ExecutionPlan
+from synapse_mcp.core.effects import replay_safety_covers
+from synapse_mcp.core.execution import EffectEnvelope, ExecutionPlan, ExecutionPlanError
 from synapse_mcp.policy import (
     Allow,
     ApprovalRequired,
@@ -33,6 +34,7 @@ from synapse_mcp.policy import (
     BudgetDemand,
     BudgetLimits,
     BudgetUsage,
+    ContinuationAuthorization,
     ScopeDenied,
     StateChangePolicy,
     StepUpAuthorization,
@@ -57,6 +59,7 @@ def _plan(
     outputs: tuple[LocalOutputDestination, ...] = (),
     effects: ActionEffects | None = None,
     lineage_kind: str = "dispatch",
+    arguments: dict[str, object] | None = None,
 ) -> ExecutionPlan:
     snapshot = ScopeSnapshot.from_value({"hosts": list(scope_hosts)})
     selectors = tuple(TargetSelector(CanonicalTarget.from_url(url), mode, "phase2-test") for url, mode in targets)
@@ -85,6 +88,8 @@ def _plan(
             origin_correlation_id="phase2-test",
             parent_plan_fingerprint="origin-plan" if lineage_kind == "job_status" else "",
             job_id="job-phase2" if lineage_kind == "job_status" else "",
+            handler="worker.result" if lineage_kind == "job_status" else "",
+            binding_fingerprint="job-binding" if lineage_kind == "job_status" else "",
         ),
     )
     return ExecutionPlan.create(
@@ -92,7 +97,7 @@ def _plan(
         correlation_id="phase2-test",
         intent=intent,
         effects=effects or ActionEffects(replay_safety=Idempotency.PURE_READ),
-        arguments={"action": action_id, "target": targets[0][0] if targets else ""},
+        arguments=arguments or {"action": action_id, "target": targets[0][0] if targets else ""},
     )
 
 
@@ -136,6 +141,38 @@ def _evaluation(plan: ExecutionPlan, **overrides) -> AuthorityEvaluation:
 
 
 class AuthorityGrantContractTests(unittest.TestCase):
+    def test_replay_coverage_matrix_is_identical_across_all_policy_layers(self) -> None:
+        for maximum in Idempotency:
+            for required in Idempotency:
+                with self.subTest(maximum=maximum, required=required):
+                    expected = replay_safety_covers(maximum, required)
+                    maximum_action = ActionEffects(replay_safety=maximum)
+                    required_action = ActionEffects(replay_safety=required)
+                    maximum_envelope = EffectEnvelope(replay_safety=str(maximum))
+                    required_envelope = EffectEnvelope(replay_safety=str(required))
+                    self.assertEqual(maximum_action.permits(required_action), expected)
+                    self.assertEqual(maximum_envelope.permits(required_envelope), expected)
+
+                    plan = _plan(effects=required_action)
+                    grant = _grant(plan, allowed_effects=maximum_envelope)
+                    decision = evaluate_authority(grant, _evaluation(plan))
+                    self.assertEqual(isinstance(decision, Allow), expected)
+                    if not expected:
+                        self.assertEqual(decision.reason, AuthorityReason.EFFECT_NOT_COVERED)
+
+    def test_malformed_serialized_effect_values_fail_before_plan_verification(self) -> None:
+        plan = _plan().to_dict()
+        for field, value in (
+            ("traffic", ["unreviewed_network"]),
+            ("localWrites", ["unknown_store"]),
+            ("replaySafety", "maybe_safe"),
+        ):
+            with self.subTest(field=field):
+                malformed = {**plan, "effects": {**plan["effects"], field: value}}
+                with self.assertRaisesRegex(ExecutionPlanError, "Unknown") as raised:
+                    ExecutionPlan.from_dict(malformed)
+                self.assertEqual(raised.exception.reason_code, "invalid_effect_envelope")
+
     def test_grant_round_trip_is_stable_and_contains_references_not_secrets(self) -> None:
         with TemporaryDirectory() as tmp:
             output = LocalOutputDestination(str(Path(tmp) / "result.json"), "report", False, "overwrite", True)
@@ -157,7 +194,8 @@ class AuthorityGrantContractTests(unittest.TestCase):
             self.assertEqual(AuthorityGrant.from_dict(serialized), grant)
             self.assertEqual(serialized["credentialRefs"], ["proxy-ref", "target-ref"])
             self.assertEqual(serialized["thirdPartyProviders"], ["nvd"])
-            self.assertEqual(serialized["requestBudget"], {"limit": 100})
+            self.assertEqual(serialized["budgetSemantics"], "dispatch")
+            self.assertEqual(serialized["dispatchBudget"], {"limit": 100})
             self.assertNotIn("secret-material", str(serialized).lower())
             step_up = StepUpAuthorization(
                 grant.grant_id,
@@ -190,7 +228,7 @@ class AuthorityGrantContractTests(unittest.TestCase):
             _grant(plan, provider_routes=(invalid_route,))
         with self.assertRaisesRegex(ValueError, "timezone-aware"):
             _grant(plan, created_at=NOW.replace(tzinfo=None))
-        with self.assertRaisesRegex(ValueError, "rate_window_seconds"):
+        with self.assertRaisesRegex(ValueError, "dispatch_rate_window_seconds"):
             BudgetLimits(None, 1, None, None)
         normalized = _grant(
             plan,
@@ -206,8 +244,8 @@ class AuthorityGrantContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             _grant(plan, mode="caller_selected")
         serialized = _grant(plan).to_dict()
-        serialized.pop("requestBudget")
-        with self.assertRaisesRegex(ValueError, "requestBudget"):
+        serialized.pop("dispatchBudget")
+        with self.assertRaisesRegex(ValueError, "dispatchBudget"):
             AuthorityGrant.from_dict(serialized)
         with self.assertRaises(KeyError):
             BudgetLimits.from_dict({})
@@ -469,21 +507,61 @@ class ModeLifecycleAndBudgetTests(unittest.TestCase):
         allowed = _evaluation(plan, budget_usage=BudgetUsage(4, 2, 1))
         self.assertIsInstance(evaluate_authority(grant, allowed), Allow)
         cases = (
-            (BudgetUsage(5, 0, 0), AuthorityReason.REQUEST_BUDGET_EXHAUSTED),
-            (BudgetUsage(0, 3, 0), AuthorityReason.RATE_BUDGET_EXHAUSTED),
-            (BudgetUsage(0, 0, 2), AuthorityReason.PARALLELISM_BUDGET_EXHAUSTED),
+            (BudgetUsage(5, 0, 0), AuthorityReason.DISPATCH_BUDGET_EXHAUSTED),
+            (BudgetUsage(0, 3, 0), AuthorityReason.DISPATCH_RATE_BUDGET_EXHAUSTED),
+            (BudgetUsage(0, 0, 2), AuthorityReason.ACTIVE_DISPATCH_BUDGET_EXHAUSTED),
         )
         for usage, reason in cases:
             with self.subTest(reason=reason):
                 self.assertEqual(evaluate_authority(grant, _evaluation(plan, budget_usage=usage)).reason, reason)
 
+    def test_budget_units_are_dispatches_not_implied_network_requests(self) -> None:
+        one_page = _plan(
+            action_id="crawler.crawl",
+            arguments={"workspaceId": "ws", "startUrl": "https://a.example", "maxPages": 1},
+        )
+        many_pages = _plan(
+            action_id="crawler.crawl",
+            arguments={"workspaceId": "ws", "startUrl": "https://a.example", "maxPages": 200},
+        )
+        self.assertNotEqual(one_page.plan_fingerprint, many_pages.plan_fingerprint)
+        self.assertEqual(BudgetDemand.for_plan(one_page), BudgetDemand(1, 1, 1))
+        self.assertEqual(BudgetDemand.for_plan(many_pages), BudgetDemand(1, 1, 1))
+
+        serialized = _grant(one_page, budgets=BudgetLimits(5, 2, 60, 1)).to_dict()
+        self.assertEqual(serialized["budgetSemantics"], "dispatch")
+        self.assertNotIn("requestBudget", serialized)
+        self.assertNotIn("requestRateBudget", serialized)
+
     def test_job_status_continuation_consumes_no_second_dispatch_budget(self) -> None:
         plan = _plan(action_id="jobs.status", targets=(), methods=(), providers=(), lineage_kind="job_status")
         grant = _grant(plan, budgets=BudgetLimits(0, 0, 60, 0), expires_at=NOW)
+        continuation = ContinuationAuthorization(
+            dispatch_id="dispatch-phase2",
+            origin_action_id=plan.intent.lineage.origin_action_id,
+            workspace_id=plan.intent.workspace_id,
+            grant_id=grant.grant_id,
+            grant_revision=grant.revision,
+            dispatch_plan_fingerprint="authorized-dispatch-plan",
+            parent_plan_fingerprint=plan.intent.lineage.parent_plan_fingerprint,
+            job_id=plan.intent.lineage.job_id,
+            job_revision=3,
+            handler=plan.intent.lineage.handler,
+            binding_fingerprint=plan.intent.lineage.binding_fingerprint,
+            effects=plan.effects,
+            local_outputs=plan.intent.local_outputs,
+            lifecycle_state="succeeded",
+        )
+        self.assertEqual(ContinuationAuthorization.from_dict(continuation.to_dict()), continuation)
         changed_scope = ScopeSnapshot.from_value({"hosts": ["different.example"]})
         decision = evaluate_authority(
             grant,
-            _evaluation(plan, current_scope=changed_scope, budget_usage=BudgetUsage(9, 9, 9)),
+            _evaluation(
+                plan,
+                current_scope=changed_scope,
+                budget_usage=BudgetUsage(9, 9, 9),
+                continuation=continuation,
+            ),
         )
         self.assertIsInstance(decision, Allow)
         self.assertEqual(decision.reason, AuthorityReason.CONTINUATION_COVERED)
@@ -497,8 +575,18 @@ class ModeLifecycleAndBudgetTests(unittest.TestCase):
             ),
             plan_fingerprint="",
         )._sealed()
-        rejected = evaluate_authority(None, _evaluation(broken))
+        rejected = evaluate_authority(None, _evaluation(broken, continuation=continuation))
         self.assertEqual(rejected.reason, AuthorityReason.CONTINUATION_NOT_COVERED)
+
+        self.assertEqual(
+            evaluate_authority(None, _evaluation(plan)).reason,
+            AuthorityReason.CONTINUATION_NOT_COVERED,
+        )
+        cross_workspace = replace(continuation, workspace_id="different-workspace")
+        self.assertEqual(
+            evaluate_authority(None, _evaluation(plan, continuation=cross_workspace)).reason,
+            AuthorityReason.CONTINUATION_NOT_COVERED,
+        )
 
 
 if __name__ == "__main__":

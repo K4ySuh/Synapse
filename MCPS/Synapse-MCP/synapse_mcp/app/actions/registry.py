@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 import json
 from typing import Any, Protocol
 
@@ -20,7 +20,15 @@ from synapse_mcp.core.execution import (
 from .contracts import ActionInput, ActionOutput
 from .descriptor import ActionDescriptor, ActionRequest
 from .identity import ActionId
-from .outcomes import ActionOutcome, ExecutionFailure, Success, UnavailableCapability, ValidationFailure
+from .outcomes import (
+    ActionOutcome,
+    ApprovalRequired,
+    ExecutionFailure,
+    ExecutionUnknown,
+    Success,
+    UnavailableCapability,
+    ValidationFailure,
+)
 from .policies import (
     ActionEffects,
     Availability,
@@ -40,7 +48,49 @@ class PolicyEvaluator(Protocol):
         descriptor: ActionDescriptor[Any, Any],
         request: ActionRequest[Any],
         effects: ActionEffects,
-    ) -> bool: ...
+    ) -> bool | "PolicyEvaluationResult": ...
+
+
+@dataclass(frozen=True, slots=True)
+class PolicyEvaluationResult:
+    """Application-level authorization result consumed by the Registry."""
+
+    allowed: bool
+    outcome: ActionOutcome[Any] | None = None
+    receipt: object | None = None
+
+
+class ProfilePolicyEvaluator:
+    """Preserve legacy behavior while lazily routing authority-aware profiles."""
+
+    def evaluate(
+        self,
+        descriptor: ActionDescriptor[Any, Any],
+        request: ActionRequest[Any],
+        effects: ActionEffects,
+    ) -> bool | PolicyEvaluationResult:
+        if request.context.execution_profile == "legacy":
+            return True
+        # Lazy import avoids coupling application descriptor construction to
+        # the Phase 2 repository implementation.
+        from synapse_mcp.policy.integration import evaluate_registry_request
+
+        return evaluate_registry_request(descriptor, request, effects)
+
+    def before_dispatch(self, receipt: object) -> None:
+        from synapse_mcp.policy.integration import mark_registry_dispatched
+
+        mark_registry_dispatched(receipt)
+
+    def after_dispatch(self, receipt: object, outcome: ActionOutcome[Any]) -> None:
+        from synapse_mcp.policy.integration import record_registry_outcome
+
+        record_registry_outcome(receipt, outcome)
+
+    def dispatch_unknown(self, receipt: object) -> None:
+        from synapse_mcp.policy.integration import record_registry_unknown
+
+        record_registry_unknown(receipt)
 
 
 class PassThroughPolicyEvaluator:
@@ -65,7 +115,7 @@ class ActionRegistry:
 
     def __init__(self, policy_evaluator: PolicyEvaluator | None = None) -> None:
         self._descriptors: dict[str, ActionDescriptor[Any, Any]] = {}
-        self._policy_evaluator = policy_evaluator or PassThroughPolicyEvaluator()
+        self._policy_evaluator = policy_evaluator or ProfilePolicyEvaluator()
 
     def register(self, descriptor: ActionDescriptor[Any, Any]) -> None:
         action_id = str(descriptor.id)
@@ -201,32 +251,85 @@ class ActionRegistry:
             request,
             context=replace(request.context, execution_plan=execution_plan),
         )
-        if not self._policy_evaluator.evaluate(descriptor, planned_request, effects):
-            raise PermissionError(f"{descriptor.id}: policy evaluator denied execution")
-        outcome = descriptor.executor(planned_request)
-        if not isinstance(outcome, Success):
-            return outcome
-        raw_payload = outcome.payload
-        parsed_payload = raw_payload
-        if isinstance(raw_payload, str):
+        evaluation = self._policy_evaluator.evaluate(descriptor, planned_request, effects)
+        if isinstance(evaluation, PolicyEvaluationResult):
+            if not evaluation.allowed:
+                if evaluation.outcome is None:
+                    raise PermissionError(f"{descriptor.id}: policy evaluator denied execution")
+                return evaluation.outcome
+            planned_request = replace(
+                planned_request,
+                context=replace(planned_request.context, authorization_receipt=evaluation.receipt),
+            )
+            receipt = evaluation.receipt
+        else:
+            if not evaluation:
+                raise PermissionError(f"{descriptor.id}: policy evaluator denied execution")
+            receipt = None
+        if receipt is not None and hasattr(self._policy_evaluator, "before_dispatch"):
             try:
-                parsed_payload = json.loads(raw_payload)
-            except json.JSONDecodeError as exc:
+                self._policy_evaluator.before_dispatch(receipt)
+            except Exception as exc:
+                return ApprovalRequired(
+                    message=f"{descriptor.id}: authority dispatch commit failed closed: {type(exc).__name__}",
+                    legacy_code=-32001,
+                    reason_code="authority_dispatch_commit_failed",
+                    details={"dispatch": "not_started"},
+                )
+        try:
+            outcome = descriptor.executor(planned_request)
+        except Exception:
+            if receipt is not None and hasattr(self._policy_evaluator, "dispatch_unknown"):
+                self._policy_evaluator.dispatch_unknown(receipt)
+            raise
+        finalized_outcome = outcome
+        if isinstance(outcome, Success):
+            raw_payload = outcome.payload
+            parsed_payload = raw_payload
+            validation_problem = ""
+            if isinstance(raw_payload, str):
+                try:
+                    parsed_payload = json.loads(raw_payload)
+                except json.JSONDecodeError:
+                    validation_problem = "invalid JSON"
+            if not validation_problem:
+                try:
+                    validated = descriptor.output_model.model_validate(parsed_payload)
+                except Exception as exc:
+                    validation_problem = type(exc).__name__
+            if validation_problem:
+                if receipt is not None and hasattr(self._policy_evaluator, "dispatch_unknown"):
+                    try:
+                        self._policy_evaluator.dispatch_unknown(receipt)
+                    except Exception:
+                        pass
+                    return ExecutionUnknown(
+                        message=f"{descriptor.id}: execution completed but output contract validation failed: {validation_problem}",
+                        legacy_code=-32000,
+                        reason_code="invalid_output_contract_unknown",
+                    )
                 return ExecutionFailure(
-                    message=f"{descriptor.id}: output contract validation failed: invalid JSON",
+                    message=f"{descriptor.id}: output contract validation failed: {validation_problem}",
                     legacy_code=-32000,
                     reason_code="invalid_output_contract",
                 )
-        try:
-            validated = descriptor.output_model.model_validate(parsed_payload)
-        except Exception as exc:
-            return ExecutionFailure(
-                message=f"{descriptor.id}: output contract validation failed: {type(exc).__name__}",
-                legacy_code=-32000,
-                reason_code="invalid_output_contract",
-            )
-        compatibility_payload = outcome.legacy_payload if outcome.legacy_payload is not None else raw_payload
-        return replace(outcome, payload=validated, legacy_payload=compatibility_payload)
+            compatibility_payload = outcome.legacy_payload if outcome.legacy_payload is not None else raw_payload
+            finalized_outcome = replace(outcome, payload=validated, legacy_payload=compatibility_payload)
+        if receipt is not None and hasattr(self._policy_evaluator, "after_dispatch"):
+            try:
+                self._policy_evaluator.after_dispatch(receipt, finalized_outcome)
+            except Exception as exc:
+                if hasattr(self._policy_evaluator, "dispatch_unknown"):
+                    try:
+                        self._policy_evaluator.dispatch_unknown(receipt)
+                    except Exception:
+                        pass
+                return ExecutionUnknown(
+                    message=f"{descriptor.id}: execution completed but authority result commit is uncertain: {type(exc).__name__}",
+                    legacy_code=-32000,
+                    reason_code="authority_result_commit_unknown",
+                )
+        return finalized_outcome
 
     def resolve_execution_plan(
         self,

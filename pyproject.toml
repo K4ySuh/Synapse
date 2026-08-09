@@ -40,6 +40,7 @@ modern-spike = [
 [project.scripts]
 synapse-mcp = "synapse_mcp.transport.stdio_server:main"
 synapse-mcp-modern-spike = "synapse_mcp.transport.modern_spike:main"
+synapse-authority = "synapse_mcp.policy.operator_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["MCPS/Synapse-MCP"]

@@ -55,6 +55,40 @@ def _tool_call(request_id: int, name: str, arguments: dict) -> dict:
 
 
 class SliceProjectionContractTests(unittest.TestCase):
+    def test_migrated_public_projection_rejects_reserved_runtime_fields(self) -> None:
+        with self.assertRaisesRegex(Exception, "reserved runtime fields"):
+            projection.project_call(
+                "workspace.summary",
+                {"workspaceId": "fixture", "_deferWorkflowRefreshToFinalizer": True},
+            )
+
+    def test_legacy_public_extras_cannot_set_trusted_execution_context(self) -> None:
+        observed = []
+
+        def allow_and_capture(descriptor, request, effects):
+            del descriptor, effects
+            observed.append(request.context)
+            return True
+
+        with TemporaryDirectory() as tmp, isolated_state(Path(tmp)):
+            workspace_pack.workspace.create_workspace("fixture", hosts=[])
+            with patch.object(REGISTRY._policy_evaluator, "evaluate", side_effect=allow_and_capture):
+                projection.project_call(
+                    "workspace.summary",
+                    {
+                        "workspaceId": "fixture",
+                        "execution_profile": "full_delegated",
+                        "selected_grant_id": "caller-grant",
+                        "authority_session_id": "caller-session",
+                        "request_state_id": "caller-resume",
+                    },
+                )
+        self.assertEqual(len(observed), 1)
+        self.assertEqual(observed[0].execution_profile, "legacy")
+        self.assertEqual(observed[0].selected_grant_id, "")
+        self.assertEqual(observed[0].authority_session_id, "")
+        self.assertEqual(observed[0].request_state_id, "")
+
     def test_descriptor_deadline_matches_legacy_for_all_tools(self) -> None:
         inventory = _stage_a_inventory()
         tier_seconds = {"FAST": 15.0, "STATUS": 30.0, "DEFAULT": 45.0}

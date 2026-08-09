@@ -105,6 +105,81 @@ The optional Burp MCP path expects:
 failures. A warning means live Burp MCP operations are unavailable from this
 checkout until the optional dependency is installed or started.
 
+## Authority-Aware Execution
+
+The stable 174-tool stdio profile is `legacy`: its existing examples and
+`confirm=true` gates remain byte-compatible. The opt-in modern profile uses
+server-held authority instead. Its supported execution profiles are `observe`,
+`supervised`, and `full_delegated`; action input cannot select a profile, grant,
+session, step-up, dispatch, or resume state.
+
+Authority state is private, crash-atomic JSON at:
+
+```text
+DATA/workspaces/<workspace-id>/authority/state.json
+```
+
+Use the local operator entry point, never an MCP action, to manage it:
+
+```bash
+synapse-authority --workspace <workspace> list-grants
+synapse-authority --workspace <workspace> create-grant grant.json
+synapse-authority --workspace <workspace> inspect-grant <grant-id>
+synapse-authority --workspace <workspace> revise-grant grant.json --expected-revision <n>
+synapse-authority --workspace <workspace> revoke-grant <grant-id> --expected-revision <n>
+synapse-authority --workspace <workspace> issue-step-up <grant-id> <revision> <plan-fingerprint> <idempotency-key>
+synapse-authority --workspace <workspace> inspect-request <opaque-request-state>
+synapse-authority --workspace <workspace> resume-request <opaque-request-state>
+synapse-authority --workspace <workspace> adopt-legacy-job <job-id> <grant-id> --session <trusted-session-id>
+synapse-authority --workspace <workspace> reconcile-dispatch <dispatch-id> <succeeded|failed|cancelled>
+synapse-authority --workspace <workspace> usage <grant-id>
+```
+
+Grant JSON names total, per-window, and active counters as dispatch budgets.
+One unit is one canonical action dispatch, not one HTTP request. Crawler page,
+redirect, form, delay, and concurrency limits remain explicit action inputs and
+are sealed into the plan fingerprint. A JSON `null` limit is explicitly
+unbounded; no hidden ceiling is substituted.
+
+`full_delegated` executes a covered plan immediately without caller
+`confirm=true` or a per-call pause. `supervised` returns `ApprovalRequired`
+with `-32001`, an exact requirement delta, and an opaque expiring request state
+when selected sensitive dimensions need step-up. Repeat the identical request
+through the trusted local adapter after issuing the exact step-up. `ScopeDenied`
+remains `-32002` and cannot be repaired by a grant. Revocation and expiry stop
+the next new dispatch immediately.
+
+Background polling is a zero-budget continuation only after durable dispatch
+and job records agree on workspace, origin action, grant revision, dispatch,
+parent plan, job, handler, effects, outputs, and lifecycle. Expiry or revocation
+does not erase already-dispatched work. A pre-Phase-2 job returns an adoption
+requirement in an authority-aware profile; use
+`synapse-authority ... adopt-legacy-job <job-id> <grant-id> --session <trusted-session-id>`
+after review.
+Unknown state-changing dispatches are never retried automatically. Reconcile
+them explicitly. An explicit retry is accepted only for an explicitly
+idempotent plan with an idempotency key, and records `priorDispatchId`.
+
+Reusable target credentials may use exact `targetOrigins` independently of
+exact proxy/provider `providerScopes`. Migrated CORS and crawler requests
+resolve target headers for every actual destination. An uncovered redirect or
+discovered in-scope origin continues anonymously with a credential-coverage
+observation; provider credentials remain confined to the proxy transport.
+
+For the opt-in modern SDK server, select trusted local bindings through its
+process environment:
+
+```text
+SYNAPSE_MODERN_AUTHORITY_PROFILE=observe|supervised|full_delegated
+SYNAPSE_MODERN_AUTHORITY_GRANT_ID=<grant-id>
+SYNAPSE_MODERN_AUTHORITY_SESSION_ID=<local-session-id>
+SYNAPSE_MODERN_REQUEST_STATE_ID=<opaque-resume-id>
+```
+
+Rollback stops the modern server or selects the stable legacy server. Preserve
+the authority file: authorized, dispatched, unknown, and historical records
+remain necessary for recovery and must not be deleted during rollback.
+
 ## Environment
 
 Launchers source:
@@ -364,9 +439,9 @@ run the finalizer once, write workspace/evidence, and remove worker/stdio
 sidecars. The plan seal covers finalizer identity/data and all result/cleanup
 and process-sidecar paths, so edited job metadata fails before a PID, return-code
 write, finalizer, or deletion is used. It is therefore not a pure-read action.
-Phase 2 will re-evaluate grant
-revocation/expiry before a new active dispatch or resume, while preserving the
-historical truth of work already dispatched.
+Authority-aware execution re-evaluates grant revocation/expiry before a new
+active dispatch or explicit resume while preserving the historical truth of
+work already dispatched.
 
 Site-map and crawl artifacts include a `flowGraph` object for first-glance
 workflow review. It links hosts, endpoints, and forms with request, navigation,
@@ -1396,8 +1471,9 @@ The feature flag `SYNAPSE_ENABLE_MODERN_SPIKE=1` is mandatory. The launcher is
 restricted to stdio or loopback Streamable HTTP, exposes exactly
 `workspace.summary`, `headers_cookies.analyze_workspace`, and
 `cors.execute_test`, and never accepts legacy `confirm=true` as modern
-authority. Disable the flag or use `synapse-mcp` to roll back immediately to
-the stable profile. CI runs the full suite and contract subset on Python
+authority. It evaluates the selected durable authority profile and returns
+protocol `input_required` when uncovered. Disable the flag or use `synapse-mcp`
+to roll back immediately to the stable legacy profile. CI runs the full suite and contract subset on Python
 3.10–3.13, then runs this optional extra in a separate Python 3.13 job; every
 job asserts that tests leave the checkout clean.
 

@@ -13,6 +13,7 @@ approval.
 | `MCPS/Synapse-MCP/tests/fixtures/legacy_contracts/results/cors_execute_test_unconfirmed.json` | same commit | exact | Adds the missing `-32001` approval fixture for the CORS operation in the Phase 1 vertical slice. | Javier Roldán Ortiz |
 | Stage B commit 1 (`fbc6949`) | same commit | no public-surface delta | Ratifies the code-only typed action-contract foundation under the Phase 0 promotion and Stage A checkpoint approval recorded on 2026-08-06. | Javier Roldán Ortiz |
 | Stage B code commits (`c8ec933..33691ff`) | `c8ec933..33691ff` | no public-surface delta | Action Registry and consistency checks, six-action descriptor projection, contract-equivalence proof, migration-pattern guide, and closure of four adversarial-review findings; independently verified at 174 tools / 99,337 compact bytes with no fixture change. Gate promoted to PASS on 2026-08-07. | Javier Roldán Ortiz |
+| Phase 2 Stage B authority integration | same commit | no frozen legacy-surface delta | Adds profile-isolated durable authority enforcement, dispatch/continuation truth, credential confinement, and local operator management. Legacy remains 174 tools / 99,337 compact schema bytes and all six frozen fixture files are unchanged. | Javier Roldán Ortiz |
 
 ## Amendments to Accepted ADRs
 

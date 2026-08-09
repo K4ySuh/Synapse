@@ -1,6 +1,6 @@
 # ADR-0003: Durable Authority Grants
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-07-28
 - Owners: Synapse architectural lead
 - Applies from: Phase 2 after acceptance and prerequisite completion
@@ -28,15 +28,21 @@ server-evaluated Authority Grants bound to canonical action IDs and
 request-effective multidimensional effects. Grants carry scope digest, allowed
 actions and methods, traffic destinations, local write domains, local/remote
 state-change permissions, credential/provider restrictions, configurable
-request/rate/parallelism budgets, expiry, and revocation. `confirm=true` remains
+dispatch-total, dispatch-rate-window, and active-dispatch budgets, expiry, and
+revocation. `confirm=true` remains
 accepted only behind the explicitly selected legacy profile and is marked
 distinctly in audit records.
 
-Budgets and expert/raw modes have conservative defaults but no undocumented
-product ceiling: the operator may explicitly enlarge a grant within authorized
-scope. A grant cannot create a capability that the adapter or repository policy
-does not currently expose; those are tracked capability gaps, not silently
-encoded permanent grant denials.
+One budget unit authorizes one canonical action dispatch. These counters are not
+HTTP-request, provider-request, redirect-hop, or page counters. Action-specific
+network volume remains an explicit input (for example crawler page and redirect
+limits) sealed by the execution-plan fingerprint. A missing budget limit means
+unbounded for that dimension; there are no hidden defaults or product ceilings.
+The operator may explicitly enlarge a grant within authorized scope. Any future
+network-request budget requires shared HTTP/provider instrumentation rather than
+relabeling dispatch counters. A grant cannot create a capability that the
+adapter or repository policy does not currently expose; those are tracked
+capability gaps, not silently encoded permanent grant denials.
 
 Phase 1.1 supplies the comparison operand: a sealed `AuthorizationIntent` with
 `TargetEnvelope`, provider route, local-output envelope, methods, credential
@@ -60,7 +66,8 @@ of work already dispatched or demand approval for each observational poll.
 - The evaluated effect set is the request-effective `ActionEffects`, with the
   descriptor maximum used conservatively when resolution is uncertain.
 - Supported modes are `observe`, `supervised`, and `full_delegated`; each
-  dimension, including methods, rates, and parallelism, is operator-configured.
+  dimension, including methods, dispatch totals, dispatch-rate windows, and
+  active dispatches, is operator-configured.
 - **Scope authorization and execution authorization remain separate decisions, and this separation already exists observably in the shipped wire protocol: `-32002` denotes scope denial (8 uses, all scope-related) and `-32001` denotes authorization/approval required (10 uses). Phase 2 reason codes must map onto this taxonomy or record an explicit decision to supersede it. Collapsing both into one generic denial is a regression in observable safety semantics even if every test passes.**
 - Approval-required is a normal resumable outcome, not a protocol error.
 - A state-changing dispatch in `dispatched` or `unknown` is never automatically replayed. The P0-3 workflow-06 benchmark is the standing regression guard.
@@ -125,8 +132,9 @@ retaining grant and audit records for explanation. Dispatches in `dispatched` or
 - Preserve the `-32001`/`-32002` distinction or record an explicit superseding
   decision.
 - Exercise expiry, revocation, scope digest changes, risk ceilings, credential
-  restrictions, effective effects, methods, rates, parallelism, and third-party
-  budgets before dispatch.
+  restrictions, effective effects, methods, dispatch totals,
+  dispatch-rate-window limits, active-dispatch limits, and third-party routes
+  before dispatch.
 - Keep the P0-3 workflow-06 duplicate-dispatch benchmark green.
 - Verify that descriptors, audit summaries, and agent-facing results contain
   credential IDs rather than secret values.

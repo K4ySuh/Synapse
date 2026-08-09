@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timedelta, timezone
 import json
 import os
 import socket
@@ -14,17 +15,39 @@ from helpers import isolated_state
 from mcp import Client, StdioServerParameters, stdio_client
 from mcp.types import InputRequiredResult
 
-from synapse_mcp.app.actions import REGISTRY
+from synapse_mcp.app.actions import ActionRequest, ExecutionContext, REGISTRY, RiskClass
 from synapse_mcp.core import workspace
+from synapse_mcp.policy import (
+    AuthorityGrant,
+    AuthorityMode,
+    AuthorityOperatorService,
+    BudgetLimits,
+    OperatorPrincipal,
+    StateChangePolicy,
+)
 from synapse_mcp.core.errors import McpError
 from synapse_mcp.transport.modern_spike import (
     ACTIVE_ACTION_ID,
     MODERN_ACTION_IDS,
+    MODERN_AUTHORITY_GRANT_ENV,
+    MODERN_AUTHORITY_PROFILE_ENV,
     MODERN_PROTOCOL_REVISION,
     MODERN_SDK_VERSION,
     MODERN_SPIKE_ENV,
     build_server,
 )
+
+
+PROXY_ENVIRONMENT_KEYS = {
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "NO_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+    "no_proxy",
+}
 
 
 class ModernSpikeTests(unittest.IsolatedAsyncioTestCase):
@@ -62,7 +85,45 @@ class ModernSpikeTests(unittest.IsolatedAsyncioTestCase):
         with TemporaryDirectory() as tmp:
             with isolated_state(Path(tmp)):
                 workspace.create_workspace("modern", hosts=["app.example.test"])
-                async with Client(build_server(), raise_exceptions=False) as client:
+                descriptor = REGISTRY.get("workspace.summary")
+                planning_request = ActionRequest(
+                    descriptor.input_model.model_validate({"workspaceId": "modern"}),
+                    ExecutionContext("modern", "modern-grant-plan", 45.0, None),
+                )
+                plan = REGISTRY.resolve_execution_plan("workspace.summary", planning_request)
+                now = datetime.now(timezone.utc)
+                grant = AuthorityGrant(
+                    grant_id="modern-observe",
+                    workspace_id="modern",
+                    revision=1,
+                    mode=AuthorityMode.OBSERVE,
+                    scope_digest=plan.intent.target_envelope.scope_digest,
+                    target_envelope=plan.intent.target_envelope,
+                    allowed_action_patterns=("workspace.summary",),
+                    allowed_methods=(),
+                    allowed_effects=plan.effects,
+                    risk_ceiling=RiskClass.NONE,
+                    credential_refs=(),
+                    provider_routes=(),
+                    third_party_providers=(),
+                    local_outputs=(),
+                    budgets=BudgetLimits(None, None, None, None),
+                    state_change_policy=StateChangePolicy.DENY,
+                    created_at=now - timedelta(minutes=1),
+                    expires_at=now + timedelta(hours=1),
+                    approved_by="operator:fixture",
+                )
+                AuthorityOperatorService(
+                    "modern",
+                    OperatorPrincipal("operator:fixture", "test_fixture", True),
+                ).create_grant(grant)
+                authority_environment = {
+                    MODERN_AUTHORITY_PROFILE_ENV: "observe",
+                    MODERN_AUTHORITY_GRANT_ENV: grant.grant_id,
+                }
+                os.environ.update(authority_environment)
+                server = build_server()
+                async with Client(server, raise_exceptions=False) as client:
                     result = await client.call_tool("workspace.summary", {"workspaceId": "modern"})
                     self.assertFalse(result.is_error)
                     self.assertIsInstance(result.structured_content, dict)
@@ -80,12 +141,11 @@ class ModernSpikeTests(unittest.IsolatedAsyncioTestCase):
                     self.assertIsNone(error.structured_content)
                     self.assertIn("execution_failure", error.content[0].text)
 
-                    with patch.object(REGISTRY, "execute", side_effect=AssertionError("dispatch bypass")):
-                        required = await client.session.call_tool(
-                            ACTIVE_ACTION_ID,
-                            {"confirm": True},
-                            allow_input_required=True,
-                        )
+                    required = await client.session.call_tool(
+                        ACTIVE_ACTION_ID,
+                        {"confirm": True},
+                        allow_input_required=True,
+                    )
                     self.assertIsInstance(required, InputRequiredResult)
                     self.assertEqual(required.result_type, "input_required")
                     self.assertEqual(required.meta["synapse/status"], "approval_required")
@@ -108,38 +168,43 @@ class ModernSpikeTests(unittest.IsolatedAsyncioTestCase):
         with socket.socket() as reservation:
             reservation.bind(("127.0.0.1", 0))
             port = reservation.getsockname()[1]
-        environment = dict(os.environ)
+        environment = {
+            key: value
+            for key, value in os.environ.items()
+            if key not in PROXY_ENVIRONMENT_KEYS
+        }
         environment[MODERN_SPIKE_ENV] = "1"
-        process = subprocess.Popen(
-            [
-                sys.executable,
-                "-m",
-                "synapse_mcp.transport.modern_spike",
-                "--transport",
-                "streamable-http",
-                "--port",
-                str(port),
-            ],
-            env=environment,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        try:
-            last_error = None
-            for _ in range(100):
-                try:
-                    async with Client(f"http://127.0.0.1:{port}/mcp") as client:
-                        discovered = await client.list_tools()
-                        self.assertEqual(client.protocol_version, MODERN_PROTOCOL_REVISION)
-                        self.assertEqual([tool.name for tool in discovered.tools], list(MODERN_ACTION_IDS))
-                        return
-                except Exception as exc:
-                    last_error = exc
-                    await asyncio.sleep(0.02)
-            self.fail(f"Streamable HTTP spike did not become ready: {last_error}")
-        finally:
-            process.terminate()
-            process.wait(timeout=10)
+        with patch.dict(os.environ, environment, clear=True):
+            process = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-m",
+                    "synapse_mcp.transport.modern_spike",
+                    "--transport",
+                    "streamable-http",
+                    "--port",
+                    str(port),
+                ],
+                env=environment,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                last_error = None
+                for _ in range(100):
+                    try:
+                        async with Client(f"http://127.0.0.1:{port}/mcp") as client:
+                            discovered = await client.list_tools()
+                            self.assertEqual(client.protocol_version, MODERN_PROTOCOL_REVISION)
+                            self.assertEqual([tool.name for tool in discovered.tools], list(MODERN_ACTION_IDS))
+                            return
+                    except Exception as exc:
+                        last_error = exc
+                        await asyncio.sleep(0.02)
+                self.fail(f"Streamable HTTP spike did not become ready: {last_error}")
+            finally:
+                process.terminate()
+                process.wait(timeout=10)
 
 
 class ModernSpikeFeatureFlagTests(unittest.TestCase):

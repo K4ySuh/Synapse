@@ -11,7 +11,7 @@ today's narrow wrappers.
 | SSRF | controlled external canary only; local/private targets are blocked | model target classes and callback providers as grant dimensions before expanding capability |
 | XXE | benign in-band expansion only | represent external callbacks, local reads, and data exposure as distinct higher-risk actions/effects before authorization |
 | sqlmap | command building only; OS shell, file/registry access, privilege escalation, and post-exploitation are blocked | preserve the current block; future raw execution requires a new action family and an explicit repository-policy decision, not a hidden flag |
-| Crawler POST | only the authenticated extended workflow submits bounded non-sensitive forms by default | grant methods, state-change effects, request/rate budgets, and explicit expert modes without hard-coded grant ceilings |
+| Crawler POST | only the authenticated extended workflow submits bounded non-sensitive forms by default | grant methods, state-change effects, dispatch budgets, sealed crawler volume controls, and explicit expert modes without hard-coded grant ceilings |
 | Scanner profiles | named conservative profiles constrain options | allow operator-supplied bounded expert options only after their action/effect contract is explicit and auditable |
 
 Repository policy remains authoritative today. A grant cannot bypass an adapter

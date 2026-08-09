@@ -43,7 +43,7 @@ operator intent
   -> scope and workspace context
   -> passive analysis first
   -> plan and explain active actions
-  -> explicit operator approval
+  -> legacy exact approval or server-held Authority Grant evaluation
   -> bounded tool execution
   -> evidence and normalized workspace updates
   -> reviewed findings, candidates, reports, and next steps
@@ -175,19 +175,27 @@ Work only on systems the operator is authorized to test.
 Treat scope and execution approval as separate gates:
 
 - Scope means a target is allowed for consideration and planning.
-- Approval means the operator has accepted a specific active action.
+- Execution authority means the operator has accepted an exact legacy action
+  or created a bounded server-held Authority Grant for an authority-aware
+  profile. Scope never implies execution authority.
 
 Before any active action:
 
 1. Check scope for the exact target.
 2. Explain the action, target, expected impact, and risk tier.
-3. Ask for explicit approval for that exact action.
-4. Pass `confirm=true` only after approval.
-5. Include approval metadata such as `approvalReason`, `approvalId`, or
-   `riskTier` when the tool supports it.
+3. Identify the selected execution profile. Under `legacy`, ask for exact
+   approval and pass `confirm=true` with approval metadata. Under an
+   authority-aware profile, prepare the exact plan and let Synapse evaluate the
+   server-held grant; caller input must not assert its own authority.
+4. If an authority-aware request is uncovered, stop on `ApprovalRequired`; use
+   the trusted operator service to revise authority or issue the exact
+   supervised step-up. A valid `full_delegated` grant does not require a new
+   per-call pause for covered work.
+5. Treat `ScopeDenied` separately and never use a grant to widen scope.
 6. Prefer background execution for long-running tools and poll with `jobs.*`.
 
-Require explicit operator approval before:
+Require explicit operator authority (a legacy exact approval or a covering
+server-held grant, with supervised step-up where configured) before:
 
 - sending active traffic;
 - mutating Burp state;
@@ -204,8 +212,11 @@ credential IDs and auth profiles. Do not disclose stored secret values unless th
 operator explicitly requests credential maintenance and the request is within
 the authorized local environment.
 
-Never use sqlmap OS shell, file read/write, registry, privilege escalation, or
-post-exploitation features through Synapse.
+Current Synapse adapters do not expose sqlmap OS shell, file read/write,
+registry, privilege-escalation, or post-exploitation features; do not attempt
+them through existing actions. Any future expert capability requires a new
+bounded implementation, explicit expert-authority dimensions, and separate
+operator review rather than a broader ordinary grant.
 
 ## Session Start Checklist
 
@@ -339,9 +350,12 @@ Useful flows:
 
 ## Crawling And Discovery
 
-Use `crawler.crawl(confirm=true)` only after approval, with an in-scope target
-and bounded settings. Treat crawler results as discovery and context, not as
-confirmed vulnerabilities.
+Under `legacy`, use `crawler.crawl(confirm=true)` only after exact approval.
+Under an authority-aware profile, use it only when the sealed crawler plan is
+covered by a server-held grant (and exact step-up when supervised policy
+requires it). In both cases require an in-scope target and bounded settings.
+Treat crawler results as discovery and context, not as confirmed
+vulnerabilities.
 
 The crawler may discover links, routes, scripts, forms, JavaScript route
 literals, and GET form behavior. It should not submit state-changing POST forms
@@ -488,10 +502,12 @@ CVEs and helps verify them under operator control.
   apply to this component, from version precision); `exploitMaturity` is
   exploitability (`in_the_wild` from CISA KEV > `public_poc` > `exploit_referenced`
   > `none`). A known-exploited (KEV) candidate is still a candidate until verified.
-- Treat public PoCs and exploit references as read-only intelligence. Never
-  fetch, clone, compile, or execute PoC code. Verification is a single bounded
-  benign request via `cve.execute_test`, or delegation to an existing Nuclei
-  template — nothing more without a new explicit operator request.
+- The current CVE adapter treats public PoCs and exploit references as
+  read-only intelligence and exposes no fetch, clone, compile, or execution
+  capability. Current verification is a single bounded benign request via
+  `cve.execute_test`, or delegation to an existing Nuclei template. Any future
+  controlled PoC capability needs a separately reviewed action/effect contract
+  and explicit expert authority; an ordinary grant cannot invent it.
 - If a source endpoint fails or moves, use `cve.sources` to inspect resolved
   endpoints and per-source status, re-point with `cve.set_source_endpoint`, and
   re-run with `refresh=true`. Provider API keys are set only at runtime with

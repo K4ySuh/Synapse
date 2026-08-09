@@ -25,6 +25,7 @@ from synapse_mcp.app.actions.policies import (
     StrEnum,
     TrafficDestination,
 )
+from synapse_mcp.core.effects import validate_effect_names, validate_replay_safety
 from synapse_mcp.core.execution import (
     CanonicalTarget,
     EffectEnvelope,
@@ -80,82 +81,84 @@ class AuthorityReason(StrEnum):
     OBSERVE_MODE_RESTRICTED = "observe_mode_restricted"
     STATE_CHANGE_NOT_ALLOWED = "state_change_not_allowed"
     STEP_UP_REQUIRED = "step_up_required"
-    REQUEST_BUDGET_EXHAUSTED = "request_budget_exhausted"
-    RATE_BUDGET_EXHAUSTED = "rate_budget_exhausted"
-    PARALLELISM_BUDGET_EXHAUSTED = "parallelism_budget_exhausted"
+    DISPATCH_BUDGET_EXHAUSTED = "dispatch_budget_exhausted"
+    DISPATCH_RATE_BUDGET_EXHAUSTED = "dispatch_rate_budget_exhausted"
+    ACTIVE_DISPATCH_BUDGET_EXHAUSTED = "active_dispatch_budget_exhausted"
 
 
 @dataclass(frozen=True, slots=True)
 class BudgetLimits:
     """Operator-selected dispatch ceilings; ``None`` explicitly means unbounded."""
 
-    request_limit: int | None
-    rate_limit: int | None
-    rate_window_seconds: int | None
-    parallelism_limit: int | None
+    dispatch_limit: int | None
+    dispatch_rate_limit: int | None
+    dispatch_rate_window_seconds: int | None
+    active_dispatch_limit: int | None
 
     def __post_init__(self) -> None:
-        for name in ("request_limit", "rate_limit", "parallelism_limit"):
+        for name in ("dispatch_limit", "dispatch_rate_limit", "active_dispatch_limit"):
             value = getattr(self, name)
             if value is not None and value < 0:
                 raise ValueError(f"{name} cannot be negative")
-        if self.rate_limit is None and self.rate_window_seconds is not None:
-            raise ValueError("rate_window_seconds requires rate_limit")
-        if self.rate_limit is not None and (self.rate_window_seconds is None or self.rate_window_seconds <= 0):
-            raise ValueError("A positive rate_window_seconds is required with rate_limit")
+        if self.dispatch_rate_limit is None and self.dispatch_rate_window_seconds is not None:
+            raise ValueError("dispatch_rate_window_seconds requires dispatch_rate_limit")
+        if self.dispatch_rate_limit is not None and (
+            self.dispatch_rate_window_seconds is None or self.dispatch_rate_window_seconds <= 0
+        ):
+            raise ValueError("A positive dispatch_rate_window_seconds is required with dispatch_rate_limit")
 
     def to_dict(self) -> dict[str, int | None]:
         return {
-            "requestLimit": self.request_limit,
-            "rateLimit": self.rate_limit,
-            "rateWindowSeconds": self.rate_window_seconds,
-            "parallelismLimit": self.parallelism_limit,
+            "dispatchLimit": self.dispatch_limit,
+            "dispatchRateLimit": self.dispatch_rate_limit,
+            "dispatchRateWindowSeconds": self.dispatch_rate_window_seconds,
+            "activeDispatchLimit": self.active_dispatch_limit,
         }
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "BudgetLimits":
         return cls(
-            _optional_int(value["requestLimit"]),
-            _optional_int(value["rateLimit"]),
-            _optional_int(value["rateWindowSeconds"]),
-            _optional_int(value["parallelismLimit"]),
+            _optional_int(value["dispatchLimit"]),
+            _optional_int(value["dispatchRateLimit"]),
+            _optional_int(value["dispatchRateWindowSeconds"]),
+            _optional_int(value["activeDispatchLimit"]),
         )
 
 
 @dataclass(frozen=True, slots=True)
 class BudgetUsage:
-    requests_used: int = 0
-    rate_window_used: int = 0
+    dispatches_used: int = 0
+    dispatch_window_used: int = 0
     active_dispatches: int = 0
 
     def __post_init__(self) -> None:
-        if min(self.requests_used, self.rate_window_used, self.active_dispatches) < 0:
+        if min(self.dispatches_used, self.dispatch_window_used, self.active_dispatches) < 0:
             raise ValueError("Budget usage cannot be negative")
 
     def to_dict(self) -> dict[str, int]:
         return {
-            "requestsUsed": self.requests_used,
-            "rateWindowUsed": self.rate_window_used,
+            "dispatchesUsed": self.dispatches_used,
+            "dispatchWindowUsed": self.dispatch_window_used,
             "activeDispatches": self.active_dispatches,
         }
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "BudgetUsage":
         return cls(
-            int(value["requestsUsed"]),
-            int(value["rateWindowUsed"]),
+            int(value["dispatchesUsed"]),
+            int(value["dispatchWindowUsed"]),
             int(value["activeDispatches"]),
         )
 
 
 @dataclass(frozen=True, slots=True)
 class BudgetDemand:
-    request_units: int = 1
-    rate_units: int = 1
-    parallelism_units: int = 1
+    dispatch_units: int = 1
+    dispatch_rate_units: int = 1
+    active_dispatch_units: int = 1
 
     def __post_init__(self) -> None:
-        if min(self.request_units, self.rate_units, self.parallelism_units) < 0:
+        if min(self.dispatch_units, self.dispatch_rate_units, self.active_dispatch_units) < 0:
             raise ValueError("Budget demand cannot be negative")
 
     @classmethod
@@ -168,17 +171,17 @@ class BudgetDemand:
 
     def to_dict(self) -> dict[str, int]:
         return {
-            "requestUnits": self.request_units,
-            "rateUnits": self.rate_units,
-            "parallelismUnits": self.parallelism_units,
+            "dispatchUnits": self.dispatch_units,
+            "dispatchRateUnits": self.dispatch_rate_units,
+            "activeDispatchUnits": self.active_dispatch_units,
         }
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "BudgetDemand":
         return cls(
-            int(value["requestUnits"]),
-            int(value["rateUnits"]),
-            int(value["parallelismUnits"]),
+            int(value["dispatchUnits"]),
+            int(value["dispatchRateUnits"]),
+            int(value["activeDispatchUnits"]),
         )
 
 
@@ -229,6 +232,111 @@ class StepUpAuthorization:
             idempotency_key=str(value["idempotencyKey"]),
             approved_by=str(value["approvedBy"]),
             expires_at=_parse_time(value["expiresAt"]),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ContinuationAuthorization:
+    """Trusted server proof that a job crossed an authorized dispatch boundary."""
+
+    dispatch_id: str
+    origin_action_id: str
+    workspace_id: str
+    grant_id: str
+    grant_revision: int
+    dispatch_plan_fingerprint: str
+    parent_plan_fingerprint: str
+    job_id: str
+    job_revision: int
+    handler: str
+    binding_fingerprint: str
+    effects: EffectEnvelope
+    local_outputs: tuple[LocalOutputDestination, ...]
+    lifecycle_state: str
+
+    def __post_init__(self) -> None:
+        required = {
+            "dispatch_id": self.dispatch_id,
+            "origin_action_id": self.origin_action_id,
+            "workspace_id": self.workspace_id,
+            "grant_id": self.grant_id,
+            "dispatch_plan_fingerprint": self.dispatch_plan_fingerprint,
+            "parent_plan_fingerprint": self.parent_plan_fingerprint,
+            "job_id": self.job_id,
+            "handler": self.handler,
+            "binding_fingerprint": self.binding_fingerprint,
+        }
+        missing = sorted(name for name, value in required.items() if not str(value).strip())
+        if missing:
+            raise ValueError(f"Continuation authorization is missing: {', '.join(missing)}")
+        if self.grant_revision < 1 or self.job_revision < 1:
+            raise ValueError("Continuation grant and job revisions must be positive")
+        if self.lifecycle_state not in {
+            "authorized",
+            "dispatched",
+            "running",
+            "succeeded",
+            "failed",
+            "unknown",
+        }:
+            raise ValueError(f"Unknown continuation lifecycle state: {self.lifecycle_state}")
+        if self.lifecycle_state == "authorized":
+            raise ValueError("An authorized-only dispatch has not crossed the continuation boundary")
+        if not isinstance(self.effects, EffectEnvelope):
+            raise TypeError("Continuation effects must be an EffectEnvelope")
+        if any(not isinstance(item, LocalOutputDestination) for item in self.local_outputs):
+            raise TypeError("Continuation outputs must be LocalOutputDestination values")
+
+    def covers(self, plan: ExecutionPlan) -> bool:
+        lineage = plan.intent.lineage
+        return bool(
+            lineage.kind == "job_status"
+            and plan.action_id == "jobs.status"
+            and plan.intent.workspace_id == self.workspace_id
+            and lineage.origin_action_id == self.origin_action_id
+            and lineage.parent_plan_fingerprint == self.parent_plan_fingerprint
+            and lineage.job_id == self.job_id
+            and lineage.handler == self.handler
+            and lineage.binding_fingerprint == self.binding_fingerprint
+            and plan.effects == self.effects
+            and plan.intent.local_outputs == self.local_outputs
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "dispatchId": self.dispatch_id,
+            "originActionId": self.origin_action_id,
+            "workspaceId": self.workspace_id,
+            "grantId": self.grant_id,
+            "grantRevision": self.grant_revision,
+            "dispatchPlanFingerprint": self.dispatch_plan_fingerprint,
+            "parentPlanFingerprint": self.parent_plan_fingerprint,
+            "jobId": self.job_id,
+            "jobRevision": self.job_revision,
+            "handler": self.handler,
+            "bindingFingerprint": self.binding_fingerprint,
+            "effects": self.effects.to_dict(),
+            "localOutputs": [item.to_dict() for item in self.local_outputs],
+            "lifecycleState": self.lifecycle_state,
+        }
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> "ContinuationAuthorization":
+        return cls(
+            dispatch_id=str(value["dispatchId"]),
+            origin_action_id=str(value["originActionId"]),
+            workspace_id=str(value["workspaceId"]),
+            grant_id=str(value["grantId"]),
+            grant_revision=int(value["grantRevision"]),
+            dispatch_plan_fingerprint=str(value["dispatchPlanFingerprint"]),
+            parent_plan_fingerprint=str(value["parentPlanFingerprint"]),
+            job_id=str(value["jobId"]),
+            job_revision=int(value["jobRevision"]),
+            handler=str(value["handler"]),
+            binding_fingerprint=str(value["bindingFingerprint"]),
+            effects=EffectEnvelope.from_dict(value["effects"]),
+            local_outputs=tuple(LocalOutputDestination.from_dict(item) for item in value.get("localOutputs", [])),
+            lifecycle_state=str(value["lifecycleState"]),
         )
 
 
@@ -325,12 +433,12 @@ class AuthorityGrant:
             _require_aware(self.revoked_at, "revoked_at")
             if self.revoked_at < self.created_at:
                 raise ValueError("revoked_at cannot precede created_at")
-        valid_traffic = {str(item) for item in TrafficDestination}
-        if not set(self.allowed_effects.traffic).issubset(valid_traffic):
-            raise ValueError("Grant effects contain an unknown traffic destination")
+        validate_effect_names(
+            traffic=self.allowed_effects.traffic,
+            local_writes=self.allowed_effects.local_writes,
+        )
         effect_domains = frozenset(LocalWriteDomain(item) for item in self.allowed_effects.local_writes)
-        if self.allowed_effects.replay_safety not in {str(item) for item in Idempotency}:
-            raise ValueError("Grant effects contain an unknown replay-safety class")
+        validate_replay_safety(self.allowed_effects.replay_safety)
         observation_domains = frozenset(LocalWriteDomain(item) for item in self.observation_write_domains)
         object.__setattr__(self, "observation_write_domains", observation_domains)
         if not observation_domains.issubset(effect_domains):
@@ -352,12 +460,13 @@ class AuthorityGrant:
             "providerRoutes": [item.to_dict() for item in self.provider_routes],
             "thirdPartyProviders": list(self.third_party_providers),
             "localOutputs": [item.to_dict() for item in self.local_outputs],
-            "requestBudget": {"limit": self.budgets.request_limit},
-            "rateBudget": {
-                "limit": self.budgets.rate_limit,
-                "windowSeconds": self.budgets.rate_window_seconds,
+            "budgetSemantics": "dispatch",
+            "dispatchBudget": {"limit": self.budgets.dispatch_limit},
+            "dispatchRateBudget": {
+                "limit": self.budgets.dispatch_rate_limit,
+                "windowSeconds": self.budgets.dispatch_rate_window_seconds,
             },
-            "parallelismBudget": {"limit": self.budgets.parallelism_limit},
+            "activeDispatchBudget": {"limit": self.budgets.active_dispatch_limit},
             "stateChangePolicy": str(self.state_change_policy),
             "createdAt": _format_time(self.created_at),
             "expiresAt": _format_time(self.expires_at),
@@ -383,9 +492,10 @@ class AuthorityGrant:
             "providerRoutes",
             "thirdPartyProviders",
             "localOutputs",
-            "requestBudget",
-            "rateBudget",
-            "parallelismBudget",
+            "budgetSemantics",
+            "dispatchBudget",
+            "dispatchRateBudget",
+            "activeDispatchBudget",
             "stateChangePolicy",
             "createdAt",
             "expiresAt",
@@ -396,15 +506,17 @@ class AuthorityGrant:
         missing_fields = sorted(required_fields.difference(value))
         if missing_fields:
             raise ValueError(f"Authority Grant is missing required fields: {', '.join(missing_fields)}")
-        request_budget = value.get("requestBudget", {})
-        rate_budget = value.get("rateBudget", {})
-        parallelism_budget = value.get("parallelismBudget", {})
-        if not isinstance(request_budget, Mapping) or "limit" not in request_budget:
-            raise ValueError("Authority Grant requestBudget.limit is required")
-        if not isinstance(rate_budget, Mapping) or not {"limit", "windowSeconds"}.issubset(rate_budget):
-            raise ValueError("Authority Grant rateBudget limit and windowSeconds are required")
-        if not isinstance(parallelism_budget, Mapping) or "limit" not in parallelism_budget:
-            raise ValueError("Authority Grant parallelismBudget.limit is required")
+        if value.get("budgetSemantics") != "dispatch":
+            raise ValueError("Authority Grant budgetSemantics must be dispatch")
+        dispatch_budget = value.get("dispatchBudget", {})
+        dispatch_rate_budget = value.get("dispatchRateBudget", {})
+        active_dispatch_budget = value.get("activeDispatchBudget", {})
+        if not isinstance(dispatch_budget, Mapping) or "limit" not in dispatch_budget:
+            raise ValueError("Authority Grant dispatchBudget.limit is required")
+        if not isinstance(dispatch_rate_budget, Mapping) or not {"limit", "windowSeconds"}.issubset(dispatch_rate_budget):
+            raise ValueError("Authority Grant dispatchRateBudget limit and windowSeconds are required")
+        if not isinstance(active_dispatch_budget, Mapping) or "limit" not in active_dispatch_budget:
+            raise ValueError("Authority Grant activeDispatchBudget.limit is required")
         return cls(
             grant_id=str(value["grantId"]),
             workspace_id=str(value["workspaceId"]),
@@ -421,10 +533,10 @@ class AuthorityGrant:
             third_party_providers=tuple(str(item) for item in value.get("thirdPartyProviders", [])),
             local_outputs=tuple(LocalOutputDestination.from_dict(item) for item in value.get("localOutputs", [])),
             budgets=BudgetLimits(
-                _optional_int(request_budget["limit"]),
-                _optional_int(rate_budget["limit"]),
-                _optional_int(rate_budget["windowSeconds"]),
-                _optional_int(parallelism_budget["limit"]),
+                _optional_int(dispatch_budget["limit"]),
+                _optional_int(dispatch_rate_budget["limit"]),
+                _optional_int(dispatch_rate_budget["windowSeconds"]),
+                _optional_int(active_dispatch_budget["limit"]),
             ),
             state_change_policy=StateChangePolicy(str(value["stateChangePolicy"])),
             created_at=_parse_time(value["createdAt"]),
@@ -448,6 +560,7 @@ class AuthorityEvaluation:
     third_party_provider_ids: tuple[str, ...] = ()
     idempotency_key: str = ""
     step_up: StepUpAuthorization | None = None
+    continuation: ContinuationAuthorization | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "risk_class", RiskClass(str(self.risk_class)))
@@ -543,23 +656,17 @@ def evaluate_authority(grant: AuthorityGrant | None, evaluation: AuthorityEvalua
     plan = evaluation.plan
     intent = plan.intent
     if intent.lineage.kind == "job_status":
-        if not all(
-            (
-                intent.lineage.origin_action_id,
-                intent.lineage.origin_correlation_id,
-                intent.lineage.parent_plan_fingerprint,
-                intent.lineage.job_id,
-            )
-        ):
+        continuation = evaluation.continuation
+        if continuation is None or not continuation.covers(plan):
             return _approval(
                 AuthorityReason.CONTINUATION_NOT_COVERED,
-                "Job polling requires complete sealed continuation lineage.",
+                "Job polling requires a matching durable dispatch continuation.",
                 plan,
                 grant,
             )
         return Allow(
-            grant.grant_id if grant else "",
-            grant.revision if grant else 0,
+            continuation.grant_id,
+            continuation.grant_revision,
             plan.plan_fingerprint,
             BudgetDemand(0, 0, 0),
             AuthorityReason.CONTINUATION_COVERED,
@@ -684,7 +791,7 @@ def evaluate_authority(grant: AuthorityGrant | None, evaluation: AuthorityEvalua
             grant,
             AuthorityRequirement("credential_refs", missing_credentials, grant.credential_refs),
         )
-    if not _effect_envelope_covers(grant.allowed_effects, plan.effects):
+    if not grant.allowed_effects.permits(plan.effects):
         return _approval(
             AuthorityReason.EFFECT_NOT_COVERED,
             "The grant effect envelope is narrower than the execution effects.",
@@ -826,51 +933,51 @@ def _budget_decision(grant: AuthorityGrant, evaluation: AuthorityEvaluation) -> 
     usage = evaluation.budget_usage
     demand = evaluation.demand
     if (
-        demand.request_units
-        and limits.request_limit is not None
-        and usage.requests_used + demand.request_units > limits.request_limit
+        demand.dispatch_units
+        and limits.dispatch_limit is not None
+        and usage.dispatches_used + demand.dispatch_units > limits.dispatch_limit
     ):
         return _approval(
-            AuthorityReason.REQUEST_BUDGET_EXHAUSTED,
-            "The grant request budget would be exceeded.",
+            AuthorityReason.DISPATCH_BUDGET_EXHAUSTED,
+            "The grant dispatch budget would be exceeded.",
             evaluation.plan,
             grant,
             AuthorityRequirement(
-                "request_budget",
-                (str(usage.requests_used + demand.request_units),),
-                (str(limits.request_limit),),
+                "dispatch_budget",
+                (str(usage.dispatches_used + demand.dispatch_units),),
+                (str(limits.dispatch_limit),),
             ),
         )
     if (
-        demand.rate_units
-        and limits.rate_limit is not None
-        and usage.rate_window_used + demand.rate_units > limits.rate_limit
+        demand.dispatch_rate_units
+        and limits.dispatch_rate_limit is not None
+        and usage.dispatch_window_used + demand.dispatch_rate_units > limits.dispatch_rate_limit
     ):
         return _approval(
-            AuthorityReason.RATE_BUDGET_EXHAUSTED,
-            "The grant rate budget would be exceeded.",
+            AuthorityReason.DISPATCH_RATE_BUDGET_EXHAUSTED,
+            "The grant dispatch-rate budget would be exceeded.",
             evaluation.plan,
             grant,
             AuthorityRequirement(
-                "rate_budget",
-                (str(usage.rate_window_used + demand.rate_units),),
-                (str(limits.rate_limit),),
+                "dispatch_rate_budget",
+                (str(usage.dispatch_window_used + demand.dispatch_rate_units),),
+                (str(limits.dispatch_rate_limit),),
             ),
         )
     if (
-        demand.parallelism_units
-        and limits.parallelism_limit is not None
-        and usage.active_dispatches + demand.parallelism_units > limits.parallelism_limit
+        demand.active_dispatch_units
+        and limits.active_dispatch_limit is not None
+        and usage.active_dispatches + demand.active_dispatch_units > limits.active_dispatch_limit
     ):
         return _approval(
-            AuthorityReason.PARALLELISM_BUDGET_EXHAUSTED,
-            "The grant parallelism budget would be exceeded.",
+            AuthorityReason.ACTIVE_DISPATCH_BUDGET_EXHAUSTED,
+            "The grant active-dispatch budget would be exceeded.",
             evaluation.plan,
             grant,
             AuthorityRequirement(
-                "parallelism_budget",
-                (str(usage.active_dispatches + demand.parallelism_units),),
-                (str(limits.parallelism_limit),),
+                "active_dispatch_budget",
+                (str(usage.active_dispatches + demand.active_dispatch_units),),
+                (str(limits.active_dispatch_limit),),
             ),
         )
     return None
@@ -938,38 +1045,6 @@ def _output_covers(granted: LocalOutputDestination, requested: LocalOutputDestin
     if requested.may_prune and not granted.may_prune:
         return False
     return True
-
-
-def _effect_envelope_covers(granted: EffectEnvelope, requested: EffectEnvelope) -> bool:
-    if not set(requested.traffic).issubset(granted.traffic):
-        return False
-    if not set(requested.local_writes).issubset(granted.local_writes):
-        return False
-    for maximum, actual in (
-        (granted.local_change, requested.local_change),
-        (granted.local_destruction, requested.local_destruction),
-        (granted.remote_state_change, requested.remote_state_change),
-        (granted.credential_use, requested.credential_use),
-        (granted.secret_use, requested.secret_use),
-    ):
-        if actual and not maximum:
-            return False
-    replay_coverage = {
-        str(Idempotency.PURE_READ): {str(Idempotency.PURE_READ)},
-        str(Idempotency.IDEMPOTENT_WRITE): {
-            str(Idempotency.PURE_READ),
-            str(Idempotency.IDEMPOTENT_WRITE),
-            str(Idempotency.IDEMPOTENT_CONTROL),
-        },
-        str(Idempotency.IDEMPOTENT_CONTROL): {
-            str(Idempotency.PURE_READ),
-            str(Idempotency.IDEMPOTENT_WRITE),
-            str(Idempotency.IDEMPOTENT_CONTROL),
-        },
-        str(Idempotency.CONDITIONAL): {str(Idempotency.PURE_READ), str(Idempotency.CONDITIONAL)},
-        str(Idempotency.NON_IDEMPOTENT): {str(item) for item in Idempotency},
-    }
-    return requested.replay_safety in replay_coverage.get(granted.replay_safety, set())
 
 
 def _observe_mode_covers(grant: AuthorityGrant, effects: EffectEnvelope) -> bool:

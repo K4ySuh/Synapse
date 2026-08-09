@@ -76,6 +76,7 @@ class HttpSession:
                 execution_plan=self.policy.execution_plan,
                 proxy_credential_ref=self.policy.proxy_credential_ref,
                 proxy_headers=self.policy.proxy_headers,
+                target_header_resolver=self.policy.target_header_resolver,
             )
             return _send_with_httpx(request, policy, proxy_url=self.proxy_url)
         return _send_with_client(self.client, request, self.policy, timeout_seconds=timeout_seconds)
@@ -117,14 +118,21 @@ def _send_with_client(client: httpx.Client, request: HttpRequest, policy: HttpCl
             policy.execution_plan.assert_http_policy(policy.backend, policy.proxy_url, policy.proxy_credential_ref)
         current_url = request.url
         current_method = request.method
-        current_headers = dict(request.headers)
+        base_headers = dict(request.headers)
         current_body = request.body_bytes
         redirect_chain: list[dict[str, object]] = []
+        credential_coverage: list[dict[str, object]] = []
         seen: set[str] = set()
         redirect_hop: int | None = None
         while True:
             if policy.execution_plan is not None:
                 policy.execution_plan.assert_http_request(current_url, current_method, redirect_hop=redirect_hop)
+            current_headers = dict(base_headers)
+            if policy.target_header_resolver is not None:
+                target_headers, coverage = policy.target_header_resolver(current_url)
+                current_headers.update(target_headers)
+                if coverage and coverage not in credential_coverage:
+                    credential_coverage.append(dict(coverage))
             stream_kwargs: dict[str, object] = {"headers": current_headers, "content": current_body}
             if timeout_seconds is not None:
                 stream_kwargs["timeout"] = httpx.Timeout(max(float(timeout_seconds), 0.1))
@@ -151,18 +159,18 @@ def _send_with_client(client: httpx.Client, request: HttpRequest, policy: HttpCl
                     seen.add(current_url)
                     previous = CanonicalTarget.from_url(current_url)
                     following = CanonicalTarget.from_url(next_url)
-                    if previous.origin != following.origin:
-                        current_headers = {
+                    if previous.origin != following.origin and policy.target_header_resolver is None:
+                        base_headers = {
                             name: value
-                            for name, value in current_headers.items()
+                            for name, value in base_headers.items()
                             if name.lower() not in {"authorization", "cookie", "proxy-authorization"}
                         }
                     if response.status_code == 303 or (response.status_code in {301, 302} and current_method == "POST"):
                         current_method = "GET"
                         current_body = None
-                        current_headers = {
+                        base_headers = {
                             name: value
-                            for name, value in current_headers.items()
+                            for name, value in base_headers.items()
                             if name.lower() not in {"content-length", "content-type", "transfer-encoding"}
                         }
                     current_url = next_url
@@ -186,6 +194,7 @@ def _send_with_client(client: httpx.Client, request: HttpRequest, policy: HttpCl
                         for cookie in client.cookies.jar
                     ],
                     redirect_chain=redirect_chain,
+                    credential_coverage=[dict(item) for item in credential_coverage],
                 )
     except (httpx.HTTPError, ExecutionPlanError) as exc:
         return HttpResponse(status=None, headers={}, body="", error=str(exc))

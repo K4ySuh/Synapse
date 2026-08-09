@@ -114,7 +114,7 @@ by every descriptor, so the evaluator compares like with like.
 | `riskCeiling` | `RiskClass` | Max `risk_class` the grant permits |
 | `credentialRefs` | credential ids | Which credentials may be used (by reference; never secrets) |
 | `thirdPartyProviders` | provider ids | Which third-party providers are permitted |
-| `requestBudget`, `rateBudget`, `parallelismBudget` | operator-configured counters | Total / per-window / concurrent bounds; conservative defaults are not undocumented ceilings |
+| `dispatchBudget`, `dispatchRateBudget`, `activeDispatchBudget` | operator-configured action-dispatch counters | Total / per-window / concurrent dispatch bounds; `None` is explicitly unbounded and crawler/network volume remains separately fixed in the execution plan |
 | `stateChangePolicy` | enum | How non-idempotent / state-changing actions are treated (e.g. always step-up) |
 | `expiresAt`, `createdAt`, `approvedBy`, `revokedAt` | timestamps / operator principal | Lifecycle and audit |
 

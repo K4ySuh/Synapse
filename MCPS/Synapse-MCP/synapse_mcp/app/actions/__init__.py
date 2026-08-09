@@ -45,7 +45,14 @@ from .policies import (
     TrafficDestination,
     TaskPolicy,
 )
-from .registry import ActionRegistry, PassThroughPolicyEvaluator, PolicyEvaluator, REGISTRY
+from .registry import (
+    ActionRegistry,
+    PassThroughPolicyEvaluator,
+    PolicyEvaluationResult,
+    PolicyEvaluator,
+    ProfilePolicyEvaluator,
+    REGISTRY,
+)
 from synapse_mcp.core.execution import (
     AuthorizationIntent,
     CanonicalTarget,
@@ -97,6 +104,8 @@ __all__ = [
     "PolicyDenial",
     "PolicyEvaluator",
     "PassThroughPolicyEvaluator",
+    "PolicyEvaluationResult",
+    "ProfilePolicyEvaluator",
     "ProviderRoute",
     "REGISTRY",
     "RiskClass",
