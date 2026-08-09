@@ -8,6 +8,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Generic, Protocol, TypeVar, runtime_checkable
 
+from synapse_mcp.core.execution import AuthorizationIntent, ExecutionPlan
+
 from .contracts import ActionInput, ActionOutput
 from .identity import ActionId
 from .outcomes import ActionOutcome
@@ -31,6 +33,7 @@ class ExecutionContext:
     correlation_id: str
     deadline_seconds: float
     legacy_approval_asserted: bool | None
+    execution_plan: ExecutionPlan | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +59,11 @@ class ActionEffectResolver(Protocol[TInput]):
 
 
 @runtime_checkable
+class ActionIntentResolver(Protocol[TInput]):
+    def __call__(self, request: ActionRequest[TInput]) -> AuthorizationIntent: ...
+
+
+@runtime_checkable
 class AvailabilityResolver(Protocol[TInput]):
     def __call__(self, request: ActionRequest[TInput]) -> Availability: ...
 
@@ -76,3 +84,4 @@ class ActionDescriptor(Generic[TInput, TOutput]):
     task_policy: TaskPolicy
     executor: ActionExecutor[TInput, TOutput]
     availability: Availability | AvailabilityResolver[TInput]
+    intent_resolver: ActionIntentResolver[TInput] | None = None

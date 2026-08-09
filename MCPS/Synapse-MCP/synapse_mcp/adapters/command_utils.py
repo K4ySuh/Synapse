@@ -12,6 +12,7 @@ from typing import Any
 from ..core import background_jobs
 from ..core.errors import McpError
 from ..core import evidence, scope, workspace
+from ..core.execution import EffectEnvelope, ExecutionPlan
 
 
 def stringify_command(cmd: list[str]) -> str:
@@ -121,8 +122,12 @@ def start_background_command(
     output_path: str = "",
     finalizer_name: str = "",
     finalizer_data: dict[str, Any] | None = None,
+    execution_plan: ExecutionPlan | None = None,
+    finalizer_effects: EffectEnvelope | None = None,
 ) -> dict[str, Any]:
     if completion_callback and not finalizer_name:
+        if finalizer_effects is None:
+            raise ValueError("Background completion callbacks require explicit finalizer_effects.")
         name = f"_callback_{id(completion_callback)}"
         background_jobs.register_finalizer(name, lambda _record, result, _data: completion_callback(result))
         finalizer_name = name
@@ -139,6 +144,8 @@ def start_background_command(
         output_path=output_path,
         finalizer_name=finalizer_name,
         finalizer_data=finalizer_data,
+        execution_plan=execution_plan,
+        finalizer_effects=finalizer_effects,
     )
 
 

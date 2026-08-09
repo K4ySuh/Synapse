@@ -17,6 +17,19 @@ from uuid import uuid4
 
 from . import evidence, workspace
 from .errors import McpError
+from .execution import (
+    AuthorizationIntent,
+    CanonicalTarget,
+    ContinuationLineage,
+    EffectEnvelope,
+    ExecutionPlan,
+    ExecutionPlanError,
+    LocalOutputDestination,
+    ScopeSnapshot,
+    TargetEnvelope,
+    TargetSelector,
+    write_planned_text,
+)
 
 
 Finalizer = Callable[[dict[str, Any], dict[str, Any], dict[str, Any]], dict[str, Any] | None]
@@ -97,7 +110,7 @@ def read_worker_result_file(result_path: Path) -> dict[str, Any]:
 
 def _cleanup_finalizer_paths(data: dict[str, Any]) -> list[str]:
     removed: list[str] = []
-    for key in ("cleanupArgsPath",):
+    for key in ("cleanupArgsPath", "cleanupStatePath", "cleanupPlanPath"):
         raw_path = str(data.get(key, "") or "")
         if not raw_path:
             continue
@@ -109,6 +122,66 @@ def _cleanup_finalizer_paths(data: dict[str, Any]) -> list[str]:
             except OSError:
                 continue
     return removed
+
+
+def _continuation_material(record: dict[str, Any]) -> dict[str, Any]:
+    """Creation-time job fields whose mutation could redirect a continuation."""
+
+    return {
+        key: record.get(key)
+        for key in (
+            "jobId",
+            "tool",
+            "workspaceId",
+            "target",
+            "timeoutSeconds",
+            "eventType",
+            "summary",
+            "command",
+            "shellCommand",
+            "eventData",
+            "approval",
+            "outputPath",
+            "continuationPaths",
+            "finalizerName",
+            "finalizerData",
+            "finalizerEffects",
+            "correlationId",
+        )
+    }
+
+
+def _validate_finalizer_paths(record: dict[str, Any], plan: ExecutionPlan) -> None:
+    data = record.get("finalizerData")
+    if not isinstance(data, dict):
+        raise ExecutionPlanError("finalizer_data_invalid", "Job finalizer data must be an object.")
+    for key in ("resultPath", "cleanupArgsPath", "cleanupStatePath", "cleanupPlanPath"):
+        raw_path = str(data.get(key) or "")
+        if not raw_path:
+            continue
+        destination = plan.output_for_path(raw_path)
+        if key.startswith("cleanup") and not destination.may_prune:
+            raise ExecutionPlanError(
+                "cleanup_outside_execution_plan",
+                f"The execution plan does not authorize cleanup of {destination.path}.",
+            )
+
+
+def _validate_runtime_record_paths(record: dict[str, Any]) -> None:
+    bound = record.get("continuationPaths")
+    if not isinstance(bound, dict):
+        raise ExecutionPlanError("continuation_paths_missing", "Job sidecar paths were not fixed at creation.")
+    for key in ("stdoutPath", "stderrPath", "returnCodePath"):
+        expected = str(bound.get(key) or "")
+        current = str(record.get(key) or "")
+        if current == expected:
+            continue
+        if record.get("finalized") and not current:
+            continue
+        raise ExecutionPlanError(
+            "continuation_path_diverged",
+            f"Persisted job path {key} differs from its creation-time value.",
+        )
 
 
 def _write_record(record: dict[str, Any]) -> None:
@@ -133,6 +206,18 @@ def _read_record(job_id: str) -> dict[str, Any]:
     if not isinstance(record, dict):
         raise McpError(-32602, f"Unknown background job: {job_id}")
     return record
+
+
+def snapshot_record(job_id: str) -> dict[str, Any]:
+    """Return persisted job state without refresh, finalization, or writes."""
+
+    return json.loads(json.dumps(_read_record(job_id)))
+
+
+def snapshot(job_id: str, include_result: bool = False) -> dict[str, Any]:
+    """Return the observational job response without hidden progression."""
+
+    return _job_response(snapshot_record(job_id), include_result=include_result)
 
 
 def _tail(path: str, limit: int = 12000) -> str:
@@ -238,11 +323,29 @@ def start_command(
     output_path: str = "",
     finalizer_name: str = "",
     finalizer_data: dict[str, Any] | None = None,
+    execution_plan: ExecutionPlan | None = None,
+    finalizer_effects: EffectEnvelope | None = None,
 ) -> dict[str, Any]:
     timeout_seconds = _clamp_timeout_seconds(timeout_seconds)
     visible_cmd = display_cmd or cmd
     workspace_id = workspace.normalize_workspace_id(workspace_id) if workspace_id else workspace.default_workspace_id()
     job_id = _new_job_id(tool or event_type, target)
+    if execution_plan is None:
+        execution_plan = _legacy_job_execution_plan(
+            action_id=tool or event_type,
+            workspace_id=workspace_id,
+            target=target,
+            correlation_id=uuid4().hex,
+            output_path=output_path,
+            finalizer_name=finalizer_name,
+            finalizer_data=finalizer_data or {},
+        )
+    execution_plan.verify()
+    if execution_plan.intent.workspace_id and execution_plan.intent.workspace_id != workspace_id:
+        raise ExecutionPlanError("job_workspace_diverged", "Background job workspace differs from its execution plan.")
+    if target and execution_plan.intent.target_envelope.exact_targets:
+        execution_plan.intent.target_envelope.require(target)
+    required_finalizer_effects = finalizer_effects or execution_plan.effects
     root = _job_root_for_record({"jobId": job_id, "workspaceId": workspace_id}) / job_id
     root.mkdir(parents=True, exist_ok=True)
     stdout_path = root / "stdout.txt"
@@ -271,15 +374,43 @@ def start_command(
         "stdoutPath": str(stdout_path),
         "stderrPath": str(stderr_path),
         "returnCodePath": str(return_code_path),
+        "continuationPaths": {
+            "stdoutPath": str(stdout_path),
+            "stderrPath": str(stderr_path),
+            "returnCodePath": str(return_code_path),
+        },
         "returnCode": None,
         "timedOut": False,
         "finalized": False,
         "finalizerName": finalizer_name,
         "finalizerData": finalizer_data or {},
+        "executionPlan": {},
+        "finalizerEffects": required_finalizer_effects.to_dict(),
+        "correlationId": execution_plan.correlation_id,
         "run": None,
         "result": None,
         "error": "",
     }
+    execution_plan = execution_plan.bind_continuation(
+        job_id=job_id,
+        handler=finalizer_name,
+        material=_continuation_material(record),
+    )
+    record["executionPlan"] = execution_plan.to_dict()
+    _validate_finalizer_paths(record, execution_plan)
+    cleanup_plan_path = str((finalizer_data or {}).get("cleanupPlanPath") or "")
+    if cleanup_plan_path:
+        destination = execution_plan.output_for_path(cleanup_plan_path)
+        if not destination.may_prune:
+            raise ExecutionPlanError(
+                "cleanup_outside_execution_plan",
+                "The worker plan sidecar is not authorized for continuation cleanup.",
+            )
+        write_planned_text(execution_plan, destination.purpose, json.dumps(execution_plan.to_dict(), indent=2, ensure_ascii=False))
+        try:
+            Path(destination.path).chmod(0o600)
+        except OSError:
+            pass
     _write_record(record)
     with stdout_path.open("w", encoding="utf-8") as stdout_file, stderr_path.open("w", encoding="utf-8") as stderr_file:
         proc = subprocess.Popen(
@@ -309,6 +440,102 @@ def start_command(
         },
     )
     return status(job_id)
+
+
+def _legacy_job_execution_plan(
+    *,
+    action_id: str,
+    workspace_id: str,
+    target: str,
+    correlation_id: str,
+    output_path: str,
+    finalizer_name: str,
+    finalizer_data: dict[str, Any],
+) -> ExecutionPlan:
+    """Capture a conservative continuation envelope for unmigrated job starters."""
+
+    snapshot_value = ScopeSnapshot.for_workspace(workspace_id)
+    selectors: tuple[TargetSelector, ...] = ()
+    seeds: tuple[CanonicalTarget, ...] = ()
+    if target:
+        try:
+            canonical = CanonicalTarget.from_url(target)
+            selectors = (TargetSelector(canonical, "any", "legacy_job_target"),)
+            seeds = (canonical,)
+        except ExecutionPlanError:
+            pass
+    planned_paths: list[tuple[str, str, bool]] = []
+    if output_path:
+        planned_paths.append((output_path, "legacy_job_output", False))
+    for key in ("resultPath", "cleanupArgsPath", "cleanupStatePath", "cleanupPlanPath"):
+        raw_path = str(finalizer_data.get(key) or "")
+        if raw_path:
+            planned_paths.append((raw_path, f"legacy_job_{key}", key.startswith("cleanup")))
+    outputs_list: list[LocalOutputDestination] = []
+    seen_paths: set[str] = set()
+    for raw_path, purpose, may_prune in planned_paths:
+        resolved = Path(raw_path).expanduser().resolve(strict=False)
+        if str(resolved) in seen_paths:
+            continue
+        seen_paths.add(str(resolved))
+        try:
+            resolved.relative_to(workspace.workspace_path(workspace_id).resolve(strict=False))
+            within = True
+        except ValueError:
+            within = False
+        outputs_list.append(
+            LocalOutputDestination(
+                str(resolved),
+                purpose,
+                within,
+                "overwrite" if resolved.exists() else "create",
+                may_prune,
+            )
+        )
+    outputs = tuple(outputs_list)
+    intent = AuthorizationIntent(
+        action_id=action_id,
+        workspace_id=workspace_id,
+        target_envelope=TargetEnvelope(
+            workspace_id,
+            snapshot_value.digest,
+            snapshot_value,
+            selectors,
+            seeds,
+            entire_workspace_scope=False,
+        ),
+        local_outputs=outputs,
+        lineage=ContinuationLineage(
+            origin_action_id=action_id,
+            origin_correlation_id=correlation_id,
+            handler=finalizer_name,
+        ),
+    )
+    effects = EffectEnvelope(
+        local_writes=("workspace", "evidence", "jobs", "reports_artifacts"),
+        local_change=True,
+        local_destruction=True,
+        replay_safety="non_idempotent",
+    )
+    arguments = {"tool": action_id, "workspaceId": workspace_id, "target": target, "outputPath": output_path}
+
+    class LegacyEffects:
+        traffic = effects.traffic
+        local_writes = effects.local_writes
+        local_change = effects.local_change
+        local_destruction = effects.local_destruction
+        remote_state_change = effects.remote_state_change
+        credential_use = effects.credential_use
+        secret_use = effects.secret_use
+        replay_safety = effects.replay_safety
+
+    return ExecutionPlan.create(
+        action_id=action_id,
+        correlation_id=correlation_id,
+        intent=intent,
+        effects=LegacyEffects(),
+        arguments=arguments,
+    )
 
 
 def _start_watchdog(job_id: str, proc: subprocess.Popen[str], timeout_seconds: int) -> None:
@@ -419,6 +646,13 @@ def _finalize_record(record: dict[str, Any]) -> dict[str, Any]:
 def _finalize_record_locked(record: dict[str, Any]) -> dict[str, Any]:
     if record.get("finalized"):
         if any(str(record.get(key, "") or "") for key in ("stdoutPath", "stderrPath", "returnCodePath")):
+            try:
+                _validate_continuation(record)
+            except ExecutionPlanError as exc:
+                record["status"] = "failed"
+                record["error"] = f"Continuation rejected [{exc.reason_code}]: {exc}"
+                _write_record(record)
+                return record
             removed_sidecars = _cleanup_sidecar_files(record)
             if removed_sidecars:
                 record["sidecarCleanup"] = {"removed": sorted(removed_sidecars), "completedAt": _utc_now()}
@@ -426,6 +660,17 @@ def _finalize_record_locked(record: dict[str, Any]) -> dict[str, Any]:
         return record
     run = _run_payload(record)
     record["run"] = run
+    try:
+        _validate_continuation(record)
+    except ExecutionPlanError as exc:
+        record["status"] = "failed"
+        record["error"] = f"Continuation rejected [{exc.reason_code}]: {exc}"
+        record["completedAt"] = record.get("completedAt") or _utc_now()
+        record["result"] = {"isError": True, "error": record["error"]}
+        record["finalized"] = True
+        _write_record(record)
+        _forget_process(str(record["jobId"]))
+        return record
     finalizer_name = str(record.get("finalizerName", ""))
     if finalizer_name:
         finalizer = _FINALIZERS.get(finalizer_name)
@@ -469,6 +714,33 @@ def _finalize_record_locked(record: dict[str, Any]) -> dict[str, Any]:
     return record
 
 
+def _validate_continuation(record: dict[str, Any]) -> ExecutionPlan:
+    serialized = record.get("executionPlan")
+    if not isinstance(serialized, dict):
+        raise ExecutionPlanError("continuation_plan_missing", "Job finalization requires its creation-time execution plan.")
+    plan = ExecutionPlan.from_dict(serialized)
+    workspace_id = str(record.get("workspaceId") or "")
+    if plan.intent.workspace_id and plan.intent.workspace_id != workspace_id:
+        raise ExecutionPlanError("continuation_workspace_diverged", "Job workspace no longer matches its execution plan.")
+    target = str(record.get("target") or "")
+    if target and plan.intent.target_envelope.exact_targets:
+        plan.intent.target_envelope.require(target)
+    required_value = record.get("finalizerEffects")
+    if not isinstance(required_value, dict):
+        raise ExecutionPlanError("finalizer_effects_missing", "Job finalizer effects were not fixed at creation.")
+    required = EffectEnvelope.from_dict(required_value)
+    if not plan.effects.permits(required):
+        raise ExecutionPlanError("finalizer_effects_exceeded", "Job finalizer effects exceed the creation-time execution plan.")
+    plan.assert_continuation_binding(
+        job_id=str(record.get("jobId") or ""),
+        handler=str(record.get("finalizerName") or ""),
+        material=_continuation_material(record),
+    )
+    _validate_runtime_record_paths(record)
+    _validate_finalizer_paths(record, plan)
+    return plan
+
+
 def _refresh(record: dict[str, Any]) -> dict[str, Any]:
     workspace_id = str(record.get("workspaceId", "")).strip() or workspace.default_workspace_id()
     with workspace.workspace_lock(workspace_id):
@@ -477,6 +749,17 @@ def _refresh(record: dict[str, Any]) -> dict[str, Any]:
 
 
 def _refresh_locked(record: dict[str, Any]) -> dict[str, Any]:
+    try:
+        _validate_continuation(record)
+    except ExecutionPlanError as exc:
+        record["status"] = "failed"
+        record["error"] = f"Continuation rejected [{exc.reason_code}]: {exc}"
+        record["completedAt"] = record.get("completedAt") or _utc_now()
+        record["result"] = {"isError": True, "error": record["error"]}
+        record["finalized"] = True
+        _write_record(record)
+        _forget_process(str(record["jobId"]))
+        return record
     status_value = str(record.get("status", ""))
     if status_value not in {"queued", "running"}:
         if status_value in {"completed", "timed_out", "canceled", "failed"}:

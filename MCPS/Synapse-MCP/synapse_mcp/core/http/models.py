@@ -6,6 +6,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from ..execution import ExecutionPlan
+
 
 HttpBackendName = Literal["direct", "proxy", "disabled"]
 
@@ -39,6 +41,7 @@ class HttpResponse:
     error: str = ""
     url: str = ""
     cookies: list[dict[str, str]] = field(default_factory=list)
+    redirect_chain: list[dict[str, Any]] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -46,6 +49,8 @@ class HttpResponse:
             "headers": self.headers,
             "body": self.body,
             "error": self.error,
+            "effectiveUrl": self.url,
+            "redirectChain": self.redirect_chain,
         }
 
 
@@ -58,15 +63,27 @@ class HttpClientPolicy:
     proxy_url: str | None = None
     verify_tls: bool = True
     http2: bool = False
+    max_redirects: int = 10
+    execution_plan: ExecutionPlan | None = None
+    proxy_credential_ref: str | None = None
+    proxy_headers: dict[str, str] = field(default_factory=dict, repr=False)
 
     def __post_init__(self) -> None:
         if self.backend not in {"direct", "proxy", "disabled"}:
             raise ValueError(f"Unsupported HTTP backend: {self.backend}")
         self.timeout_seconds = max(float(self.timeout_seconds), 0.1)
         self.max_body_bytes = max(int(self.max_body_bytes), 0)
+        self.max_redirects = max(int(self.max_redirects), 0)
 
     @classmethod
-    def from_args(cls, args: dict[str, Any] | None, *, timeout_seconds: float | None = None) -> "HttpClientPolicy":
+    def from_args(
+        cls,
+        args: dict[str, Any] | None,
+        *,
+        timeout_seconds: float | None = None,
+        execution_plan: ExecutionPlan | None = None,
+        proxy_headers: dict[str, str] | None = None,
+    ) -> "HttpClientPolicy":
         args = args or {}
         backend = str(args.get("httpBackend") or args.get("backend") or "direct").lower()
         if args.get("disableTraffic") is True:
@@ -79,4 +96,8 @@ class HttpClientPolicy:
             proxy_url=args.get("proxyUrl") or args.get("proxy"),
             verify_tls=bool(args.get("verifyTls", True)),
             http2=bool(args.get("http2", False)),
+            max_redirects=int(args.get("maxRedirects", 10)),
+            execution_plan=execution_plan,
+            proxy_credential_ref=str(args.get("proxyCredentialId")) if args.get("proxyCredentialId") else None,
+            proxy_headers=dict(proxy_headers or {}),
         )

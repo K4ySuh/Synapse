@@ -16,6 +16,7 @@ from urllib.parse import urlencode, parse_qsl, urljoin, urlsplit, urlunsplit
 
 from ...core import credentials, dumps, evidence, fingerprint, scope, workspace
 from ...core.errors import McpError
+from ...core.execution import EffectEnvelope, ExecutionPlan, ExecutionPlanError, write_planned_text
 from ...core.http import HttpClientPolicy, HttpRequest, http_client
 from ...core.url_hygiene import (
     canonical_url_identity,
@@ -951,13 +952,25 @@ def response_result_metadata(response: dict[str, Any], url: str, status: int | N
     return metadata
 
 
-def crawl_http_policy(args: dict[str, Any], timeout: int) -> HttpClientPolicy:
+def crawl_http_policy(args: dict[str, Any], timeout: int, execution_plan: ExecutionPlan | None = None) -> HttpClientPolicy:
     policy_args = {
         **args,
         "followRedirects": False,
         "maxBodyBytes": int(args.get("maxBodyBytes", 1_000_000)),
     }
-    return HttpClientPolicy.from_args(policy_args, timeout_seconds=timeout)
+    proxy_headers: dict[str, str] = {}
+    if args.get("proxyCredentialId"):
+        proxy_url = str(args.get("proxyUrl") or "")
+        if not proxy_url:
+            raise McpError(-32602, "proxyCredentialId requires proxyUrl.")
+        proxy_credential = credentials.credential_for_target(str(args["proxyCredentialId"]), proxy_url)
+        proxy_headers = credentials.proxy_headers_for_credential_target(proxy_credential, proxy_url)
+    return HttpClientPolicy.from_args(
+        policy_args,
+        timeout_seconds=timeout,
+        execution_plan=execution_plan,
+        proxy_headers=proxy_headers,
+    )
 
 
 def fetch_crawl_url(
@@ -969,6 +982,7 @@ def fetch_crawl_url(
     include_in_scope_hosts: bool,
     http_session: Any | None = None,
     workspace_id: str = "",
+    execution_plan: ExecutionPlan | None = None,
 ) -> dict[str, Any]:
     current_url = url
     redirects = 0
@@ -999,7 +1013,27 @@ def fetch_crawl_url(
             next_url = normalize_url(location, current_url)
             if not next_url:
                 return finish({"finalUrl": current_url, "status": response.status, "contentType": content_type, "body": "", **response_meta, "error": f"Redirect Location was not a valid URL: {location}"})
-            if not crawl_host_allowed(next_url, allowed_hosts, rejected_hosts, include_in_scope_hosts, workspace_id):
+            if execution_plan is not None:
+                try:
+                    execution_plan.assert_http_request(next_url, request.method, redirect_hop=redirects + 1)
+                except ExecutionPlanError as exc:
+                    return finish({
+                        "finalUrl": current_url,
+                        "status": response.status,
+                        "contentType": content_type,
+                        "body": "",
+                        **response_meta,
+                        "blockedRedirect": next_url,
+                        "error": f"{exc.reason_code}: {exc}",
+                    })
+            if not crawl_host_allowed(
+                next_url,
+                allowed_hosts,
+                rejected_hosts,
+                include_in_scope_hosts,
+                workspace_id,
+                execution_plan,
+            ):
                 return finish({
                     "finalUrl": current_url,
                     "status": response.status,
@@ -1027,11 +1061,19 @@ def submit_post_form(
     include_in_scope_hosts: bool,
     http_session: Any | None = None,
     workspace_id: str = "",
+    execution_plan: ExecutionPlan | None = None,
 ) -> dict[str, Any]:
     action_url = normalize_url(form.get("action", "") or page_url, page_url)
     if not action_url:
         return {"submitted": False, "error": "POST form action did not resolve to a valid URL."}
-    if not crawl_host_allowed(action_url, allowed_hosts, rejected_hosts, include_in_scope_hosts, workspace_id):
+    if not crawl_host_allowed(
+        action_url,
+        allowed_hosts,
+        rejected_hosts,
+        include_in_scope_hosts,
+        workspace_id,
+        execution_plan,
+    ):
         return {"submitted": False, "actionUrl": action_url, "error": "POST form action is outside authorized scope."}
     values = post_form_values(form, action_url)
     body = urlencode(values, doseq=True)
@@ -1068,7 +1110,13 @@ def crawl_host_allowed(
     rejected_hosts: set[str],
     include_in_scope_hosts: bool,
     workspace_id: str = "",
+    execution_plan: ExecutionPlan | None = None,
 ) -> bool:
+    if execution_plan is not None:
+        try:
+            execution_plan.intent.target_envelope.require(url)
+        except ExecutionPlanError:
+            return False
     host = url_host(url)
     if host in allowed_hosts:
         return True
@@ -1573,8 +1621,14 @@ def write_sitemap(
     suffix: str,
     workspace_id: str | None = None,
     target: str | None = None,
+    execution_plan: ExecutionPlan | None = None,
 ) -> dict[str, Any]:
-    if output:
+    if execution_plan is not None:
+        path = Path(execution_plan.output("crawler.sitemap").path)
+        mermaid_path = Path(execution_plan.output("crawler.flow_mermaid").path)
+        svg_path = Path(execution_plan.output("crawler.flow_svg").path)
+        prune_outputs = execution_plan.output("crawler.sitemap").may_prune
+    elif output:
         path = Path(output).expanduser()
         prune_outputs = False
     elif workspace_id and target:
@@ -1583,17 +1637,28 @@ def write_sitemap(
     else:
         path = workspace.workspace_output_path(workspace_id or workspace.default_workspace_id(), "sitemap", suffix)
         prune_outputs = True
-    path.parent.mkdir(parents=True, exist_ok=True)
+    if execution_plan is None:
+        path.parent.mkdir(parents=True, exist_ok=True)
     if isinstance(payload.get("flowGraph"), dict):
-        mermaid_path = path.with_name(f"{path.stem}.flow.mmd")
-        svg_path = path.with_name(f"{path.stem}.flow.svg")
+        if execution_plan is None:
+            mermaid_path = path.with_name(f"{path.stem}.flow.mmd")
+            svg_path = path.with_name(f"{path.stem}.flow.svg")
         payload["flowGraph"]["mermaidPath"] = str(mermaid_path)
         payload["flowGraph"]["svgPath"] = str(svg_path)
-        mermaid_path.write_text(render_flow_graph_mermaid(payload["flowGraph"]), encoding="utf-8")
-        svg_path.write_text(render_flow_graph_svg(payload["flowGraph"]), encoding="utf-8")
+        if execution_plan is not None:
+            write_planned_text(execution_plan, "crawler.flow_mermaid", render_flow_graph_mermaid(payload["flowGraph"]))
+            write_planned_text(execution_plan, "crawler.flow_svg", render_flow_graph_svg(payload["flowGraph"]))
+        else:
+            mermaid_path.write_text(render_flow_graph_mermaid(payload["flowGraph"]), encoding="utf-8")
+            svg_path.write_text(render_flow_graph_svg(payload["flowGraph"]), encoding="utf-8")
     payload["outputPath"] = str(path)
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    if execution_plan is not None:
+        write_planned_text(execution_plan, "crawler.sitemap", json.dumps(payload, indent=2))
+    else:
+        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     if prune_outputs:
+        if execution_plan is not None and path.parent.resolve(strict=False) != path.parent:
+            raise ExecutionPlanError("output_path_changed", f"Planned output directory changed before retention cleanup: {path.parent}")
         workspace.retain_latest_artifacts(path.parent, suffix, keep=1, sibling_suffixes=(".flow.mmd", ".flow.svg"))
     return payload
 
@@ -1734,13 +1799,27 @@ def crawl_error_category(error: str, *, status: Any = None) -> str:
     return "other"
 
 
-def crawl(args: dict[str, Any]) -> str:
+def crawl(args: dict[str, Any], *, execution_plan: ExecutionPlan | None = None) -> str:
+    if execution_plan is not None:
+        execution_plan.assert_runtime_input(args)
     require_confirmed(args, "Active crawling requires confirm=true.")
     target = normalize_url(args["target"])
     if not target:
         raise McpError(-32602, "target must be an http(s) URL or hostname.")
     workspace_id = args.get("workspaceId") or workspace.default_workspace_id()
-    scope_result = require_in_scope(target, workspace_id)
+    if execution_plan is not None:
+        execution_plan.intent.target_envelope.require(target)
+        scope_result = scope.check_target_in_scope(
+            target,
+            execution_plan.intent.target_envelope.scope_snapshot.to_dict(),
+        )
+        if not scope_result.get("inScope"):
+            snapshot = execution_plan.intent.target_envelope.scope_snapshot
+            if snapshot.source == "workspace":
+                raise McpError(-32002, f"Target is not in authorized scope for workspace {workspace.normalize_workspace_id(workspace_id)}: {scope_result.get('host', '')}")
+            raise McpError(-32002, f"Target is not in authorized scope: {scope_result.get('host', '')}")
+    else:
+        scope_result = require_in_scope(target, workspace_id)
     extended_mode = bool(args.get("_extendedMode"))
     tool_name = "crawler.extended" if extended_mode else "crawler.crawl"
     allowed_hosts = {scope_result["host"]}
@@ -1788,6 +1867,7 @@ def crawl(args: dict[str, Any]) -> str:
             include_sensitive_post_forms,
             approval,
             tool_name,
+            execution_plan,
         )
     request_headers = {"User-Agent": user_agent, "Accept": "text/html,application/xhtml+xml,*/*;q=0.8"}
     credential_meta = None
@@ -1795,7 +1875,7 @@ def crawl(args: dict[str, Any]) -> str:
         credential = credentials.credential_for_target(str(args["credentialId"]), target)
         request_headers.update(credentials.headers_for_credential_target(credential, target))
         credential_meta = credentials.redact_credential(credential)
-    http_policy = crawl_http_policy(args, timeout)
+    http_policy = crawl_http_policy(args, timeout, execution_plan)
     sitemap = new_sitemap(
         {
             "type": "active-crawl",
@@ -1829,7 +1909,14 @@ def crawl(args: dict[str, Any]) -> str:
     cached_script_urls: dict[str, list[str]] = {}
 
     def consider_discovered(url: str, source_url: str, relation_type: str, *, followed: bool = False) -> bool:
-        allowed = crawl_host_allowed(url, allowed_hosts, rejected_hosts, include_in_scope_hosts, workspace_id)
+        allowed = crawl_host_allowed(
+            url,
+            allowed_hosts,
+            rejected_hosts,
+            include_in_scope_hosts,
+            workspace_id,
+            execution_plan,
+        )
         record_crawl_relation(
             discovered_relations,
             source_url,
@@ -1851,7 +1938,14 @@ def crawl(args: dict[str, Any]) -> str:
         if discovered_from:
             if not consider_discovered(url, discovered_from, "navigation", followed=True):
                 continue
-        elif not crawl_host_allowed(url, allowed_hosts, rejected_hosts, include_in_scope_hosts, workspace_id):
+        elif not crawl_host_allowed(
+            url,
+            allowed_hosts,
+            rejected_hosts,
+            include_in_scope_hosts,
+            workspace_id,
+            execution_plan,
+        ):
             continue
         if is_static_url(url) and not include_static and not (analyze_scripts and is_script_url(url)):
             upsert_url(sitemap, url, discovered_from=discovered_from)
@@ -1866,6 +1960,7 @@ def crawl(args: dict[str, Any]) -> str:
             include_in_scope_hosts,
             crawl_session,
             workspace_id,
+            execution_plan,
         )
         attempted_count += int(fetch_result.get("attemptedCount", 1) or 0)
         http_response_count += int(fetch_result.get("httpResponseCount", 0) or 0)
@@ -1906,7 +2001,14 @@ def crawl(args: dict[str, Any]) -> str:
             errors.append({"url": url, "error": error_text, "category": crawl_error_category(error_text)})
             continue
         final_url = str(fetch_result["finalUrl"])
-        if not crawl_host_allowed(final_url, allowed_hosts, rejected_hosts, include_in_scope_hosts, workspace_id):
+        if not crawl_host_allowed(
+            final_url,
+            allowed_hosts,
+            rejected_hosts,
+            include_in_scope_hosts,
+            workspace_id,
+            execution_plan,
+        ):
             errors.append({"url": url, "error": f"Redirected out of scope: {final_url}", "category": "blocked_redirect"})
             blocked_redirect_count += 1
             continue
@@ -2031,6 +2133,7 @@ def crawl(args: dict[str, Any]) -> str:
                             include_in_scope_hosts,
                             crawl_session,
                             workspace_id,
+                            execution_plan,
                         )
                         if post_result.get("submitted"):
                             record_crawl_relation(
@@ -2256,7 +2359,14 @@ def crawl(args: dict[str, Any]) -> str:
         "queuedRemaining": len(queue),
     }
     payload = attach_flow_graph(sanitize_sitemap_payload(flattened))
-    write_sitemap(payload, args.get("output"), f"{scope_result['host']}-{tool_name.replace('.', '-')}-sitemap.json", workspace_id, scope_result["host"])
+    write_sitemap(
+        payload,
+        args.get("output"),
+        f"{scope_result['host']}-{tool_name.replace('.', '-')}-sitemap.json",
+        workspace_id,
+        scope_result["host"],
+        execution_plan,
+    )
     evidence.log_event(
         tool_name,
         f"Crawled {len(visited)} pages for sitemap generation on {scope_result['host']}.",
@@ -2378,33 +2488,46 @@ def _start_background_crawl(
     include_sensitive_post_forms: bool,
     approval: dict[str, Any],
     tool_name: str = "crawler.crawl",
+    execution_plan: ExecutionPlan | None = None,
 ) -> str:
     public_target = redact_url_query_values(target) or target
     public_scope = {**scope_result, "target": public_target}
     worker_args = dict(args)
     worker_args["background"] = False
     worker_args["_deferWorkflowRefreshToFinalizer"] = True
-    job_slug = tool_name.replace(".", "-")
-    args_path = workspace.target_output_path(workspace_id, scope_result["host"], "jobs", f"{job_slug}-args.json")
-    result_path = workspace.target_output_path(workspace_id, scope_result["host"], "jobs", f"{job_slug}-result.json")
-    state_path = workspace.target_output_path(workspace_id, scope_result["host"], "jobs", f"{job_slug}-state.json")
-    args_path.write_text(json.dumps(worker_args, indent=2, ensure_ascii=False), encoding="utf-8")
+    if execution_plan is not None:
+        args_path = Path(execution_plan.output("crawler.worker_args").path)
+        result_path = Path(execution_plan.output("crawler.worker_result").path)
+        state_path = Path(execution_plan.output("crawler.worker_state").path)
+        plan_path = Path(execution_plan.output("crawler.worker_plan").path)
+    else:
+        job_slug = tool_name.replace(".", "-")
+        args_path = workspace.target_output_path(workspace_id, scope_result["host"], "jobs", f"{job_slug}-args.json")
+        result_path = workspace.target_output_path(workspace_id, scope_result["host"], "jobs", f"{job_slug}-result.json")
+        state_path = workspace.target_output_path(workspace_id, scope_result["host"], "jobs", f"{job_slug}-state.json")
+        plan_path = workspace.target_output_path(workspace_id, scope_result["host"], "jobs", f"{job_slug}-plan.json")
+    worker_plan = execution_plan.for_continuation(kind="background_worker", runtime_arguments=worker_args) if execution_plan else None
+    if execution_plan is not None:
+        write_planned_text(execution_plan, "crawler.worker_args", json.dumps(worker_args, indent=2, ensure_ascii=False))
+    else:
+        args_path.write_text(json.dumps(worker_args, indent=2, ensure_ascii=False), encoding="utf-8")
     _chmod_private(args_path)
-    state_path.write_text(
-        json.dumps(
-            {
-                "workspacesDir": str(workspace.WORKSPACES_DIR),
-                "dumpDir": str(dumps.DUMP_DIR),
-                "scopeFile": str(scope.SCOPE_FILE),
-                "credentialsFile": str(credentials.CREDENTIALS_FILE),
-                "evidenceDir": str(evidence.EVIDENCE_DIR),
-                "evidenceLog": str(evidence.EVIDENCE_LOG),
-                "orgsDir": str(evidence.ORGS_DIR),
-            },
-            indent=2,
-        ),
-        encoding="utf-8",
+    state_payload = json.dumps(
+        {
+            "workspacesDir": str(workspace.WORKSPACES_DIR),
+            "dumpDir": str(dumps.DUMP_DIR),
+            "scopeFile": str(scope.SCOPE_FILE),
+            "credentialsFile": str(credentials.CREDENTIALS_FILE),
+            "evidenceDir": str(evidence.EVIDENCE_DIR),
+            "evidenceLog": str(evidence.EVIDENCE_LOG),
+            "orgsDir": str(evidence.ORGS_DIR),
+        },
+        indent=2,
     )
+    if execution_plan is not None:
+        write_planned_text(execution_plan, "crawler.worker_state", state_payload)
+    else:
+        state_path.write_text(state_payload, encoding="utf-8")
     _chmod_private(state_path)
     timeout_seconds = int(args.get("timeoutSeconds") or max(300, int(max_pages * (timeout + delay) + 60)))
     cmd = [
@@ -2420,6 +2543,8 @@ def _start_background_crawl(
         "--state",
         str(state_path),
     ]
+    if worker_plan is not None:
+        cmd.extend(["--plan", str(plan_path)])
     event_data = {
         "workspaceId": workspace_id,
         "target": public_target,
@@ -2448,7 +2573,23 @@ def _start_background_crawl(
         target=public_target,
         output_path=str(result_path),
         finalizer_name="worker.result",
-        finalizer_data={"resultPath": str(result_path)},
+        finalizer_data={
+            "resultPath": str(result_path),
+            "cleanupArgsPath": str(args_path),
+            "cleanupStatePath": str(state_path),
+            **({"cleanupPlanPath": str(plan_path)} if worker_plan is not None else {}),
+        },
+        execution_plan=worker_plan,
+        finalizer_effects=(
+            EffectEnvelope(
+                local_writes=("evidence", "jobs", "reports_artifacts", "workspace"),
+                local_change=True,
+                local_destruction=True,
+                replay_safety="non_idempotent",
+            )
+            if worker_plan is not None
+            else None
+        ),
     )
     return json.dumps(
         {

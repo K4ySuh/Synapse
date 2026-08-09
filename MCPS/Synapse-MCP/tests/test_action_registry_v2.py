@@ -75,11 +75,25 @@ class ActionRegistryV2Tests(unittest.TestCase):
                 self.assertEqual(outcome.reason_code, "invalid_output_contract")
 
     def test_maximum_and_request_effects_are_multidimensional(self) -> None:
-        for action_id in ("jobs.status", "workspace.summary", "workspace.prepare_target_context"):
+        for action_id in ("workspace.summary", "workspace.prepare_target_context"):
             descriptor = REGISTRY.get(action_id)
             self.assertEqual(descriptor.effects.replay_safety, Idempotency.PURE_READ)
             self.assertEqual(descriptor.effects.traffic, frozenset())
             self.assertEqual(descriptor.effects.local_writes, frozenset())
+
+        jobs_status = REGISTRY.get("jobs.status")
+        self.assertEqual(jobs_status.effects.replay_safety, Idempotency.NON_IDEMPOTENT)
+        self.assertEqual(
+            jobs_status.effects.local_writes,
+            frozenset(
+                {
+                    LocalWriteDomain.WORKSPACE,
+                    LocalWriteDomain.EVIDENCE,
+                    LocalWriteDomain.JOBS,
+                    LocalWriteDomain.REPORTS_ARTIFACTS,
+                }
+            ),
+        )
 
         header_ingest = REGISTRY.resolve_effects(
             "headers_cookies.analyze_workspace",
@@ -137,9 +151,15 @@ class ActionRegistryV2Tests(unittest.TestCase):
         self.assertEqual(
             crawler_background.local_writes,
             frozenset(
-                {LocalWriteDomain.JOBS, LocalWriteDomain.EVIDENCE, LocalWriteDomain.REPORTS_ARTIFACTS}
+                {
+                    LocalWriteDomain.WORKSPACE,
+                    LocalWriteDomain.JOBS,
+                    LocalWriteDomain.EVIDENCE,
+                    LocalWriteDomain.REPORTS_ARTIFACTS,
+                }
             ),
         )
+        self.assertTrue(crawler_background.local_destruction)
         self.assertEqual(crawler_foreground.traffic, frozenset())
         self.assertEqual(
             crawler_foreground.local_writes,

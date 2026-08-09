@@ -341,6 +341,18 @@ def headers_for_credential_target(record: dict[str, Any], target: str) -> dict[s
     return headers_for_credential(record)
 
 
+def proxy_headers_for_credential_target(record: dict[str, Any], proxy_url: str) -> dict[str, str]:
+    """Resolve one scoped credential as proxy-only authentication headers."""
+
+    headers = headers_for_credential_target(record, proxy_url)
+    lowered = {str(name).lower(): str(value) for name, value in headers.items()}
+    if "authorization" in lowered:
+        return {"Proxy-Authorization": lowered["authorization"]}
+    if "proxy-authorization" in lowered:
+        return {"Proxy-Authorization": lowered["proxy-authorization"]}
+    raise McpError(-32602, "Proxy credentials must resolve to Authorization or Proxy-Authorization.")
+
+
 def redacted_headers_for_credential(record: dict[str, Any]) -> dict[str, str]:
     return {name: _redact_value(value) for name, value in headers_for_credential(record).items()}
 

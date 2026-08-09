@@ -7,9 +7,10 @@ import json
 from typing import Any
 from urllib.parse import urlsplit
 
-from ...core import credentials, evidence, workspace
+from ...core import credentials, evidence, scope, workspace
 from ...core.adapters import AdapterResult, RecommendedTest, WorkspaceEntityBundle, candidate_observation
 from ...core.errors import McpError
+from ...core.execution import ExecutionPlan
 from ...core.http import HttpClientPolicy, HttpRequest, http_client
 from ..command_utils import approval_metadata, require_confirmed, require_in_scope
 from .active_probe import priority_for_score, redact_headers, stable_slug, store_http_exchange_evidence
@@ -301,14 +302,26 @@ def generate_test_plan(args: dict[str, Any]) -> str:
     return json.dumps(plan, indent=2)
 
 
-def execute_test(args: dict[str, Any]) -> str:
+def execute_test(args: dict[str, Any], *, execution_plan: ExecutionPlan | None = None) -> str:
     require_confirmed(args, "Running a CORS active probe requires confirm=true.")
     candidate = _coerce_candidate(args)
     target_url = str(candidate.get("url", ""))
     if not target_url:
         raise McpError(-32602, "A target url is required.")
     workspace_id = args.get("workspaceId") or workspace.default_workspace_id()
-    scope_result = require_in_scope(target_url, workspace_id)
+    if execution_plan is not None:
+        execution_plan.intent.target_envelope.require(target_url)
+        scope_result = scope.check_target_in_scope(
+            target_url,
+            execution_plan.intent.target_envelope.scope_snapshot.to_dict(),
+        )
+        if not scope_result.get("inScope"):
+            snapshot = execution_plan.intent.target_envelope.scope_snapshot
+            if snapshot.source == "workspace":
+                raise McpError(-32002, f"Target is not in authorized scope for workspace {workspace.normalize_workspace_id(workspace_id)}: {scope_result.get('host', '')}")
+            raise McpError(-32002, f"Target is not in authorized scope: {scope_result.get('host', '')}")
+    else:
+        scope_result = require_in_scope(target_url, workspace_id)
     probe_origin = str(args.get("probeOrigin") or DEFAULT_PROBE_ORIGIN)
     method = str(candidate.get("method", "GET")).upper()
     headers = {"User-Agent": "Synapse-MCP/0.1", "Origin": probe_origin}
@@ -317,7 +330,19 @@ def execute_test(args: dict[str, Any]) -> str:
         headers.update(credentials.headers_for_credential_target(credential, target_url))
     approval = approval_metadata(args)
     timeout = int(args.get("requestTimeout", 10))
-    policy = HttpClientPolicy.from_args(args, timeout_seconds=timeout)
+    proxy_headers: dict[str, str] = {}
+    if args.get("proxyCredentialId"):
+        proxy_url = str(args.get("proxyUrl") or "")
+        if not proxy_url:
+            raise McpError(-32602, "proxyCredentialId requires proxyUrl.")
+        proxy_credential = credentials.credential_for_target(str(args["proxyCredentialId"]), proxy_url)
+        proxy_headers = credentials.proxy_headers_for_credential_target(proxy_credential, proxy_url)
+    policy = HttpClientPolicy.from_args(
+        args,
+        timeout_seconds=timeout,
+        execution_plan=execution_plan,
+        proxy_headers=proxy_headers,
+    )
     response_payload = http_client.send(HttpRequest(url=target_url, method=method, headers=headers), policy=policy).as_dict()
     exchange_evidence = store_http_exchange_evidence(
         workspace_id,

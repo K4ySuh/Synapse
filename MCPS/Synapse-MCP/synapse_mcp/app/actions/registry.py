@@ -9,10 +9,18 @@ from dataclasses import replace
 import json
 from typing import Any, Protocol
 
+from synapse_mcp.core.execution import (
+    AuthorizationIntent,
+    ContinuationLineage,
+    ExecutionPlan,
+    ExecutionPlanError,
+    empty_target_envelope,
+)
+
 from .contracts import ActionInput, ActionOutput
 from .descriptor import ActionDescriptor, ActionRequest
 from .identity import ActionId
-from .outcomes import ActionOutcome, ExecutionFailure, Success, UnavailableCapability
+from .outcomes import ActionOutcome, ExecutionFailure, Success, UnavailableCapability, ValidationFailure
 from .policies import (
     ActionEffects,
     Availability,
@@ -83,6 +91,8 @@ class ActionRegistry:
             invalid("effects must be an ActionEffects instance")
         if descriptor.effect_resolver is not None and not callable(descriptor.effect_resolver):
             invalid("effect resolver must be callable")
+        if descriptor.intent_resolver is not None and not callable(descriptor.intent_resolver):
+            invalid("intent resolver must be callable")
         if not isinstance(descriptor.availability, Availability) and not callable(descriptor.availability):
             invalid("availability must be a declaration or resolver")
         if descriptor.scope_policy.requirement is ScopeRequirement.REQUIRED and not descriptor.effects.traffic:
@@ -179,9 +189,21 @@ class ActionRegistry:
                 reason_code=availability.reason_code,
             )
         effects = self.resolve_effects(action_id, request)
-        if not self._policy_evaluator.evaluate(descriptor, request, effects):
+        try:
+            execution_plan = self.resolve_execution_plan(action_id, request, effects=effects)
+        except ExecutionPlanError as exc:
+            return ValidationFailure(
+                message=str(exc),
+                legacy_code=-32602,
+                reason_code=exc.reason_code,
+            )
+        planned_request = replace(
+            request,
+            context=replace(request.context, execution_plan=execution_plan),
+        )
+        if not self._policy_evaluator.evaluate(descriptor, planned_request, effects):
             raise PermissionError(f"{descriptor.id}: policy evaluator denied execution")
-        outcome = descriptor.executor(request)
+        outcome = descriptor.executor(planned_request)
         if not isinstance(outcome, Success):
             return outcome
         raw_payload = outcome.payload
@@ -205,6 +227,48 @@ class ActionRegistry:
             )
         compatibility_payload = outcome.legacy_payload if outcome.legacy_payload is not None else raw_payload
         return replace(outcome, payload=validated, legacy_payload=compatibility_payload)
+
+    def resolve_execution_plan(
+        self,
+        action_id: ActionId | str,
+        request: ActionRequest[Any],
+        *,
+        effects: ActionEffects | None = None,
+    ) -> ExecutionPlan:
+        """Resolve the immutable intent consumed by policy and the executor."""
+
+        descriptor = self.get(action_id)
+        if descriptor.input_model is not type(request.input):
+            raise TypeError(
+                f"{descriptor.id}: expected input model {descriptor.input_model.__name__}, "
+                f"got {type(request.input).__name__}"
+            )
+        arguments = request.input.model_dump(by_alias=True, exclude_unset=True)
+        if descriptor.intent_resolver is None:
+            workspace_id = str(request.context.workspace_id or arguments.get("workspaceId") or "")
+            intent = AuthorizationIntent(
+                action_id=str(descriptor.id),
+                workspace_id=workspace_id,
+                target_envelope=empty_target_envelope(workspace_id),
+                lineage=ContinuationLineage(
+                    origin_action_id=str(descriptor.id),
+                    origin_correlation_id=request.context.correlation_id,
+                ),
+            )
+        else:
+            intent = descriptor.intent_resolver(request)
+        if intent.action_id != str(descriptor.id):
+            raise ExecutionPlanError(
+                "intent_action_mismatch",
+                f"{descriptor.id}: intent resolver returned action {intent.action_id}",
+            )
+        return ExecutionPlan.create(
+            action_id=str(descriptor.id),
+            correlation_id=request.context.correlation_id,
+            intent=intent,
+            effects=effects or self.resolve_effects(action_id, request),
+            arguments=arguments,
+        )
 
 
 REGISTRY = ActionRegistry()

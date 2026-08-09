@@ -233,6 +233,7 @@ class ActionContractTests(unittest.TestCase):
                 "task_policy",
                 "executor",
                 "availability",
+                "intent_resolver",
             ],
         )
         self.assertNotIn("side_effect_class", [field.name for field in fields(ActionDescriptor)])

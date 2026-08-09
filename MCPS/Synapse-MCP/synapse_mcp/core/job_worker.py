@@ -36,6 +36,20 @@ def _run_tool(tool: str, args: dict[str, Any]) -> str:
     raise ValueError(f"Unsupported worker tool: {tool}")
 
 
+def _run_tool_with_plan(tool: str, args: dict[str, Any], plan_path: str) -> str:
+    if not plan_path:
+        return _run_tool(tool, args)
+    from .execution import ExecutionPlan
+
+    plan = ExecutionPlan.from_dict(json.loads(Path(plan_path).read_text(encoding="utf-8")))
+    plan.assert_runtime_input(args)
+    if tool == "crawler.crawl":
+        from ..adapters.web import crawler_adapter
+
+        return crawler_adapter.crawl(args, execution_plan=plan)
+    raise ValueError(f"Execution plans are not supported for worker tool: {tool}")
+
+
 def _apply_state_paths(path: str) -> None:
     if not path:
         return
@@ -70,13 +84,14 @@ def main() -> int:
     parser.add_argument("--args", required=True)
     parser.add_argument("--result", required=True)
     parser.add_argument("--state", default="")
+    parser.add_argument("--plan", default="")
     parsed = parser.parse_args()
     result_path = Path(parsed.result)
     result_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         _apply_state_paths(parsed.state)
         args = json.loads(Path(parsed.args).read_text(encoding="utf-8"))
-        result_text = _run_tool(parsed.tool, args)
+        result_text = _run_tool_with_plan(parsed.tool, args, parsed.plan)
         _write_result_atomic(result_path, result_text)
         return 0
     except Exception as exc:  # pragma: no cover - exercised through subprocess failures.
