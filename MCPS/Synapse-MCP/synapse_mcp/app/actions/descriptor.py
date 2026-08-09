@@ -13,11 +13,10 @@ from .identity import ActionId
 from .outcomes import ActionOutcome
 from .policies import (
     Availability,
+    ActionEffects,
     CredentialPolicy,
-    IdempotencyPolicy,
     RiskClass,
     ScopePolicy,
-    SideEffectClass,
     TaskPolicy,
 )
 
@@ -51,6 +50,16 @@ class ActionExecutor(Protocol[TInput, TOutput]):
     def __call__(self, request: ActionRequest[TInput]) -> ActionOutcome[TOutput]: ...
 
 
+@runtime_checkable
+class ActionEffectResolver(Protocol[TInput]):
+    def __call__(self, request: ActionRequest[TInput]) -> ActionEffects: ...
+
+
+@runtime_checkable
+class AvailabilityResolver(Protocol[TInput]):
+    def __call__(self, request: ActionRequest[TInput]) -> Availability: ...
+
+
 @dataclass(frozen=True, slots=True)
 class ActionDescriptor(Generic[TInput, TOutput]):
     id: ActionId
@@ -59,11 +68,11 @@ class ActionDescriptor(Generic[TInput, TOutput]):
     summary: str
     input_model: type[TInput]
     output_model: type[TOutput]
-    side_effect_class: SideEffectClass
+    effects: ActionEffects
+    effect_resolver: ActionEffectResolver[TInput] | None
     risk_class: RiskClass
     scope_policy: ScopePolicy
     credential_policy: CredentialPolicy
-    idempotency_policy: IdempotencyPolicy
     task_policy: TaskPolicy
     executor: ActionExecutor[TInput, TOutput]
-    availability: Availability
+    availability: Availability | AvailabilityResolver[TInput]

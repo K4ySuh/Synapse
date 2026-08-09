@@ -148,7 +148,25 @@ class SliceProjectionContractTests(unittest.TestCase):
         with patch.object(
             workspace_pack.workspace,
             "prepare_target_context",
-            return_value={"context": "fixture"},
+            return_value={
+                "workspaceId": "acme",
+                "target": ALLOWED_FIXTURE_HOSTS[0],
+                "purpose": "next_step_planning",
+                "maxTokens": 1500,
+                "scopeStatus": "allowed",
+                "scopeReason": "fixture",
+                "knownServices": [],
+                "serviceInventory": {"total": 0, "analysisEligible": 0, "suppressed": 0},
+                "observationInventory": {"total": 0, "analysisEligible": 0, "suppressed": 0},
+                "knownEndpoints": {"total": 0, "interesting": []},
+                "interestingEndpoints": [],
+                "candidateFindings": [],
+                "confirmedFindings": [],
+                "observations": [],
+                "recentActions": [],
+                "recommendedNextActions": [],
+                "missingInformation": [],
+            },
         ) as prepare_target_context:
             projection.project_call(
                 "workspace.prepare_target_context",

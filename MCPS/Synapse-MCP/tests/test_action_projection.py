@@ -57,12 +57,29 @@ class ActionProjectionTests(unittest.TestCase):
             input=descriptor.input_model.model_validate(arguments),
             context=ExecutionContext("acme", "review-regression", 45.0, None),
         )
+        valid_error_payload = {
+            "adapter": "headers_cookies",
+            "mode": "passive_analysis",
+            "summary": "legacy payload error",
+            "workspaceId": "acme",
+            "target": "app.acme-demo.test",
+            "entities": {},
+            "recommendedTests": [],
+            "evidence": [],
+            "limitations": [],
+            "metadata": {},
+            "candidateCount": 0,
+            "candidates": [],
+            "contextSummary": {},
+            "error": "legacy payload error",
+        }
+        serialized_error_payload = json.dumps(valid_error_payload, separators=(",", ":"))
         with patch.object(
             headers_cookies,
             "analyze_workspace",
-            return_value='{"error":"legacy payload error"}',
+            return_value=serialized_error_payload,
         ):
-            outcome = REGISTRY.execute(request)
+            outcome = REGISTRY.execute("headers_cookies.analyze_workspace", request)
             serialized = projection.project_call(
                 "headers_cookies.analyze_workspace",
                 arguments,
@@ -70,7 +87,8 @@ class ActionProjectionTests(unittest.TestCase):
 
         self.assertIsInstance(outcome, Success)
         self.assertTrue(outcome.payload_signals_error)
-        self.assertEqual(serialized, '{"error":"legacy payload error"}')
+        self.assertIsInstance(outcome.payload, descriptor.output_model)
+        self.assertEqual(serialized, serialized_error_payload)
         self.assertTrue(stdio_server._tool_result_has_error(serialized))
 
     def test_dispatch_rollback_preserves_schema_and_legacy_validation(self) -> None:

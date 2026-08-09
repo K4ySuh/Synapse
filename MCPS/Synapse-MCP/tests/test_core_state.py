@@ -4,6 +4,7 @@ import os
 import threading
 import time
 import unittest
+from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -50,7 +51,7 @@ class CoreStateTests(unittest.TestCase):
                 self.assertEqual(private_path.stat().st_mode & 0o777, 0o600)
                 self.assertEqual(credentials.load_credentials()["credentials"][0]["id"], "demo-session")
                 self.assertEqual(json.loads(private_path.read_text(encoding="utf-8")), {"credentialId": "demo-session"})
-                for writer in (credentials._write_credentials, credentials._write_private_json):
+                for writer in (credentials._write_credentials_unlocked, credentials._write_private_json):
                     source = inspect.getsource(writer)
                     self.assertNotIn(".write_text(", source)
                     self.assertNotIn("os.chmod", source)
@@ -84,6 +85,100 @@ class CoreStateTests(unittest.TestCase):
                 self.assertEqual(
                     [item["id"] for item in credentials.load_credentials()["credentials"]],
                     ["first-session"],
+                )
+
+    def _run_credential_mutations_after_common_lock_attempt(self, operations) -> None:
+        """Queue every worker at the store lock before releasing any mutation."""
+
+        original_file_lock = atomic_io.file_lock
+        attempted = threading.Barrier(len(operations) + 1, timeout=10)
+        errors = []
+
+        @contextmanager
+        def tracked_file_lock(path, *args, **kwargs):
+            if Path(path) == credentials.CREDENTIALS_FILE:
+                attempted.wait()
+            with original_file_lock(path, *args, **kwargs):
+                yield
+
+        def run(operation) -> None:
+            try:
+                operation()
+            except Exception as exc:  # pragma: no cover - asserted below
+                errors.append(exc)
+
+        threads = [threading.Thread(target=run, args=(operation,)) for operation in operations]
+        with original_file_lock(credentials.CREDENTIALS_FILE):
+            with patch.object(atomic_io, "file_lock", tracked_file_lock):
+                for thread in threads:
+                    thread.start()
+                attempted.wait()
+        for thread in threads:
+            thread.join(timeout=10)
+        self.assertFalse([thread for thread in threads if thread.is_alive()])
+        self.assertEqual(errors, [])
+
+    def test_concurrent_credential_upserts_do_not_lose_updates(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                scope.save_scope(["app.acme-demo.test"], "test")
+                operations = [
+                    lambda index=index: credentials.save_credential(
+                        {
+                            "id": f"worker-{index}",
+                            "type": "cookie",
+                            "scopes": ["app.acme-demo.test"],
+                            "secret": f"SESSION=worker-{index}",
+                        }
+                    )
+                    for index in range(8)
+                ]
+                self._run_credential_mutations_after_common_lock_attempt(operations)
+                self.assertEqual(
+                    [item["id"] for item in credentials.load_credentials()["credentials"]],
+                    [f"worker-{index}" for index in range(8)],
+                )
+
+    def test_concurrent_credential_deletes_do_not_resurrect_records_or_profiles(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                seed_ids = [f"delete-{index}" for index in range(6)]
+
+                def seed(payload) -> None:
+                    payload["credentials"] = [{"id": item, "secret": "fixture"} for item in seed_ids]
+                    payload["authProfiles"] = [
+                        {"id": f"profile-{item}", "credentialId": item} for item in seed_ids
+                    ]
+
+                credentials._mutate_credentials(seed)
+                self._run_credential_mutations_after_common_lock_attempt(
+                    [lambda credential_id=item: credentials.delete_credential(credential_id) for item in seed_ids]
+                )
+                payload = credentials.load_credentials()
+                self.assertEqual(payload["credentials"], [])
+                self.assertEqual(payload["authProfiles"], [])
+
+    def test_concurrent_auth_profile_upserts_do_not_lose_updates(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp)):
+                scope.save_scope(["app.acme-demo.test"], "test")
+                operations = [
+                    lambda index=index: credentials.save_auth_profile(
+                        {
+                            "id": f"profile-{index}",
+                            "credentialId": f"credential-{index}",
+                            "scopes": ["app.acme-demo.test"],
+                            "loginUrl": "https://app.acme-demo.test/login",
+                            "username": f"user-{index}",
+                            "password": f"password-{index}",
+                        }
+                    )
+                    for index in range(6)
+                ]
+                self._run_credential_mutations_after_common_lock_attempt(operations)
+                self.assertEqual(
+                    [item["id"] for item in credentials.load_credentials()["authProfiles"]],
+                    [f"profile-{index}" for index in range(6)],
                 )
 
     def test_jobs_status_omits_full_result_by_default(self) -> None:

@@ -4,7 +4,14 @@
 """Typed application action contracts."""
 
 from .contracts import ActionInput, ActionOutput, InputContractDocument, make_input_model
-from .descriptor import ActionDescriptor, ActionExecutor, ActionRequest, ExecutionContext
+from .descriptor import (
+    ActionDescriptor,
+    ActionEffectResolver,
+    ActionExecutor,
+    ActionRequest,
+    AvailabilityResolver,
+    ExecutionContext,
+)
 from .identity import ActionId
 from .outcomes import (
     ActionOutcome,
@@ -21,6 +28,7 @@ from .outcomes import (
 )
 from .policies import (
     Availability,
+    ActionEffects,
     CredentialAccess,
     CredentialPolicy,
     CredentialRequirement,
@@ -32,6 +40,8 @@ from .policies import (
     ScopePolicy,
     ScopeRequirement,
     SideEffectClass,
+    LocalWriteDomain,
+    TrafficDestination,
     TaskPolicy,
 )
 from .registry import ActionRegistry, PassThroughPolicyEvaluator, PolicyEvaluator, REGISTRY
@@ -39,6 +49,8 @@ from . import packs as _packs
 
 __all__ = [
     "ActionDescriptor",
+    "ActionEffectResolver",
+    "ActionEffects",
     "ActionExecutor",
     "ActionId",
     "ActionInput",
@@ -48,6 +60,7 @@ __all__ = [
     "ActionRegistry",
     "ApprovalRequired",
     "Availability",
+    "AvailabilityResolver",
     "CredentialAccess",
     "CredentialPolicy",
     "CredentialRequirement",
@@ -59,6 +72,7 @@ __all__ = [
     "Idempotency",
     "IdempotencyPolicy",
     "InputContractDocument",
+    "LocalWriteDomain",
     "PolicyDenial",
     "PolicyEvaluator",
     "PassThroughPolicyEvaluator",
@@ -69,6 +83,7 @@ __all__ = [
     "SideEffectClass",
     "Success",
     "TaskPolicy",
+    "TrafficDestination",
     "UnavailableCapability",
     "ValidationFailure",
     "legacy_payload_signals_error",

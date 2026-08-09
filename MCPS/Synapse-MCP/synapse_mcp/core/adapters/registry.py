@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 from ..errors import McpError
 from .base import SynapseAdapter
@@ -13,6 +13,22 @@ from .models import AdapterMetadata
 class MetadataAdapter(SynapseAdapter):
     def __init__(self, metadata: AdapterMetadata):
         self.metadata = metadata
+
+
+class ActionMetadataBridgeAdapter(MetadataAdapter):
+    """Transitional discovery bridge for packs migrated to Action Registry v2."""
+
+    def __init__(self, metadata: AdapterMetadata, action_ids: tuple[str, ...]):
+        super().__init__(metadata)
+        self.action_ids = action_ids
+        self.metadata_provider: Callable[[tuple[str, ...]], dict[str, Any]] | None = None
+
+    def capabilities(self) -> dict[str, Any]:
+        if self.metadata_provider is None:
+            raise McpError(-32000, "Action metadata provider is not configured for adapter discovery.")
+        payload = self.metadata.as_dict()
+        payload.update(self.metadata_provider(self.action_ids))
+        return payload
 
 
 class AdapterRegistry:
@@ -34,14 +50,23 @@ class AdapterRegistry:
             raise McpError(-32602, f"Unknown adapter: {name}") from exc
 
     def list(self) -> list[dict[str, Any]]:
-        return [self._summary(adapter.metadata) for adapter in self._adapters.values()]
+        return [self._summary(adapter.capabilities()) for adapter in self._adapters.values()]
 
     def capabilities(self, name: str) -> dict[str, Any]:
         return self.get(name).capabilities()
 
+    def set_action_metadata_provider(
+        self,
+        provider: Callable[[tuple[str, ...]], dict[str, Any]],
+    ) -> None:
+        """Install the application-layer projection for migrated adapters."""
+
+        for adapter in self._adapters.values():
+            if isinstance(adapter, ActionMetadataBridgeAdapter):
+                adapter.metadata_provider = provider
+
     @staticmethod
-    def _summary(metadata: AdapterMetadata) -> dict[str, Any]:
-        payload = metadata.as_dict()
+    def _summary(payload: dict[str, Any]) -> dict[str, Any]:
         return {
             "name": payload["name"],
             "category": payload["category"],
@@ -56,11 +81,17 @@ class AdapterRegistry:
             "backgroundJobProvider": payload["backgroundJobProvider"],
             "executorTool": payload["executorTool"],
             "produces": payload["produces"],
+            **({"operationalMetadataSource": payload["operationalMetadataSource"]} if "operationalMetadataSource" in payload else {}),
+            **({"actions": payload["actions"]} if "actions" in payload else {}),
         }
 
 
 def _metadata(**kwargs: Any) -> MetadataAdapter:
     return MetadataAdapter(AdapterMetadata(**kwargs))
+
+
+def _action_metadata(*, action_ids: tuple[str, ...], **kwargs: Any) -> ActionMetadataBridgeAdapter:
+    return ActionMetadataBridgeAdapter(AdapterMetadata(**kwargs), action_ids)
 
 
 def build_default_registry() -> AdapterRegistry:
@@ -89,7 +120,8 @@ def build_default_registry() -> AdapterRegistry:
             produces=["endpoints", "parameters", "observations", "evidence"],
             limitations=["Requires an existing offline Burp dump."],
         ),
-        _metadata(
+        _action_metadata(
+            action_ids=("crawler.crawl",),
             name="crawler",
             category="web",
             description="Actively crawls an authorized HTTP target with bounded depth/page limits and supports an authenticated extended POST-form mapping mode.",
@@ -172,7 +204,8 @@ def build_default_registry() -> AdapterRegistry:
             produces=["observations", "candidate_observations", "evidence"],
             limitations=["Active validation is limited to benign marker/tag reflection probes and does not execute browser JavaScript."],
         ),
-        _metadata(
+        _action_metadata(
+            action_ids=("headers_cookies.analyze_workspace",),
             name="headers_cookies",
             category="web",
             description="Passively analyzes recorded response security headers and cookie flags (CSP, HSTS, X-Frame-Options, HttpOnly/Secure/SameSite) for hygiene weaknesses.",
@@ -212,7 +245,8 @@ def build_default_registry() -> AdapterRegistry:
                 "Token detection is name-based; double-submit-cookie or header-token schemes may not be visible passively.",
             ],
         ),
-        _metadata(
+        _action_metadata(
+            action_ids=("cors.execute_test",),
             name="cors",
             category="web",
             description="Passively identifies permissive CORS responses and runs one approved bounded Origin-reflection probe.",

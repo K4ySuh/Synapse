@@ -6,6 +6,7 @@ import unittest
 
 from synapse_mcp.app.actions import (
     ActionDescriptor,
+    ActionEffects,
     ActionId,
     ActionOutput,
     ActionRegistry,
@@ -18,20 +19,21 @@ from synapse_mcp.app.actions import (
     Enforcement,
     ExecutionContext,
     Idempotency,
-    IdempotencyPolicy,
     InputContractDocument,
+    LocalWriteDomain,
     RiskClass,
     ScopePolicy,
     ScopeRequirement,
-    SideEffectClass,
     Success,
     TaskPolicy,
+    TrafficDestination,
+    UnavailableCapability,
     make_input_model,
 )
 
 
 class StubOutput(ActionOutput):
-    pass
+    ok: bool
 
 
 def _input_model(name: str = "StubInput"):
@@ -72,14 +74,14 @@ def _descriptor(action_id: str = "stub.read") -> ActionDescriptor:
         summary="Stub action",
         input_model=input_model,
         output_model=StubOutput,
-        side_effect_class=SideEffectClass.READ_ONLY,
+        effects=ActionEffects(replay_safety=Idempotency.PURE_READ),
+        effect_resolver=None,
         risk_class=RiskClass.NONE,
         scope_policy=ScopePolicy(ScopeRequirement.NOT_APPLICABLE),
         credential_policy=CredentialPolicy(
             CredentialRequirement.NONE,
             CredentialAccess.NONE,
         ),
-        idempotency_policy=IdempotencyPolicy(Idempotency.PURE_READ),
         task_policy=TaskPolicy(
             deadline_tier=DeadlineTier.DEFAULT,
             background_capable=False,
@@ -101,7 +103,7 @@ class ActionRegistryTests(unittest.TestCase):
         registry.register(descriptor)
         self.assert_registration_error_for_registry(registry, descriptor, "stub.read")
 
-    def test_duplicate_input_model_fails_registration(self) -> None:
+    def test_shared_input_model_routes_unambiguously_by_action_id(self) -> None:
         registry = ActionRegistry()
         first = _descriptor("stub.read")
         second = _descriptor("other.read")
@@ -111,11 +113,15 @@ class ActionRegistryTests(unittest.TestCase):
             executor=StubExecutor(first.input_model, first.output_model),
         )
         registry.register(first)
-        with self.assertRaisesRegex(
-            ValueError,
-            r"other\.read: input model is already registered by stub\.read",
-        ):
-            registry.register(second)
+        registry.register(second)
+        request = ActionRequest(
+            input=first.input_model(),
+            context=ExecutionContext(None, "correlation", 45.0, None),
+        )
+        first_outcome = registry.execute("stub.read", request)
+        second_outcome = registry.execute("other.read", request)
+        self.assertIsInstance(first_outcome, Success)
+        self.assertIsInstance(second_outcome, Success)
 
     def assert_registration_error_for_registry(self, registry, descriptor, action_id) -> None:
         with self.assertRaisesRegex(ValueError, action_id.replace(".", r"\.")):
@@ -152,19 +158,11 @@ class ActionRegistryTests(unittest.TestCase):
             "stub.read",
         )
 
-    def test_read_only_and_report_build_actions_cannot_require_scope(self) -> None:
+    def test_actions_without_target_traffic_cannot_require_scope(self) -> None:
         descriptor = _descriptor()
         required_scope = ScopePolicy(ScopeRequirement.REQUIRED)
         self.assert_registration_error(
             replace(descriptor, scope_policy=required_scope),
-            "stub.read",
-        )
-        self.assert_registration_error(
-            replace(
-                descriptor,
-                side_effect_class=SideEffectClass.REPORT_BUILD,
-                scope_policy=required_scope,
-            ),
             "stub.read",
         )
 
@@ -172,10 +170,12 @@ class ActionRegistryTests(unittest.TestCase):
         base = _descriptor("stub.probe")
         valid = replace(
             base,
-            side_effect_class=SideEffectClass.ACTIVE_PROBE,
+            effects=ActionEffects(
+                traffic=frozenset({TrafficDestination.AUTHORIZED_TARGET}),
+                replay_safety=Idempotency.NON_IDEMPOTENT,
+            ),
             risk_class=RiskClass.MODERATE,
             scope_policy=ScopePolicy(ScopeRequirement.REQUIRED),
-            idempotency_policy=IdempotencyPolicy(Idempotency.NON_IDEMPOTENT),
         )
         registry = ActionRegistry()
         registry.register(valid)
@@ -184,7 +184,7 @@ class ActionRegistryTests(unittest.TestCase):
         for broken in (
             replace(valid, risk_class=RiskClass.LOW),
             replace(valid, scope_policy=ScopePolicy(ScopeRequirement.CHECKED_DOWNSTREAM)),
-            replace(valid, idempotency_policy=IdempotencyPolicy(Idempotency.PURE_READ)),
+            replace(valid, effects=replace(valid.effects, replay_safety=Idempotency.PURE_READ)),
         ):
             self.assert_registration_error(broken, "stub.probe")
 
@@ -216,7 +216,7 @@ class ActionRegistryTests(unittest.TestCase):
         events: list[str] = []
 
         class SpyEvaluator:
-            def evaluate(self, descriptor, request):
+            def evaluate(self, descriptor, request, effects):
                 events.append("policy")
                 return True
 
@@ -231,12 +231,13 @@ class ActionRegistryTests(unittest.TestCase):
             input=descriptor.input_model(),
             context=ExecutionContext(None, "correlation", 45.0, None),
         )
-        outcome = registry.execute(request)
+        outcome = registry.execute("stub.read", request)
         self.assertIsInstance(outcome, Success)
+        self.assertIsInstance(outcome.payload, StubOutput)
         self.assertEqual(events, ["policy", "executor"])
 
         class BlockingEvaluator:
-            def evaluate(self, descriptor, request):
+            def evaluate(self, descriptor, request, effects):
                 events.append("blocked")
                 raise RuntimeError("policy stopped execution")
 
@@ -252,8 +253,99 @@ class ActionRegistryTests(unittest.TestCase):
             context=ExecutionContext(None, "correlation", 45.0, None),
         )
         with self.assertRaisesRegex(RuntimeError, "policy stopped"):
-            blocked_registry.execute(blocked_request)
+            blocked_registry.execute("stub.blocked", blocked_request)
         self.assertEqual(events[-1], "blocked")
+
+    def test_availability_runs_before_policy_and_executor(self) -> None:
+        events: list[str] = []
+        available = False
+
+        def resolve_availability(request):
+            events.append("availability")
+            return Availability(
+                available=available,
+                reason="fixture dependency absent",
+                reason_code="fixture_dependency_absent",
+            )
+
+        class SpyEvaluator:
+            def evaluate(self, descriptor, request, effects):
+                events.append("policy")
+                return True
+
+        descriptor = _descriptor("stub.dynamic")
+        descriptor = replace(
+            descriptor,
+            availability=resolve_availability,
+            executor=StubExecutor(descriptor.input_model, events=events),
+        )
+        registry = ActionRegistry(policy_evaluator=SpyEvaluator())
+        registry.register(descriptor)
+        request = ActionRequest(
+            input=descriptor.input_model(),
+            context=ExecutionContext(None, "correlation", 45.0, None),
+        )
+
+        blocked = registry.execute("stub.dynamic", request)
+        self.assertIsInstance(blocked, UnavailableCapability)
+        self.assertEqual(blocked.reason_code, "fixture_dependency_absent")
+        self.assertEqual(events, ["availability"])
+
+        available = True
+        allowed = registry.execute("stub.dynamic", request)
+        self.assertIsInstance(allowed, Success)
+        self.assertEqual(events, ["availability", "availability", "policy", "executor"])
+
+    def test_unknown_id_model_mismatch_and_invalid_output_fail_deterministically(self) -> None:
+        registry = ActionRegistry()
+        descriptor = _descriptor("stub.read")
+        other = _descriptor("stub.other")
+        registry.register(descriptor)
+        registry.register(other)
+        request = ActionRequest(
+            input=descriptor.input_model(),
+            context=ExecutionContext(None, "correlation", 45.0, None),
+        )
+        with self.assertRaisesRegex(LookupError, "Unknown action id"):
+            registry.execute("stub.missing", request)
+        with self.assertRaisesRegex(TypeError, "expected input model"):
+            registry.execute("stub.other", request)
+
+        class InvalidExecutor(StubExecutor):
+            def __call__(self, request):
+                return Success(payload={"unexpected": "shape"})
+
+        invalid = replace(
+            descriptor,
+            id=ActionId.parse("stub.invalid"),
+            executor=InvalidExecutor(descriptor.input_model),
+        )
+        invalid_registry = ActionRegistry()
+        invalid_registry.register(invalid)
+        outcome = invalid_registry.execute("stub.invalid", request)
+        self.assertEqual(outcome.reason_code, "invalid_output_contract")
+
+    def test_effect_resolver_applies_maximum_conservatively_on_failure(self) -> None:
+        descriptor = _descriptor("stub.effects")
+        maximum = ActionEffects(
+            local_writes=frozenset({LocalWriteDomain.WORKSPACE}),
+            local_change=True,
+            replay_safety=Idempotency.NON_IDEMPOTENT,
+        )
+
+        def broken_resolver(request):
+            raise RuntimeError("unknown condition")
+
+        descriptor = replace(descriptor, effects=maximum, effect_resolver=broken_resolver)
+        registry = ActionRegistry()
+        registry.register(descriptor)
+        request = ActionRequest(
+            input=descriptor.input_model(),
+            context=ExecutionContext(None, "correlation", 45.0, None),
+        )
+        effective = registry.resolve_effects("stub.effects", request)
+        self.assertEqual(effective.local_writes, maximum.local_writes)
+        self.assertIn("conservatively", effective.resolution_notes[0])
 
     def test_registry_pack_count_matches_registered_actions(self) -> None:
         registry = ActionRegistry()

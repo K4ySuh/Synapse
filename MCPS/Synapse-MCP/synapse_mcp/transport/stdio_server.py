@@ -3010,6 +3010,10 @@ for _tool_schema in _LEGACY_TOOL_SCHEMAS:
         )
 
 from . import projection
+from ..app.actions.adapter_metadata import derive_adapter_operational_metadata
+
+
+adapter_registry.set_action_metadata_provider(derive_adapter_operational_metadata)
 
 
 TOOL_SCHEMAS = projection.projected_tools_list()

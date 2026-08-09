@@ -122,6 +122,58 @@ class ActionContractTests(unittest.TestCase):
         self.assertEqual(validated.limit, 50)
         self.assertEqual(validated.tags, default_tags)
 
+    def test_input_model_preserves_nested_union_enum_and_extra_constraints(self) -> None:
+        document = input_document(
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "source": {
+                        "oneOf": [
+                            {"type": "string"},
+                            {"type": "array", "items": {"type": "string"}},
+                        ]
+                    },
+                    "mode": {"type": "string", "enum": ["safe", "expert"]},
+                    "options": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 3}},
+                        "required": ["limit"],
+                    },
+                },
+                "required": ["source", "mode", "options"],
+            }
+        )
+        model = make_input_model("NestedInput", document)
+
+        self.assertEqual(
+            model.model_validate({"source": ["nvd"], "mode": "safe", "options": {"limit": 2}}).source,
+            ["nvd"],
+        )
+        invalid_values = (
+            {"source": 1, "mode": "safe", "options": {"limit": 2}},
+            {"source": "nvd", "mode": "unknown", "options": {"limit": 2}},
+            {"source": "nvd", "mode": "safe", "options": {"limit": 0}},
+            {"source": "nvd", "mode": "safe", "options": {"limit": 2, "extra": True}},
+            {"source": "nvd", "mode": "safe", "options": {"limit": 2}, "extra": True},
+        )
+        for value in invalid_values:
+            with self.subTest(value=value), self.assertRaises(ValidationError):
+                model.model_validate(value)
+
+    def test_input_model_rejects_unknown_validation_keyword(self) -> None:
+        with self.assertRaisesRegex(ValueError, r"Unsupported input schema keyword.*pattern"):
+            make_input_model(
+                "UnsupportedPatternInput",
+                input_document(
+                    {
+                        "type": "object",
+                        "properties": {"name": {"type": "string", "pattern": "^[a-z]+$"}},
+                    }
+                ),
+            )
+
     def test_outcome_from_mcp_error_maps_every_code_and_preserves_legacy_code(self) -> None:
         cases = (
             (-32602, ValidationFailure),
@@ -163,7 +215,7 @@ class ActionContractTests(unittest.TestCase):
         self.assertFalse(legacy_payload_signals_error({"error": ""}))
         self.assertFalse(legacy_payload_signals_error("not-json"))
 
-    def test_descriptor_has_exactly_the_fourteen_fields(self) -> None:
+    def test_descriptor_has_canonical_effects_and_no_authoritative_singular_label(self) -> None:
         self.assertEqual(
             [field.name for field in fields(ActionDescriptor)],
             [
@@ -173,16 +225,17 @@ class ActionContractTests(unittest.TestCase):
                 "summary",
                 "input_model",
                 "output_model",
-                "side_effect_class",
+                "effects",
+                "effect_resolver",
                 "risk_class",
                 "scope_policy",
                 "credential_policy",
-                "idempotency_policy",
                 "task_policy",
                 "executor",
                 "availability",
             ],
         )
+        self.assertNotIn("side_effect_class", [field.name for field in fields(ActionDescriptor)])
 
 
 if __name__ == "__main__":

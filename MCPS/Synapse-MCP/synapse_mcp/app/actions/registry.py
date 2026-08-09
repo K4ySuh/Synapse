@@ -5,18 +5,22 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+import json
 from typing import Any, Protocol
 
 from .contracts import ActionInput, ActionOutput
 from .descriptor import ActionDescriptor, ActionRequest
 from .identity import ActionId
-from .outcomes import ActionOutcome
+from .outcomes import ActionOutcome, ExecutionFailure, Success, UnavailableCapability
 from .policies import (
+    ActionEffects,
+    Availability,
     Enforcement,
     Idempotency,
     RiskClass,
     ScopeRequirement,
-    SideEffectClass,
+    TrafficDestination,
 )
 
 
@@ -27,6 +31,7 @@ class PolicyEvaluator(Protocol):
         self,
         descriptor: ActionDescriptor[Any, Any],
         request: ActionRequest[Any],
+        effects: ActionEffects,
     ) -> bool: ...
 
 
@@ -37,8 +42,9 @@ class PassThroughPolicyEvaluator:
         self,
         descriptor: ActionDescriptor[Any, Any],
         request: ActionRequest[Any],
+        effects: ActionEffects,
     ) -> bool:
-        del descriptor, request
+        del descriptor, request, effects
         return True
 
 
@@ -65,9 +71,6 @@ class ActionRegistry:
             invalid("descriptor pack does not match action id pack")
         if not _is_action_model(descriptor.input_model, ActionInput):
             invalid("input model must be an ActionInput subclass")
-        for existing in self._descriptors.values():
-            if existing.input_model is descriptor.input_model:
-                invalid(f"input model is already registered by {existing.id}")
         if not _is_action_model(descriptor.output_model, ActionOutput):
             invalid("output model must be an ActionOutput subclass")
         if not callable(descriptor.executor):
@@ -76,18 +79,20 @@ class ActionRegistry:
             invalid("executor input model does not match descriptor input model")
         if getattr(descriptor.executor, "output_model", None) is not descriptor.output_model:
             invalid("executor output model does not match descriptor output model")
-        if (
-            descriptor.scope_policy.requirement is ScopeRequirement.REQUIRED
-            and descriptor.side_effect_class
-            in {SideEffectClass.READ_ONLY, SideEffectClass.REPORT_BUILD}
-        ):
+        if not isinstance(descriptor.effects, ActionEffects):
+            invalid("effects must be an ActionEffects instance")
+        if descriptor.effect_resolver is not None and not callable(descriptor.effect_resolver):
+            invalid("effect resolver must be callable")
+        if not isinstance(descriptor.availability, Availability) and not callable(descriptor.availability):
+            invalid("availability must be a declaration or resolver")
+        if descriptor.scope_policy.requirement is ScopeRequirement.REQUIRED and not descriptor.effects.traffic:
             invalid("read-only and report-build actions cannot require scope")
-        if descriptor.side_effect_class is SideEffectClass.ACTIVE_PROBE:
+        if TrafficDestination.AUTHORIZED_TARGET in descriptor.effects.traffic:
             if descriptor.risk_class not in {RiskClass.MODERATE, RiskClass.HIGH}:
                 invalid("active probes require moderate or high risk")
             if descriptor.scope_policy.requirement is not ScopeRequirement.REQUIRED:
                 invalid("active probes require scope")
-            if descriptor.idempotency_policy.behaviour is not Idempotency.NON_IDEMPOTENT:
+            if descriptor.effects.replay_safety is not Idempotency.NON_IDEMPOTENT:
                 invalid("active probes must be non-idempotent")
         if descriptor.scope_policy.enforcement is Enforcement.ENFORCED_BY_EXECUTOR:
             invalid("scope enforcement by the executor is forbidden in Phase 1")
@@ -99,7 +104,10 @@ class ActionRegistry:
     def get(self, action_id: ActionId | str) -> ActionDescriptor[Any, Any]:
         """Return a descriptor by canonical id."""
 
-        return self._descriptors[str(action_id)]
+        try:
+            return self._descriptors[str(action_id)]
+        except KeyError as exc:
+            raise LookupError(f"Unknown action id: {action_id}") from exc
 
     def descriptors(self) -> tuple[ActionDescriptor[Any, Any], ...]:
         """Return descriptors in registration order."""
@@ -111,23 +119,92 @@ class ActionRegistry:
 
         return frozenset(descriptor.pack for descriptor in self._descriptors.values())
 
-    def execute(self, request: ActionRequest[Any]) -> ActionOutcome[Any]:
-        """Resolve the action from its typed input, evaluate policy, and execute."""
+    def contract_schema(self, action_id: ActionId | str) -> dict[str, Any]:
+        """Return canonical schemas validated at the Registry execution boundary."""
 
-        matches = [
-            descriptor
-            for descriptor in self._descriptors.values()
-            if descriptor.input_model is type(request.input)
-        ]
-        if len(matches) != 1:
-            raise LookupError(
-                f"Expected one action for input model {type(request.input).__name__}; "
-                f"found {len(matches)}"
+        descriptor = self.get(action_id)
+        return {
+            "actionId": str(descriptor.id),
+            "inputSchema": descriptor.input_model.model_json_schema(mode="validation", by_alias=True),
+            "outputSchema": descriptor.output_model.model_json_schema(mode="validation", by_alias=True),
+        }
+
+    def resolve_effects(
+        self,
+        action_id: ActionId | str,
+        request: ActionRequest[Any],
+    ) -> ActionEffects:
+        descriptor = self.get(action_id)
+        if descriptor.input_model is not type(request.input):
+            raise TypeError(
+                f"{descriptor.id}: expected input model {descriptor.input_model.__name__}, "
+                f"got {type(request.input).__name__}"
             )
-        descriptor = matches[0]
-        if not self._policy_evaluator.evaluate(descriptor, request):
+        if descriptor.effect_resolver is None:
+            return descriptor.effects
+        try:
+            effective = descriptor.effect_resolver(request)
+        except Exception as exc:
+            return descriptor.effects.with_resolution_note(
+                f"effect resolver failed conservatively: {type(exc).__name__}"
+            )
+        if not isinstance(effective, ActionEffects):
+            return descriptor.effects.with_resolution_note(
+                "effect resolver returned an invalid value; maximum effects applied"
+            )
+        if not descriptor.effects.permits(effective):
+            return descriptor.effects.with_resolution_note(
+                "effect resolver exceeded the declared maximum; maximum effects applied"
+            )
+        return effective
+
+    def execute(
+        self,
+        action_id: ActionId | str,
+        request: ActionRequest[Any],
+    ) -> ActionOutcome[Any]:
+        """Resolve by canonical action id, then authorize, execute, and validate."""
+
+        descriptor = self.get(action_id)
+        if descriptor.input_model is not type(request.input):
+            raise TypeError(
+                f"{descriptor.id}: expected input model {descriptor.input_model.__name__}, "
+                f"got {type(request.input).__name__}"
+            )
+        availability = descriptor.availability(request) if callable(descriptor.availability) else descriptor.availability
+        if not availability.available:
+            return UnavailableCapability(
+                message=str(availability.reason),
+                legacy_code=-32001,
+                reason_code=availability.reason_code,
+            )
+        effects = self.resolve_effects(action_id, request)
+        if not self._policy_evaluator.evaluate(descriptor, request, effects):
             raise PermissionError(f"{descriptor.id}: policy evaluator denied execution")
-        return descriptor.executor(request)
+        outcome = descriptor.executor(request)
+        if not isinstance(outcome, Success):
+            return outcome
+        raw_payload = outcome.payload
+        parsed_payload = raw_payload
+        if isinstance(raw_payload, str):
+            try:
+                parsed_payload = json.loads(raw_payload)
+            except json.JSONDecodeError as exc:
+                return ExecutionFailure(
+                    message=f"{descriptor.id}: output contract validation failed: invalid JSON",
+                    legacy_code=-32000,
+                    reason_code="invalid_output_contract",
+                )
+        try:
+            validated = descriptor.output_model.model_validate(parsed_payload)
+        except Exception as exc:
+            return ExecutionFailure(
+                message=f"{descriptor.id}: output contract validation failed: {type(exc).__name__}",
+                legacy_code=-32000,
+                reason_code="invalid_output_contract",
+            )
+        compatibility_payload = outcome.legacy_payload if outcome.legacy_payload is not None else raw_payload
+        return replace(outcome, payload=validated, legacy_payload=compatibility_payload)
 
 
 REGISTRY = ActionRegistry()

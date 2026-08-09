@@ -8,7 +8,7 @@ import json
 import os
 import re
 import time
-from typing import Any
+from typing import Any, Callable, TypeVar
 from urllib.parse import urlencode, urlsplit
 from uuid import uuid4
 
@@ -57,6 +57,7 @@ DEFAULT_SUBMIT_SELECTORS = [
 DEFAULT_AUTH_TIMEOUT_SECONDS = 1800
 DEFAULT_AUTH_REQUEST_TIMEOUT_SECONDS = 45
 SESSION_BROWSER_HEADER_ALLOWLIST = {"User-Agent", "Accept-Language", "Accept"}
+TMutationResult = TypeVar("TMutationResult")
 
 
 def auth_process_guidance() -> dict[str, Any]:
@@ -86,9 +87,9 @@ def auth_process_guidance() -> dict[str, Any]:
     }
 
 
-def load_credentials() -> dict[str, Any]:
+def _load_credentials_unlocked() -> dict[str, Any]:
     if not CREDENTIALS_FILE.exists():
-        return {"credentials": []}
+        return {"credentials": [], "authProfiles": []}
     try:
         payload = json.loads(CREDENTIALS_FILE.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
@@ -99,14 +100,30 @@ def load_credentials() -> dict[str, Any]:
     return payload
 
 
-def _write_credentials(payload: dict[str, Any]) -> None:
+def load_credentials() -> dict[str, Any]:
     with atomic_io.file_lock(CREDENTIALS_FILE):
-        atomic_io.atomic_write_text(
-            CREDENTIALS_FILE,
-            json.dumps(payload, indent=2),
-            mode=0o600,
-            fsync=True,
-        )
+        return _load_credentials_unlocked()
+
+
+def _write_credentials_unlocked(payload: dict[str, Any]) -> None:
+    atomic_io.atomic_write_text(
+        CREDENTIALS_FILE,
+        json.dumps(payload, indent=2),
+        mode=0o600,
+        fsync=True,
+    )
+
+
+def _mutate_credentials(
+    mutation: Callable[[dict[str, Any]], TMutationResult],
+) -> TMutationResult:
+    """Apply one credentials/profile read-modify-write cycle under one lock."""
+
+    with atomic_io.file_lock(CREDENTIALS_FILE):
+        payload = _load_credentials_unlocked()
+        result = mutation(payload)
+        _write_credentials_unlocked(payload)
+        return result
 
 
 def _write_private_json(path: Any, payload: dict[str, Any]) -> None:
@@ -229,26 +246,19 @@ def _validate_record(args: dict[str, Any]) -> dict[str, Any]:
     return record
 
 
-def _write_credentials_and_profiles(credentials: list[dict[str, Any]], profiles: list[dict[str, Any]]) -> None:
-    _write_credentials({"credentials": credentials, "authProfiles": profiles})
-
-
 def _upsert_credential(record: dict[str, Any]) -> None:
-    payload = load_credentials()
-    records = [item for item in payload.get("credentials", []) if item.get("id") != record["id"]]
-    records.append(record)
-    records.sort(key=lambda item: str(item.get("id", "")))
-    profiles = payload.get("authProfiles", [])
-    _write_credentials_and_profiles(records, profiles)
+    def upsert(payload: dict[str, Any]) -> None:
+        records = [item for item in payload.get("credentials", []) if item.get("id") != record["id"]]
+        records.append(record)
+        records.sort(key=lambda item: str(item.get("id", "")))
+        payload["credentials"] = records
+
+    _mutate_credentials(upsert)
 
 
 def save_credential(args: dict[str, Any]) -> dict[str, Any]:
     record = _validate_record(args)
-    payload = load_credentials()
-    credentials = [item for item in payload.get("credentials", []) if item.get("id") != record["id"]]
-    credentials.append(record)
-    credentials.sort(key=lambda item: str(item.get("id", "")))
-    _write_credentials_and_profiles(credentials, payload.get("authProfiles", []))
+    _upsert_credential(record)
     evidence.log_event(
         "credentials.set",
         f"Stored credential {record['id']} for {len(record['scopes'])} scoped host(s).",
@@ -258,22 +268,25 @@ def save_credential(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def delete_credential(credential_id: str) -> dict[str, Any]:
-    payload = load_credentials()
-    before = payload.get("credentials", [])
-    profiles_before = payload.get("authProfiles", [])
-    after = [item for item in before if item.get("id") != credential_id]
-    deleted_credential = len(after) != len(before)
-    deleted_profiles = [
-        str(item.get("id", ""))
-        for item in profiles_before
-        if item.get("id") == credential_id or item.get("credentialId") == credential_id
-    ]
-    profiles_after = [
-        item
-        for item in profiles_before
-        if item.get("id") != credential_id and item.get("credentialId") != credential_id
-    ]
-    _write_credentials_and_profiles(after, profiles_after)
+    def delete(payload: dict[str, Any]) -> tuple[bool, list[str]]:
+        before = payload.get("credentials", [])
+        profiles_before = payload.get("authProfiles", [])
+        after = [item for item in before if item.get("id") != credential_id]
+        deleted_credential = len(after) != len(before)
+        deleted_profiles = [
+            str(item.get("id", ""))
+            for item in profiles_before
+            if item.get("id") == credential_id or item.get("credentialId") == credential_id
+        ]
+        payload["credentials"] = after
+        payload["authProfiles"] = [
+            item
+            for item in profiles_before
+            if item.get("id") != credential_id and item.get("credentialId") != credential_id
+        ]
+        return deleted_credential, deleted_profiles
+
+    deleted_credential, deleted_profiles = _mutate_credentials(delete)
     deleted = deleted_credential or bool(deleted_profiles)
     if deleted:
         evidence.log_event(
@@ -475,11 +488,13 @@ def _validate_auth_profile(args: dict[str, Any]) -> dict[str, Any]:
 
 def save_auth_profile(args: dict[str, Any]) -> dict[str, Any]:
     profile = _validate_auth_profile(args)
-    payload = load_credentials()
-    profiles = [item for item in payload.get("authProfiles", []) if item.get("id") != profile["id"]]
-    profiles.append(profile)
-    profiles.sort(key=lambda item: str(item.get("id", "")))
-    _write_credentials_and_profiles(payload.get("credentials", []), profiles)
+    def upsert(payload: dict[str, Any]) -> None:
+        profiles = [item for item in payload.get("authProfiles", []) if item.get("id") != profile["id"]]
+        profiles.append(profile)
+        profiles.sort(key=lambda item: str(item.get("id", "")))
+        payload["authProfiles"] = profiles
+
+    _mutate_credentials(upsert)
     evidence.log_event(
         "credentials.auth_profile.set",
         f"Stored authentication profile {profile['id']} for credential {profile['credentialId']}.",
@@ -605,11 +620,13 @@ def _validate_browser_steps(value: Any) -> list[dict[str, Any]]:
 
 def save_browser_auth_profile(args: dict[str, Any]) -> dict[str, Any]:
     profile = _validate_browser_auth_profile(args)
-    payload = load_credentials()
-    profiles = [item for item in payload.get("authProfiles", []) if item.get("id") != profile["id"]]
-    profiles.append(profile)
-    profiles.sort(key=lambda item: str(item.get("id", "")))
-    _write_credentials_and_profiles(payload.get("credentials", []), profiles)
+    def upsert(payload: dict[str, Any]) -> None:
+        profiles = [item for item in payload.get("authProfiles", []) if item.get("id") != profile["id"]]
+        profiles.append(profile)
+        profiles.sort(key=lambda item: str(item.get("id", "")))
+        payload["authProfiles"] = profiles
+
+    _mutate_credentials(upsert)
     evidence.log_event(
         "credentials.browser_auth_profile.set",
         f"Stored browser authentication profile {profile['id']} for credential {profile['credentialId']}.",

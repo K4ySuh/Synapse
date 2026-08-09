@@ -5,6 +5,7 @@ from tempfile import TemporaryDirectory
 
 from helpers import isolated_state
 from synapse_mcp.core import workspace
+from synapse_mcp.app.actions import REGISTRY, LocalWriteDomain, TrafficDestination
 from synapse_mcp.core.adapters import (
     AdapterMetadata,
     AdapterRegistry,
@@ -81,6 +82,42 @@ class AdapterFrameworkTests(unittest.TestCase):
             with self.subTest(adapter=adapter["name"]):
                 self.assertTrue(adapter["executorTool"])
                 self.assertIn(adapter["executorTool"], tool_names)
+
+    def test_migrated_adapter_operational_metadata_is_derived_from_actions(self) -> None:
+        mappings = {
+            "crawler": "crawler.crawl",
+            "headers_cookies": "headers_cookies.analyze_workspace",
+            "cors": "cors.execute_test",
+        }
+        for adapter_name, action_id in mappings.items():
+            with self.subTest(adapter=adapter_name):
+                capabilities = json.loads(
+                    stdio_server.call_tool("adapters.capabilities", {"adapter": adapter_name})
+                )
+                descriptor = REGISTRY.get(action_id)
+                action = capabilities["actions"][0]
+                self.assertEqual(capabilities["operationalMetadataSource"], "action_registry_v2")
+                self.assertEqual(action["actionId"], action_id)
+                self.assertEqual(
+                    capabilities["sendsTraffic"],
+                    bool(descriptor.effects.traffic),
+                )
+                self.assertEqual(
+                    capabilities["touchesThirdParty"],
+                    TrafficDestination.THIRD_PARTY in descriptor.effects.traffic,
+                )
+                self.assertEqual(
+                    capabilities["backgroundJobProvider"],
+                    "jobs" if LocalWriteDomain.JOBS in descriptor.effects.local_writes else "",
+                )
+                self.assertEqual(
+                    action["effects"]["localWrites"],
+                    sorted(item.value for item in descriptor.effects.local_writes),
+                )
+
+        legacy = json.loads(stdio_server.call_tool("adapters.capabilities", {"adapter": "ssrf"}))
+        self.assertNotIn("operationalMetadataSource", legacy)
+        self.assertNotIn("actions", legacy)
 
     def test_unknown_adapter_capabilities_returns_mcp_error(self) -> None:
         response = stdio_server.handle(

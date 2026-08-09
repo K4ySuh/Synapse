@@ -20,6 +20,7 @@ class Success(Generic[T]):
     payload: T
     payload_signals_error: bool = False
     legacy_code: int | None = None
+    legacy_payload: object | None = field(default=None, repr=False, compare=False)
     kind: Literal["success"] = field(init=False, default="success")
 
 
@@ -27,6 +28,7 @@ class Success(Generic[T]):
 class ValidationFailure:
     message: str
     legacy_code: int | None = None
+    reason_code: str | None = None
     kind: Literal["validation_failure"] = field(init=False, default="validation_failure")
 
 
@@ -34,6 +36,7 @@ class ValidationFailure:
 class UnavailableCapability:
     message: str
     legacy_code: int | None = None
+    reason_code: str | None = None
     kind: Literal["unavailable_capability"] = field(init=False, default="unavailable_capability")
 
 
@@ -41,6 +44,7 @@ class UnavailableCapability:
 class PolicyDenial:
     message: str
     legacy_code: int | None = None
+    reason_code: str | None = None
     kind: Literal["policy_denial"] = field(init=False, default="policy_denial")
 
 
@@ -48,6 +52,7 @@ class PolicyDenial:
 class ApprovalRequired:
     message: str
     legacy_code: int | None = None
+    reason_code: str | None = None
     kind: Literal["approval_required"] = field(init=False, default="approval_required")
 
 
@@ -55,6 +60,7 @@ class ApprovalRequired:
 class ExecutionFailure:
     message: str
     legacy_code: int | None = None
+    reason_code: str | None = None
     kind: Literal["execution_failure"] = field(init=False, default="execution_failure")
 
 
@@ -62,6 +68,7 @@ class ExecutionFailure:
 class ExecutionUnknown:
     message: str
     legacy_code: int | None = None
+    reason_code: str | None = None
     kind: Literal["execution_unknown"] = field(init=False, default="execution_unknown")
 
 
@@ -94,6 +101,7 @@ def success_from_legacy_payload(payload: T) -> Success[T]:
     return Success(
         payload=payload,
         payload_signals_error=legacy_payload_signals_error(payload),
+        legacy_payload=payload,
     )
 
 

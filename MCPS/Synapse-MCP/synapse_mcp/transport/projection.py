@@ -57,14 +57,15 @@ def project_call(name: str, args: dict[str, Any]) -> str | None:
             legacy_approval_asserted=args.get("confirm"),
         ),
     )
-    outcome = REGISTRY.execute(request)
+    outcome = REGISTRY.execute(action_id, request)
     if isinstance(outcome, Success):
+        legacy_payload = outcome.legacy_payload
         if legacy.serializer == "transport":
-            serialized = json.dumps(outcome.payload, indent=2)
+            serialized = json.dumps(legacy_payload, indent=2)
         else:
-            if not isinstance(outcome.payload, str):
+            if not isinstance(legacy_payload, str):
                 raise TypeError(f"{name} executor must return a serialized string")
-            serialized = outcome.payload
+            serialized = legacy_payload
         return serialized
     if isinstance(outcome, ExecutionUnknown):
         raise RuntimeError("ExecutionUnknown is produced only by the transport timeout boundary")

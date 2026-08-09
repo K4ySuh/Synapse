@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from pydantic import ConfigDict
+from pydantic import BaseModel, ConfigDict, JsonValue
 
 from synapse_mcp.core import workspace
 from synapse_mcp.core.errors import McpError
@@ -15,17 +15,16 @@ from ..descriptor import ActionDescriptor, ActionRequest
 from ..identity import ActionId
 from ..outcomes import outcome_from_mcp_error, success_from_legacy_payload
 from ..policies import (
+    ActionEffects,
     Availability,
     CredentialAccess,
     CredentialPolicy,
     CredentialRequirement,
     DeadlineTier,
     Idempotency,
-    IdempotencyPolicy,
     RiskClass,
     ScopePolicy,
     ScopeRequirement,
-    SideEffectClass,
     TaskPolicy,
 )
 from ..registry import REGISTRY
@@ -48,12 +47,78 @@ WorkspacePrepareTargetContextInput = make_input_model(
 )
 
 
+class WorkspaceMetadata(BaseModel):
+    workspaceId: str = ""
+    organization: str = ""
+    notes: str = ""
+    createdAt: str = ""
+    updatedAt: str = ""
+    model_config = ConfigDict(strict=True, extra="allow")
+
+
+class EntityTotals(BaseModel):
+    services: int
+    analysisEligibleServices: int
+    suppressedServices: int
+    endpoints: int
+    parameters: int
+    findings: int
+    observations: int
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+
+class TargetSummary(BaseModel):
+    target: str
+    serviceCount: int
+    analysisEligibleServiceCount: int
+    suppressedServiceCount: int
+    endpointCount: int
+    parameterCount: int
+    findingCount: int
+    observationCount: int
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+
+class Pagination(BaseModel):
+    cursor: str
+    limit: int
+    returned: int
+    total: int
+    hasMore: bool
+    nextCursor: str | None
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+
 class WorkspaceSummaryOutput(ActionOutput):
-    model_config = ConfigDict(extra="allow")
+    workspace: WorkspaceMetadata
+    path: str
+    targetCount: int
+    entityTotals: EntityTotals
+    targets: list[TargetSummary]
+    inventoryIncluded: bool
+    pagination: Pagination
+    model_config = ConfigDict(strict=True, extra="allow")
 
 
 class WorkspacePrepareTargetContextOutput(ActionOutput):
-    model_config = ConfigDict(extra="allow")
+    workspaceId: str
+    target: str
+    purpose: str
+    maxTokens: int
+    scopeStatus: str
+    scopeReason: str
+    knownServices: list[dict[str, JsonValue]]
+    serviceInventory: dict[str, int]
+    observationInventory: dict[str, int]
+    knownEndpoints: dict[str, JsonValue]
+    interestingEndpoints: list[dict[str, JsonValue]]
+    candidateFindings: list[dict[str, JsonValue]]
+    confirmedFindings: list[dict[str, JsonValue]]
+    observations: list[dict[str, JsonValue]]
+    recentActions: list[dict[str, JsonValue]]
+    recommendedNextActions: list[dict[str, JsonValue]]
+    missingInformation: list[str]
+    model_config = ConfigDict(strict=True, extra="allow")
 
 
 class WorkspaceSummaryExecutor:
@@ -99,11 +164,11 @@ WORKSPACE_SUMMARY = ActionDescriptor(
     summary="Summarize targets and normalized entity counts for one Synapse workspace.",
     input_model=WorkspaceSummaryInput,
     output_model=WorkspaceSummaryOutput,
-    side_effect_class=SideEffectClass.READ_ONLY,
+    effects=ActionEffects(replay_safety=Idempotency.PURE_READ),
+    effect_resolver=None,
     risk_class=RiskClass.NONE,
     scope_policy=ScopePolicy(ScopeRequirement.NOT_APPLICABLE),
     credential_policy=CredentialPolicy(CredentialRequirement.NONE, CredentialAccess.NONE),
-    idempotency_policy=IdempotencyPolicy(Idempotency.PURE_READ),
     task_policy=TaskPolicy(DeadlineTier.DEFAULT, False, False),
     executor=WorkspaceSummaryExecutor(),
     availability=Availability(available=True),
@@ -116,11 +181,11 @@ WORKSPACE_PREPARE_TARGET_CONTEXT = ActionDescriptor(
     summary="Return compact target context assembled from normalized workspace entities and evidence references.",
     input_model=WorkspacePrepareTargetContextInput,
     output_model=WorkspacePrepareTargetContextOutput,
-    side_effect_class=SideEffectClass.READ_ONLY,
+    effects=ActionEffects(replay_safety=Idempotency.PURE_READ),
+    effect_resolver=None,
     risk_class=RiskClass.NONE,
     scope_policy=ScopePolicy(ScopeRequirement.NOT_APPLICABLE),
     credential_policy=CredentialPolicy(CredentialRequirement.NONE, CredentialAccess.NONE),
-    idempotency_policy=IdempotencyPolicy(Idempotency.PURE_READ),
     task_policy=TaskPolicy(DeadlineTier.DEFAULT, False, False),
     executor=WorkspacePrepareTargetContextExecutor(),
     availability=Availability(available=True),

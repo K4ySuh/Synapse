@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from pydantic import ConfigDict
+from pydantic import ConfigDict, JsonValue
 
 from synapse_mcp.core import background_jobs
 from synapse_mcp.core.errors import McpError
@@ -15,17 +15,16 @@ from ..descriptor import ActionDescriptor, ActionRequest
 from ..identity import ActionId
 from ..outcomes import outcome_from_mcp_error, success_from_legacy_payload
 from ..policies import (
+    ActionEffects,
     Availability,
     CredentialAccess,
     CredentialPolicy,
     CredentialRequirement,
     DeadlineTier,
     Idempotency,
-    IdempotencyPolicy,
     RiskClass,
     ScopePolicy,
     ScopeRequirement,
-    SideEffectClass,
     TaskPolicy,
 )
 from ..registry import REGISTRY
@@ -38,7 +37,23 @@ JobsStatusInput = make_input_model("JobsStatusInput", JOBS_STATUS_INPUT_DOCUMENT
 
 
 class JobsStatusOutput(ActionOutput):
-    model_config = ConfigDict(extra="allow")
+    jobId: str
+    tool: str
+    workspaceId: str
+    target: str
+    status: str
+    pid: int | None
+    createdAt: str
+    startedAt: str
+    lastObservedAt: str
+    completedAt: str
+    timeoutSeconds: int
+    timedOut: bool
+    finalized: bool
+    error: str
+    resultSummary: dict[str, JsonValue] | None = None
+    resultDisposition: str | None = None
+    model_config = ConfigDict(strict=True, extra="allow")
 
 
 class JobsStatusExecutor:
@@ -64,11 +79,11 @@ JOBS_STATUS = ActionDescriptor(
     summary="Return status and final result metadata for a Synapse background job.",
     input_model=JobsStatusInput,
     output_model=JobsStatusOutput,
-    side_effect_class=SideEffectClass.READ_ONLY,
+    effects=ActionEffects(replay_safety=Idempotency.PURE_READ),
+    effect_resolver=None,
     risk_class=RiskClass.NONE,
     scope_policy=ScopePolicy(ScopeRequirement.NOT_APPLICABLE),
     credential_policy=CredentialPolicy(CredentialRequirement.NONE, CredentialAccess.NONE),
-    idempotency_policy=IdempotencyPolicy(Idempotency.PURE_READ),
     task_policy=TaskPolicy(DeadlineTier.STATUS, False, False),
     executor=JobsStatusExecutor(),
     availability=Availability(available=True),

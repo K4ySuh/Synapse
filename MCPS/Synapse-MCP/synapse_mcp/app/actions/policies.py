@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from typing import FrozenSet
 
 try:
     from enum import StrEnum
@@ -24,6 +25,7 @@ class Enforcement(StrEnum):
 
 
 class SideEffectClass(StrEnum):
+    """Legacy compatibility projection; not an authorization contract."""
     READ_ONLY = "read_only"
     PASSIVE_ANALYSIS = "passive_analysis"
     WORKSPACE_WRITE = "workspace_write"
@@ -71,6 +73,20 @@ class Idempotency(StrEnum):
     CONDITIONAL = "conditional"
 
 
+class TrafficDestination(StrEnum):
+    AUTHORIZED_TARGET = "authorized_target"
+    THIRD_PARTY = "third_party"
+
+
+class LocalWriteDomain(StrEnum):
+    WORKSPACE = "workspace"
+    EVIDENCE = "evidence"
+    CREDENTIALS = "credentials"
+    JOBS = "jobs"
+    RUNTIME_CONFIG = "runtime_config"
+    REPORTS_ARTIFACTS = "reports_artifacts"
+
+
 class DeadlineTier(Enum):
     FAST = 15.0
     STATUS = 30.0
@@ -113,7 +129,64 @@ class TaskPolicy:
 class Availability:
     available: bool
     reason: str | None = None
+    reason_code: str | None = None
 
     def __post_init__(self) -> None:
         if not self.available and self.reason is None:
             raise ValueError("An unavailable action requires a reason")
+        if not self.available and self.reason_code is None:
+            object.__setattr__(self, "reason_code", "capability_unavailable")
+
+
+@dataclass(frozen=True, slots=True)
+class ActionEffects:
+    """Potential or request-effective operational effects for one action."""
+
+    traffic: FrozenSet[TrafficDestination] = frozenset()
+    local_writes: FrozenSet[LocalWriteDomain] = frozenset()
+    local_change: bool = False
+    local_destruction: bool = False
+    remote_state_change: bool = False
+    credential_use: bool = False
+    secret_use: bool = False
+    replay_safety: Idempotency = Idempotency.PURE_READ
+    resolution_notes: tuple[str, ...] = ()
+
+    def permits(self, effective: "ActionEffects") -> bool:
+        """Return whether effective effects stay within this maximum envelope."""
+
+        boolean_dimensions = (
+            (self.local_change, effective.local_change),
+            (self.local_destruction, effective.local_destruction),
+            (self.remote_state_change, effective.remote_state_change),
+            (self.credential_use, effective.credential_use),
+            (self.secret_use, effective.secret_use),
+        )
+        if any(actual and not maximum for maximum, actual in boolean_dimensions):
+            return False
+        if not effective.traffic.issubset(self.traffic):
+            return False
+        if not effective.local_writes.issubset(self.local_writes):
+            return False
+        if self.replay_safety is Idempotency.PURE_READ:
+            return effective.replay_safety is Idempotency.PURE_READ
+        if self.replay_safety in {Idempotency.IDEMPOTENT_WRITE, Idempotency.IDEMPOTENT_CONTROL}:
+            return effective.replay_safety in {
+                Idempotency.PURE_READ,
+                Idempotency.IDEMPOTENT_WRITE,
+                Idempotency.IDEMPOTENT_CONTROL,
+            }
+        return True
+
+    def with_resolution_note(self, note: str) -> "ActionEffects":
+        return ActionEffects(
+            traffic=self.traffic,
+            local_writes=self.local_writes,
+            local_change=self.local_change,
+            local_destruction=self.local_destruction,
+            remote_state_change=self.remote_state_change,
+            credential_use=self.credential_use,
+            secret_use=self.secret_use,
+            replay_safety=self.replay_safety,
+            resolution_notes=(*self.resolution_notes, note),
+        )

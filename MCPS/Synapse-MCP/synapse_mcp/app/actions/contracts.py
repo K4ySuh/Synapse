@@ -12,6 +12,23 @@ from typing import Any, ClassVar, Literal, Union
 from pydantic import BaseModel, ConfigDict, Field, create_model, model_validator
 
 
+SUPPORTED_INPUT_SCHEMA_KEYWORDS = frozenset(
+    {
+        "type",
+        "properties",
+        "required",
+        "default",
+        "enum",
+        "oneOf",
+        "items",
+        "additionalProperties",
+        "minimum",
+        "maximum",
+        "description",
+    }
+)
+
+
 @dataclass(frozen=True, slots=True)
 class InputContractDocument:
     """The exact authored JSON text for an action's legacy input schema."""
@@ -50,6 +67,42 @@ def _literal_of(values: list[Any]) -> Any:
     if not values:
         return Any
     return Literal[tuple(values)]
+
+
+def validate_supported_input_schema(schema: dict[str, Any], *, location: str = "$") -> None:
+    """Reject schemas whose validation semantics the converter cannot preserve."""
+
+    unsupported = sorted(set(schema) - SUPPORTED_INPUT_SCHEMA_KEYWORDS)
+    if unsupported:
+        joined = ", ".join(unsupported)
+        raise ValueError(f"Unsupported input schema keyword(s) at {location}: {joined}")
+
+    additional = schema.get("additionalProperties", True)
+    if not isinstance(additional, bool):
+        raise ValueError(f"additionalProperties must be boolean at {location}")
+
+    properties = schema.get("properties", {})
+    if not isinstance(properties, dict):
+        raise ValueError(f"properties must be an object at {location}")
+    for field_name, field_schema in properties.items():
+        if not isinstance(field_schema, dict):
+            raise ValueError(f"Property schema must be an object at {location}.properties.{field_name}")
+        validate_supported_input_schema(field_schema, location=f"{location}.properties.{field_name}")
+
+    items = schema.get("items")
+    if items is not None:
+        if not isinstance(items, dict):
+            raise ValueError(f"items must be an object at {location}")
+        validate_supported_input_schema(items, location=f"{location}.items")
+
+    alternatives = schema.get("oneOf")
+    if alternatives is not None:
+        if not isinstance(alternatives, list) or not alternatives:
+            raise ValueError(f"oneOf must be a non-empty array at {location}")
+        for index, alternative in enumerate(alternatives):
+            if not isinstance(alternative, dict):
+                raise ValueError(f"oneOf entries must be objects at {location}.oneOf[{index}]")
+            validate_supported_input_schema(alternative, location=f"{location}.oneOf[{index}]")
 
 
 def _annotation_for_schema(schema: dict[str, Any], model_name: str) -> Any:
@@ -104,6 +157,9 @@ def _field_default(schema: dict[str, Any], *, required: bool) -> Any:
         constraints["ge"] = minimum
     if isinstance(maximum, (int, float)) and not isinstance(maximum, bool):
         constraints["le"] = maximum
+    description = schema.get("description")
+    if isinstance(description, str):
+        constraints["description"] = description
     return Field(default=default, **constraints)
 
 
@@ -130,13 +186,19 @@ def _make_object_model(
         annotation = _annotation_for_schema(typed_schema, f"{name}{field_name.title().replace('_', '')}")
         fields[field_name] = (annotation, _field_default(typed_schema, required=runtime_required))
 
+    extra_behavior = "allow" if schema.get("additionalProperties", True) else "forbid"
     model_options: dict[str, Any] = {
-        "__config__": ConfigDict(strict=True, extra="allow"),
+        "__config__": ConfigDict(strict=True, extra=extra_behavior),
         "__validators__": validators or {},
     }
     if base is not None:
         model_options.pop("__config__")
-        model_options["__base__"] = base
+        configured_base = type(
+            f"{name}ConfiguredBase",
+            (base,),
+            {"model_config": ConfigDict(strict=True, extra=extra_behavior)},
+        )
+        model_options["__base__"] = configured_base
     return create_model(name, **model_options, **fields)
 
 
@@ -144,6 +206,7 @@ def make_input_model(name: str, document: InputContractDocument) -> type[BaseMod
     """Build a strict input model from one frozen legacy contract document."""
 
     schema = document.parsed()
+    validate_supported_input_schema(schema)
 
     def reject_reserved_fields(value: Any) -> Any:
         if isinstance(value, dict):

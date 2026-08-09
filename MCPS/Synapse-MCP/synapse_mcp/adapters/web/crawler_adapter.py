@@ -1942,6 +1942,7 @@ def crawl(args: dict[str, Any]) -> str:
             metadata={
                 "responseHeaders": fetch_result.get("responseHeaders", {}),
                 "responseCookieNames": fetch_result.get("responseCookieNames", []),
+                "responseCookieFlags": fetch_result.get("responseCookieFlags", []),
                 "technologySignals": html_technology_signals(text),
             },
         )
