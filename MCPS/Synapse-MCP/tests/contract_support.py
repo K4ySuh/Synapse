@@ -93,14 +93,30 @@ TIMESTAMP_PATTERN = re.compile(
 PID_PATTERN = re.compile(r'"pid":\s*(?:\d+|null)')
 RUN_STAMP_PATTERN = re.compile(r"\d{8}-\d{6}")
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
-ENVIRONMENT_PATH_VALUES = (
-    "/home/",
-    "/Users/",
-    "/tmp/",
-    "/var/",
-    "/private/",
-    str(REPOSITORY_ROOT),
-    str(Path.home()),
+ENVIRONMENT_PATH_VALUES = tuple(
+    dict.fromkeys(
+        value.rstrip("/\\")
+        for value in (
+            "/home",
+            "/Users",
+            "/tmp",
+            "/var",
+            "/private",
+            str(REPOSITORY_ROOT),
+            str(Path.home()),
+        )
+        if value.rstrip("/\\")
+    )
+)
+POSIX_ABSOLUTE_PATH_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9_./:+-])/(?!/)(?:[^\s/\\<>:\"'|]+/)*[^\s/\\<>:\"'|]+"
+)
+WINDOWS_ABSOLUTE_PATH_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9_])(?:[A-Za-z]:[\\/](?:[^\s\\/:*?\"<>|]+[\\/])*[^\s\\/:*?\"<>|]+)"
+)
+UNC_ABSOLUTE_PATH_PATTERN = re.compile(
+    r"(?<![\\A-Za-z0-9_])\\\\[^\s\\/:*?\"<>|]+\\[^\s\\/:*?\"<>|]+"
+    r"(?:\\[^\s\\/:*?\"<>|]+)*"
 )
 
 
@@ -132,6 +148,57 @@ def all_contract_fixture_paths() -> tuple[Path, ...]:
 
 def environment_path_values() -> tuple[str, ...]:
     return tuple(dict.fromkeys(value for value in ENVIRONMENT_PATH_VALUES if value))
+
+
+def absolute_path_tokens(value: Any) -> tuple[str, ...]:
+    """Return filesystem-looking absolute paths from nested fixture values.
+
+    URL paths are excluded by boundary-aware matching, while POSIX, drive-letter,
+    and UNC paths are recognized even when embedded in a longer message.
+    """
+
+    tokens: list[str] = []
+
+    def walk(item: Any) -> None:
+        if isinstance(item, dict):
+            for nested in item.values():
+                walk(nested)
+            return
+        if isinstance(item, list):
+            for nested in item:
+                walk(nested)
+            return
+        if not isinstance(item, str):
+            return
+        nested = _parse_json_container(item)
+        if nested is not None:
+            walk(nested)
+        text = item.replace("<ROOT>", "ROOT_PLACEHOLDER")
+        for pattern in (
+            WINDOWS_ABSOLUTE_PATH_PATTERN,
+            UNC_ABSOLUTE_PATH_PATTERN,
+            POSIX_ABSOLUTE_PATH_PATTERN,
+        ):
+            tokens.extend(match.group(0).rstrip(".,;)]}") for match in pattern.finditer(text))
+
+    walk(value)
+    return tuple(dict.fromkeys(token for token in tokens if token))
+
+
+def environment_path_leaks(value: Any) -> tuple[str, ...]:
+    """Return absolute fixture paths that reveal a real execution environment."""
+
+    roots = environment_path_values()
+    leaks: list[str] = []
+    for token in absolute_path_tokens(value):
+        normalized = token.replace("\\", "/").rstrip("/")
+        if re.match(r"^[A-Za-z]:/", normalized) or token.startswith("\\\\"):
+            leaks.append(token)
+            continue
+        normalized_roots = tuple(root.replace("\\", "/").rstrip("/") for root in roots)
+        if any(normalized == root or normalized.startswith(root + "/") for root in normalized_roots):
+            leaks.append(token)
+    return tuple(dict.fromkeys(leaks))
 
 
 def compact_json_bytes(value: Any) -> bytes:
@@ -385,7 +452,7 @@ def normalize_result_response(response_text: str, synapse_root: str | Path) -> s
     )
     normalized = RUN_STAMP_PATTERN.sub("<STAMP>", normalized)
 
-    residual = [value for value in environment_path_values() if value in normalized]
+    residual = list(environment_path_leaks(json.loads(normalized)))
     if residual:
         raise AssertionError(
             "Normalized result contains residual absolute path marker(s): "

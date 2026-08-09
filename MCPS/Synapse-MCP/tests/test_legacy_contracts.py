@@ -30,7 +30,7 @@ from contract_support import (
     assert_tools_list_matches_fixture,
     capture_confirm_omission_contract,
     compact_json_bytes,
-    environment_path_values,
+    environment_path_leaks,
     fixture_bytes,
     regenerate_contract_fixtures,
 )
@@ -327,13 +327,35 @@ class LegacyContractTests(unittest.TestCase):
 
     def test_fixtures_contain_no_environment_leakage(self) -> None:
         for path in all_contract_fixture_paths():
-            text = path.read_text(encoding="utf-8")
-            for value in environment_path_values():
-                self.assertNotIn(
-                    value,
-                    text,
-                    f"{path.name} contains environment value {value!r}",
-                )
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                environment_path_leaks(payload),
+                (),
+                f"{path.name} contains environment-specific absolute paths",
+            )
+
+    def test_environment_path_detection_is_boundary_aware_and_cross_platform(self) -> None:
+        positives = {
+            "posix_exact": "/tmp",
+            "posix_descendant": "failed while reading /home/fixture/report.json today",
+            "runtime_home": f"artifact: {Path.home() / 'synapse' / 'result.json'}",
+            "windows": r"worker wrote C:\Users\fixture\result.json",
+            "unc": r"worker wrote \\server\share\result.json",
+        }
+        for label, value in positives.items():
+            with self.subTest(label=label):
+                self.assertTrue(environment_path_leaks(value))
+
+        negatives = (
+            "the root domain is delegated",
+            "root.example.test",
+            "https://example.test/home/fixture/report.json",
+            "the /api route returned 200",
+            "homeostasis and variegation are words",
+        )
+        for value in negatives:
+            with self.subTest(value=value):
+                self.assertEqual(environment_path_leaks(value), ())
 
     def test_renaming_a_tool_fails_the_contract_test(self) -> None:
         renamed_tools = copy.deepcopy(stdio_server.TOOL_SCHEMAS)
