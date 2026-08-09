@@ -17,8 +17,22 @@ complete while bounding control-plane responses, candidate review, and report
 generation; it also tightens passive candidate semantics across the web and CVE
 layers.
 
+The staged modernization foundation now includes the frozen compatibility
+baseline, typed application action contracts, a registry-projected six-action
+vertical slice, and crash-atomic state prerequisites. The Phase 2 Authority
+Engine checkpoint is published as an explicitly unapproved draft so development
+can continue from the same Git state without implying architectural sign-off.
+
 ### Added
 
+- **Typed Action Registry foundation.** Protocol-independent action contracts,
+  canonical identities, policy metadata, typed outcomes, registry consistency
+  checks, and five action packs now project six legacy actions through the
+  application seam while preserving the frozen 174-tool surface.
+- **Modernization verification and handoff material.** Exact legacy contracts,
+  workflow benchmarks, architecture guards, the proven action-migration guide,
+  Phase 1 review/handoff records, and the tracked draft Phase 2 Authority Engine
+  design checkpoint make the staged program reproducible across clones.
 - **Bounded workspace audit batches.** Stable related-asset scope groups,
   snapshot-stable passive validation queues, and target/record/part cursors for
   resumable report runs under `reports/<workspace>/`. Full manifests remain
@@ -42,6 +56,10 @@ layers.
 
 ### Fixed
 
+- Scope, credential, and private JSON writes now use shared crash-atomic
+  replacement with bounded reentrant locking and exact private-file modes;
+  workspace writes reuse the same primitive without changing their established
+  synchronization behavior.
 - Large scope/project/workspace responses are compact and explicitly paginated.
 - Crawl jobs expose per-target partial failures instead of reporting only an
   aggregate successful job state.
