@@ -1356,6 +1356,23 @@ bin/test --template
 bin/test --core -k access_control
 ```
 
+The isolated modern SDK profile is installed and tested separately so the
+stable installation has no MCP SDK dependency:
+
+```bash
+pip install -e '.[modern-spike]'
+bin/test-modern
+```
+
+The feature flag `SYNAPSE_ENABLE_MODERN_SPIKE=1` is mandatory. The launcher is
+restricted to stdio or loopback Streamable HTTP, exposes exactly
+`workspace.summary`, `headers_cookies.analyze_workspace`, and
+`cors.execute_test`, and never accepts legacy `confirm=true` as modern
+authority. Disable the flag or use `synapse-mcp` to roll back immediately to
+the stable profile. CI runs the full suite and contract subset on Python
+3.10–3.13, then runs this optional extra in a separate Python 3.13 job; every
+job asserts that tests leave the checkout clean.
+
 The helper sets `PYTHONDONTWRITEBYTECODE=1` and the correct `PYTHONPATH` values
 for the core MCP suite and the custom adapter template tests. The current suite
 covers adapter analysis, credential safety, workspace entity

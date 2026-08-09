@@ -1,6 +1,12 @@
 # Phase 2 Stage A — Authority Engine design checkpoint
 
-Draft for operator/architectural-lead ratification. This document opens Phase 2
+Corrected draft for operator/architectural-lead ratification. ADR-0009
+supersedes this document's original input-type routing and singular
+`SideEffectClass` assumptions. Phase 2 starts only from Registry v2: explicit
+action IDs, validated canonical outputs, request-effective multidimensional
+effects, availability-before-policy, and Action Registry as operational truth.
+
+This document opens Phase 2
 (Authority Grants, ADR-0003) by turning the proposed decision and the directive's
 Section C into a design checkpoint that can be locked for a later Stage B. It
 makes the architectural calls; the section "Decisions owed" lists the points
@@ -12,7 +18,7 @@ needing an explicit sign-off before Stage B specs are written.
   ADR-0007 (outcome model), ADR-0008 (action identity)
 - Directive source: Section C ("Introduce durable Authority Grants") and
   "Phase 2 — Authority Engine"
-- Status: **draft, awaiting checkpoint approval and an independent design review**
+- Status: **corrected draft, awaiting checkpoint approval and an independent design review**
 - Publication note: tracking this draft preserves the current development state;
   it does not ratify the decisions in Section 9 or authorize Stage B implementation
 
@@ -61,7 +67,8 @@ profile**, not by changing the legacy path:
   Phase 1. `confirm=true` and the executor's existing gates remain authoritative.
   Every Tier-1/Tier-2 fixture runs on this profile and is untouched. The frozen
   `confirm_omission.json` (`-32001`) contract is unchanged.
-- **`authority` profile (opt-in).** The evaluator consults the workspace's active
+- **modern authority profiles (opt-in).** `observe`, `supervised`, and
+  `full_delegated` evaluators consult the workspace's active
   grant and returns allow / approval-required / scope-denied. `confirm=true` is
   **not** accepted as proof of approval here (directive rule 2).
 
@@ -95,20 +102,20 @@ by every descriptor, so the evaluator compares like with like.
 | --- | --- | --- |
 | `grantId`, `workspaceId` | ids | Identity; a grant authorizes work in one workspace |
 | `revision` | positive integer | Optimistic lifecycle version; increments on every grant mutation |
-| `mode` | `observe` / `delegated` / `supervised` | Operator-facing authority posture (§4) |
+| `mode` | `observe` / `supervised` / `full_delegated` | Operator-facing authority posture (§4) |
 | `scopeDigest` | hash of the effective workspace authorization set | Binds the grant to normalized hosts/patterns/CIDRs; timestamps, notes, and ordering do not change it |
 | `allowedActionPatterns` | globs over `ActionId` (e.g. `cors.*`, `workspace.summary`) | Which actions the grant covers |
 | `allowedMethods` | HTTP methods | Ceiling for probe/method-bearing actions |
-| `allowedSideEffectClasses` | subset of `SideEffectClass` | Side-effect ceiling (descriptor's `side_effect_class` must be in it) |
+| `allowedEffects` | traffic destinations, local write domains, local/remote change, credential/secret use, replay rules | Compare request-effective effects; uncertainty uses the descriptor maximum |
 | `riskCeiling` | `RiskClass` | Max `risk_class` the grant permits |
 | `credentialRefs` | credential ids | Which credentials may be used (by reference; never secrets) |
 | `thirdPartyProviders` | provider ids | Which third-party providers are permitted |
-| `requestBudget`, `rateBudget`, `parallelismBudget` | counters | Total / per-window / concurrent dispatch ceilings |
+| `requestBudget`, `rateBudget`, `parallelismBudget` | operator-configured counters | Total / per-window / concurrent bounds; conservative defaults are not undocumented ceilings |
 | `stateChangePolicy` | enum | How non-idempotent / state-changing actions are treated (e.g. always step-up) |
 | `expiresAt`, `createdAt`, `approvedBy`, `revokedAt` | timestamps / operator principal | Lifecycle and audit |
 
-The descriptor fields Phase 1 already declares (`side_effect_class`, `risk_class`,
-`scope_policy`, `credential_policy`, `idempotency_policy`) provide policy ceilings,
+The Registry v2 descriptor fields (`effects`, `effect_resolver`, `risk_class`,
+`scope_policy`, `credential_policy`, and replay safety) provide policy bounds,
 but the current `ActionRequest` does **not** expose a canonical target, method,
 credential/provider set, or fingerprint material. Phase 2 therefore needs one
 additional descriptor-owned contract: a pure `intent_resolver` producing a frozen
@@ -140,24 +147,29 @@ executor will dispatch.
 
 Per the directive, three operator-facing modes, evaluated server-side:
 
-- **`observe`** — local and passive analysis only. Allows descriptors whose
-  `side_effect_class` is `read_only` / `passive_analysis` / `report_build`; any
-  `active_probe` / write / credential / destructive class returns
-  approval-required.
-- **`delegated`** — the model may execute any action **covered by the grant**
-  without per-call pauses. Covered = pattern, side-effect ceiling, risk ceiling,
-  method, credential, provider, and budget all satisfied. Uncovered work returns
-  approval-required without dispatching.
+- **`observe`** — actions whose effective effects have no traffic, credential
+  use, state change, or local writes beyond explicitly allowed observation
+  evidence; uncovered effects return approval-required.
+- **`full_delegated`** — the model may execute any action **covered by the grant**
+  without per-call pauses. Covered = pattern, every effective-effect dimension,
+  risk, method, credential, provider, and configured budget all satisfied.
+  Uncovered work returns approval-required without dispatching.
 - **`supervised`** — covered low-risk work proceeds; selected classes (e.g.
-  `non_idempotent` state changes, `high` risk, `local_destructive`,
-  `credential_write`) require **exact step-up approval** bound to the action
-  fingerprint and idempotency key.
+  non-idempotent replay, remote/local state changes, `high` risk, destructive
+  local effects, or credential/secret use) require **exact step-up approval**
+  bound to the action fingerprint and idempotency key.
+
+Expert/raw actions are grantable only when an explicit action capability exists
+and repository policy permits it. Methods, rates, budgets, and parallelism are
+operator-controlled grant dimensions. Current adapter limitations are tracked
+in `capability-gap-inventory.md`; they are not silently converted into permanent
+Authority Engine prohibitions.
 
 ## 5. The evaluator: replacing the pass-through
 
 Phase 1 landed the seam: `ActionRegistry.__init__(self, policy_evaluator=None)`
-defaults to `PassThroughPolicyEvaluator`, whose `evaluate(descriptor, request) ->
-bool` returns `True`. Phase 2:
+defaults to `PassThroughPolicyEvaluator`, whose
+`evaluate(descriptor, request, effects) -> bool` returns `True`. Phase 2:
 
 1. **Evolves the decision type** from `bool` to a `PolicyDecision` union: `Allow`,
    `ApprovalRequired(reason, request_state)`, `ScopeDenied(reason)`. `execute()`
@@ -261,7 +273,7 @@ migrated (Phase 1 pattern) and grant-evaluated. No legacy-removal date is set.
 3. The policy evaluator authorizes the same normalized intent the executor uses;
    no field-name heuristic or transport-only extraction is permitted.
 4. The `-32001` (approval) / `-32002` (scope) taxonomy is preserved.
-5. `delegated` authorized read/probe work does not pause; uncovered work does not
+5. `full_delegated` authorized work does not pause; uncovered work does not
    dispatch.
 6. A state-changing retry cannot duplicate an uncertain (`dispatched`/`unknown`)
    dispatch.
@@ -319,7 +331,7 @@ frozen fixture edited:
 5. **Operator management service** — issue/inspect/step-up/reconcile/revoke through
    the trusted non-registry service; evidence linkage.
 6. **Authority walk-through** — new tests driving the six actions under the
-   `authority` profile: delegated no-pause, uncovered no-dispatch, step-up,
+   modern authority profiles: full-delegated no-pause, uncovered no-dispatch, step-up,
    revocation-before-next-dispatch, retry non-duplication; the P0-3 workflow-06
    benchmark stays green.
 7. **Migration doc + ADR promotions** — record the pattern; move ADR-0003 to

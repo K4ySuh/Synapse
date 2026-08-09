@@ -11,6 +11,27 @@ use.
 
 ## Runtime Topology
 
+The stable transport now reaches six migrated operations through a
+protocol-independent application boundary:
+
+```text
+legacy stdio projection                 modern spike (opt-in, three actions)
+             \                           /
+              -> ActionRegistry.execute(action_id, request)
+                   -> runtime availability
+                   -> request-effective ActionEffects
+                   -> policy evaluator
+                   -> registered executor
+                   -> canonical output-model validation
+```
+
+`ActionEffects` independently describes authorized-target/third-party traffic,
+local write domains, local change/destruction, possible remote state change,
+credential/secret use, and replay safety. A descriptor declares the maximum;
+an input-aware resolver narrows it before policy. Resolver uncertainty applies
+the maximum with an explanation. Availability is evaluated before both policy
+and execution.
+
 ```text
 MCP client
     |-- optional stdio --> MCPS/Burp-Mcp/bin/portswigger-burp-mcp
@@ -127,6 +148,22 @@ Adapter framework metadata and result models live under `core/adapters/`. The
 framework defines the first-class adapter description model, base interface,
 unsupported-method contract, registry, execution-mode metadata, and
 workspace-native result schema used by MCP discovery tools and new adapters.
+For the migrated `crawler`, `headers_cookies`, and `cors` packs, operational
+discovery metadata is projected at runtime from Action Registry v2. The core
+adapter registry retains only adapter identity, description, references,
+outputs, and limitations; its provider seam preserves the `core`/`app`
+dependency boundary. Unmigrated adapters remain on an explicitly transitional
+metadata bridge. Adapter discovery never authorizes an action.
+
+The canonical output boundary parses legacy JSON, validates the declared
+Pydantic output model, and returns that model in `Success.payload`. A separate
+compatibility payload preserves the frozen legacy serialization. This prevents
+legacy strings from becoming the application contract.
+
+The credential store uses a single file-lock-scoped mutation primitive for the
+complete read-modify-write cycle. Atomic replacement, `0600`, file/directory
+fsync, and redaction remain intact; concurrent updates cannot read stale state
+before taking the lock.
 Active wrappers default to generic `jobs.*` background execution unless their
 metadata marks them as deliberately synchronous and bounded. Adapter modules
 remain organized by operating domain: `adapters/web/` owns web application

@@ -25,6 +25,16 @@ can continue from the same Git state without implying architectural sign-off.
 
 ### Added
 
+- **Modernization correction gate.** Action Registry v2 now routes explicitly
+  by canonical ID, validates six real typed output contracts, resolves
+  multidimensional request effects, evaluates runtime availability before
+  policy, and supplies canonical operational metadata for migrated adapters.
+- **Official MCP SDK spike and functional vertical.** An isolated
+  `mcp==2.0.0` extra proves three actions over protocol `2026-07-28`, stdio, and
+  loopback Streamable HTTP without treating legacy confirmation as authority.
+  A deterministic local HTTP fixture proves crawl discovery, vulnerable/safe
+  CORS controls, header/cookie analysis, ingestion, and evidence traceability.
+
 - **Typed Action Registry foundation.** Protocol-independent action contracts,
   canonical identities, policy metadata, typed outcomes, registry consistency
   checks, and five action packs now project six legacy actions through the
@@ -55,6 +65,13 @@ can continue from the same Git state without implying architectural sign-off.
   presentation labels map consistently to compatibility policies.
 
 ### Fixed
+
+- Credential and authentication-profile mutations now lock the complete
+  read-modify-write cycle, preventing lost updates under concurrent upsert and
+  delete operations while preserving atomic replacement and private modes.
+- Contract-fixture path leakage detection is path-aware across POSIX, Windows,
+  and UNC forms without matching natural-language substrings; crawler ingestion
+  now preserves observed cookie flags for passive analysis.
 
 - Scope, credential, and private JSON writes now use shared crash-atomic
   replacement with bounded reentrant locking and exact private-file modes;

@@ -26,9 +26,14 @@ compatibility evidence build on that immutable reference.
 
 ## Phase 2
 
-- [Stage A Authority Engine design checkpoint](phase-2-stage-a.md) — tracked
-  draft awaiting operator/architectural-lead ratification and independent
-  design review; publication does not approve the checkpoint
+- [Correction-gate handoff](correction-gate-handoff.md) — Registry v2,
+  credential concurrency, official-SDK spike, and local functional vertical;
+  foundations are ready for a revised Phase 2
+- [Input-schema keyword inventory](input-schema-keyword-inventory.md)
+- [Capability-gap inventory](capability-gap-inventory.md)
+- [Stage A Authority Engine design checkpoint](phase-2-stage-a.md) — the
+  original draft is corrected by ADR-0009; Stage B must use effective
+  multidimensional effects and configurable grant dimensions
 - Crash-atomic scope and credential storage prerequisite — integrated before
   the Phase 1 Action Registry merge and covered by the combined Beta gate
 
@@ -44,6 +49,7 @@ compatibility evidence build on that immutable reference.
 | [ADR-0006](adr/ADR-0006-context-revisions-budget-behaviour.md) | Context revisions and budget behaviour | Proposed |
 | [ADR-0007](adr/ADR-0007-application-outcome-model-and-error-boundary.md) | Application outcome model and the protocol error boundary | Proposed |
 | [ADR-0008](adr/ADR-0008-action-identity-and-packs.md) | Action identity and pack scheme | Proposed |
+| [ADR-0009](adr/ADR-0009-registry-v2-correction-gate.md) | Registry v2 correction gate | Accepted |
 
 ## Cross-cutting pattern
 
@@ -52,3 +58,7 @@ caller-supplied values that the server accepts, validates, echoes, and does not
 enforce. ADR-0003 fixes the authority case in Phase 2; ADR-0006 fixes the budget
 case in Phase 4. Recording it once prevents them from being treated as
 unrelated coincidences.
+
+The modern spike confirms that protocol `input_required` can represent the
+active no-dispatch state, but it intentionally implements neither durable
+grants nor resume flows. `confirm=true` remains legacy-only authority.

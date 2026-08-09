@@ -92,6 +92,21 @@ prior assessment knowledge available through MCP tools and resources.
   approval.
 - A place to store secrets in notes, evidence, or reports.
 
+## Modernization Status
+
+Synapse is `READY_FOR_PHASE_2` at the application boundary. Six actions now
+execute only by canonical `action_id` through Action Registry v2, validate typed
+outputs, resolve request-effective multidimensional effects, and feed migrated
+adapter discovery from the same operational metadata. The legacy 174-tool stdio
+profile remains the default compatibility surface and still uses its existing
+`confirm=true` gates.
+
+An isolated, opt-in spike proves exactly three actions with the official Python
+MCP SDK 2.0.0 and protocol revision `2026-07-28` over stdio and loopback
+Streamable HTTP. It is a feasibility profile, not the default server and not a
+partial Authority Grants implementation. See
+[the correction-gate handoff](docs/modernization/correction-gate-handoff.md).
+
 ## Main Features
 
 ### Workspace and operational memory
@@ -112,9 +127,10 @@ prior assessment knowledge available through MCP tools and resources.
 - Persisted authorization scope (hosts, patterns, CIDRs) at global and
   workspace level; active adapters validate against the owning workspace's
   scope before the global file.
-- Scope and execution approval are separate gates: active traffic always
-  requires in-scope validation plus `confirm=true`, and adapters record
-  consistent approval metadata.
+- Scope and execution approval are separate gates. The legacy profile requires
+  in-scope validation plus `confirm=true`; the modern spike never treats that
+  input as authority and leaves active dispatch in `input_required` until Phase
+  2 provides server-held grants.
 - Scoped credentials (`bearer`, `basic`, `cookie`, `header`, browser-derived
   `session`) stored locally with `0600` permissions, redacted in every
   response, and resolved per request target. Browser authentication profiles
@@ -491,12 +507,15 @@ Useful focused modes:
 bin/test --core
 bin/test --template
 bin/test --core -k access_control
+bin/test-modern # after: pip install -e '.[modern-spike]'
 ```
 
 The suite covers adapter analysis, credential safety, evidence redaction,
 workspace ingestion and deduplication, passive Burp context parsing, candidate
 analyzers, JS intelligence extraction/reporting, finding lifecycle operations,
 active-tool ingestion hooks, MCP dispatch, and the custom adapter template.
+The separate modern command runs the pinned official-SDK stdio and loopback
+Streamable HTTP spike; it is also an isolated CI job.
 
 ## Authorized Use Notice
 

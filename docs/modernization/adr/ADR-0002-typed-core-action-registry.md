@@ -13,6 +13,10 @@
   `../contract-changes.md`; the design that motivated it is `../phase-1-stage-a.md`
   and ADR-0007. **An Accepted ADR is a binding standard; amending one requires
   the operator's sign-off, recorded in the ledger — not a silent edit.**
+- Amended: 2026-08-09 by the operator-directed correction gate (ADR-0009):
+  routing is explicit by canonical action ID, output contracts are executable,
+  and multidimensional maximum/effective effects replace the singular
+  side-effect label as policy authority.
 
 ## Context
 
@@ -32,6 +36,12 @@ contracts.
 
 Extract use-case services that accept typed commands and return typed results, with exactly one authoritative `ActionDescriptor` per action. MCP becomes one protocol adapter over those services. Protocol schemas, annotations, discovery results, and dispatch wiring are generated or projected from the descriptor rather than hand-maintained.
 
+Execution resolves the descriptor by direct `action_id` lookup, verifies that
+the request carries that descriptor's input model, evaluates runtime
+availability, resolves request-effective effects within the declared maximum,
+evaluates policy, invokes the executor, and validates the canonical output
+model. Input-model classes may be shared because they are not routing keys.
+
 For legacy byte equality, the descriptor's `input_model` is generated from one
 typed `InputContractDocument` retained on the model class. The transport projects
 that document; it does not keep a second schema literal. The transport map owns
@@ -41,13 +51,20 @@ only the legacy public name and serializer/argument-adapter choice.
 
 - Application services must not import MCP request, result, context, or content classes; an architecture test enforces this.
 - Duplicate action IDs or inconsistent descriptors fail at registration.
-- Risk, side-effect class, scope, credentials, idempotency, and task behaviour are descriptor data, never inferred from a tool name at dispatch time.
+- Risk, multidimensional maximum/effective effects, scope, credentials,
+  availability, replay safety, and task behaviour are descriptor data, never
+  inferred from a tool name at dispatch time. `SideEffectClass` is at most a
+  legacy display projection.
 - Protocol adapters cannot invoke descriptor executors directly:
-  `ActionRegistry.execute()` evaluates policy before invocation. In Phase 1 the
+  `ActionRegistry.execute(action_id, request)` evaluates availability and policy
+  before invocation. In Phase 1 the
   evaluator is an explicit compatibility pass-through and the wrapped legacy
   implementation retains its existing confirm/scope/credential gates; durable
   authority enforcement begins only after ADR-0003 is accepted.
 - Phase 1 changes no public tool name, protocol version, authority behaviour, or storage. The Tier-1 and Tier-2 contract fixtures are the proof.
+- A successful action payload is an instance of the descriptor's validated
+  output model; legacy serialization is retained only in an explicit
+  compatibility field.
 
 ## Alternatives considered
 
@@ -106,6 +123,8 @@ public names.
   descriptor/input contract, with no transport-owned schema duplicate.
 - Assert protocol projection calls `ActionRegistry.execute()` rather than the
   executor field.
+- Reject ID/model mismatches and invalid executor outputs, and prove shared
+  input models route correctly by ID.
 - Run all Tier-1 and Tier-2 fixtures and the P0-3 corpus after every migrated
   action.
 - Confirm Phase 1 changes no protocol version, authority behavior, or storage.

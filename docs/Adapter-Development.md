@@ -198,10 +198,21 @@ class ExampleAdapter(SynapseAdapter):
 Unsupported operations should use the base `SynapseAdapter` behavior, which
 raises a controlled unsupported-method exception.
 
+For a pack migrated to `app.actions`, do not duplicate traffic, risk, scope,
+credential, confirmation, execution-mode, or executor metadata in
+`AdapterMetadata`. Register the canonical `ActionDescriptor` and use the
+action-backed discovery bridge. Its adapter record owns only identity,
+description, references, produced entities, and current limitations. If an
+adapter groups actions with different risks or effects, discovery returns an
+`actions` entry for each descriptor instead of flattening them into a false
+single classification. Authorization always evaluates the selected action and
+its request-effective effects.
+
 ## MCP Tool Exposure
 
 The current built-in MCP tool surface is wired in
-`synapse_mcp.transport.stdio_server`. For built-in adapters, add:
+`synapse_mcp.transport.stdio_server`. For an unmigrated built-in adapter, the
+transitional path still requires:
 
 - tool schema entries in `TOOL_SCHEMAS`
 - dispatch branches in `call_tool`
@@ -210,6 +221,11 @@ The current built-in MCP tool surface is wired in
 - documentation updates when the public behavior changes
 - a local `docs/Version-Log.md` entry for every code change (gitignored,
   per-developer; provisioned from `docs/Version-Log.template.md` on setup)
+
+For migrated actions, expose the tool through a transport projection of the
+descriptor contract and route calls only through
+`ActionRegistry.execute(action_id, request)`. Define stable typed output fields,
+negative contract tests, maximum/effective effects, and availability ordering.
 
 Future custom adapter loading should preserve the same discovery model exposed
 by `adapters.list` and `adapters.capabilities`.
