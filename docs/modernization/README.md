@@ -35,8 +35,9 @@ compatibility evidence build on that immutable reference.
 - [Input-schema keyword inventory](input-schema-keyword-inventory.md)
 - [Capability-gap inventory](capability-gap-inventory.md)
 - [Stage A Authority Engine design checkpoint](phase-2-stage-a.md) — the
-  original draft is corrected by ADR-0009; Stage B must use effective
-  multidimensional effects and configurable grant dimensions
+  ADR-0009-corrected checkpoint is approved; Stage B is underway in strict
+  dependency order, with Task 1's pure grant/decision model complete and no
+  persistence or dispatch wiring yet
 - Crash-atomic scope and credential storage prerequisite — integrated before
   the Phase 1 Action Registry merge and covered by the combined Beta gate
 

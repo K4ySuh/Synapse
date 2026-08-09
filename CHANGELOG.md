@@ -19,11 +19,19 @@ layers.
 
 The staged modernization foundation now includes the frozen compatibility
 baseline, typed application action contracts, a registry-projected six-action
-vertical slice, and crash-atomic state prerequisites. The Phase 2 Authority
-Engine checkpoint is published as an explicitly unapproved draft so development
-can continue from the same Git state without implying architectural sign-off.
+vertical slice, and crash-atomic state prerequisites. The corrected Phase 2
+Authority Engine checkpoint is approved and its first strictly ordered task—the
+pure grant and decision model—is complete without changing dispatch behavior.
 
 ### Added
+
+- **Phase 2 Authority Grant decision model.** Added immutable, serializable
+  grants, budgets, exact step-up authorization, stable policy decisions/reasons,
+  and pure coverage checks over sealed execution plans. Coverage distinguishes
+  exact versus whole-scope targets, redirects, providers, local outputs,
+  methods, credential references, multidimensional effects, risk, lifecycle,
+  modes, and budget ceilings; persistence and dispatch wiring remain later
+  Phase 2 tasks.
 
 - **Phase 1.1 execution truth gate.** Added protocol-independent
   `AuthorizationIntent`, target/scope/output envelopes, provider routes,

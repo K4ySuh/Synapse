@@ -94,7 +94,7 @@ prior assessment knowledge available through MCP tools and resources.
 
 ## Modernization Status
 
-Synapse is `READY_FOR_PHASE_2` at the application boundary. Six actions now
+Phase 2 is underway at the application boundary. Six actions now
 execute only by canonical `action_id` through Action Registry v2, validate typed
 outputs, resolve request-effective multidimensional effects and immutable
 authorization intents, and feed migrated adapter discovery from the same
@@ -103,11 +103,19 @@ envelope, provider/proxy route, methods, credential references, and exact local
 outputs. The legacy 174-tool stdio profile remains the default compatibility
 surface and still uses its existing `confirm=true` gates.
 
+The first Phase 2 task adds the pure Authority Grant and policy-decision model:
+typed coverage for exact or whole-scope targets, redirects, providers, local
+outputs, methods, credential references, effects, risk, modes, lifecycle,
+step-up authorization, and configurable budgets. It deliberately performs no
+persistence or dispatch enforcement yet; the durable transactional authority
+repository is the next dependency.
+
 An isolated, opt-in spike proves exactly three actions with the official Python
 MCP SDK 2.0.0 and protocol revision `2026-07-28` over stdio and loopback
 Streamable HTTP. It is a feasibility profile, not the default server and not a
 partial Authority Grants implementation. See
-[the Phase 1.1 handoff](docs/modernization/phase-1.1-handoff.md).
+[the Phase 1.1 handoff](docs/modernization/phase-1.1-handoff.md) and
+[the approved Phase 2 checkpoint](docs/modernization/phase-2-stage-a.md).
 
 ## Main Features
 

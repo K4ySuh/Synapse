@@ -1,6 +1,6 @@
 # Phase 2 Stage A — Authority Engine design checkpoint
 
-Corrected draft for operator/architectural-lead ratification. ADR-0009
+Approved design checkpoint. ADR-0009
 supersedes this document's original input-type routing and singular
 `SideEffectClass` assumptions. Phase 2 starts only from Registry v2: explicit
 action IDs, validated canonical outputs, request-effective multidimensional
@@ -8,11 +8,10 @@ effects, availability-before-policy, and Action Registry as operational truth.
 The Phase 1.1 truth gate additionally lands the descriptor-owned intent,
 target/output/provider envelopes, and continuation lineage assumed below.
 
-This document opens Phase 2
-(Authority Grants, ADR-0003) by turning the proposed decision and the directive's
-Section C into a design checkpoint that can be locked for a later Stage B. It
-makes the architectural calls; the section "Decisions owed" lists the points
-needing an explicit sign-off before Stage B specs are written.
+This document opens Phase 2 (Authority Grants, ADR-0003) by turning the proposed
+decision and the directive's Section C into the approved design checkpoint for
+Stage B. The operator authorized implementation to begin on 2026-08-09 after
+the Phase 1.1 truth gate reported `READY_FOR_PHASE_2`.
 
 - Author: architectural lead (Javier Roldán Ortiz)
 - Governing ADR: ADR-0003 (Proposed) — Durable Authority Grants
@@ -20,9 +19,10 @@ needing an explicit sign-off before Stage B specs are written.
   ADR-0007 (outcome model), ADR-0008 (action identity)
 - Directive source: Section C ("Introduce durable Authority Grants") and
   "Phase 2 — Authority Engine"
-- Status: **corrected draft, awaiting checkpoint approval and an independent design review**
-- Publication note: tracking this draft preserves the current development state;
-  it does not ratify the decisions in Section 9 or authorize Stage B implementation
+- Status: **checkpoint approved; Stage B in progress**
+- Publication note: the approval ratifies the decisions in Section 9 and
+  authorizes the strict Stage B sequence. ADR-0003 remains Proposed until the
+  applied Phase 2 gate and migration record are complete.
 
 ## 0. Preconditions and base dependency
 
@@ -287,36 +287,40 @@ migrated (Phase 1 pattern) and grant-evaluated. No legacy-removal date is set.
    enter grants, descriptors, audit summaries, or agent-facing results.
 8. Authority decisions are linked to evidence and action records.
 
-## 9. Decisions owed (checkpoint sign-off)
+## 9. Ratified checkpoint decisions
+
+The operator's 2026-08-09 instruction to begin Phase 2 ratified the unresolved
+checkpoint recommendations below. This authorizes implementation in the strict
+dependency order in Section 10; it does not itself mark ADR-0003 applied.
 
 1. **Integration order — resolved.** F-1 landed before Phase 1; integrated
    `Beta` is `219d4a1` and the combined verification gate is PASS.
-2. **Enforcement is profile-gated and additive** (§2) — ratify the recommendation
-   that Phase 2 introduces no enforcement on the legacy profile, so the frozen
+2. **Enforcement is profile-gated and additive** (§2) — Phase 2 introduces
+   no enforcement on the legacy profile, so the frozen
    surface is untouched and authority is proven only by new tests.
-3. **Grant-management surface** (§7) — ratify the recommendation for an
+3. **Grant-management surface** (§7) — use an
    operator-only application service, not model-executable registry actions.
 4. **`ExecutionContext` gains a `profile` field** (and later a resume/`requestState`
-   carrier) — ratify defaulted trusted fields for profile, bound grant,
+   carrier) — use defaulted trusted fields for profile, bound grant,
    idempotency key, and request-state id. Action input cannot set them.
-5. **Whether a new `PolicyDecision` type supersedes the `evaluate -> bool` seam** —
-   ratify the recommended return-type change, recorded as an ADR-0002 amendment
+5. **A new `PolicyDecision` type supersedes the `evaluate -> bool` seam** — use
+   the recommended return-type change, recorded as an ADR-0002 amendment
    in the ledger (same bar as a fixture change), since ADR-0002 is Accepted.
 6. **Trusted intent resolution — resolved by Phase 1.1.** The descriptor-owned
    resolver and fifteen-field pin are recorded in ADR-0002 and the ledger;
    policy/executor/worker/finalizer share one sealed plan.
-7. **One workspace-local transactional authority file** (§6) — ratify this over
+7. **One workspace-local transactional authority file** (§6) — use this over
    separate grant/ledger JSON files so budget reservation and authorization are
    one locked atomic mutation.
-8. **Reason taxonomy** — ratify `target_out_of_scope` as `ScopeDenied/-32002` and
+8. **Reason taxonomy** — keep `target_out_of_scope` as `ScopeDenied/-32002` and
    grant/lifecycle/coverage/budget/step-up/`scope_changed` reasons as
    `ApprovalRequired/-32001`.
-9. **Phase 2 request state and operator identity** — ratify server-held opaque
+9. **Phase 2 request state and operator identity** — use server-held opaque
    request state plus the minimal trusted `OperatorPrincipal`; defer
    self-contained token sealing and stronger signer identity until an explicit
    protocol/operator-plane decision.
 
-## 10. Stage B task outline (written in full once this checkpoint is ratified)
+## 10. Stage B task outline
 
 Strict dependency order, one commit per task, `bin/test` green after each, no
 frozen fixture edited:
@@ -326,7 +330,10 @@ frozen fixture edited:
    `PolicyDecision` for the three modes. Compare exact versus whole-scope target
    selection, scope digest, redirects, providers, local outputs, methods,
    credential refs, effects, risk, and configurable budgets. Pure model + unit
-   tests; no persistence or dispatch.
+   tests; no persistence or dispatch. **Completed in the first Phase 2 task:**
+   typed, serializable grants/budgets/step-up records; `Allow`,
+   `ApprovalRequired`, and `ScopeDenied`; exact coverage across every named
+   dimension; stable reason codes; and adversarial tests for all three modes.
 2. **Durable authority repository** — one workspace-local transactional state
    file on `core/atomic_io.py`; crash/lock/revision/budget/expiry/revocation and
    recovery tests.

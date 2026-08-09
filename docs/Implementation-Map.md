@@ -321,6 +321,22 @@ non-empty `outputSchema` for all six actions. The stable legacy tools list stays
 frozen and therefore does not publish these new output schemas. The isolated
 modern spike publishes real input/output schemas for exactly three actions.
 
+The protocol-independent Phase 2 authority model is under
+`synapse_mcp/policy/`:
+
+- `authority.py` defines immutable, serializable Authority Grants, configurable
+  request/rate/parallelism budgets, exact step-up authorizations, and the
+  `Allow` / `ApprovalRequired` / `ScopeDenied` decision union;
+- `evaluate_authority()` compares a sealed `ExecutionPlan` against current
+  scope and every grant dimension: target selection, redirect policy, provider
+  routes and identities, exact local outputs, methods, credential references,
+  effects/replay safety, risk, mode, lifecycle, and budgets.
+
+This is currently a pure model only. It performs no I/O and is not yet wired to
+the Action Registry or legacy transport. Durable authority state, transactional
+budget reservation, dispatch records, and profile-aware enforcement belong to
+the subsequent Phase 2 tasks.
+
 `synapse_mcp.transport.stdio_server` implements the MCP JSON-RPC boundary.
 
 ```text
