@@ -24,6 +24,14 @@ compatibility evidence build on that immutable reference.
 - [Action migration pattern](action-migration-pattern.md) — contributor guide
   proven by the six-action vertical slice
 
+## Phase 2
+
+- [Stage A Authority Engine design checkpoint](phase-2-stage-a.md) — tracked
+  draft awaiting operator/architectural-lead ratification and independent
+  design review; publication does not approve the checkpoint
+- Crash-atomic scope and credential storage prerequisite — integrated before
+  the Phase 1 Action Registry merge and covered by the combined Beta gate
+
 ## Architecture decisions
 
 | ADR | Decision | Status |
