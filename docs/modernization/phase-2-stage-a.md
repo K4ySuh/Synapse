@@ -5,6 +5,8 @@ supersedes this document's original input-type routing and singular
 `SideEffectClass` assumptions. Phase 2 starts only from Registry v2: explicit
 action IDs, validated canonical outputs, request-effective multidimensional
 effects, availability-before-policy, and Action Registry as operational truth.
+The Phase 1.1 truth gate additionally lands the descriptor-owned intent,
+target/output/provider envelopes, and continuation lineage assumed below.
 
 This document opens Phase 2
 (Authority Grants, ADR-0003) by turning the proposed decision and the directive's
@@ -24,8 +26,9 @@ needing an explicit sign-off before Stage B specs are written.
 
 ## 0. Preconditions and base dependency
 
-The implementation prerequisites are integrated on `Beta` at
-`219d4a1`:
+The historical implementation prerequisites landed at `219d4a1`; Registry v2
+and the official-SDK correction gate are integrated through `b1c29dc`. Phase
+1.1 builds on that verified baseline:
 
 1. **F-1 atomic-store prerequisite** — `2790b8d`, landed first. Scope,
    credentials, and private JSON writes use the shared `core/atomic_io.py`
@@ -34,13 +37,10 @@ The implementation prerequisites are integrated on `Beta` at
    reviewed history. Six actions across five packs route through
    `ActionRegistry.execute()` and its policy seam.
 
-The combined gate passes 50 contract tests, 5 modernization-document tests,
-460 core tests, 2 template tests, and the seven-workflow benchmark. The legacy
-surface remains 174 tools / 99,337 compact bytes. Stage B is no longer blocked
-on repository integration, but it remains blocked on this checkpoint's
-operator ratification and independent design review. The implementation branch
-must be cut from `219d4a1` (or a later explicitly recorded `Beta` descendant
-containing it).
+The Phase 1.1 handoff records the current exact test counts and commit range.
+The legacy surface remains 174 tools / 99,337 compact bytes. Stage B is no
+longer blocked on an intent or execution-truth prerequisite, but durable grant
+state, decisions, budgets, and the dispatch ledger remain unimplemented.
 
 ## 1. Objective
 
@@ -104,6 +104,10 @@ by every descriptor, so the evaluator compares like with like.
 | `revision` | positive integer | Optimistic lifecycle version; increments on every grant mutation |
 | `mode` | `observe` / `supervised` / `full_delegated` | Operator-facing authority posture (§4) |
 | `scopeDigest` | hash of the effective workspace authorization set | Binds the grant to normalized hosts/patterns/CIDRs; timestamps, notes, and ordering do not change it |
+| `targetEnvelope` | exact scheme/host/port/path selectors and/or explicit `entireWorkspaceScope` | Delegates a subset or the whole frozen scope; digest alone never selects targets |
+| `redirectPolicy` | allowed dynamic selectors and hop ceiling | Covers each normalized hop before connection, including explicitly authorized cross-host redirects |
+| `providerRoutes` | direct/disabled or exact proxy/provider endpoints plus credential refs | Covers contacted infrastructure separately from assessment targets |
+| `localOutputEnvelope` | exact normalized paths plus create/overwrite/prune permission | Covers local destinations separately from remote targets |
 | `allowedActionPatterns` | globs over `ActionId` (e.g. `cors.*`, `workspace.summary`) | Which actions the grant covers |
 | `allowedMethods` | HTTP methods | Ceiling for probe/method-bearing actions |
 | `allowedEffects` | traffic destinations, local write domains, local/remote change, credential/secret use, replay rules | Compare request-effective effects; uncertainty uses the descriptor maximum |
@@ -115,33 +119,35 @@ by every descriptor, so the evaluator compares like with like.
 | `expiresAt`, `createdAt`, `approvedBy`, `revokedAt` | timestamps / operator principal | Lifecycle and audit |
 
 The Registry v2 descriptor fields (`effects`, `effect_resolver`, `risk_class`,
-`scope_policy`, `credential_policy`, and replay safety) provide policy bounds,
-but the current `ActionRequest` does **not** expose a canonical target, method,
-credential/provider set, or fingerprint material. Phase 2 therefore needs one
-additional descriptor-owned contract: a pure `intent_resolver` producing a frozen
-`AuthorizationIntent`. This is an intentional ADR-0002 amendment, not an inference
-from arbitrary input field names.
+`scope_policy`, `credential_policy`, and replay safety) provide policy bounds.
+Phase 1.1 adds the fifteenth descriptor-owned contract: a pure
+`intent_resolver` producing a frozen `AuthorizationIntent`, sealed with effects
+and input fingerprint into `ExecutionPlan`. This is the recorded ADR-0002
+amendment, not an inference from arbitrary input field names.
 
 ### 3.1 Trusted authorization intent
 
-`AuthorizationIntent` contains the canonical action id, workspace id, normalized
-targets and methods, credential references, third-party providers, full validated
-input fingerprint material, and any state-change classification not already
-expressible by the descriptor. The resolver:
+`AuthorizationIntent` now contains the canonical action ID, workspace/scope
+digest and frozen selection, exact/whole-scope targets, seeds, redirect policy,
+methods, credential references, provider/proxy route, exact local outputs, and
+continuation lineage. The execution plan carries the validated input
+fingerprints and effective effects. The resolver:
 
 - performs validation and local normalization only — no traffic, credential
   resolution, write, or provider call;
 - handles action-specific shapes such as CORS `candidate.url` versus `url`;
-- includes unknown public extras and applied defaults in fingerprint material;
+- includes unknown public extras in fingerprint material while preserving
+  omission semantics of the validated legacy input;
 - never includes raw credential values; the authority profile accepts credential
   references only;
 - runs in `ActionRegistry.execute()` before policy evaluation, and the executor
-  receives exactly the resolved intent that policy approved.
+  receives the identical plan object that policy reviewed;
+- supplies a fingerprinted serialization to crawler workers/finalizers, which
+  reject target, provider, output, input, workspace, or effect widening.
 
-Adding `intent_resolver` changes the descriptor's fourteen-field pin. The change
-must be explicit in the ADR-0002 amendment and contract ledger. Keeping fourteen
-fields is not a valid reason to authorize a different target from the one the
-executor will dispatch.
+The descriptor now has fifteen fields. ADR-0002 and the contract ledger record
+the amendment. Durable grants remain absent: caller fields request an envelope
+but cannot grant it.
 
 ## 4. Grant modes
 
@@ -296,9 +302,9 @@ migrated (Phase 1 pattern) and grant-evaluated. No legacy-removal date is set.
 5. **Whether a new `PolicyDecision` type supersedes the `evaluate -> bool` seam** —
    ratify the recommended return-type change, recorded as an ADR-0002 amendment
    in the ledger (same bar as a fixture change), since ADR-0002 is Accepted.
-6. **Trusted intent resolution** (§3.1) — ratify adding a pure descriptor-owned
-   `intent_resolver`, intentionally changing the fourteen-field descriptor pin so
-   policy sees the exact target/method/credentials/provider execution intent.
+6. **Trusted intent resolution — resolved by Phase 1.1.** The descriptor-owned
+   resolver and fifteen-field pin are recorded in ADR-0002 and the ledger;
+   policy/executor/worker/finalizer share one sealed plan.
 7. **One workspace-local transactional authority file** (§6) — ratify this over
    separate grant/ledger JSON files so budget reservation and authorization are
    one locked atomic mutation.
@@ -315,19 +321,22 @@ migrated (Phase 1 pattern) and grant-evaluated. No legacy-removal date is set.
 Strict dependency order, one commit per task, `bin/test` green after each, no
 frozen fixture edited:
 
-1. **Grant + decision + intent model** — `policy/authority.py`: the typed grant,
-   three modes, `PolicyDecision`, `AuthorizationIntent`, fingerprint, reason and
-   dispatch-state contracts. Pure model + unit tests.
+1. **Grant + pure decision model** — `policy/authority.py`: consume the existing
+   `AuthorizationIntent`/`ExecutionPlan` and implement typed grant coverage plus
+   `PolicyDecision` for the three modes. Compare exact versus whole-scope target
+   selection, scope digest, redirects, providers, local outputs, methods,
+   credential refs, effects, risk, and configurable budgets. Pure model + unit
+   tests; no persistence or dispatch.
 2. **Durable authority repository** — one workspace-local transactional state
    file on `core/atomic_io.py`; crash/lock/revision/budget/expiry/revocation and
    recovery tests.
 3. **`GrantPolicyEvaluator`** — profile-aware evaluation → `PolicyDecision`;
    exhaustive coverage/mode/budget/ledger unit tests; legacy profile proven a
    pass-through.
-4. **Wire intent and decisions into the registry** — add descriptor-owned intent
-   resolution, evolve `evaluate` to `PolicyDecision`, map decisions to outcomes,
-   inject the evaluator, and extend `ExecutionContext`. Legacy-profile
-   equivalence is the gate.
+4. **Wire decisions into the registry** — intent/plan wiring already exists;
+   evolve `evaluate` to `PolicyDecision`, map decisions to outcomes, inject the
+   evaluator, and extend trusted `ExecutionContext`. Legacy-profile equivalence
+   is the gate.
 5. **Operator management service** — issue/inspect/step-up/reconcile/revoke through
    the trusted non-registry service; evidence linkage.
 6. **Authority walk-through** — new tests driving the six actions under the
@@ -337,7 +346,7 @@ frozen fixture edited:
 7. **Migration doc + ADR promotions** — record the pattern; move ADR-0003 to
    Accepted-applied; ledger the ADR-0002 seam amendment; Phase 2 handoff.
 
-## Appendix A — why the descriptor must evolve
+## Appendix A — why the descriptor evolved in Phase 1.1
 
 Phase 1 descriptors express policy ceilings but not how to derive the exact
 execution intent from action-specific input. For example, CORS accepts either
@@ -345,8 +354,9 @@ execution intent from action-specific input. For example, CORS accepts either
 have still more shapes. Authorizing by guessed field names would let policy and
 the executor disagree about the target.
 
-The descriptor therefore gains one pure intent resolver. This changes an
-application contract and its test, but it does not change legacy tool names,
-input schemas, result fixtures, or wire bytes. ADR-0002's single-source and
-no-bypass rules are strengthened: the same descriptor owns both policy metadata
-and the resolver for the intent evaluated before its executor is invoked.
+The descriptor therefore gained one pure intent resolver in Phase 1.1. This
+changed an application contract and its test, but did not change legacy tool
+names, input schemas, result fixtures, or wire bytes. ADR-0002's single-source
+and no-bypass rules are now stronger: the same descriptor owns both policy
+metadata and the resolver for the intent evaluated before its executor is
+invoked.

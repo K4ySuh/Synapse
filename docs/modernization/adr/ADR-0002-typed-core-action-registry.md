@@ -17,6 +17,12 @@
   routing is explicit by canonical action ID, output contracts are executable,
   and multidimensional maximum/effective effects replace the singular
   side-effect label as policy authority.
+- Amended: 2026-08-09 by the operator-directed Phase 1.1 truth gate: the
+  descriptor gains a fifteenth `intent_resolver` field and Registry seals a
+  protocol-independent immutable execution plan consumed unchanged by policy,
+  executor, worker, and finalizer. The amendment is recorded in
+  `../contract-changes.md` and closes the previously documented Phase 2 intent
+  prerequisite without implementing grants.
 
 ## Context
 
@@ -39,8 +45,15 @@ Extract use-case services that accept typed commands and return typed results, w
 Execution resolves the descriptor by direct `action_id` lookup, verifies that
 the request carries that descriptor's input model, evaluates runtime
 availability, resolves request-effective effects within the declared maximum,
-evaluates policy, invokes the executor, and validates the canonical output
-model. Input-model classes may be shared because they are not routing keys.
+resolves a canonical `AuthorizationIntent`, seals both with the validated input
+fingerprint as one immutable `ExecutionPlan`, evaluates policy, invokes the
+executor with that same plan, and validates the canonical output model.
+Input-model classes may be shared because they are not routing keys.
+
+The intent contains workspace/scope digest, exact versus whole-workspace target
+selection, seeds and dynamic expansion provenance, methods, provider/proxy,
+credential references, redirect policy, exact local outputs, and continuation
+lineage where applicable. It describes requested execution and is not a grant.
 
 For legacy byte equality, the descriptor's `input_model` is generated from one
 typed `InputContractDocument` retained on the model class. The transport projects
@@ -65,6 +78,20 @@ only the legacy public name and serializer/argument-adapter choice.
 - A successful action payload is an instance of the descriptor's validated
   output model; legacy serialization is retained only in an explicit
   compatibility field.
+- Policy and runtime consume one plan object. A worker/finalizer receives a
+  fingerprinted serialization of that plan; input, target, provider, output,
+  workspace, or finalizer-effect divergence is rejected before the effect.
+- Target canonicalization and matching distinguish scheme, host, port, and path
+  precision. A scope digest detects scope changes but never substitutes for an
+  explicit exact/whole-scope selection.
+- Exact selectors use one of three non-regex path modes: `exact` matches one
+  canonical path, `prefix` matches that path boundary and descendants, and
+  `any` covers paths only on the same scheme/host/port origin. Whole-scope
+  selection delegates to the frozen existing host/pattern/CIDR matcher.
+- A background continuation reseals the parent plan with its job ID and binds
+  finalizer identity/data plus result, cleanup, and process-sidecar paths.
+  Legitimate terminal cleanup may blank the bound process paths but cannot
+  replace them with different destinations.
 
 ## Alternatives considered
 
@@ -101,8 +128,9 @@ only the legacy public name and serializer/argument-adapter choice.
 - Operational: Registration failures become startup/test failures rather than
   runtime surprises.
 - Security: Policy-relevant attributes become explicit data and executors must
-  be reached through policy evaluation. Phase 1 does not claim the declared
-  metadata is already enforced.
+  be reached through policy evaluation. Phase 1.1 enforces execution-plan
+  integrity and target/output/provider containment; durable grant evaluation is
+  still deferred to ADR-0003.
 - Compatibility: The legacy profile remains byte-checked against the Phase 0
   fixtures.
 
@@ -125,6 +153,8 @@ public names.
   executor field.
 - Reject ID/model mismatches and invalid executor outputs, and prove shared
   input models route correctly by ID.
+- Mutate target/output after policy and prove the executor rejects before any
+  effect; prove every redirect and proxy route is checked against the plan.
 - Run all Tier-1 and Tier-2 fixtures and the P0-3 corpus after every migrated
   action.
 - Confirm Phase 1 changes no protocol version, authority behavior, or storage.

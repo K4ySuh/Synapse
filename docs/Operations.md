@@ -302,6 +302,11 @@ The crawler sends GET requests, extracts HTML links and forms, records query
 parameters, status codes, content types, titles, and form inputs, and writes the
 site map under the target workspace evidence folder. Custom external `output`
 paths require `allowExternalOutput=true` after explicit approval.
+For the migrated crawler path, the requested/default JSON and sibling graph
+paths are resolved before dispatch and stored in the execution plan. Existing
+destinations are classified as overwrite; default retention is classified as
+possible local destruction. A changed/traversed/symlink-substituted path cannot
+redirect the writer after policy.
 It follows ordinary links, click-like navigation attributes such as `data-href`
 and JavaScript `location` handlers, meta refresh targets, and bounded GET form
 submissions. By default it also fetches linked JavaScript assets for route
@@ -351,6 +356,17 @@ coverage: a completed worker may report `partial` or `no_coverage`. The compact
 `resultSummary` includes attempted requests, HTTP responses, successful
 fetches, visited pages, blocked redirects, queued remainder, and categorized
 errors; failed seed attempts are not counted as visited pages.
+
+Polling does not create new authority for a job and does not require the
+operator to repeat the authority already used to dispatch it. `jobs.status`
+validates the job's persisted continuation plan, then may refresh/persist state,
+run the finalizer once, write workspace/evidence, and remove worker/stdio
+sidecars. The plan seal covers finalizer identity/data and all result/cleanup
+and process-sidecar paths, so edited job metadata fails before a PID, return-code
+write, finalizer, or deletion is used. It is therefore not a pure-read action.
+Phase 2 will re-evaluate grant
+revocation/expiry before a new active dispatch or resume, while preserving the
+historical truth of work already dispatched.
 
 Site-map and crawl artifacts include a `flowGraph` object for first-glance
 workflow review. It links hosts, endpoints, and forms with request, navigation,
@@ -1006,7 +1022,8 @@ jobs.list(activeOnly=true, workspaceId="<workspace>")
 ```
 
 Background job records are stored under the workspace data tree with stdout,
-stderr, return-code, approval, and tool metadata. While the MCP process is
+stderr, return-code, approval, tool metadata, and a fingerprinted creation-time
+continuation plan. While the MCP process is
 alive, a watchdog enforces the outer job timeout and terminates the job process
 group when the budget is exceeded. Lazy finalization during `jobs.status`
 ingests completed tool output and records the workspace action. If the MCP
@@ -1015,6 +1032,17 @@ recoverable process handle, the job is marked `timed_out` without terminating
 an unknown process group.
 Background job timeouts are clamped to a 30 second minimum and a 24 hour
 maximum in the stored job record.
+
+The shared HTTP client ignores `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`
+(`trust_env=false`). Select `httpBackend="proxy"` plus an explicit `proxyUrl`
+when a proxy is intended. Proxy endpoints are recorded separately from the
+assessment target. Authenticated proxies use the internal
+`proxyCredentialId` request field and a target-scoped credential reference;
+userinfo in `proxyUrl` is rejected so secrets do not enter plans or evidence.
+Proxy URLs are origin-only; path, query, and fragment components are rejected.
+For migrated HTTP actions, redirects are followed only after each normalized
+hop passes the frozen target envelope; cross-host redirects remain possible
+when that envelope explicitly covers the destination.
 
 The MCP stdio transport has its own recoverability deadlines for synchronous
 `tools/call` requests: 45 seconds by default, 15 seconds for fast metadata

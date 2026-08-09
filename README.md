@@ -96,16 +96,18 @@ prior assessment knowledge available through MCP tools and resources.
 
 Synapse is `READY_FOR_PHASE_2` at the application boundary. Six actions now
 execute only by canonical `action_id` through Action Registry v2, validate typed
-outputs, resolve request-effective multidimensional effects, and feed migrated
-adapter discovery from the same operational metadata. The legacy 174-tool stdio
-profile remains the default compatibility surface and still uses its existing
-`confirm=true` gates.
+outputs, resolve request-effective multidimensional effects and immutable
+authorization intents, and feed migrated adapter discovery from the same
+operational metadata. The intent carries a frozen scope digest and target
+envelope, provider/proxy route, methods, credential references, and exact local
+outputs. The legacy 174-tool stdio profile remains the default compatibility
+surface and still uses its existing `confirm=true` gates.
 
 An isolated, opt-in spike proves exactly three actions with the official Python
 MCP SDK 2.0.0 and protocol revision `2026-07-28` over stdio and loopback
 Streamable HTTP. It is a feasibility profile, not the default server and not a
 partial Authority Grants implementation. See
-[the correction-gate handoff](docs/modernization/correction-gate-handoff.md).
+[the Phase 1.1 handoff](docs/modernization/phase-1.1-handoff.md).
 
 ## Main Features
 
@@ -217,7 +219,10 @@ partial Authority Grants implementation. See
   gap, and block direct replay until the reachable affected path is identified.
 - Long-running tools run as workspace-scoped background jobs by default with
   durable `jobs.list` / `jobs.status` / `jobs.cancel` records that survive MCP
-  restarts; lazy finalization ingests completed output into the workspace.
+  restarts. Every new job fixes its continuation lineage and effect envelope at
+  creation; lazy status refresh can finalize, ingest, log evidence, and clean
+  sidecars once without requesting the same approval again. A separate internal
+  snapshot read performs none of those effects.
 - The stdio transport applies bounded per-call deadlines so a slow synchronous
   call returns a recoverable JSON-RPC error instead of stalling the server.
 

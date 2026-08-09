@@ -26,6 +26,9 @@ compatibility evidence build on that immutable reference.
 
 ## Phase 2
 
+- [Phase 1.1 truth-gate handoff](phase-1.1-handoff.md) — continuation-safe jobs,
+  truthful crawler effects/output, and one execution envelope for targets,
+  redirects, proxies, and partial/whole-scope selection
 - [Correction-gate handoff](correction-gate-handoff.md) — Registry v2,
   credential concurrency, official-SDK spike, and local functional vertical;
   foundations are ready for a revised Phase 2

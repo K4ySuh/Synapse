@@ -304,11 +304,12 @@ keeps protected resources separate from real login entrypoints.
 The application action layer is under `synapse_mcp/app/actions/`:
 
 - `descriptor.py` defines action identity, typed input/output ownership,
-  availability, maximum effects, the optional effective-effects resolver, and
-  the registered executor;
+  availability, maximum effects, optional effective-effects and authorization-
+  intent resolvers, and the registered executor;
 - `registry.py` performs direct canonical-ID lookup and is the only supported
-  executor call site; it orders availability, effect resolution, policy, and
-  typed output validation;
+  executor call site; it orders availability, effect/intent resolution,
+  execution-plan sealing, policy, execution with that same plan, and typed
+  output validation;
 - `contracts.py` converts the frozen six-action input documents and rejects
   validation-affecting JSON Schema keywords it cannot preserve;
 - `adapter_metadata.py` projects migrated operational metadata back into
@@ -361,6 +362,17 @@ Exposed prompt:
 ## Core Modules
 
 ```text
+core/execution.py
+```
+
+Defines immutable, JSON-serializable `AuthorizationIntent`, `ExecutionPlan`,
+`TargetEnvelope`, frozen scope snapshots/digests, provider routes, continuation
+lineage, and exact local-output destinations. Canonical URL matching preserves
+scheme/host/port/path precision. The module contains no MCP SDK types and is the
+single runtime representation shared by Registry policy, migrated executors,
+crawler workers/finalizers, HTTP redirect checks, and planned output writes.
+
+```text
 core/paths.py
 ```
 
@@ -399,6 +411,16 @@ must keep their artifact names per-run.
 If a restarted MCP process no longer has the original `Popen` handle for a
 timed-out job, status refresh marks the job `timed_out` without sending signals
 to a PID/process group it does not own.
+
+Every new job record also carries a fingerprinted execution plan and fixed
+finalizer effects. The continuation binding covers job/finalizer identity,
+finalizer data, target/workspace, result and cleanup destinations, and the
+original stdout/stderr/return-code paths. `jobs.status`, listing refresh,
+watchdog completion, and cancel all validate that continuation before using a
+PID, writing a return code, finalizing, or cleaning up. Status is therefore not
+a pure read: it may persist, finalize, ingest workspace/evidence, and remove
+sidecars. `background_jobs.snapshot()` returns persisted state without any of
+those transitions.
 
 ```text
 transport/stdio_server.py
@@ -775,7 +797,8 @@ authentication boundaries, and state-changing methods. It records cookie names
 and auth schemes, not secret values. Active mode requires `confirm=true`,
 persisted target scope, max page/depth limits, request timeout, optional delay,
 and optional `credentialId`. Active crawl requests go through `core/http`,
-follow only persisted in-scope links and redirects, extract script route
+follow only links and redirects contained by the frozen target envelope,
+extract script route
 literals by default, and support the same direct/proxy/disabled backend policy.
 Cross-host links, redirects, form actions, and JavaScript references outside
 the owning workspace scope are retained as `asset_relation` observations and
@@ -795,6 +818,13 @@ responses for more map context, and records every POST attempt in evidence and
 target `actions.json`. Obvious admin, deletion, password, upload, import/export,
 billing, role, or permission forms are skipped unless
 `includeSensitivePostForms=true`.
+The crawler descriptor resolves the seed, frozen scope digest/selection,
+provider, methods, and exact JSON/Mermaid/SVG destinations before dispatch.
+`includeInScopeHosts=false` stays on the seed origin; `true` explicitly requests
+potential whole-workspace-scope expansion. Background workers receive the
+serialized immutable plan. Their exact args/result/state/plan paths are part of
+the local-output envelope; the continuation seal binds those paths and permits
+cleanup only for the args/state/plan destinations after finalization.
 Both passive and active outputs include `flowGraph`, a structured graph of host,
 endpoint, and form nodes with request, navigation, redirect, and form-action
 edges. The graph records HTTP methods, status codes, parameter names, and
@@ -987,6 +1017,13 @@ backends on top of `httpx`; `client.py` exposes the small
 traffic, credential refresh, and API-backed adapters. It also exposes an
 optional context-manager session path so crawls can reuse one `httpx.Client`
 across many requests while the default per-request behavior remains available.
+The client sets `trust_env=false`; direct, disabled, and explicit proxy routes
+cannot fall back to environment configuration. Migrated calls bind the route to
+their execution plan. Redirect following is manual so each normalized relative
+or absolute `Location` is envelope-checked before connecting, with loop/hop
+limits and cross-origin stripping of Authorization, Cookie, and
+Proxy-Authorization. Proxy credentials are resolved by reference at dispatch
+and are absent from plan JSON and redirect evidence.
 `compare.py` is the
 response-comparison helper for approved access-control replay. It compares
 status, body length, content type, redirect location, selected headers, body

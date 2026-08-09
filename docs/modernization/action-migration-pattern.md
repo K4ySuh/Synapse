@@ -53,7 +53,7 @@ Generated inputs deliberately retain the compatibility semantics established by
 
 Follow the examples in `packs/jobs.py`, `packs/workspace.py`, and the active
 `packs/cors.py` and `packs/crawler.py` modules. Define a per-action
-`ActionOutput` subclass with `ConfigDict(extra="allow")`, then fill all fourteen
+`ActionOutput` subclass with `ConfigDict(extra="allow")`, then fill all fifteen
 `ActionDescriptor` fields.
 
 Assign the side-effect, risk, scope, credential, and idempotency policies from
@@ -68,12 +68,21 @@ pass-through policy evaluator before the executor. Legacy implementations remain
 authoritative for confirmation, scope, and credential checks until a later
 phase.
 
+For an action with targets, methods, providers, credentials, local outputs, or
+continuations, provide a pure `intent_resolver`. It canonicalizes those
+dimensions into `AuthorizationIntent` without traffic, credential resolution,
+or writes. Registry seals the intent, request-effective effects, and validated
+input fingerprint into an immutable `ExecutionPlan`; the executor consumes
+`request.context.execution_plan` for every policy-relevant target and output.
+Resolver input requests coverage but never grants it.
+
 ## 4. Wrap the exact legacy callable
 
 The executor exposes `input_model` and `output_model` properties that are the
 same class objects carried by the descriptor. Its call path is:
 
-1. Use `request.input.model_dump(by_alias=True, exclude_unset=True)`.
+1. Use `request.input.model_dump(by_alias=True, exclude_unset=True)` and verify
+   it against the sealed execution plan when the descriptor has an intent.
 2. Invoke the exact callable and argument adaptation recorded in Appendix A,
    including the same positional/keyword arrangement, defaults, and explicit
    `int()` or `bool()` conversions.

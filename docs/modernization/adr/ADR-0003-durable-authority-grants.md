@@ -38,6 +38,22 @@ scope. A grant cannot create a capability that the adapter or repository policy
 does not currently expose; those are tracked capability gaps, not silently
 encoded permanent grant denials.
 
+Phase 1.1 supplies the comparison operand: a sealed `AuthorizationIntent` with
+`TargetEnvelope`, provider route, local-output envelope, methods, credential
+references, effective effects, input/plan fingerprints, and continuation
+lineage. A grant must compare the explicit target selection as well as
+`scopeDigest`: exact delegation never expands merely because the target belongs
+to workspace scope, while `entireWorkspaceScope=true` is covered only by an
+explicitly broad human grant.
+
+Polling/finalization of already dispatched background work is a continuation of
+that dispatch, not a new authority request. The creation-time plan records the
+originating action, workspace, scope digest/snapshot, target/effect envelope,
+provider, correlation, job/finalizer identity, and bound local paths. Phase 2
+re-evaluates expiry/revocation
+before new active dispatch or an explicit resume; it must not rewrite the truth
+of work already dispatched or demand approval for each observational poll.
+
 ## Invariants
 
 - Model-supplied data can never expand scope, authority, risk ceiling, credential access, third-party access, or budgets.
@@ -49,6 +65,11 @@ encoded permanent grant denials.
 - Approval-required is a normal resumable outcome, not a protocol error.
 - A state-changing dispatch in `dispatched` or `unknown` is never automatically replayed. The P0-3 workflow-06 benchmark is the standing regression guard.
 - Credentials are referenced by ID and resolved at dispatch; secret values never enter descriptors, audit summaries, or agent-facing results.
+- Grant coverage compares exact/whole-scope remote targets, redirect expansion,
+  provider/proxy infrastructure, and exact local outputs as separate dimensions.
+- Continuations cannot widen targets/effects and finalization is single-
+  application; polling a covered dispatched job does not consume a second
+  action approval or dispatch budget.
 - **Prerequisite:** the Phase 0 integrity prerequisite must land before authority state is persisted.
 
 ## Alternatives considered

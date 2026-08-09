@@ -25,6 +25,11 @@ can continue from the same Git state without implying architectural sign-off.
 
 ### Added
 
+- **Phase 1.1 execution truth gate.** Added protocol-independent
+  `AuthorizationIntent`, target/scope/output envelopes, provider routes,
+  continuation lineage, and immutable fingerprinted execution plans shared by
+  Registry policy and runtime.
+
 - **Modernization correction gate.** Action Registry v2 now routes explicitly
   by canonical ID, validates six real typed output contracts, resolves
   multidimensional request effects, evaluates runtime availability before
@@ -65,6 +70,18 @@ can continue from the same Git state without implying architectural sign-off.
   presentation labels map consistently to compatibility policies.
 
 ### Fixed
+
+- `jobs.status` now declares refresh/finalizer/workspace/evidence/cleanup
+  effects instead of pure read; jobs preserve and validate creation-time
+  continuation authority, including bound finalizer and local-path metadata,
+  and repeated polling remains single-application.
+- Background crawler effects now include worker workspace ingestion and job
+  cleanup. Exact external and worker-sidecar outputs distinguish
+  create/overwrite/prune and cannot be redirected after policy by traversal,
+  record mutation, or symlink substitution.
+- Migrated HTTP execution now validates every redirect before connection,
+  fixes explicit proxy/provider selection, ignores environment proxies, and
+  strips sensitive target headers on cross-origin redirects.
 
 - Credential and authentication-profile mutations now lock the complete
   read-modify-write cycle, preventing lost updates under concurrent upsert and

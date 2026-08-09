@@ -700,7 +700,13 @@ with a process-group watchdog while the MCP process is alive; synchronous
 blocking command runs also terminate their process group on adapter timeout.
 Nonzero exits, missing/corrupt worker results, and finalizer failures remain
 terminal `failed` jobs with `finalized=true`; concurrent polling finalizes a
-job once.
+job once. `jobs.status` is modeled as a continuation because polling can
+persist, finalize, ingest, log evidence, and remove sidecars. Each new job
+stores the originating action/correlation, frozen scope and target envelope,
+effects, and plan fingerprint. The seal also binds finalizer identity/data and
+result, cleanup, stdout, stderr, and return-code paths; every refresh/finalization
+path validates that record before using them or applying effects.
+`background_jobs.snapshot()` is the internal effect-free read.
 Crawler job process status and assessment coverage are separate. A worker that
 exits normally remains `status=completed`, while `resultDisposition` reports
 `complete`, `partial`, or `no_coverage`. Default job summaries include attempted
@@ -714,6 +720,15 @@ ffuf, Nuclei, nmap, crawler, and sitemap
 outputs default under
 `DATA/workspaces/<workspace>/targets/<host>/outputs/`; custom
 external output paths require `allowExternalOutput=true`.
+
+The migrated crawler resolves exact JSON/Mermaid/SVG plus background
+args/result/state/plan destinations before dispatch, distinguishes create from
+overwrite/pruning, and pins background workers to a derived, sealed continuation
+of the same immutable plan. `includeInScopeHosts=true` explicitly means
+potential coverage of the frozen workspace scope; `false` remains seed-origin
+only. The shared HTTP client disables environment proxies, fixes direct/proxy
+selection in the plan, resolves proxy secrets only from credential references,
+and validates every redirect before its next connection.
 
 The stdio transport has MCP-level call deadlines as a recovery guard. A slow
 synchronous `tools/call` returns error `-32003` and the server remains available

@@ -20,8 +20,9 @@ legacy stdio projection                 modern spike (opt-in, three actions)
               -> ActionRegistry.execute(action_id, request)
                    -> runtime availability
                    -> request-effective ActionEffects
-                   -> policy evaluator
-                   -> registered executor
+                   -> immutable AuthorizationIntent / ExecutionPlan
+                   -> policy evaluator -----------+
+                   -> registered executor <-------+ (same plan object)
                    -> canonical output-model validation
 ```
 
@@ -31,6 +32,15 @@ credential/secret use, and replay safety. A descriptor declares the maximum;
 an input-aware resolver narrows it before policy. Resolver uncertainty applies
 the maximum with an explanation. Availability is evaluated before both policy
 and execution.
+
+`AuthorizationIntent` is protocol-independent and distinct from a grant. It
+records the current workspace and scope digest plus the requested exact targets
+or explicit whole-workspace-scope expansion, seed targets, redirect policy,
+methods, provider/proxy route, credential references, and exact local output
+destinations. `ActionRegistry` seals it with the effective effects and validated
+input fingerprint as one `ExecutionPlan`; policy and executor receive that same
+immutable instance. Caller input describes a request and cannot manufacture a
+grant.
 
 ```text
 MCP client
@@ -187,6 +197,15 @@ The job keeps its process status while its compact result independently reports
 `complete`, `partial`, or `no_coverage` plus attempted-request, HTTP-response,
 successful-fetch, visited, blocked-redirect, queued, and categorized error
 counts. Only successful fetches contribute to the visited-page inventory.
+
+`jobs.status` is a continuation operation, not a pure read. Refresh may persist
+the job, observe terminal state, run the creation-time finalizer, update
+workspace/evidence, and remove sidecars. Job creation stores the originating
+action/correlation, frozen scope/target envelope, effects, and plan fingerprint;
+the seal also binds the job ID, finalizer identity/data, result/cleanup paths,
+and process sidecar paths. Every refresh path validates it before reading a PID,
+writing a return code, finalizing, or cleaning up, and concurrent polling applies
+finalization once. `background_jobs.snapshot()` is the internal effect-free read.
 
 CVE intelligence responses use a DATA-local provider/query-hash cache rather
 than target-local caches. Per-query file locks deduplicate concurrent callers,
@@ -400,6 +419,15 @@ The credential store is local runtime data and should not be committed.
   values.
 - Active adapter outputs default into workspace target evidence folders; custom
   external paths require `allowExternalOutput=true`.
+- Migrated crawler outputs are resolved to exact physical JSON/Mermaid/SVG paths
+  before dispatch, distinguish create from overwrite/pruning, and cannot be
+  redirected by a later symlink substitution. Background args, result, state,
+  and execution-plan sidecars are also exact local-output destinations; only
+  the cleanup-marked destinations may be pruned by the finalizer.
+- Migrated HTTP execution disables environment proxies, fixes the explicit
+  direct/proxy/provider route in the execution plan, and validates every
+  normalized redirect before the next connection. Cross-origin redirects strip
+  target Authorization/Cookie headers; proxy secrets are credential references.
 - `js.fetch_assets` is the only JavaScript intelligence tool that sends
   traffic. It requires in-scope targets and explicit approval unless the HTTP
   backend is disabled. It runs synchronously, so it reuses one pooled HTTP
