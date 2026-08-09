@@ -79,8 +79,8 @@ migration, or complete Phase 2 implementation occurred.
 | Official MCP Inspector `tools/list` over stdio | PASS, exit 0, exactly 3 tools |
 | Official MCP Inspector active call from its older negotiated revision | expected compatibility fallback: `isError=true`, `approval_required`, no dispatch; Inspector exits 5 because the tool result is an error |
 
-Latest seven-workflow wall times in milliseconds: `0.504`, `3.475`, `2.012`,
-`2.733`, `54.624`, `57.903`, `5.243`. Baseline was `0.272`, `3.199`,
+Latest seven-workflow wall times in milliseconds: `0.422`, `3.364`, `2.058`,
+`2.355`, `55.721`, `57.540`, `5.331`. Baseline was `0.272`, `3.199`,
 `1.498`, `1.867`, `53.077`, `55.883`, `4.147`; no workflow or call-count
 regression occurred.
 
