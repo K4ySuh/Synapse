@@ -327,7 +327,26 @@ The application action layer is under `synapse_mcp/app/actions/`:
 `REGISTRY.contract_schema(action_id)` exposes the canonical `inputSchema` and
 typed `outputSchema` for all 174 actions. The stable legacy tools list stays
 frozen and therefore does not publish these output schemas. The isolated modern
-spike remains intentionally fixed at exactly three actions for Phase 3A.
+spike remains intentionally fixed at exactly three actions until Phase 3C.
+
+The Phase 3B application surfaces are under `synapse_mcp/app/facade/`:
+
+- `contracts.py` owns the strict eleven compact inputs, common typed outcome,
+  annotations, resource references, and trusted adapter context;
+- `catalog.py` provides deterministic bounded search and exact description over
+  all 174 descriptors without hiding high-risk actions;
+- `services.py` revalidates nested action input, gates passive effects, invokes
+  only `ActionRegistry.execute()`, normalizes typed outcomes, and resumes opaque
+  supervised operation handles exactly once;
+- `resources.py` binds opaque file references to principal, authority session,
+  workspace, allowed root, artifact type, and immutable content version, with
+  reauthorization on every read;
+- `projections.py` fixes the eleven-operation compact order and generates the
+  174-operation direct surface plus static annotations from descriptor truth.
+
+The compact application descriptor payload is 21,648 bytes under deterministic
+compact JSON. These are application services only; official-SDK transport
+projection begins in Phase 3C.
 
 The protocol-independent Phase 2 authority model is under
 `synapse_mcp/policy/`:

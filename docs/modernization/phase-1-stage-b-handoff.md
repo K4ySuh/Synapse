@@ -1,9 +1,9 @@
 # Phase 1 Stage B Handoff
 
-> Historical gate record. The 2026-08-09 correction gate supersedes the
+> Historical gate record. ADR-0009 supersedes the
 > input-model uniqueness workaround, singular effect metadata, descriptive-only
 > outputs, and crash-atomic-only credential locking described below. Current
-> authority is ADR-0009 and `correction-gate-handoff.md`; the legacy wire
+> authority is ADR-0009; the legacy wire
 > compatibility evidence in this document remains valid.
 
 ## Identity

@@ -1,20 +1,19 @@
 # Phase 3 execution plan
 
-Status: active; Phase 3A only
+Status: active; Phase 3B complete
 Started: 2026-08-19
 Baseline: `6f46dae128520e06056dce50632e750023aedc80` on `Beta`
 
 This plan implements the operator-provided Phase 3 execution pack as four
-strictly sequential sessions. This session may complete only Phase 3A and must
-not begin the compact facade, modern transport, or interoperability work owned
-by 3B–3D.
+strictly sequential sessions. Sessions 3A and 3B are complete. Modern transport
+and interoperability/default work remain isolated to Sessions 3C and 3D.
 
 ## Session sequence
 
 | Session | Scope | Exit gate |
 |---|---|---|
 | 3A | Canonical descriptors, implementations, inventory, and frozen legacy parity for all 174 actions | `PHASE_3A_PASS` |
-| 3B | Protocol-independent compact and direct services | Separate Codex session after 3A passes |
+| 3B | Protocol-independent compact and direct services | `PHASE_3B_PASS` |
 | 3C | Official-SDK modern MCP adapter, identity, and durable request-state security | Separate Codex session after 3B passes |
 | 3D | Fixed-corpus interoperability, default decision, conformance, and formal closure | Separate Codex session after 3C passes |
 
@@ -45,4 +44,21 @@ by 3B–3D.
   public contract.
 - Unknown availability, effect, intent, or output facts fail closed; Phase 3A
   does not invent successful capability.
-- No Phase 3B implementation is permitted in this session.
+- Phase 3B application code contains no MCP SDK or transport imports. No Phase
+  3C adapter implementation is permitted before the 3B gate passes.
+
+## Phase 3B gates
+
+1. Expose exactly eleven compact application operations in deterministic order.
+2. Provide bounded catalog search and exact schema/effect/policy description
+   over all 174 canonical actions.
+3. Revalidate dynamic action input/output and route passive, active, direct,
+   review, report, and task work only through `ActionRegistry.execute()`.
+4. Reject model-supplied authority identity and fail the passive gate before
+   dispatch on traffic, credential/secret, remote-mutation, or destructive
+   maximum effects.
+5. Resume supervised approval through opaque bound handles exactly once.
+6. Replace local paths with opaque principal/session/workspace/version-bound
+   resources that reauthorize every read.
+7. Prove direct/compact descriptor equivalence, deterministic serialization
+   below 24,834 bytes, all existing suites, compile, inventory, and diff gates.

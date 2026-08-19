@@ -11,12 +11,12 @@ use.
 
 ## Runtime Topology
 
-The stable transport now reaches all 174 frozen legacy operations through a
-protocol-independent application boundary:
+The frozen transport and both Phase 3B application projections reach all 174
+canonical operations through one protocol-independent execution boundary:
 
 ```text
-legacy stdio projection                 modern spike (opt-in, three actions)
-             \                           /
+legacy stdio projection     compact facade / direct projection     modern spike
+             \                         |                          /
               -> ActionRegistry.execute(action_id, request)
                    -> runtime availability
                    -> request-effective ActionEffects
@@ -29,6 +29,12 @@ legacy stdio projection                 modern spike (opt-in, three actions)
                    -> dispatch result/continuation ledger update
                    -> canonical output-model validation
 ```
+
+The compact facade has exactly eleven stable application operations; the
+direct projection is generated in canonical Registry order. Phase 3B adds no
+MCP transport. Startup surface selection is trusted configuration and is
+independent from wire negotiation and authority. Dynamic facade inputs cannot
+submit a principal, grant, authority profile, session, or request state.
 
 `ActionEffects` independently describes authorized-target/third-party traffic,
 local write domains, local change/destruction, possible remote state change,
@@ -65,6 +71,9 @@ MCP client
     |
     `-- stdio --> MCPS/Synapse-MCP/bin/synapse-mcp
                    |-- uses $SYNAPSE_PYTHON, active VIRTUAL_ENV, or .venv/bin/python
+                   |-- app/
+                   |   |-- actions/ (174 canonical descriptors and Registry)
+                   |   `-- facade/ (compact/direct services, catalog, resources)
                    |-- core/
                    |   |-- paths.py
                    |   |-- errors.py
@@ -187,6 +196,23 @@ status/background/job/result/error core until their retained implementation
 wrappers are physically retired. A separate compatibility
 payload preserves the frozen legacy serialization. This prevents legacy
 strings from becoming the application contract.
+
+`app/facade/` adds strict transport-neutral input and common outcome contracts,
+bounded catalog search, exact schema description, passive/active dispatch,
+review/report/task routing, and generated direct descriptors. Passive dispatch
+fails before Registry execution when the descriptor's maximum effects include
+traffic, credential or secret use, remote mutation, or local destruction;
+workspace/evidence writes remain truthfully visible and may be allowed.
+Approval-required work becomes an opaque operation handle bound to the trusted
+principal, authority session, and workspace, then resumes through the durable
+Phase 2 request state exactly once.
+
+Local files are removed from model-facing results and represented by random
+resource references. The server-held record binds the principal, authority
+session, workspace, artifact type, and content version; every read repeats the
+binding, allowed-root, and version checks. Raw filesystem paths are not part of
+the public reference. These application references are process-local in Phase
+3B; authenticated multi-worker persistence belongs to the Phase 3C adapter.
 
 The credential store uses a single file-lock-scoped mutation primitive for the
 complete read-modify-write cycle. Atomic replacement, `0600`, file/directory

@@ -18,10 +18,22 @@ generation; it also tightens passive candidate semantics across the web and CVE
 layers.
 
 The staged modernization foundation now includes the frozen compatibility
-baseline, a complete 174-action canonical registry, and an integrated Phase 2
-Authority Engine with durable dispatch and continuation truth.
+baseline, a complete 174-action canonical registry, protocol-independent
+compact/direct services, and an integrated Phase 2 Authority Engine with
+durable dispatch and continuation truth.
 
 ### Added
+
+- **Phase 3B compact and direct application services.** Added an exact
+  eleven-operation compact facade plus a deterministic 174-operation direct
+  projection over the canonical Registry. Bounded catalog search and exact
+  description expose schemas, effects, risk, scope, credentials, availability,
+  approval rules, and safe examples. Dynamic execution revalidates inputs and
+  outputs, rejects caller authority fields and legacy confirmation, preserves
+  policy/ledger semantics, gates passive work on canonical maximum effects,
+  resumes supervised work exactly once through opaque operation handles, and
+  returns local files only through reauthorized workspace/principal-bound
+  resource references. The transport-neutral compact metadata is 21,648 bytes.
 
 - **Phase 3A canonical action surface.** Added a generated, checked-in inventory
   for all 174 frozen legacy tools across 40 packs, complete canonical
@@ -92,6 +104,13 @@ Authority Engine with durable dispatch and continuation truth.
 - **Report organization and presentation.** Reports and decision archives are
   workspace-owned; public `operator`, `operator_raw`, and `high_level`
   presentation labels map consistently to compatibility policies.
+
+### Removed
+
+- **Closed Phase 2 working documents.** Removed the auxiliary truth/correction
+  gate, design checkpoint, execution plan, inventories, status, and handoff
+  documents after closure. The original local modernization plan and durable
+  ADR-0003/ADR-0009 decisions remain.
 
 ### Fixed
 

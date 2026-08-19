@@ -26,31 +26,17 @@ compatibility evidence build on that immutable reference.
 
 ## Phase 2
 
-- [Phase 1.1 truth-gate handoff](phase-1.1-handoff.md) — continuation-safe jobs,
-  truthful crawler effects/output, and one execution envelope for targets,
-  redirects, proxies, and partial/whole-scope selection
-- [Correction-gate handoff](correction-gate-handoff.md) — Registry v2,
-  credential concurrency, official-SDK spike, and local functional vertical;
-  foundations are ready for a revised Phase 2
-- [Input-schema keyword inventory](input-schema-keyword-inventory.md)
-- [Capability-gap inventory](capability-gap-inventory.md)
-- [Stage A Authority Engine design checkpoint](phase-2-stage-a.md) — the
-  ADR-0009-corrected checkpoint, now implemented with the final closure gate
-- [Stage B execution plan](phase-2-stage-b-execution-plan.md) — durable gate
-  sequence plus the final adversarial correction addendum
-- [Stage B running status](phase-2-stage-b-status.md) — exact implementation,
-  correction, and validation evidence; terminal verdict `PHASE_2_PASS`
-- [Stage B authority integration handoff](phase-2-stage-b-handoff.md) — durable
-  grants, Registry enforcement, dispatch truth, trusted operator management,
-  credential confinement, protocol resume, and continuation recovery complete
-- Crash-atomic scope and credential storage prerequisite — integrated before
-  the Phase 1 Action Registry merge and covered by the combined Beta gate
+Phase 2 is complete. Its temporary design, execution, status, inventory, and
+handoff documents were removed after closure; the original local workbench plan
+is retained outside this tracked directory. Durable decisions remain in
+[ADR-0003](adr/ADR-0003-durable-authority-grants.md),
+[ADR-0009](adr/ADR-0009-registry-v2-correction-gate.md), the implementation,
+tests, and the shared [changelog](../../CHANGELOG.md).
 
 ## Phase 3
 
 - [Execution plan](phase-3-plan.md) — strict Session A–D sequence
-- [Running status](phase-3-status.md) — exact Session 3A migration and gate
-  evidence
+- [Running status](phase-3-status.md) — exact Session 3A and 3B gate evidence
 - [Canonical action migration guide](action-migration-guide.md) — current
   bounded pack-batch and manifest procedure
 

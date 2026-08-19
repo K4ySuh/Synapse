@@ -113,6 +113,22 @@ server-held authority instead. Its supported execution profiles are `observe`,
 `supervised`, and `full_delegated`; action input cannot select a profile, grant,
 session, step-up, dispatch, or resume state.
 
+Phase 3B also provides transport-independent `modern-compact` and
+`modern-direct` application projections under `synapse_mcp.app.facade`. They
+are not launchers and do not change the current default. Compact exposes eleven
+fixed operations; direct exposes all 174 actions in Registry order. Both
+receive principal/session/grant bindings only through `FacadeCallContext` from
+a trusted future adapter, reject those fields in model arguments, and call the
+same Registry path as legacy. `actions.run_passive` additionally rejects any
+descriptor whose maximum effects permit traffic, credential/secret use, remote
+mutation, or local destruction.
+
+Generated local files are returned as opaque resource references rather than
+paths. References are process-local in Phase 3B and can be read only through
+the same principal, authority session, and workspace while the recorded file
+version is unchanged. Do not treat them as durable remote resource URLs; that
+adapter/keyring work belongs to Phase 3C.
+
 Authority state is private, crash-atomic JSON at:
 
 ```text
@@ -1490,6 +1506,7 @@ Focused modes:
 bin/test --core
 bin/test --template
 bin/test --core -k access_control
+bin/test --core -k phase3b_facade
 bin/generate-action-inventory --check
 ```
 

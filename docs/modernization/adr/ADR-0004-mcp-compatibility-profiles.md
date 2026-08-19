@@ -53,6 +53,13 @@ three Registry v2 actions. It proves stdio, loopback Streamable HTTP,
 negotiation, typed input/output schemas, structured content, annotations, and
 `input_required` without active dispatch. It is not the default adapter.
 
+Phase 3B implements the transport-independent side of this decision. The
+`modern-compact` application projection exposes exactly eleven ordered
+operations and serializes to 21,648 bytes of deterministic metadata under the
+Phase 3 measurement. `modern-direct` generates one operation for each of the
+174 canonical descriptors. Both call the same Registry seam; neither imports
+the MCP SDK, chooses a default modern surface, or changes the spike transport.
+
 ## Invariants
 
 - Tier-1 and Tier-2 contract fixtures remain green; every delta is classified exact, semantically equivalent, or intentionally changed with a recorded decision.
@@ -66,6 +73,12 @@ negotiation, typed input/output schemas, structured content, annotations, and
   execution authority.
 - Principal/session/grant selection is server-held and is not part of action
   input or display metadata.
+- Dynamic action arguments are revalidated by the selected descriptor. Passive
+  invocation rejects canonical maximum effects that include traffic,
+  credential/secret use, remote mutation, or local destruction before dispatch.
+- Local artifacts use opaque principal/session/workspace/version-bound
+  references and are reauthorized on every read; model-facing results do not
+  expose raw filesystem paths.
 - Modern adoption is additive until both target clients pass the fixed benchmark corpus.
 
 ## Alternatives considered
@@ -104,7 +117,8 @@ negotiation, typed input/output schemas, structured content, annotations, and
   trusted operator-selected Synapse surface. Authenticated execution context is
   supplied through its own server boundary.
 - Security: Display metadata remains informational; policy uses server-held
-  scope and authority.
+  scope and authority. Compact operation and resource handles contain no grant
+  secret or authority session and cannot be replayed across bindings.
 - Compatibility: No legacy removal date is implied, and target clients must
   pass the same workflow corpus before modern adoption.
 
@@ -119,6 +133,11 @@ environment. Classify every contract delta. Rollback selects the legacy surface
 and launcher without changing wire negotiation, grants, or operational state.
 The current rollback is to unset `SYNAPSE_ENABLE_MODERN_SPIKE` and use the
 unchanged `synapse-mcp` launcher.
+
+Phase 3B rollback removes the `app/facade/` projection from a future adapter;
+the legacy launcher, canonical Registry, and retained implementation bridge do
+not depend on it. Phase 3C must add authenticated adapter identity and durable
+multi-worker request-state/resource-key handling before any remote HTTP posture.
 
 ## Verification
 
@@ -135,3 +154,7 @@ unchanged `synapse-mcp` launcher.
 - Run the official SDK client against both stdio and loopback Streamable HTTP,
   and assert that active no-authority calls return `input_required` without
   reaching Registry dispatch.
+- Assert exactly eleven compact operations, 174 direct operations, deterministic
+  schema serialization below 24,834 bytes, complete catalog filters, passive
+  pre-dispatch denial, server-held authority input rejection, exactly-once
+  resume, and cross-principal/workspace/version resource denial.

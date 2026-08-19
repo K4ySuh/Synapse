@@ -94,7 +94,16 @@ prior assessment knowledge available through MCP tools and resources.
 
 ## Modernization Status
 
-Phase 3A completes the canonical application boundary. All 174 frozen legacy
+Phase 3B completes the protocol-independent modern application surfaces. The
+eleven-operation compact facade provides engagement, context, catalog,
+validated passive/active execution, reviews, opaque artifacts, reports, and
+task control; the generated direct surface exposes all 174 canonical actions.
+Both use the same Action Registry policy, authority, executor, continuation,
+and ledger path. Compact application metadata is 21,648 bytes under the Phase
+3 measurement, below the 24,834-byte gate. No modern MCP transport is enabled
+by this application-only phase.
+
+Phase 3A established the canonical application boundary. All 174 frozen legacy
 actions now enter Action Registry v2 by canonical `action_id`, validate typed
 inputs and JSON-object outputs, resolve multidimensional effects and immutable
 authorization intents, and expose one generated inventory for aliases,
@@ -122,9 +131,9 @@ MCP SDK 2.0.0 and protocol revision `2026-07-28` over stdio and loopback
 Streamable HTTP, including a standard SDK supervised resume that dispatches
 exactly once. The SDK token is distinct from durable raw repository state and,
 under the default process-local SDK key, does not survive a server restart. It
-remains opt-in rather than the default stable server. See
-[the Phase 1.1 handoff](docs/modernization/phase-1.1-handoff.md) and
-[the Phase 2 Stage B handoff](docs/modernization/phase-2-stage-b-handoff.md).
+remains opt-in rather than the default stable server. Durable modernization
+decisions and current gate evidence are indexed under
+[`docs/modernization/`](docs/modernization/README.md).
 
 ## Main Features
 

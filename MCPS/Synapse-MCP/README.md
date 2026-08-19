@@ -25,6 +25,17 @@ execution. The checked-in generated inventory preserves exact name/order/schema
 projection and serializer ownership; the retained implementation adapter stays
 available as the per-action rollback path.
 
+Phase 3B adds protocol-independent surfaces under `synapse_mcp.app.facade`.
+`modern-compact` has exactly eleven bounded engagement/context/catalog/action/
+review/artifact/report/task operations; `modern-direct` deterministically
+projects all 174 descriptors. Both validate nested inputs and outputs and enter
+the same Registry policy, authority, executor, and ledger path. Passive dynamic
+dispatch fails closed on traffic, credentials/secrets, remote mutation, or
+destructive effects. Local file results become opaque, versioned references
+reauthorized against principal, authority session, and workspace on every
+read. These are application services, not an MCP server; the SDK adapter remains
+the separate three-action spike until Phase 3C.
+
 Authority state lives at
 `DATA/workspaces/<workspace>/authority/state.json`. Manage it with the local
 `synapse-authority` console entry point described in
