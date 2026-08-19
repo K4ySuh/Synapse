@@ -8,6 +8,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from synapse_mcp.app.actions import REGISTRY
+
 
 SerializerChoice = Literal["transport", "executor"]
 
@@ -19,18 +21,11 @@ class LegacyProjection:
 
 
 LEGACY_PROJECTION_MAP = {
-    "jobs.status": LegacyProjection("jobs.status", "transport"),
-    "workspace.summary": LegacyProjection("workspace.summary", "transport"),
-    "workspace.prepare_target_context": LegacyProjection(
-        "workspace.prepare_target_context",
-        "transport",
-    ),
-    "headers_cookies.analyze_workspace": LegacyProjection(
-        "headers_cookies.analyze_workspace",
-        "executor",
-    ),
-    "cors.execute_test": LegacyProjection("cors.execute_test", "executor"),
-    "crawler.crawl": LegacyProjection("crawler.crawl", "executor"),
+    str(descriptor.id): LegacyProjection(
+        descriptor.legacy_aliases[0],
+        descriptor.legacy_serializer,  # type: ignore[arg-type]
+    )
+    for descriptor in REGISTRY.descriptors()
 }
 
 # Schema ownership remains stable when one action rolls back to its retained

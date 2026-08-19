@@ -22,6 +22,7 @@ from ..policies import (
     CredentialRequirement,
     DeadlineTier,
     Idempotency,
+    IdempotencyPolicy,
     LocalWriteDomain,
     RiskClass,
     ScopePolicy,
@@ -105,6 +106,10 @@ HEADERS_COOKIES_ANALYZE_WORKSPACE = ActionDescriptor(
     task_policy=TaskPolicy(DeadlineTier.DEFAULT, False, True),
     executor=HeadersCookiesAnalyzeWorkspaceExecutor(),
     availability=Availability(available=True),
+    legacy_aliases=("headers_cookies.analyze_workspace",),
+    legacy_serializer="executor",
+    implementation_ref="headers_cookies.analyze_workspace",
+    idempotency_policy=IdempotencyPolicy(Idempotency.PURE_READ),
 )
 
 REGISTRY.register(HEADERS_COOKIES_ANALYZE_WORKSPACE)

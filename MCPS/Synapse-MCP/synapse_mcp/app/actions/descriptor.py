@@ -17,6 +17,7 @@ from .policies import (
     Availability,
     ActionEffects,
     CredentialPolicy,
+    IdempotencyPolicy,
     RiskClass,
     ScopePolicy,
     TaskPolicy,
@@ -92,3 +93,8 @@ class ActionDescriptor(Generic[TInput, TOutput]):
     executor: ActionExecutor[TInput, TOutput]
     availability: Availability | AvailabilityResolver[TInput]
     intent_resolver: ActionIntentResolver[TInput] | None = None
+    legacy_aliases: tuple[str, ...] = ()
+    legacy_serializer: str = ""
+    implementation_ref: str = ""
+    approval_required: bool = False
+    idempotency_policy: IdempotencyPolicy | None = None

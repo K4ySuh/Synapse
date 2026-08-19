@@ -311,16 +311,23 @@ The application action layer is under `synapse_mcp/app/actions/`:
   executor call site; it orders availability, effect/intent resolution,
   execution-plan sealing, policy, execution with that same plan, and typed
   output validation;
-- `contracts.py` converts the frozen six-action input documents and rejects
+- `contracts.py` converts all 174 frozen input documents and rejects
   validation-affecting JSON Schema keywords it cannot preserve;
+- `action_inventory.json` is the generated, ordered 174-action accounting
+  manifest; `inventory.py` validates and exposes it;
+- `catalog.py` builds the 168 generated descriptors and their request-aware
+  effects, intent, availability, and retained-implementation executors;
+- `legacy_bridge.py` is the protocol-free binding to the independently retained
+  implementation adapter;
 - `adapter_metadata.py` projects migrated operational metadata back into
   adapter discovery without reversing the core/application dependency;
-- `packs/` contains the six migrated descriptors.
+- `packs/` contains the six native descriptors; the catalog completes all 40
+  packs and 174 actions.
 
 `REGISTRY.contract_schema(action_id)` exposes the canonical `inputSchema` and
-non-empty `outputSchema` for all six actions. The stable legacy tools list stays
-frozen and therefore does not publish these new output schemas. The isolated
-modern spike publishes real input/output schemas for exactly three actions.
+typed `outputSchema` for all 174 actions. The stable legacy tools list stays
+frozen and therefore does not publish these output schemas. The isolated modern
+spike remains intentionally fixed at exactly three actions for Phase 3A.
 
 The protocol-independent Phase 2 authority model is under
 `synapse_mcp/policy/`:
@@ -722,10 +729,8 @@ data and local JS asset files.
 category, traffic impact, confirmation requirement, risk tier, and execution
 mode). The current registered set, by registry name, is:
 
-For `crawler`, `headers_cookies`, and `cors`, the operational fields and
-per-action effect views are derived from Action Registry v2. All remaining
-entries use the explicitly transitional unmigrated metadata path; discovery is
-never an execution permission.
+Operational fields and per-action effect views are derived from Action Registry
+v2 for every adapter action. Discovery is never an execution permission.
 
 - `spec_import`
 - `sitemap`

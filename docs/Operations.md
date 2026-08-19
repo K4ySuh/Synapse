@@ -1490,6 +1490,7 @@ Focused modes:
 bin/test --core
 bin/test --template
 bin/test --core -k access_control
+bin/generate-action-inventory --check
 ```
 
 The isolated modern SDK profile is installed and tested separately so the

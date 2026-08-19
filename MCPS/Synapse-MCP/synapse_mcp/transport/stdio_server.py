@@ -44,6 +44,7 @@ from ..core.adapters import default_registry as adapter_registry
 from ..core.errors import McpError
 from ..core.paths import PROMPT_PATH
 from ..core.purple_team import gap_analysis
+from ..app.actions.legacy_bridge import bind_retained_legacy_implementation
 
 
 PROTOCOL_VERSION = "2025-03-26"
@@ -3184,6 +3185,10 @@ def _call_tool_impl(name: str, args: dict[str, Any]) -> str:
     projected = projection.project_call(name, args)
     if projected is not None:
         return projected
+    return _retained_legacy_call_impl(name, args)
+
+
+def _retained_legacy_call_impl(name: str, args: dict[str, Any]) -> str:
     if name == "jobs.list":
         return json.dumps(
             background_jobs.list_jobs(
@@ -3793,6 +3798,9 @@ def _call_tool_impl(name: str, args: dict[str, Any]) -> str:
             indent=2,
         )
     raise McpError(-32601, f"Unknown tool: {name}")
+
+
+bind_retained_legacy_implementation(_retained_legacy_call_impl)
 
 
 def read_resource(uri: str) -> tuple[str, str]:

@@ -34,6 +34,7 @@ from ..policies import (
     CredentialRequirement,
     DeadlineTier,
     Idempotency,
+    IdempotencyPolicy,
     LocalWriteDomain,
     RiskClass,
     ScopePolicy,
@@ -185,6 +186,10 @@ JOBS_STATUS = ActionDescriptor(
     executor=JobsStatusExecutor(),
     availability=Availability(available=True),
     intent_resolver=resolve_jobs_status_intent,
+    legacy_aliases=("jobs.status",),
+    legacy_serializer="transport",
+    implementation_ref="background_jobs.status",
+    idempotency_policy=IdempotencyPolicy(Idempotency.PURE_READ),
 )
 
 REGISTRY.register(JOBS_STATUS)

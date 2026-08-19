@@ -19,6 +19,7 @@ from synapse_mcp.app.actions import (
     Enforcement,
     ExecutionContext,
     Idempotency,
+    IdempotencyPolicy,
     InputContractDocument,
     LocalWriteDomain,
     RiskClass,
@@ -89,6 +90,10 @@ def _descriptor(action_id: str = "stub.read") -> ActionDescriptor:
         ),
         executor=StubExecutor(input_model),
         availability=Availability(available=True),
+        legacy_aliases=(action_id,),
+        legacy_serializer="transport",
+        implementation_ref="tests.StubExecutor",
+        idempotency_policy=IdempotencyPolicy(Idempotency.PURE_READ),
     )
 
 
@@ -102,6 +107,25 @@ class ActionRegistryTests(unittest.TestCase):
         descriptor = _descriptor()
         registry.register(descriptor)
         self.assert_registration_error_for_registry(registry, descriptor, "stub.read")
+
+    def test_missing_or_duplicate_legacy_alias_fails_registration(self) -> None:
+        self.assert_registration_error(replace(_descriptor(), legacy_aliases=()), "stub.read")
+        registry = ActionRegistry()
+        registry.register(_descriptor("stub.read"))
+        self.assert_registration_error_for_registry(
+            registry,
+            replace(_descriptor("other.read"), legacy_aliases=("stub.read",)),
+            "other.read",
+        )
+
+    def test_missing_implementation_identity_fails_registration(self) -> None:
+        self.assert_registration_error(replace(_descriptor(), implementation_ref=""), "stub.read")
+
+    def test_invalid_legacy_serializer_fails_registration(self) -> None:
+        self.assert_registration_error(replace(_descriptor(), legacy_serializer=""), "stub.read")
+
+    def test_approval_declaration_must_match_frozen_confirm_schema(self) -> None:
+        self.assert_registration_error(replace(_descriptor(), approval_required=True), "stub.read")
 
     def test_shared_input_model_routes_unambiguously_by_action_id(self) -> None:
         registry = ActionRegistry()

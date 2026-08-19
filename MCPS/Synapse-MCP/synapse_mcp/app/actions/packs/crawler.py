@@ -40,6 +40,7 @@ from ..policies import (
     CredentialRequirement,
     DeadlineTier,
     Idempotency,
+    IdempotencyPolicy,
     LocalWriteDomain,
     RiskClass,
     ScopePolicy,
@@ -254,6 +255,11 @@ CRAWLER_CRAWL = ActionDescriptor(
     executor=CrawlerCrawlExecutor(),
     availability=Availability(available=True),
     intent_resolver=resolve_crawler_intent,
+    legacy_aliases=("crawler.crawl",),
+    legacy_serializer="executor",
+    implementation_ref="crawler_adapter.crawl",
+    approval_required=True,
+    idempotency_policy=IdempotencyPolicy(Idempotency.NON_IDEMPOTENT),
 )
 
 REGISTRY.register(CRAWLER_CRAWL)

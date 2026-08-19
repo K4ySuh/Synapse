@@ -94,14 +94,15 @@ prior assessment knowledge available through MCP tools and resources.
 
 ## Modernization Status
 
-Phase 2 Stage B is integrated at the application boundary. Six actions now
-execute only by canonical `action_id` through Action Registry v2, validate typed
-outputs, resolve request-effective multidimensional effects and immutable
-authorization intents, and feed migrated adapter discovery from the same
-operational metadata. The intent carries a frozen scope digest and target
-envelope, provider/proxy route, methods, credential references, and exact local
-outputs. The legacy 174-tool stdio profile remains the default compatibility
-surface and still uses its existing `confirm=true` gates.
+Phase 3A completes the canonical application boundary. All 174 frozen legacy
+actions now enter Action Registry v2 by canonical `action_id`, validate typed
+inputs and JSON-object outputs, resolve multidimensional effects and immutable
+authorization intents, and expose one generated inventory for aliases,
+availability, implementation identity, serializer ownership, and parity. Six
+actions use native pack executors; the other 168 use a protocol-free bridge to
+the retained implementation adapter, preserving per-action rollback. The
+legacy 174-tool stdio surface remains the default compatibility surface and
+still uses its existing `confirm=true` gates.
 
 Authority-aware execution now persists workspace-local grants, revisions,
 step-ups, opaque request states, dispatch budgets, decisions, dispatch truth,

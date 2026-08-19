@@ -18,11 +18,18 @@ generation; it also tightens passive candidate semantics across the web and CVE
 layers.
 
 The staged modernization foundation now includes the frozen compatibility
-baseline, typed application action contracts, a registry-projected six-action
-vertical slice, and an integrated Phase 2 Authority Engine with durable
-dispatch and continuation truth.
+baseline, a complete 174-action canonical registry, and an integrated Phase 2
+Authority Engine with durable dispatch and continuation truth.
 
 ### Added
+
+- **Phase 3A canonical action surface.** Added a generated, checked-in inventory
+  for all 174 frozen legacy tools across 40 packs, complete canonical
+  descriptors and aliases, typed inputs and JSON-object outputs, truthful
+  optional-binary availability, deterministic projection, and a protocol-free
+  retained-implementation bridge with per-action rollback. Exact legacy names,
+  order, descriptions, schemas, result behavior, and the 99,337-byte compact
+  payload remain frozen.
 
 - **Phase 2 durable authority integration.** Added workspace-local crash-atomic
   grant/revision storage, exact step-ups, opaque resumable request states,
@@ -87,6 +94,11 @@ dispatch and continuation truth.
   presentation labels map consistently to compatibility policies.
 
 ### Fixed
+
+- **Deterministic baseline isolation.** Provider rate-limit tests use an
+  injected coordination clock, and workflow benchmarks wait for background
+  runtime handles plus intentionally timed-out tool workers before releasing
+  process-global isolated state.
 
 - **Phase 2 final authority closure.** Separated canonical authorization
   identity from the complete correlation-bearing plan seal, bound idempotency

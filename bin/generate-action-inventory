@@ -1,0 +1,161 @@
+#!/usr/bin/env python3
+# Copyright 2026 Javier Roldán Ortiz
+# SPDX-License-Identifier: Apache-2.0
+
+"""Generate the canonical Phase 3 action inventory from reviewed sources."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import re
+import sys
+from typing import Any
+
+
+ROOT = Path(__file__).resolve().parents[1]
+TOOLS_FIXTURE = ROOT / "MCPS/Synapse-MCP/tests/fixtures/legacy_contracts/tools_list.json"
+STAGE_A = ROOT / "docs/modernization/phase-1-stage-a.md"
+OUTPUT = ROOT / "MCPS/Synapse-MCP/synapse_mcp/app/actions/action_inventory.json"
+EXPECTED_COUNT = 174
+EXPECTED_COMPACT_BYTES = 99_337
+PARITY_TEST = "MCPS/Synapse-MCP/tests/test_phase3_action_inventory.py"
+
+CANONICAL_IDS = {
+    "approve_pretext_candidate": "social.approve_pretext_candidate",
+    "mark_detection_outcome": "purple_team.mark_detection_outcome",
+}
+CONDITIONS = {
+    "scope.set": "when workspaceId is supplied",
+    "js.analyze_static": "when background=true",
+    "js.normalize_endpoints": "when background=true",
+}
+EXISTING_MODELS = {
+    "jobs.status": ("JobsStatusInput", "JobsStatusOutput"),
+    "workspace.summary": ("WorkspaceSummaryInput", "WorkspaceSummaryOutput"),
+    "workspace.prepare_target_context": (
+        "WorkspacePrepareTargetContextInput",
+        "WorkspacePrepareTargetContextOutput",
+    ),
+    "headers_cookies.analyze_workspace": (
+        "HeadersCookiesAnalyzeWorkspaceInput",
+        "HeadersCookiesAnalyzeWorkspaceOutput",
+    ),
+    "cors.execute_test": ("CorsExecuteTestInput", "CorsExecuteTestOutput"),
+    "crawler.crawl": ("CrawlerCrawlInput", "CrawlerCrawlOutput"),
+}
+EXECUTABLE_AVAILABILITY = {
+    "ffuf.run_profile": "ffuf",
+    "nuclei.run_profile": "nuclei",
+    "nmap.run_profile": "nmap",
+}
+
+
+def _model_stem(action_id: str) -> str:
+    return "".join(part[:1].upper() + part[1:] for part in re.split(r"[._]+", action_id) if part)
+
+
+def _stage_a_rows() -> list[list[str]]:
+    rows: list[list[str]] = []
+    for line in STAGE_A.read_text(encoding="utf-8").splitlines():
+        if not re.match(r"^\|\s*\d+\s*\|", line):
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        rows.append([cell[1:-1] if cell.startswith("`") and cell.endswith("`") else cell for cell in cells])
+    return rows
+
+
+def build_inventory() -> dict[str, Any]:
+    fixture = json.loads(TOOLS_FIXTURE.read_text(encoding="utf-8"))
+    tools = fixture.get("result", {}).get("tools", [])
+    rows = _stage_a_rows()
+    if len(tools) != EXPECTED_COUNT or len(rows) != EXPECTED_COUNT:
+        raise RuntimeError(f"expected {EXPECTED_COUNT} tools and rows, got {len(tools)} and {len(rows)}")
+    compact_bytes = len(json.dumps(tools, separators=(",", ":")).encode("utf-8"))
+    if compact_bytes != EXPECTED_COMPACT_BYTES:
+        raise RuntimeError(f"frozen legacy payload changed: {compact_bytes} bytes")
+
+    actions: list[dict[str, Any]] = []
+    for position, (tool, cells) in enumerate(zip(tools, rows), start=1):
+        if int(cells[0]) != position or cells[1] != tool.get("name"):
+            raise RuntimeError(f"Stage A/frozen fixture mismatch at position {position}")
+        legacy_name = str(tool["name"])
+        action_id = CANONICAL_IDS.get(legacy_name, legacy_name)
+        pack = cells[2]
+        if not action_id.startswith(pack + "."):
+            raise RuntimeError(f"canonical pack mismatch for {legacy_name}")
+        task_mode, deadline_tier = cells[9].split("/", 1)
+        models = EXISTING_MODELS.get(action_id)
+        if models is None:
+            stem = _model_stem(action_id)
+            models = (f"{stem}Input", f"{stem}Output")
+        availability: dict[str, str] = {"probe": "available"}
+        if action_id in EXECUTABLE_AVAILABILITY:
+            availability = {
+                "probe": "executable",
+                "executable": EXECUTABLE_AVAILABILITY[action_id],
+                "reasonCode": "missing_optional_binary",
+            }
+        actions.append(
+            {
+                "position": position,
+                "legacyName": legacy_name,
+                "actionId": action_id,
+                "pack": pack,
+                "title": legacy_name.replace(".", " ").replace("_", " ").title(),
+                "description": str(tool.get("description", "")),
+                "inputSchema": tool.get("inputSchema", {}),
+                "inputModel": models[0],
+                "outputModel": models[1],
+                "outputShape": "json_object",
+                "useCase": cells[3],
+                "sideEffectClass": cells[4],
+                "riskClass": cells[5],
+                "scopeRequirement": cells[6],
+                "credentialRequirement": cells[7],
+                "credentialAccess": cells[8],
+                "taskMode": task_mode,
+                "deadlineTier": deadline_tier.lower(),
+                "idempotency": {
+                    "behaviour": cells[10],
+                    "condition": CONDITIONS.get(action_id),
+                },
+                "confirmDeclared": cells[11] == "Y",
+                "passiveRecordable": cells[12] == "Y",
+                "serializer": cells[13],
+                "implementationTarget": cells[14],
+                "availability": availability,
+                "migrationStatus": "migrated",
+                "parityTest": PARITY_TEST,
+            }
+        )
+
+    ids = [entry["actionId"] for entry in actions]
+    aliases = [entry["legacyName"] for entry in actions]
+    if len(set(ids)) != EXPECTED_COUNT or len(set(aliases)) != EXPECTED_COUNT:
+        raise RuntimeError("duplicate canonical action id or legacy alias")
+    return {
+        "schemaVersion": 1,
+        "sourceBaseline": "6f46dae128520e06056dce50632e750023aedc80",
+        "legacyActionCount": EXPECTED_COUNT,
+        "legacyCompactPayloadBytes": EXPECTED_COMPACT_BYTES,
+        "actions": actions,
+    }
+
+
+def main() -> int:
+    document = build_inventory()
+    rendered = json.dumps(document, indent=2, ensure_ascii=False) + "\n"
+    if "--check" in sys.argv:
+        if not OUTPUT.is_file() or OUTPUT.read_text(encoding="utf-8") != rendered:
+            print(f"action inventory is stale: {OUTPUT}", file=sys.stderr)
+            return 1
+        print(f"action inventory is current: {EXPECTED_COUNT} actions")
+        return 0
+    OUTPUT.write_text(rendered, encoding="utf-8")
+    print(f"wrote {OUTPUT} ({EXPECTED_COUNT} actions)")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

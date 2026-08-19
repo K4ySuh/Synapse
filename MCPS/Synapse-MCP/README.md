@@ -20,6 +20,11 @@ Authority Grants and atomically reserve a dispatch before the executor runs.
 Caller input cannot select or enlarge the profile, grant, step-up, request
 state, dispatch, or continuation.
 
+All 174 legacy names are mapped to canonical descriptors across 40 packs before
+execution. The checked-in generated inventory preserves exact name/order/schema
+projection and serializer ownership; the retained implementation adapter stays
+available as the per-action rollback path.
+
 Authority state lives at
 `DATA/workspaces/<workspace>/authority/state.json`. Manage it with the local
 `synapse-authority` console entry point described in

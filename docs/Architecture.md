@@ -11,7 +11,7 @@ use.
 
 ## Runtime Topology
 
-The stable transport now reaches six migrated operations through a
+The stable transport now reaches all 174 frozen legacy operations through a
 protocol-independent application boundary:
 
 ```text
@@ -173,17 +173,20 @@ Adapter framework metadata and result models live under `core/adapters/`. The
 framework defines the first-class adapter description model, base interface,
 unsupported-method contract, registry, execution-mode metadata, and
 workspace-native result schema used by MCP discovery tools and new adapters.
-For the migrated `crawler`, `headers_cookies`, and `cors` packs, operational
-discovery metadata is projected at runtime from Action Registry v2. The core
-adapter registry retains only adapter identity, description, references,
-outputs, and limitations; its provider seam preserves the `core`/`app`
-dependency boundary. Unmigrated adapters remain on an explicitly transitional
-metadata bridge. Adapter discovery never authorizes an action.
+Operational discovery metadata for registered adapter actions is projected at
+runtime from Action Registry v2. The core adapter registry retains only adapter
+identity, description, references, outputs, and limitations; its provider seam
+preserves the `core`/`app` dependency boundary. Adapter discovery never
+authorizes an action.
 
 The canonical output boundary parses legacy JSON, validates the declared
-Pydantic output model, and returns that model in `Success.payload`. A separate
-compatibility payload preserves the frozen legacy serialization. This prevents
-legacy strings from becoming the application contract.
+Pydantic output model, and returns that model in `Success.payload`. Six native
+pack executors retain field-level output models; the remaining compatibility
+executors use distinct JSON-value-checked object models with a typed common
+status/background/job/result/error core until their retained implementation
+wrappers are physically retired. A separate compatibility
+payload preserves the frozen legacy serialization. This prevents legacy
+strings from becoming the application contract.
 
 The credential store uses a single file-lock-scoped mutation primitive for the
 complete read-modify-write cycle. Atomic replacement, `0600`, file/directory

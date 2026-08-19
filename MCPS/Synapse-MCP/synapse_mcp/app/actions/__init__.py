@@ -3,7 +3,14 @@
 
 """Typed application action contracts."""
 
-from .contracts import ActionInput, ActionOutput, InputContractDocument, make_input_model
+from .contracts import (
+    ActionInput,
+    ActionOutput,
+    InputContractDocument,
+    JsonObjectActionOutput,
+    make_input_model,
+    make_json_object_output_model,
+)
 from .descriptor import (
     ActionDescriptor,
     ActionEffectResolver,
@@ -99,6 +106,7 @@ __all__ = [
     "Idempotency",
     "IdempotencyPolicy",
     "InputContractDocument",
+    "JsonObjectActionOutput",
     "LocalWriteDomain",
     "LocalOutputDestination",
     "PolicyDenial",
@@ -123,6 +131,7 @@ __all__ = [
     "ValidationFailure",
     "legacy_payload_signals_error",
     "make_input_model",
+    "make_json_object_output_model",
     "outcome_from_mcp_error",
     "success_from_legacy_payload",
 ]

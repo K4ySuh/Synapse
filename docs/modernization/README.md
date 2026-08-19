@@ -22,7 +22,7 @@ compatibility evidence build on that immutable reference.
   six-action vertical slice landed; gate PASS (2026-08-07)
 - [Contract-change ledger](contract-changes.md)
 - [Action migration pattern](action-migration-pattern.md) — contributor guide
-  proven by the six-action vertical slice
+  preserved as the Phase 1 historical pattern
 
 ## Phase 2
 
@@ -45,6 +45,14 @@ compatibility evidence build on that immutable reference.
   credential confinement, protocol resume, and continuation recovery complete
 - Crash-atomic scope and credential storage prerequisite — integrated before
   the Phase 1 Action Registry merge and covered by the combined Beta gate
+
+## Phase 3
+
+- [Execution plan](phase-3-plan.md) — strict Session A–D sequence
+- [Running status](phase-3-status.md) — exact Session 3A migration and gate
+  evidence
+- [Canonical action migration guide](action-migration-guide.md) — current
+  bounded pack-batch and manifest procedure
 
 ## Architecture decisions
 

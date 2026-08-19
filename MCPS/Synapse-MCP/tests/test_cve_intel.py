@@ -492,6 +492,18 @@ class CveIntelTests(unittest.TestCase):
                 self.assertTrue(revived["analysisEligible"])
 
     def test_provider_cache_rate_limit_pause_and_resume_are_shared_across_targets(self) -> None:
+        class ProviderClock:
+            def __init__(self) -> None:
+                self.wall = 1_000.0
+                self.monotonic = 0.0
+                self.sleeps: list[float] = []
+
+            def sleep(self, seconds: float) -> None:
+                self.sleeps.append(seconds)
+                self.wall += seconds
+                self.monotonic += seconds
+
+        clock = ProviderClock()
         components = [
             {
                 "name": "Apache httpd",
@@ -548,7 +560,12 @@ class CveIntelTests(unittest.TestCase):
                     "providerBackoffBaseSeconds": 0.01,
                     "providerBackoffJitterSeconds": 0,
                 }
-                with patch.object(cve_intel.http_client, "send", side_effect=fake_provider):
+                with (
+                    patch.object(cve_intel.http_client, "send", side_effect=fake_provider),
+                    patch.object(cve_intel, "_provider_wall_time", side_effect=lambda: clock.wall),
+                    patch.object(cve_intel, "_provider_monotonic", side_effect=lambda: clock.monotonic),
+                    patch.object(cve_intel, "_provider_sleep", side_effect=clock.sleep),
+                ):
                     initial = json.loads(cve_intel.correlate(args))
                     self.assertEqual(initial["candidateCount"], 2)
                     self.assertEqual(initial["sourceStatus"]["nvd"]["networkRequestCount"], 2)
@@ -568,9 +585,10 @@ class CveIntelTests(unittest.TestCase):
                     stored = workspace._load_target_entities("engagement", "app.example.com")["observations"]
                     self.assertTrue(all(not item.get("retired") for item in stored if item.get("type") == "cve_candidate"))
 
-                    resumed_at = time.monotonic()
                     resumed = json.loads(cve_intel.correlate(args))
-                    self.assertGreaterEqual(time.monotonic() - resumed_at, 0.02)
+                    self.assertEqual(len(clock.sleeps), 1)
+                    self.assertAlmostEqual(clock.sleeps[0], 0.03)
+                    self.assertAlmostEqual(clock.monotonic, 0.03)
                     self.assertEqual(resumed["sourceStatus"]["nvd"]["status"], "ok")
                     self.assertEqual(resumed["sourceStatus"]["nvd"]["cacheHitCount"], 2)
                     self.assertEqual(resumed["sourceStatus"]["nvd"]["networkRequestCount"], 1)

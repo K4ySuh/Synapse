@@ -48,6 +48,7 @@ include = ["synapse_mcp*"]
 
 [tool.setuptools.package-data]
 synapse_mcp = [
+    "app/actions/action_inventory.json",
     "core/documentation/html_templates/*.html",
     "core/documentation/html_templates/*.md",
 ]

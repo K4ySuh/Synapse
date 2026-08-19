@@ -1,4 +1,4 @@
-# Action migration pattern
+# Action migration pattern (Phase 1 historical)
 
 This guide is the contributor procedure for moving one legacy MCP tool into the
 typed application Action Registry. It records the pattern proven by the Phase 1
@@ -8,8 +8,10 @@ six-action slice; it does not change the architecture established by the
 [ADR-0007](adr/ADR-0007-application-outcome-model-and-error-boundary.md), or
 [ADR-0008](adr/ADR-0008-action-identity-and-packs.md).
 
-Migrate one action per commit. Start from its reviewed Appendix A row and its
-frozen contract fixtures, not from assumptions based on the tool name.
+For current work, use the bounded pack-batch procedure in
+[`action-migration-guide.md`](action-migration-guide.md). Start from each
+reviewed Appendix A row and frozen contract fixture, not assumptions based on
+the tool name.
 
 ## 1. Choose the application identity
 
@@ -156,7 +158,8 @@ same fixture and full-suite proof after the reversal.
 
 ## Standing guardrails and deferred work
 
-- Migrate one action per commit; fixtures stay frozen unless separately approved.
+- Migrate bounded coherent pack batches; fixtures stay frozen unless separately
+  approved.
 - Do not add authority enforcement during this migration phase.
 - Do not re-serialize legacy output through a Pydantic output model.
 - Do not migrate beyond the operator-approved slice or batch.

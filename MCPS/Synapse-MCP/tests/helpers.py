@@ -50,13 +50,28 @@ def assert_shared_html_shell(testcase, content: str) -> None:
     testcase.assertIn("system-ui", content)
 
 
-def wait_for_job(job_id: str, *, timeout_seconds: float = 10, require_finalized: bool = True) -> dict[str, Any]:
+def _background_runtime_quiescent(job_id: str) -> bool:
+    with background_jobs._LOCK:
+        process = background_jobs._PROCESSES.get(job_id)
+        watchdog = background_jobs._WATCHDOGS.get(job_id)
+    return process is None and watchdog is None
+
+
+def wait_for_job(
+    job_id: str,
+    *,
+    timeout_seconds: float = 10,
+    require_finalized: bool = True,
+    require_runtime_quiescent: bool = False,
+) -> dict[str, Any]:
     deadline = time.monotonic() + timeout_seconds
     job: dict[str, Any] = {}
     while time.monotonic() < deadline:
         job = background_jobs.status(job_id, include_result=True)
         if str(job.get("status")) in {"completed", "timed_out", "failed", "canceled"}:
-            if not require_finalized or job.get("finalized"):
+            finalized = not require_finalized or job.get("finalized")
+            quiescent = not require_runtime_quiescent or _background_runtime_quiescent(job_id)
+            if finalized and quiescent:
                 return job
         time.sleep(0.05)
     return job

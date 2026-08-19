@@ -9,7 +9,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, ClassVar, Literal, Union
 
-from pydantic import BaseModel, ConfigDict, Field, create_model, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, create_model, model_validator
 
 
 SUPPORTED_INPUT_SCHEMA_KEYWORDS = frozenset(
@@ -53,6 +53,24 @@ class ActionInput(BaseModel):
 
 class ActionOutput(BaseModel):
     """Base class for typed application action outputs."""
+
+
+class JsonObjectActionOutput(ActionOutput):
+    """Typed common result core for retained actions returning JSON objects."""
+
+    background: bool | None = None
+    job: dict[str, JsonValue] | None = None
+    status: JsonValue | None = None
+    result: JsonValue | None = None
+    error: JsonValue | None = None
+    __pydantic_extra__: dict[str, JsonValue] = Field(init=False)
+    model_config = ConfigDict(strict=True, extra="allow")
+
+
+def make_json_object_output_model(name: str) -> type[ActionOutput]:
+    """Create a distinct JSON-object output model for one legacy action."""
+
+    return create_model(name, __base__=JsonObjectActionOutput)
 
 
 def _union_of(annotations: list[Any]) -> Any:

@@ -17,6 +17,7 @@ import json
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
+import threading
 import time
 from typing import Any, Callable, Iterator, TypeVar
 from unittest.mock import patch
@@ -422,7 +423,11 @@ def workflow_05_background_submit_and_inspect() -> dict[str, Any]:
             )
         )
         job_id, submitted_status = _submitted_job(submission)
-        terminal = wait_for_job(job_id, timeout_seconds=60)
+        terminal = wait_for_job(
+            job_id,
+            timeout_seconds=60,
+            require_runtime_quiescent=True,
+        )
         time_to_terminal_ms = (time.perf_counter() - workflow_started) * 1000
         if str(terminal.get("status", "")) not in TERMINAL_JOB_STATUSES:
             raise AssertionError(f"crawler job did not reach terminal state: {terminal}")
@@ -469,11 +474,15 @@ def workflow_06_resume_after_simulated_timeout_without_duplicating_work() -> dic
             raise AssertionError("submitted background job was not listed")
 
         real_call_tool = stdio_server.call_tool
+        timed_out_call_finished = threading.Event()
 
         def delayed_call_tool(name: str, arguments: dict[str, Any]) -> str:
-            if name == "workspace.summary":
-                time.sleep(0.05)
-            return real_call_tool(name, arguments)
+            try:
+                if name == "workspace.summary":
+                    time.sleep(0.05)
+                return real_call_tool(name, arguments)
+            finally:
+                timed_out_call_finished.set()
 
         with patch.object(
             stdio_server,
@@ -519,7 +528,11 @@ def workflow_06_resume_after_simulated_timeout_without_duplicating_work() -> dic
                 f"timeout recovery discovered unexpected active jobs: {active_job_ids}"
             )
 
-        terminal = wait_for_job(job_id, timeout_seconds=60)
+        terminal = wait_for_job(
+            job_id,
+            timeout_seconds=60,
+            require_runtime_quiescent=True,
+        )
         if str(terminal.get("status", "")) not in TERMINAL_JOB_STATUSES:
             raise AssertionError(f"recovered job did not reach terminal state: {terminal}")
         if terminal.get("finalized") is not True:
@@ -540,6 +553,8 @@ def workflow_06_resume_after_simulated_timeout_without_duplicating_work() -> dic
             raise AssertionError(
                 f"expected exactly one record for original job {job_id!r}"
             )
+        if not timed_out_call_finished.wait(timeout=1):
+            raise AssertionError("timed-out tool worker did not quiesce before benchmark state release")
         elapsed = (time.perf_counter() - started) * 1000
         return _metric(
             WORKFLOW_NAMES[5],

@@ -28,6 +28,24 @@ from .active_probe import build_http_request, build_manual_replay, redact_header
 from . import nuclei_adapter
 
 
+def _provider_wall_time() -> float:
+    """Return the wall clock used by durable provider coordination."""
+
+    return time.time()
+
+
+def _provider_monotonic() -> float:
+    """Return the monotonic clock used by bounded provider waits."""
+
+    return time.monotonic()
+
+
+def _provider_sleep(seconds: float) -> None:
+    """Sleep for a provider wait; kept injectable for deterministic tests."""
+
+    time.sleep(seconds)
+
+
 _SOURCE_CONFIG: dict[str, tuple[str, str]] = {
     "nvd": ("SYNAPSE_CVE_NVD_URL", "https://services.nvd.nist.gov/rest/json/cves/2.0"),
     "cisa_kev": ("SYNAPSE_CVE_KEV_URL", "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"),
@@ -923,9 +941,9 @@ def _claim_provider_token(source: str, args: dict[str, Any], *, max_wait_seconds
     refill_rate = capacity / window
     state_path, lock_path = _provider_state_paths(provider_key)
     total_wait = 0.0
-    deadline = time.monotonic() + max(max_wait_seconds, 0.0)
+    deadline = _provider_monotonic() + max(max_wait_seconds, 0.0)
     while True:
-        now = time.time()
+        now = _provider_wall_time()
         with _exclusive_file_lock(lock_path):
             state = _read_json_file(state_path, {})
             previous = float(state.get("updatedAt", now) or now)
@@ -945,7 +963,7 @@ def _claim_provider_token(source: str, args: dict[str, Any], *, max_wait_seconds
                 state_path,
                 {"providerKey": provider_key, "capacity": capacity, "windowSeconds": window, "tokens": tokens, "updatedAt": now, "blockedUntil": blocked_until},
             )
-        remaining = max(deadline - time.monotonic(), 0.0)
+        remaining = max(deadline - _provider_monotonic(), 0.0)
         if delay > remaining:
             raise SourceRateLimited(
                 source,
@@ -959,7 +977,7 @@ def _claim_provider_token(source: str, args: dict[str, Any], *, max_wait_seconds
                 http_status=None,
                 resolved_from=_resolve_source_config(source)["resolvedFrom"],
             )
-        time.sleep(delay)
+        _provider_sleep(delay)
         total_wait += delay
 
 
@@ -967,7 +985,7 @@ def _pause_provider(source: str, delay_seconds: float) -> None:
     provider_key = _provider_key(source)
     state_path, lock_path = _provider_state_paths(provider_key)
     with _exclusive_file_lock(lock_path):
-        now = time.time()
+        now = _provider_wall_time()
         state = _read_json_file(state_path, {})
         state["providerKey"] = provider_key
         state["blockedUntil"] = max(float(state.get("blockedUntil", 0.0) or 0.0), now + max(delay_seconds, 0.0))
@@ -984,7 +1002,7 @@ def _retry_after_seconds(headers: dict[str, str], now: float | None = None) -> f
     except ValueError:
         try:
             parsed = parsedate_to_datetime(value)
-            return max(parsed.timestamp() - (time.time() if now is None else now), 0.0)
+            return max(parsed.timestamp() - (_provider_wall_time() if now is None else now), 0.0)
         except (TypeError, ValueError, OverflowError):
             return 0.0
 
@@ -1153,13 +1171,13 @@ def _fetch_json_source(source: str, query: Any, url: str, args: dict[str, Any], 
         backoff_base = min(max(float(args.get("providerBackoffBaseSeconds", 1.0)), 0.01), 30.0)
         backoff_max = min(max(float(args.get("providerBackoffMaxSeconds", 30.0)), backoff_base), 120.0)
         jitter_max = min(max(float(args.get("providerBackoffJitterSeconds", 0.5)), 0.0), 5.0)
-        started = time.monotonic()
+        started = _provider_monotonic()
         coordinator_delay = 0.0
         response = None
         provider_key = _provider_key(source)
         retry_after = 0.0
         for attempt in range(1, max_attempts + 1):
-            remaining_wait = max(max_wait - (time.monotonic() - started), 0.0)
+            remaining_wait = max(max_wait - (_provider_monotonic() - started), 0.0)
             waited, provider_key = _claim_provider_token(source, args, max_wait_seconds=remaining_wait)
             coordinator_delay += waited
             response = http_client.send(HttpRequest(url=url, headers=request_headers), policy=policy)
@@ -1169,7 +1187,7 @@ def _fetch_json_source(source: str, query: Any, url: str, args: dict[str, Any], 
             backoff = min(backoff_base * (2 ** (attempt - 1)), backoff_max) + random.uniform(0.0, jitter_max)
             delay = max(retry_after, backoff)
             _pause_provider(source, delay)
-            remaining_wait = max(max_wait - (time.monotonic() - started), 0.0)
+            remaining_wait = max(max_wait - (_provider_monotonic() - started), 0.0)
             _record_fetch_context(
                 args,
                 source,
@@ -1203,7 +1221,7 @@ def _fetch_json_source(source: str, query: Any, url: str, args: dict[str, Any], 
                     provider_key=provider_key,
                     resolved_from=resolved["resolvedFrom"],
                 )
-            time.sleep(delay)
+            _provider_sleep(delay)
             coordinator_delay += delay
 
         if response is None:

@@ -36,6 +36,7 @@ from ..policies import (
     CredentialRequirement,
     DeadlineTier,
     Idempotency,
+    IdempotencyPolicy,
     LocalWriteDomain,
     RiskClass,
     ScopePolicy,
@@ -191,6 +192,11 @@ CORS_EXECUTE_TEST = ActionDescriptor(
     executor=CorsExecuteTestExecutor(),
     availability=Availability(available=True),
     intent_resolver=resolve_cors_intent,
+    legacy_aliases=("cors.execute_test",),
+    legacy_serializer="executor",
+    implementation_ref="cors.execute_test",
+    approval_required=True,
+    idempotency_policy=IdempotencyPolicy(Idempotency.NON_IDEMPOTENT),
 )
 
 REGISTRY.register(CORS_EXECUTE_TEST)

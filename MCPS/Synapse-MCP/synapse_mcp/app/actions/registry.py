@@ -34,6 +34,7 @@ from .policies import (
     Availability,
     Enforcement,
     Idempotency,
+    IdempotencyPolicy,
     RiskClass,
     ScopeRequirement,
     TrafficDestination,
@@ -115,6 +116,7 @@ class ActionRegistry:
 
     def __init__(self, policy_evaluator: PolicyEvaluator | None = None) -> None:
         self._descriptors: dict[str, ActionDescriptor[Any, Any]] = {}
+        self._legacy_aliases: dict[str, str] = {}
         self._policy_evaluator = policy_evaluator or ProfilePolicyEvaluator()
 
     def register(self, descriptor: ActionDescriptor[Any, Any]) -> None:
@@ -125,6 +127,22 @@ class ActionRegistry:
 
         if action_id in self._descriptors:
             invalid("duplicate action id")
+        if not descriptor.title.strip() or not descriptor.summary.strip():
+            invalid("title and summary must be non-empty")
+        if not descriptor.implementation_ref.strip():
+            invalid("implementation reference must be non-empty")
+        if not descriptor.legacy_aliases:
+            invalid("at least one legacy alias is required")
+        if descriptor.legacy_serializer not in {"transport", "executor"}:
+            invalid("legacy serializer must be transport or executor")
+        if len(set(descriptor.legacy_aliases)) != len(descriptor.legacy_aliases):
+            invalid("legacy aliases must be unique within a descriptor")
+        for alias in descriptor.legacy_aliases:
+            if not isinstance(alias, str) or not alias.strip():
+                invalid("legacy aliases must be non-empty strings")
+            owner = self._legacy_aliases.get(alias)
+            if owner is not None:
+                invalid(f"legacy alias {alias!r} is already owned by {owner}")
         if descriptor.pack != descriptor.id.pack:
             invalid("descriptor pack does not match action id pack")
         if not _is_action_model(descriptor.input_model, ActionInput):
@@ -139,12 +157,23 @@ class ActionRegistry:
             invalid("executor output model does not match descriptor output model")
         if not isinstance(descriptor.effects, ActionEffects):
             invalid("effects must be an ActionEffects instance")
+        if not isinstance(descriptor.idempotency_policy, IdempotencyPolicy):
+            invalid("idempotency policy must be explicit")
+        if not descriptor.effects.permits(
+            ActionEffects(replay_safety=descriptor.idempotency_policy.behaviour)
+        ):
+            invalid("maximum effects do not cover the idempotency policy")
         if descriptor.effect_resolver is not None and not callable(descriptor.effect_resolver):
             invalid("effect resolver must be callable")
         if descriptor.intent_resolver is not None and not callable(descriptor.intent_resolver):
             invalid("intent resolver must be callable")
         if not isinstance(descriptor.availability, Availability) and not callable(descriptor.availability):
             invalid("availability must be a declaration or resolver")
+        contract = descriptor.input_model.contract_document.parsed()
+        properties = contract.get("properties", {})
+        confirm_declared = isinstance(properties, dict) and "confirm" in properties
+        if descriptor.approval_required is not confirm_declared:
+            invalid("approval requirement must match the frozen confirm contract")
         if descriptor.scope_policy.requirement is ScopeRequirement.REQUIRED and not descriptor.effects.traffic:
             invalid("read-only and report-build actions cannot require scope")
         if TrafficDestination.AUTHORIZED_TARGET in descriptor.effects.traffic:
@@ -160,6 +189,8 @@ class ActionRegistry:
             invalid("credential enforcement by the executor is forbidden in Phase 1")
 
         self._descriptors[action_id] = descriptor
+        for alias in descriptor.legacy_aliases:
+            self._legacy_aliases[alias] = action_id
 
     def get(self, action_id: ActionId | str) -> ActionDescriptor[Any, Any]:
         """Return a descriptor by canonical id."""
@@ -173,6 +204,30 @@ class ActionRegistry:
         """Return descriptors in registration order."""
 
         return tuple(self._descriptors.values())
+
+    def action_id_for_legacy_alias(self, alias: str) -> str:
+        """Resolve one frozen legacy name to its canonical action id."""
+
+        try:
+            return self._legacy_aliases[alias]
+        except KeyError as exc:
+            raise LookupError(f"Unknown legacy action alias: {alias}") from exc
+
+    def legacy_aliases(self) -> dict[str, str]:
+        """Return a copy of the deterministic alias-to-action mapping."""
+
+        return dict(self._legacy_aliases)
+
+    def set_descriptor_order(self, action_ids: tuple[str, ...]) -> None:
+        """Apply one complete deterministic order after batch registration."""
+
+        if len(action_ids) != len(set(action_ids)):
+            raise ValueError("descriptor order contains duplicate action ids")
+        if set(action_ids) != set(self._descriptors):
+            missing = sorted(set(self._descriptors) - set(action_ids))
+            orphaned = sorted(set(action_ids) - set(self._descriptors))
+            raise ValueError(f"descriptor order is incomplete: missing={missing}, orphaned={orphaned}")
+        self._descriptors = {action_id: self._descriptors[action_id] for action_id in action_ids}
 
     def packs(self) -> frozenset[str]:
         """Return the canonical packs represented by registered actions."""

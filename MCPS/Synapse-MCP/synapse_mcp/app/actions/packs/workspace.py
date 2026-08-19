@@ -22,6 +22,7 @@ from ..policies import (
     CredentialRequirement,
     DeadlineTier,
     Idempotency,
+    IdempotencyPolicy,
     RiskClass,
     ScopePolicy,
     ScopeRequirement,
@@ -172,6 +173,10 @@ WORKSPACE_SUMMARY = ActionDescriptor(
     task_policy=TaskPolicy(DeadlineTier.DEFAULT, False, False),
     executor=WorkspaceSummaryExecutor(),
     availability=Availability(available=True),
+    legacy_aliases=("workspace.summary",),
+    legacy_serializer="transport",
+    implementation_ref="workspace.workspace_summary",
+    idempotency_policy=IdempotencyPolicy(Idempotency.PURE_READ),
 )
 
 WORKSPACE_PREPARE_TARGET_CONTEXT = ActionDescriptor(
@@ -189,6 +194,10 @@ WORKSPACE_PREPARE_TARGET_CONTEXT = ActionDescriptor(
     task_policy=TaskPolicy(DeadlineTier.DEFAULT, False, False),
     executor=WorkspacePrepareTargetContextExecutor(),
     availability=Availability(available=True),
+    legacy_aliases=("workspace.prepare_target_context",),
+    legacy_serializer="transport",
+    implementation_ref="workspace.prepare_target_context",
+    idempotency_policy=IdempotencyPolicy(Idempotency.PURE_READ),
 )
 
 REGISTRY.register(WORKSPACE_SUMMARY)
