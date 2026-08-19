@@ -35,10 +35,14 @@ compatibility evidence build on that immutable reference.
 - [Input-schema keyword inventory](input-schema-keyword-inventory.md)
 - [Capability-gap inventory](capability-gap-inventory.md)
 - [Stage A Authority Engine design checkpoint](phase-2-stage-a.md) — the
-  ADR-0009-corrected checkpoint approved before implementation
+  ADR-0009-corrected checkpoint, now implemented with the final closure gate
+- [Stage B execution plan](phase-2-stage-b-execution-plan.md) — durable gate
+  sequence plus the final adversarial correction addendum
+- [Stage B running status](phase-2-stage-b-status.md) — exact implementation,
+  correction, and validation evidence; terminal verdict `PHASE_2_PASS`
 - [Stage B authority integration handoff](phase-2-stage-b-handoff.md) — durable
   grants, Registry enforcement, dispatch truth, trusted operator management,
-  credential confinement, and continuation recovery integrated
+  credential confinement, protocol resume, and continuation recovery complete
 - Crash-atomic scope and credential storage prerequisite — integrated before
   the Phase 1 Action Registry merge and covered by the combined Beta gate
 

@@ -26,7 +26,11 @@ Authority state lives at
 [Operations](../../docs/Operations.md); no `authority.*` MCP tools exist.
 Covered full-delegated work does not require caller confirmation. Uncovered
 work returns approval-required (`-32001`) without dispatch; scope denial remains
-`-32002`. Dispatch budgets count actions, not outbound HTTP requests.
+`-32002`. Supervised modern calls resume through the official SDK
+`request_state` carrier; mutable environment state is not a resume channel.
+The SDK's sealed client token is process-local by default, while the distinct
+raw authority request remains durable in the workspace repository. Dispatch
+budgets count actions, not outbound HTTP requests.
 
 ## Runtime Python
 

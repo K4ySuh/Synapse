@@ -1,6 +1,7 @@
 # ADR-0003: Durable Authority Grants
 
 - Status: Accepted
+- Applied: Phase 2; closure gate PASS 2026-08-19
 - Date: 2026-07-28
 - Owners: Synapse architectural lead
 - Applies from: Phase 2 after acceptance and prerequisite completion
@@ -52,6 +53,22 @@ lineage. A grant must compare the explicit target selection as well as
 to workspace scope, while `entireWorkspaceScope=true` is covered only by an
 explicitly broad human grant.
 
+Authorization identity is distinct from the complete execution-plan seal. The
+canonical authorization fingerprint covers approval material but excludes
+correlation and deadline metadata; its server-held idempotency key completes
+the logical request identity. The complete plan fingerprint still seals
+correlation and continuation metadata for execution integrity and audit. A key
+already bound to different authorization material conflicts, and an unresolved
+dispatch remains non-replayable across correlation churn.
+
+For MCP 2026-07-28, the official SDK encrypts and binds the client-visible
+request-state token and provides Synapse's raw durable request ID to the handler
+through `ctx.request_state`. The SDK token and repository ID are deliberately
+different layers. The current opt-in server uses the SDK's default
+process-local key, so the client token is not restart durable; persistent
+protocol-key management belongs to Phase 3 and is not implied by the durable
+application repository.
+
 Polling/finalization of already dispatched background work is a continuation of
 that dispatch, not a new authority request. The creation-time plan records the
 originating action, workspace, scope digest/snapshot, target/effect envelope,
@@ -70,6 +87,9 @@ of work already dispatched or demand approval for each observational poll.
   active dispatches, is operator-configured.
 - **Scope authorization and execution authorization remain separate decisions, and this separation already exists observably in the shipped wire protocol: `-32002` denotes scope denial (8 uses, all scope-related) and `-32001` denotes authorization/approval required (10 uses). Phase 2 reason codes must map onto this taxonomy or record an explicit decision to supersede it. Collapsing both into one generic denial is a regression in observable safety semantics even if every test passes.**
 - Approval-required is a normal resumable outcome, not a protocol error.
+- Resume restores correlation, idempotency, profile, grant, and grant revision
+  from server-held state; process environment and action input are not
+  per-request resume channels.
 - A state-changing dispatch in `dispatched` or `unknown` is never automatically replayed. The P0-3 workflow-06 benchmark is the standing regression guard.
 - Credentials are referenced by ID and resolved at dispatch; secret values never enter descriptors, audit summaries, or agent-facing results.
 - Grant coverage compares exact/whole-scope remote targets, redirect expansion,

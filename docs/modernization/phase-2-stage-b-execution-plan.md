@@ -4,6 +4,9 @@ Status: complete
 Owner: local implementation agent
 Started: 2026-08-09
 Baseline: `Beta` at `873b56baa18e4a6c85f11a9fedfea217ab93700b`
+Final adversarial closure: 2026-08-19, based on audited implementation
+`937c7707a1f96bbf2f8b70b620fd5b6700020ced`; closure implementation
+`0b17118693038436a85e388f8a99bd749e370832`
 
 This is the durable execution plan for
 `CODEX-TASK-SYNAPSE-PHASE-2-STAGE-B-AUTHORITY-INTEGRATION.md`. The operator
@@ -24,6 +27,27 @@ brief is input only and is not part of the implementation diff.
 | 8 | Trusted local operators can manage authority without model-executable self-granting tools | complete |
 | 9 | All six migrated actions pass a real Registry authority walkthrough | complete |
 | 10 | Guidance, ADRs, handoff, ledger, and product docs match demonstrated behavior | complete |
+
+## Final adversarial closure addendum
+
+The 2026-08-19 closure gate found three defects after the original Stage B
+integration: official-SDK resume regenerated request identity, correlation was
+part of approval identity and allowed an unknown-dispatch retry bypass, and a
+background observer could recreate `returncode.txt` after finalization. The
+correction added these completed gates without rewriting the published Stage B
+history:
+
+| Gate | Invariant | State |
+|---|---|---|
+| 11 | The official SDK token resumes through `ctx.request_state`; trusted state restores the original correlation/idempotency identity and dispatches once | complete |
+| 12 | Canonical authorization identity excludes correlation/deadline metadata; idempotency conflicts and unresolved retries fail closed | complete |
+| 13 | Process observation is pure; watchdog/polling finalization cannot recreate a cleaned runtime sidecar | complete |
+| 14 | Focused, modern, contract, stress, legacy, CLI, compile/diff, and two consecutive full-suite gates pass; formal documents agree | complete |
+
+The original task requested one commit per Stage B task, but published tasks
+2–7 landed together in `937c770`. That historical deviation is recorded rather
+than hidden by rewriting commits. The closure correction is the separate,
+reviewable implementation commit `0b17118693038436a85e388f8a99bd749e370832`.
 
 ## Working decisions
 

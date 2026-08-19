@@ -127,8 +127,10 @@ synapse-authority --workspace <workspace> create-grant grant.json
 synapse-authority --workspace <workspace> inspect-grant <grant-id>
 synapse-authority --workspace <workspace> revise-grant grant.json --expected-revision <n>
 synapse-authority --workspace <workspace> revoke-grant <grant-id> --expected-revision <n>
-synapse-authority --workspace <workspace> issue-step-up <grant-id> <revision> <plan-fingerprint> <idempotency-key>
+synapse-authority --workspace <workspace> issue-step-up <grant-id> <revision> <authorization-fingerprint> <idempotency-key>
+synapse-authority --workspace <workspace> list-requests
 synapse-authority --workspace <workspace> inspect-request <opaque-request-state>
+synapse-authority --workspace <workspace> approve-request <opaque-request-state>
 synapse-authority --workspace <workspace> resume-request <opaque-request-state>
 synapse-authority --workspace <workspace> adopt-legacy-job <job-id> <grant-id> --session <trusted-session-id>
 synapse-authority --workspace <workspace> reconcile-dispatch <dispatch-id> <succeeded|failed|cancelled>
@@ -144,10 +146,11 @@ unbounded; no hidden ceiling is substituted.
 `full_delegated` executes a covered plan immediately without caller
 `confirm=true` or a per-call pause. `supervised` returns `ApprovalRequired`
 with `-32001`, an exact requirement delta, and an opaque expiring request state
-when selected sensitive dimensions need step-up. Repeat the identical request
-through the trusted local adapter after issuing the exact step-up. `ScopeDenied`
-remains `-32002` and cannot be repaired by a grant. Revocation and expiry stop
-the next new dispatch immediately.
+when selected sensitive dimensions need step-up. The preferred operator command
+is `approve-request`: it derives the grant revision, canonical authorization
+fingerprint, and idempotency key from server-held state instead of accepting
+them from the client. `ScopeDenied` remains `-32002` and cannot be repaired by a
+grant. Revocation and expiry stop the next new dispatch immediately.
 
 Background polling is a zero-budget continuation only after durable dispatch
 and job records agree on workspace, origin action, grant revision, dispatch,
@@ -173,8 +176,38 @@ process environment:
 SYNAPSE_MODERN_AUTHORITY_PROFILE=observe|supervised|full_delegated
 SYNAPSE_MODERN_AUTHORITY_GRANT_ID=<grant-id>
 SYNAPSE_MODERN_AUTHORITY_SESSION_ID=<local-session-id>
-SYNAPSE_MODERN_REQUEST_STATE_ID=<opaque-resume-id>
 ```
+
+Per-request resume state is never read from process environment. The official
+SDK seals Synapse's raw repository request-state ID into the client-visible
+token. Drive a human-supervised round manually so the SDK's short automatic
+state-only retry loop does not expire while waiting for an operator:
+
+```python
+first = await client.session.call_tool(
+    "cors.execute_test",
+    arguments,
+    allow_input_required=True,
+)
+# A trusted operator lists/inspects the raw server-held request and runs:
+# synapse-authority --workspace <workspace> approve-request <raw-request-id>
+result = await client.session.call_tool(
+    "cors.execute_test",
+    arguments,
+    request_state=first.request_state,
+    allow_input_required=True,
+)
+```
+
+The retry must use the identical action and arguments. Synapse restores the
+original correlation, idempotency key, profile, grant, and grant revision from
+the durable repository before replanning. The default SDK request-state key is
+process-local, so its client-visible `v1` token does **not** survive a modern
+server restart. The raw repository request remains durable and visible through
+`list-requests`/`inspect-request`; after a restart, review that pending record,
+let it expire, and initiate and approve a new protocol request. Cross-process
+SDK-token continuation requires a separately managed persistent SDK key and is
+deferred to the authenticated Phase 3 transport design.
 
 Rollback stops the modern server or selects the stable legacy server. Preserve
 the authority file: authorized, dispatched, unknown, and historical records

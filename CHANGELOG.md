@@ -31,6 +31,9 @@ dispatch and continuation truth.
   `synapse-authority` management entry point. Authority-aware Registry profiles
   now execute covered full-delegated work without caller confirmation and keep
   uncovered or scope-denied work non-dispatched.
+  Trusted operators can list pending requests and approve an exact request from
+  server-held state; the official SDK resume carrier restores the original
+  request identity and dispatches it once.
 
 - **Phase 2 Authority Grant decision model.** Added immutable, serializable
   grants, budgets, exact step-up authorization, stable policy decisions/reasons,
@@ -84,6 +87,17 @@ dispatch and continuation truth.
   presentation labels map consistently to compatibility policies.
 
 ### Fixed
+
+- **Phase 2 final authority closure.** Separated canonical authorization
+  identity from the complete correlation-bearing plan seal, bound idempotency
+  keys to one logical request, and restored original correlation/idempotency
+  metadata from durable request state. Correlation churn, changed payloads,
+  revised/revoked grants, concurrent resumes, and replay can no longer bypass
+  unknown-dispatch or step-up protections. The modern adapter now consumes the
+  official SDK `request_state` context instead of a mutable environment value.
+- **Background job sidecar cleanup.** Process observation is read-only, so a
+  polling observer can no longer recreate `returncode.txt` after a concurrent
+  watchdog/finalizer has committed terminal state and removed runtime sidecars.
 
 - Target credential headers are re-resolved for every redirect/discovered
   origin and never inherit across uncovered origins; proxy credentials use a

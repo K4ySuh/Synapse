@@ -14,15 +14,16 @@ Stage B. The operator authorized implementation to begin on 2026-08-09 after
 the Phase 1.1 truth gate reported `READY_FOR_PHASE_2`.
 
 - Author: architectural lead (Javier Roldán Ortiz)
-- Governing ADR: ADR-0003 (Proposed) — Durable Authority Grants
+- Governing ADR: ADR-0003 (Accepted and applied) — Durable Authority Grants
 - Supporting: ADR-0002 (Accepted, the registry seam), ADR-0004 (Proposed, profiles),
   ADR-0007 (outcome model), ADR-0008 (action identity)
 - Directive source: Section C ("Introduce durable Authority Grants") and
   "Phase 2 — Authority Engine"
-- Status: **checkpoint approved; Stage B in progress**
+- Status: **checkpoint implemented; Phase 2 closure gate PASS (2026-08-19)**
 - Publication note: the approval ratifies the decisions in Section 9 and
-  authorizes the strict Stage B sequence. ADR-0003 remains Proposed until the
-  applied Phase 2 gate and migration record are complete.
+  authorized the strict Stage B sequence. ADR-0003 is now Accepted and applied;
+  the final adversarial closure corrected protocol resume, authorization
+  identity, and background-job sidecar cleanup.
 
 ## 0. Preconditions and base dependency
 
@@ -238,13 +239,18 @@ crash leaving `authorized` can be cancelled and released safely; a crash leaving
 is state-changing/non-idempotent. Unknown reservations require expiry or operator
 reconciliation rather than optimistic reuse.
 
-The fingerprint is SHA-256 over versioned canonical JSON containing the action
-id, workspace id, current scope digest, normalized `AuthorizationIntent`, full
-validated input with defaults/extras, and idempotency key. Only the legacy
-caller-asserted fields `confirm`, `approvalId`, `approvalReason`, and `riskTier`
-are excluded. Correlation ids and deadlines are execution metadata, not approval
-material. Credential ids are included; raw credential values are forbidden in
-the authority-profile intent and never persisted.
+The canonical authorization fingerprint is SHA-256 over versioned canonical
+JSON containing the action id, workspace id, current scope digest, normalized
+`AuthorizationIntent`, request-effective effects, and full validated-input
+fingerprints. Only the legacy caller-asserted fields `confirm`, `approvalId`,
+`approvalReason`, and `riskTier` are excluded. Correlation ids and deadlines are
+execution metadata, not approval material. The logical request identity is the
+pair of that authorization fingerprint and its server-held idempotency key;
+reuse of the key with different authorization material is a hard conflict. A
+separate complete plan fingerprint retains correlation and continuation
+metadata as a tamper-evident execution/audit seal. Credential ids are included;
+raw credential values are forbidden in the authority-profile intent and never
+persisted.
 
 ## 7. Grant lifecycle and the operator plane
 
@@ -316,9 +322,11 @@ dependency order in Section 10; it does not itself mark ADR-0003 applied.
    grant/lifecycle/coverage/budget/step-up/`scope_changed` reasons as
    `ApprovalRequired/-32001`.
 9. **Phase 2 request state and operator identity** — use server-held opaque
-   request state plus the minimal trusted `OperatorPrincipal`; defer
-   self-contained token sealing and stronger signer identity until an explicit
-   protocol/operator-plane decision.
+   request state plus the minimal trusted `OperatorPrincipal`. The official SDK
+   seals the raw repository ID at the protocol boundary and returns the raw ID
+   to the handler through `ctx.request_state`; its default process-local key is
+   deliberately not claimed to provide restart-durable client tokens. Durable
+   protocol keys and stronger remote signer/session identity remain Phase 3.
 
 ## 10. Stage B task outline
 

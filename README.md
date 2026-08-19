@@ -111,11 +111,17 @@ transaction evaluates an exact sealed plan and reserves its dispatch budget.
 Covered `full_delegated` work executes without caller `confirm=true` or a new
 pause; `supervised` returns an exact resumable step-up when required; uncovered
 work does not dispatch. The local `synapse-authority` entry point manages this
-state and is intentionally absent from model-executable actions.
+state and is intentionally absent from model-executable actions. Authorization
+identity excludes correlation/deadline metadata while the complete plan seal
+retains it for audit integrity; idempotency keys cannot be reused for a changed
+logical request or to bypass an unresolved dispatch.
 
 An isolated, opt-in authority-aware profile proves exactly three actions with the official Python
 MCP SDK 2.0.0 and protocol revision `2026-07-28` over stdio and loopback
-Streamable HTTP. It remains opt-in rather than the default stable server. See
+Streamable HTTP, including a standard SDK supervised resume that dispatches
+exactly once. The SDK token is distinct from durable raw repository state and,
+under the default process-local SDK key, does not survive a server restart. It
+remains opt-in rather than the default stable server. See
 [the Phase 1.1 handoff](docs/modernization/phase-1.1-handoff.md) and
 [the Phase 2 Stage B handoff](docs/modernization/phase-2-stage-b-handoff.md).
 
