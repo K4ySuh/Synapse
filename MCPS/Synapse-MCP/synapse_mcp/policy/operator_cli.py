@@ -40,11 +40,15 @@ def _parser() -> argparse.ArgumentParser:
     step_up = commands.add_parser("issue-step-up")
     step_up.add_argument("grant_id")
     step_up.add_argument("grant_revision", type=int)
-    step_up.add_argument("plan_fingerprint")
+    step_up.add_argument("authorization_fingerprint")
     step_up.add_argument("idempotency_key")
     step_up.add_argument("--expires-in", type=int, default=300)
+    commands.add_parser("list-requests")
     required = commands.add_parser("inspect-request")
     required.add_argument("request_state_id")
+    approve = commands.add_parser("approve-request")
+    approve.add_argument("request_state_id")
+    approve.add_argument("--expires-in", type=int, default=300)
     resume = commands.add_parser("resume-request")
     resume.add_argument("request_state_id")
     reconcile = commands.add_parser("reconcile-dispatch")
@@ -84,13 +88,22 @@ def main(argv: list[str] | None = None) -> None:
             "stepUpId": service.issue_step_up(
                 grant_id=args.grant_id,
                 grant_revision=args.grant_revision,
-                plan_fingerprint=args.plan_fingerprint,
+                authorization_fingerprint=args.authorization_fingerprint,
                 idempotency_key=args.idempotency_key,
                 expires_in_seconds=args.expires_in,
             )
         }
+    elif args.command == "list-requests":
+        result = list(service.list_required_authority())
     elif args.command == "inspect-request":
         result = service.inspect_required_authority(args.request_state_id)
+    elif args.command == "approve-request":
+        result = {
+            "stepUpId": service.issue_request_step_up(
+                args.request_state_id,
+                expires_in_seconds=args.expires_in,
+            )
+        }
     elif args.command == "resume-request":
         result = service.resume_request_state(args.request_state_id)
     elif args.command == "reconcile-dispatch":

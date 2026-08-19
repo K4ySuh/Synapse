@@ -200,7 +200,7 @@ class AuthorityGrantContractTests(unittest.TestCase):
             step_up = StepUpAuthorization(
                 grant.grant_id,
                 grant.revision,
-                plan.plan_fingerprint,
+                plan.authorization_fingerprint,
                 "idem-round-trip",
                 "operator:javier",
                 NOW + timedelta(minutes=5),
@@ -468,7 +468,7 @@ class ModeLifecycleAndBudgetTests(unittest.TestCase):
         wrong = StepUpAuthorization(
             grant.grant_id,
             grant.revision,
-            plan.plan_fingerprint,
+            plan.authorization_fingerprint,
             "wrong-key",
             "operator:javier",
             NOW + timedelta(minutes=5),

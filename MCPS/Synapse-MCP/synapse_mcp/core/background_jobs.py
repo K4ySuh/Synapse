@@ -860,12 +860,23 @@ def _validate_continuation(record: dict[str, Any]) -> ExecutionPlan:
 
 
 def _process_observation(record: dict[str, Any]) -> dict[str, Any]:
+    """Observe process truth without writing job records or runtime sidecars."""
+
     job_id = str(record["jobId"])
-    proc = _PROCESSES.get(job_id)
-    if proc is not None and proc.poll() is not None and _return_code(record) is None:
-        return_code_path = Path(str(record.get("returnCodePath") or ""))
-        if str(return_code_path):
-            atomic_io.atomic_write_text(return_code_path, str(proc.returncode), mode=0o600, fsync=True)
+    with _LOCK:
+        proc = _PROCESSES.get(job_id)
+        watchdog = _WATCHDOGS.get(job_id)
+    watchdog_owns_timeout = bool(
+        proc is not None
+        and watchdog is not None
+        and watchdog is not threading.current_thread()
+        and watchdog.is_alive()
+    )
+    return_code = _return_code(record)
+    if return_code is None and proc is not None:
+        observed = proc.poll()
+        if observed is not None:
+            return_code = int(observed)
     started_at = str(record.get("startedAt") or "")
     timeout_seconds = int(record.get("timeoutSeconds") or 0)
     timed_out = False
@@ -877,11 +888,12 @@ def _process_observation(record: dict[str, Any]) -> dict[str, Any]:
             timed_out = False
     pid = record.get("pid")
     return {
-        "returnCode": _return_code(record),
+        "returnCode": return_code,
         "alive": bool(isinstance(pid, int) and _is_pid_alive(pid)),
         "timedOut": timed_out,
         "pid": pid,
         "hasProcessHandle": proc is not None,
+        "watchdogOwnsTimeout": watchdog_owns_timeout,
     }
 
 
@@ -979,7 +991,12 @@ def _refresh(record: dict[str, Any]) -> dict[str, Any]:
     latest = _read_record(job_id)
     if str(latest.get("status")) in ACTIVE_STATUSES and not latest.get("controlReservation"):
         observation = _process_observation(latest)
-        if observation["returnCode"] is None and observation["timedOut"] and observation["alive"]:
+        if (
+            observation["returnCode"] is None
+            and observation["timedOut"]
+            and observation["alive"]
+            and not observation["watchdogOwnsTimeout"]
+        ):
             token, reserved = _reserve_control(job_id, "status_timeout")
             if token:
                 pid = reserved.get("pid")

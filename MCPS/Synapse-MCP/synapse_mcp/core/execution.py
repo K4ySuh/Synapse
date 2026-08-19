@@ -586,6 +586,33 @@ class ExecutionPlan:
         digest = hashlib.sha256(json.dumps(unsigned, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
         return replace(self, plan_fingerprint=digest)
 
+    @property
+    def authorization_fingerprint(self) -> str:
+        """Canonical approval identity, excluding per-attempt execution metadata.
+
+        ``plan_fingerprint`` remains the integrity seal over the complete plan,
+        including correlation and continuation lineage.  Authorization and
+        idempotency must instead survive correlation churn for the same logical
+        request, so their identity deliberately removes only the correlation
+        fields while retaining the complete validated-input fingerprints,
+        workspace/scope envelope, effects, outputs, providers, and lineage.
+        """
+
+        intent = self.intent.to_dict()
+        lineage = dict(intent.get("lineage") or {})
+        lineage.pop("originCorrelationId", None)
+        intent["lineage"] = lineage
+        material = {
+            "version": self.version,
+            "actionId": self.action_id,
+            "intent": intent,
+            "effects": self.effects.to_dict(),
+            "requestFingerprint": self.request_fingerprint,
+            "runtimeInputFingerprint": self.runtime_input_fingerprint,
+        }
+        encoded = json.dumps(material, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
     def verify(self) -> None:
         if self._sealed().plan_fingerprint != self.plan_fingerprint:
             raise ExecutionPlanError("execution_plan_tampered", "Execution plan fingerprint validation failed.")

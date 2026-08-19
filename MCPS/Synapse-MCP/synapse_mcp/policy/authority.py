@@ -189,7 +189,7 @@ class BudgetDemand:
 class StepUpAuthorization:
     grant_id: str
     grant_revision: int
-    plan_fingerprint: str
+    authorization_fingerprint: str
     idempotency_key: str
     approved_by: str
     expires_at: datetime
@@ -199,7 +199,7 @@ class StepUpAuthorization:
             raise ValueError("Invalid step-up grant_id")
         if self.grant_revision < 1:
             raise ValueError("Step-up grant_revision must be positive")
-        if not self.plan_fingerprint or not self.idempotency_key or not self.approved_by:
+        if not self.authorization_fingerprint or not self.idempotency_key or not self.approved_by:
             raise ValueError("Step-up fingerprint, idempotency key, and approver are required")
         _require_aware(self.expires_at, "expires_at")
 
@@ -207,7 +207,7 @@ class StepUpAuthorization:
         return (
             self.grant_id == grant.grant_id
             and self.grant_revision == grant.revision
-            and self.plan_fingerprint == plan.plan_fingerprint
+            and self.authorization_fingerprint == plan.authorization_fingerprint
             and bool(idempotency_key)
             and self.idempotency_key == idempotency_key
             and now < self.expires_at
@@ -217,7 +217,7 @@ class StepUpAuthorization:
         return {
             "grantId": self.grant_id,
             "grantRevision": self.grant_revision,
-            "planFingerprint": self.plan_fingerprint,
+            "authorizationFingerprint": self.authorization_fingerprint,
             "idempotencyKey": self.idempotency_key,
             "approvedBy": self.approved_by,
             "expiresAt": _format_time(self.expires_at),
@@ -228,7 +228,9 @@ class StepUpAuthorization:
         return cls(
             grant_id=str(value["grantId"]),
             grant_revision=int(value["grantRevision"]),
-            plan_fingerprint=str(value["planFingerprint"]),
+            authorization_fingerprint=str(
+                value.get("authorizationFingerprint") or value.get("planFingerprint") or ""
+            ),
             idempotency_key=str(value["idempotencyKey"]),
             approved_by=str(value["approvedBy"]),
             expires_at=_parse_time(value["expiresAt"]),
@@ -835,7 +837,7 @@ def evaluate_authority(grant: AuthorityGrant | None, evaluation: AuthorityEvalua
             "An exact, unexpired step-up authorization is required.",
             plan,
             grant,
-            AuthorityRequirement("step_up", (plan.plan_fingerprint, evaluation.idempotency_key), ()),
+            AuthorityRequirement("step_up", (plan.authorization_fingerprint, evaluation.idempotency_key), ()),
         )
     budget_decision = _budget_decision(grant, evaluation)
     if budget_decision is not None:

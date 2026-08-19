@@ -20,13 +20,13 @@ from synapse_mcp.app.actions import (
     REGISTRY,
     Success,
 )
+from synapse_mcp.policy.repository import AuthorityRepositoryError, WorkspaceAuthorityRepository
 
 
 MODERN_SPIKE_ENV = "SYNAPSE_ENABLE_MODERN_SPIKE"
 MODERN_AUTHORITY_PROFILE_ENV = "SYNAPSE_MODERN_AUTHORITY_PROFILE"
 MODERN_AUTHORITY_GRANT_ENV = "SYNAPSE_MODERN_AUTHORITY_GRANT_ID"
 MODERN_AUTHORITY_SESSION_ENV = "SYNAPSE_MODERN_AUTHORITY_SESSION_ID"
-MODERN_REQUEST_STATE_ENV = "SYNAPSE_MODERN_REQUEST_STATE_ID"
 MODERN_PROTOCOL_REVISION = "2026-07-28"
 MODERN_SDK_VERSION = "2.0.0"
 MODERN_ACTION_IDS = (
@@ -109,23 +109,49 @@ def _projected_callable(
             # execution; the trusted grant receipt is the sole modern signal.
             canonical_arguments["confirm"] = False
         validated_input = descriptor.input_model.model_validate(canonical_arguments)
+        authority_session_id = os.environ.get(MODERN_AUTHORITY_SESSION_ENV, "local-modern-spike")
+        request_state_id = str(context.request_state or "")
+        binding: dict[str, Any] = {}
+        if request_state_id:
+            workspace_id = str(canonical_arguments.get("workspaceId") or "")
+            if not workspace_id:
+                raise RuntimeError(
+                    "approval_required[authority_workspace_missing]: "
+                    "Request-state resume requires its workspace argument."
+                )
+            try:
+                binding = WorkspaceAuthorityRepository(workspace_id).resume_request_binding(
+                    request_state_id,
+                    authority_session_id=authority_session_id,
+                    action_id=action_id,
+                )
+            except AuthorityRepositoryError as exc:
+                raise RuntimeError(f"approval_required[{exc.reason_code}]: {exc}") from exc
         request = ActionRequest(
             input=validated_input,
             context=ExecutionContext(
                 workspace_id=arguments.get("workspaceId"),
-                correlation_id=f"modern-spike-{uuid4().hex}",
+                correlation_id=str(binding.get("correlationId") or f"modern-spike-{uuid4().hex}"),
                 deadline_seconds=descriptor.task_policy.deadline_tier.value,
                 legacy_approval_asserted=None,
-                execution_profile=os.environ.get(MODERN_AUTHORITY_PROFILE_ENV, "observe"),
-                authority_session_id=os.environ.get(MODERN_AUTHORITY_SESSION_ENV, "local-modern-spike"),
-                selected_grant_id=os.environ.get(MODERN_AUTHORITY_GRANT_ENV, ""),
-                idempotency_key=f"modern-{uuid4().hex}",
-                request_state_id=os.environ.get(MODERN_REQUEST_STATE_ENV, ""),
+                execution_profile=str(
+                    binding.get("profile") or os.environ.get(MODERN_AUTHORITY_PROFILE_ENV, "observe")
+                ),
+                authority_session_id=authority_session_id,
+                selected_grant_id=str(
+                    binding.get("grantId") or os.environ.get(MODERN_AUTHORITY_GRANT_ENV, "")
+                ),
+                idempotency_key=str(binding.get("idempotencyKey") or f"modern-{uuid4().hex}"),
+                request_state_id=request_state_id,
             ),
         )
         outcome = REGISTRY.execute(action_id, request)
         if isinstance(outcome, ApprovalRequired) and context.protocol_version == MODERN_PROTOCOL_REVISION:
             details = outcome.details or {}
+            request_state = str(details.get("requestStateId") or "") or None
+            if request_state is None:
+                reason = outcome.reason_code or "approval_required"
+                raise RuntimeError(f"approval_required[{reason}]: {outcome.message}")
             return input_required_result(
                 meta={
                     "synapse/status": "approval_required",
@@ -134,7 +160,7 @@ def _projected_callable(
                     "synapse/reason": outcome.reason_code or "approval_required",
                     "synapse/requirement": details.get("requirement"),
                 },
-                requestState=str(details.get("requestStateId") or "approval-required:authority-state"),
+                requestState=request_state,
             )
         if not isinstance(outcome, Success):
             reason = getattr(outcome, "reason_code", None) or outcome.kind

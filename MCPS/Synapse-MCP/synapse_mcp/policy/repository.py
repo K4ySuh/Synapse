@@ -311,7 +311,8 @@ class WorkspaceAuthorityRepository:
                     "kind": "step_up_issued",
                     "reason": "exact_step_up",
                     "actionId": "",
-                    "planFingerprint": authorization.plan_fingerprint,
+                    "authorizationFingerprint": authorization.authorization_fingerprint,
+                    "planFingerprint": "",
                     "grantId": authorization.grant_id,
                     "grantRevision": authorization.grant_revision,
                     "dispatchId": "",
@@ -319,6 +320,64 @@ class WorkspaceAuthorityRepository:
             )
             self._commit_locked(state)
         return step_up_id
+
+    def issue_request_step_up(
+        self,
+        request_state_id: str,
+        *,
+        approved_by: str,
+        expires_at: datetime,
+    ) -> str:
+        """Issue one exact step-up using only trusted pending-request state."""
+
+        with workspace.workspace_lock(self.workspace_id):
+            state = self._read_locked()
+            now = self._clock()
+            request_state = self._pending_request_state_locked(state, request_state_id, now)
+            grant_id = str(request_state.get("grantId") or "")
+            grant_revision = int(request_state.get("grantRevision") or 0)
+            if not grant_id or grant_revision < 1:
+                raise AuthorityRepositoryError(
+                    "request_state_grant_missing",
+                    "Pending request state has no exact grant revision for step-up.",
+                )
+            grant = self._grant_from_state(state, grant_id)
+            if grant.revision != grant_revision:
+                raise AuthorityRepositoryError("request_state_grant_revised", "Pending request grant was revised.")
+            if grant.revoked_at is not None and grant.revoked_at <= now:
+                raise AuthorityRepositoryError("request_state_grant_revoked", "Pending request grant was revoked.")
+            if now >= grant.expires_at:
+                raise AuthorityRepositoryError("request_state_grant_expired", "Pending request grant expired.")
+            authorization = StepUpAuthorization(
+                grant_id,
+                grant_revision,
+                str(request_state.get("authorizationFingerprint") or ""),
+                str(request_state.get("idempotencyKey") or ""),
+                approved_by,
+                expires_at,
+            )
+            step_up_id = f"stepup-{uuid4().hex}"
+            state["stepUps"][step_up_id] = authorization.to_dict()
+            request_state["stepUpId"] = step_up_id
+            request_state["status"] = "step_up_issued"
+            self._append_decision_locked(
+                state,
+                {
+                    "auditId": f"audit-{uuid4().hex}",
+                    "at": _format_time(now),
+                    "kind": "step_up_issued",
+                    "reason": "exact_request_step_up",
+                    "actionId": request_state["actionId"],
+                    "authorizationFingerprint": authorization.authorization_fingerprint,
+                    "planFingerprint": request_state["planFingerprint"],
+                    "grantId": grant_id,
+                    "grantRevision": grant_revision,
+                    "dispatchId": "",
+                    "requestStateId": request_state_id,
+                },
+            )
+            self._commit_locked(state)
+            return step_up_id
 
     def authorize(
         self,
@@ -353,18 +412,28 @@ class WorkspaceAuthorityRepository:
         with workspace.workspace_lock(self.workspace_id):
             state = self._read_locked()
             resumed = (
-                self._request_state_locked(state, request_state_id, plan, authority_session_id, now)
+                self._request_state_locked(
+                    state,
+                    request_state_id,
+                    plan,
+                    authority_session_id,
+                    profile,
+                    selected_grant_id,
+                    idempotency_key,
+                    now,
+                )
                 if request_state_id
                 else None
             )
             self._compact_locked(state, now)
-            grant_id = selected_grant_id or str((resumed or {}).get("grantId") or "")
+            self._validate_idempotency_locked(state, plan, idempotency_key, request_state_id)
+            grant_id = str(resumed.get("grantId") or "") if resumed else selected_grant_id
             grant = self._grant_from_state(state, grant_id) if grant_id else None
             if grant is not None and grant.mode is not selected_mode:
                 grant = None
             continuation = self._continuation_locked(state, plan, authority_session_id)
             usage = self._budget_usage_locked(state, grant, now) if grant is not None else BudgetUsage()
-            step_up = self._matching_step_up_locked(state, grant, plan, idempotency_key, now)
+            step_up = self._matching_step_up_locked(state, grant, plan, idempotency_key, now, resumed)
             evaluation = AuthorityEvaluation(
                 plan=plan,
                 risk_class=risk_class,
@@ -387,6 +456,7 @@ class WorkspaceAuthorityRepository:
                     authority_session_id,
                     idempotency_key,
                     continuation,
+                    request_state_id,
                     now,
                 )
             else:
@@ -394,8 +464,11 @@ class WorkspaceAuthorityRepository:
                     state,
                     decision,
                     plan,
-                    grant_id,
+                    grant,
+                    profile,
                     authority_session_id,
+                    idempotency_key,
+                    resumed,
                     now,
                 )
             self._compact_locked(state, now)
@@ -602,13 +675,68 @@ class WorkspaceAuthorityRepository:
     def inspect_request_state(self, request_state_id: str) -> dict[str, Any]:
         with workspace.workspace_lock(self.workspace_id):
             state = self._read_locked()
-            try:
-                request_state = state["requestStates"][request_state_id]
-            except KeyError as exc:
-                raise AuthorityRepositoryError("request_state_not_found", "Opaque request state is unknown.") from exc
-            if _parse_time(request_state["expiresAt"]) <= self._clock():
-                raise AuthorityRepositoryError("request_state_expired", "Opaque request state has expired.")
+            request_state = self._pending_request_state_locked(state, request_state_id, self._clock())
             return json.loads(json.dumps(request_state))
+
+    def list_request_states(self) -> tuple[dict[str, Any], ...]:
+        """List unexpired pending authority requests for the trusted operator plane."""
+
+        with workspace.workspace_lock(self.workspace_id):
+            state = self._read_locked()
+            now = self._clock()
+            values = [
+                json.loads(json.dumps(value))
+                for value in state["requestStates"].values()
+                if _parse_time(value["expiresAt"]) > now and not value.get("resumedDispatchId")
+            ]
+            return tuple(sorted(values, key=lambda item: str(item.get("createdAt") or "")))
+
+    def resume_request_binding(
+        self,
+        request_state_id: str,
+        *,
+        authority_session_id: str,
+        action_id: str,
+    ) -> dict[str, Any]:
+        """Return trusted execution identity before a protocol retry is planned."""
+
+        with workspace.workspace_lock(self.workspace_id):
+            state = self._read_locked()
+            request_state = self._pending_request_state_locked(state, request_state_id, self._clock())
+            required = {
+                "authorizationFingerprint",
+                "correlationId",
+                "idempotencyKey",
+                "profile",
+                "grantRevision",
+            }
+            if not required.issubset(request_state):
+                raise AuthorityRepositoryError(
+                    "request_state_legacy_unbound",
+                    "Opaque request state predates canonical authorization binding and cannot be resumed.",
+                )
+            if (
+                request_state.get("workspaceId") != self.workspace_id
+                or request_state.get("authoritySessionId") != authority_session_id
+                or request_state.get("actionId") != action_id
+            ):
+                raise AuthorityRepositoryError(
+                    "request_state_mismatch",
+                    "Opaque request state does not match this workspace, session, and action.",
+                )
+            return {
+                "requestStateId": request_state_id,
+                "workspaceId": request_state["workspaceId"],
+                "actionId": request_state["actionId"],
+                "correlationId": request_state["correlationId"],
+                "idempotencyKey": request_state["idempotencyKey"],
+                "profile": request_state["profile"],
+                "grantId": request_state["grantId"],
+                "grantRevision": request_state["grantRevision"],
+                "authorizationFingerprint": request_state["authorizationFingerprint"],
+                "planFingerprint": request_state["planFingerprint"],
+                "expiresAt": request_state["expiresAt"],
+            }
 
     def list_dispatches(self) -> tuple[dict[str, Any], ...]:
         with workspace.workspace_lock(self.workspace_id):
@@ -722,27 +850,67 @@ class WorkspaceAuthorityRepository:
             raise AuthorityRepositoryError("dispatch_state_corrupt", f"Dispatch state is invalid: {dispatch_id}")
         return dispatch
 
+    @staticmethod
+    def _pending_request_state_locked(
+        state: Mapping[str, Any],
+        request_state_id: str,
+        now: datetime,
+    ) -> dict[str, Any]:
+        try:
+            request_state = state["requestStates"][request_state_id]
+        except KeyError as exc:
+            raise AuthorityRepositoryError("request_state_not_found", "Opaque request state is unknown.") from exc
+        if not isinstance(request_state, dict):
+            raise AuthorityRepositoryError("request_state_corrupt", "Opaque request state is invalid.")
+        if _parse_time(request_state["expiresAt"]) <= now:
+            raise AuthorityRepositoryError("request_state_expired", "Opaque request state has expired.")
+        if request_state.get("resumedDispatchId"):
+            raise AuthorityRepositoryError("request_state_replayed", "Opaque request state was already consumed.")
+        return request_state
+
     def _request_state_locked(
         self,
         state: Mapping[str, Any],
         request_state_id: str,
         plan: ExecutionPlan,
         authority_session_id: str,
+        profile: str,
+        selected_grant_id: str,
+        idempotency_key: str,
         now: datetime,
     ) -> Mapping[str, Any]:
-        try:
-            request_state = state["requestStates"][request_state_id]
-        except KeyError as exc:
-            raise AuthorityRepositoryError("request_state_not_found", "Opaque request state is unknown.") from exc
-        if _parse_time(request_state["expiresAt"]) <= now:
-            raise AuthorityRepositoryError("request_state_expired", "Opaque request state has expired.")
+        request_state = self._pending_request_state_locked(state, request_state_id, now)
+        required = {
+            "authorizationFingerprint",
+            "correlationId",
+            "idempotencyKey",
+            "profile",
+            "grantRevision",
+        }
+        if not required.issubset(request_state):
+            raise AuthorityRepositoryError(
+                "request_state_legacy_unbound",
+                "Opaque request state predates canonical authorization binding and cannot be resumed.",
+            )
         if (
             request_state.get("workspaceId") != self.workspace_id
             or request_state.get("authoritySessionId") != authority_session_id
             or request_state.get("actionId") != plan.action_id
+            or request_state.get("authorizationFingerprint") != plan.authorization_fingerprint
             or request_state.get("planFingerprint") != plan.plan_fingerprint
+            or request_state.get("correlationId") != plan.correlation_id
+            or request_state.get("idempotencyKey") != idempotency_key
+            or request_state.get("profile") != profile
+            or (selected_grant_id and request_state.get("grantId") != selected_grant_id)
         ):
             raise AuthorityRepositoryError("request_state_mismatch", "Opaque request state does not match this exact plan.")
+        grant_id = str(request_state.get("grantId") or "")
+        if grant_id:
+            grant = self._grant_from_state(state, grant_id)
+            if grant.revoked_at is not None and grant.revoked_at <= now:
+                raise AuthorityRepositoryError("request_state_grant_revoked", "Opaque request state grant was revoked.")
+            if grant.revision != int(request_state.get("grantRevision") or 0):
+                raise AuthorityRepositoryError("request_state_grant_revised", "Opaque request state grant was revised.")
         return request_state
 
     def _matching_step_up_locked(
@@ -752,10 +920,19 @@ class WorkspaceAuthorityRepository:
         plan: ExecutionPlan,
         idempotency_key: str,
         now: datetime,
+        request_state: Mapping[str, Any] | None = None,
     ) -> StepUpAuthorization | None:
         if grant is None:
             return None
-        for value in state["stepUps"].values():
+        step_up_id = str((request_state or {}).get("stepUpId") or "")
+        candidates = (
+            (state["stepUps"].get(step_up_id),)
+            if request_state is not None
+            else tuple(state["stepUps"].values())
+        )
+        for value in candidates:
+            if not isinstance(value, Mapping):
+                continue
             try:
                 candidate = StepUpAuthorization.from_dict(value)
             except (KeyError, TypeError, ValueError):
@@ -868,6 +1045,7 @@ class WorkspaceAuthorityRepository:
         authority_session_id: str,
         idempotency_key: str,
         continuation: ContinuationAuthorization | None,
+        request_state_id: str,
         now: datetime,
     ) -> AuthorizationResult:
         if not decision.grant_id or decision.grant_revision < 1:
@@ -911,7 +1089,9 @@ class WorkspaceAuthorityRepository:
                 "revision": 1,
                 "workspaceId": self.workspace_id,
                 "actionId": plan.action_id,
+                "authorizationFingerprint": plan.authorization_fingerprint,
                 "planFingerprint": plan.plan_fingerprint,
+                "correlationId": plan.correlation_id,
                 "grantId": decision.grant_id,
                 "grantRevision": decision.grant_revision,
                 "profile": profile,
@@ -928,6 +1108,11 @@ class WorkspaceAuthorityRepository:
                 "reconciliation": None,
             }
             state["dispatches"][dispatch_id] = dispatch
+            if request_state_id:
+                request_state = state["requestStates"][request_state_id]
+                request_state["status"] = "consumed"
+                request_state["resumedDispatchId"] = dispatch_id
+                request_state["consumedAt"] = _format_time(now)
             window = state["budgetWindows"][grant.grant_id]
             window["dispatchesUsed"] += decision.budget_demand.dispatch_units
             window["dispatchWindowUsed"] += decision.budget_demand.dispatch_rate_units
@@ -953,7 +1138,10 @@ class WorkspaceAuthorityRepository:
                 "kind": decision.kind,
                 "reason": str(decision.reason),
                 "actionId": plan.action_id,
+                "authorizationFingerprint": plan.authorization_fingerprint,
                 "planFingerprint": plan.plan_fingerprint,
+                "correlationId": plan.correlation_id,
+                "idempotencyKey": idempotency_key,
                 "grantId": decision.grant_id,
                 "grantRevision": decision.grant_revision,
                 "dispatchId": receipt.dispatch_id,
@@ -966,24 +1154,42 @@ class WorkspaceAuthorityRepository:
         state: dict[str, Any],
         decision: ApprovalRequired | ScopeDenied,
         plan: ExecutionPlan,
-        grant_id: str,
+        grant: AuthorityGrant | None,
+        profile: str,
         authority_session_id: str,
+        idempotency_key: str,
+        resumed: Mapping[str, Any] | None,
         now: datetime,
     ) -> AuthorizationResult:
         request_state_id = ""
+        grant_id = grant.grant_id if grant is not None else ""
+        grant_revision = grant.revision if grant is not None else 0
         if isinstance(decision, ApprovalRequired):
-            request_state_id = f"request-{uuid4().hex}"
-            state["requestStates"][request_state_id] = {
-                "requestStateId": request_state_id,
-                "workspaceId": self.workspace_id,
-                "authoritySessionId": authority_session_id,
-                "actionId": plan.action_id,
-                "planFingerprint": plan.plan_fingerprint,
-                "grantId": grant_id,
-                "reason": str(decision.reason),
-                "createdAt": _format_time(now),
-                "expiresAt": _format_time(now + self._request_state_ttl),
-            }
+            if resumed is not None:
+                request_state_id = str(resumed["requestStateId"])
+                resumed["reason"] = str(decision.reason)
+                resumed["lastEvaluatedAt"] = _format_time(now)
+            else:
+                request_state_id = f"request-{uuid4().hex}"
+                state["requestStates"][request_state_id] = {
+                    "requestStateId": request_state_id,
+                    "workspaceId": self.workspace_id,
+                    "authoritySessionId": authority_session_id,
+                    "actionId": plan.action_id,
+                    "authorizationFingerprint": plan.authorization_fingerprint,
+                    "planFingerprint": plan.plan_fingerprint,
+                    "correlationId": plan.correlation_id,
+                    "idempotencyKey": idempotency_key,
+                    "profile": profile,
+                    "grantId": grant_id,
+                    "grantRevision": grant_revision,
+                    "stepUpId": "",
+                    "status": "pending",
+                    "resumedDispatchId": "",
+                    "reason": str(decision.reason),
+                    "createdAt": _format_time(now),
+                    "expiresAt": _format_time(now + self._request_state_ttl),
+                }
             decision = replace(decision, request_state_id=request_state_id)
         audit = {
             "auditId": f"audit-{uuid4().hex}",
@@ -991,15 +1197,52 @@ class WorkspaceAuthorityRepository:
             "kind": decision.kind,
             "reason": str(decision.reason),
             "actionId": plan.action_id,
+            "authorizationFingerprint": plan.authorization_fingerprint,
             "planFingerprint": plan.plan_fingerprint,
+            "correlationId": plan.correlation_id,
+            "idempotencyKey": idempotency_key,
             "grantId": grant_id,
-            "grantRevision": 0,
+            "grantRevision": grant_revision,
             "dispatchId": "",
             "requestStateId": request_state_id,
             "requirement": decision.requirement.to_dict() if decision.requirement else None,
         }
         self._append_decision_locked(state, audit)
         return AuthorizationResult(decision)
+
+    @staticmethod
+    def _validate_idempotency_locked(
+        state: Mapping[str, Any],
+        plan: ExecutionPlan,
+        idempotency_key: str,
+        request_state_id: str,
+    ) -> None:
+        if not idempotency_key:
+            return
+        authorization_fingerprint = plan.authorization_fingerprint
+        for item in state["dispatches"].values():
+            if item.get("idempotencyKey") != idempotency_key:
+                continue
+            stored = str(item.get("authorizationFingerprint") or "")
+            if not stored or stored != authorization_fingerprint:
+                raise AuthorityRepositoryError(
+                    "idempotency_conflict",
+                    "Idempotency key is already bound to a different logical request.",
+                )
+        for key, item in state["requestStates"].items():
+            if item.get("idempotencyKey") != idempotency_key:
+                continue
+            stored = str(item.get("authorizationFingerprint") or "")
+            if not stored or stored != authorization_fingerprint:
+                raise AuthorityRepositoryError(
+                    "idempotency_conflict",
+                    "Idempotency key is already bound to a different pending request.",
+                )
+            if not item.get("resumedDispatchId") and key != request_state_id:
+                raise AuthorityRepositoryError(
+                    "request_state_required",
+                    "This logical request already has pending server-held state and must resume through it.",
+                )
 
     @staticmethod
     def _prior_idempotent_dispatch_locked(
@@ -1013,8 +1256,7 @@ class WorkspaceAuthorityRepository:
             item
             for item in state["dispatches"].values()
             if item.get("idempotencyKey") == idempotency_key
-            and item.get("actionId") == plan.action_id
-            and item.get("planFingerprint") == plan.plan_fingerprint
+            and item.get("authorizationFingerprint") == plan.authorization_fingerprint
         ]
         if not matches:
             return None

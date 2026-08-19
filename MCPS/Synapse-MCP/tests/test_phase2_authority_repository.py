@@ -17,6 +17,7 @@ from synapse_mcp.app.actions import (
     RiskClass,
 )
 from synapse_mcp.core import workspace
+from synapse_mcp.core.execution import EffectEnvelope
 from synapse_mcp.policy import (
     Allow,
     ApprovalRequired,
@@ -43,11 +44,18 @@ class MutableClock:
         return self.value
 
 
-def _plan(workspace_id: str = "authority"):
+def _plan(
+    workspace_id: str = "authority",
+    *,
+    correlation: str = "repository-test",
+    include_inventory: bool = False,
+):
     descriptor = REGISTRY.get("workspace.summary")
     request = ActionRequest(
-        descriptor.input_model.model_validate({"workspaceId": workspace_id}),
-        ExecutionContext(workspace_id, "repository-test", 45.0, None),
+        descriptor.input_model.model_validate(
+            {"workspaceId": workspace_id, "includeInventory": include_inventory}
+        ),
+        ExecutionContext(workspace_id, correlation, 45.0, None),
     )
     return REGISTRY.resolve_execution_plan("workspace.summary", request)
 
@@ -74,6 +82,15 @@ def _grant(plan, *, limit: int | None = None, grant_id: str = "grant-repository"
         expires_at=NOW + timedelta(hours=1),
         approved_by="operator:test",
     )
+
+
+def _sensitive_plan(*, correlation: str = "repository-test", include_inventory: bool = False):
+    base = _plan(correlation=correlation, include_inventory=include_inventory)
+    return replace(
+        base,
+        effects=EffectEnvelope(local_change=True, replay_safety="non_idempotent"),
+        plan_fingerprint="",
+    )._sealed()
 
 
 class AuthorityRepositoryTests(unittest.TestCase):
@@ -167,6 +184,78 @@ class AuthorityRepositoryTests(unittest.TestCase):
                 idempotency_key="before-dispatch",
             )
         self.assertEqual(raised.exception.reason_code, "dispatch_reconciliation_required")
+
+    def test_correlation_churn_cannot_bypass_unresolved_dispatch_identity(self) -> None:
+        self.repository.create_grant(_grant(self.plan, limit=4))
+        first = self.repository.authorize(
+            self.plan,
+            risk_class=RiskClass.NONE,
+            profile="full_delegated",
+            authority_session_id="repository-session",
+            selected_grant_id="grant-repository",
+            idempotency_key="correlation-churn",
+        )
+        self.repository.mark_dispatched(first.receipt)
+        self.repository.transition_dispatch(first.receipt.dispatch_id, "unknown")
+        churned = _plan(correlation="different-correlation")
+        self.assertNotEqual(churned.plan_fingerprint, self.plan.plan_fingerprint)
+        self.assertEqual(churned.authorization_fingerprint, self.plan.authorization_fingerprint)
+        with self.assertRaises(AuthorityRepositoryError) as raised:
+            self.repository.authorize(
+                churned,
+                risk_class=RiskClass.NONE,
+                profile="full_delegated",
+                authority_session_id="repository-session",
+                selected_grant_id="grant-repository",
+                idempotency_key="correlation-churn",
+            )
+        self.assertEqual(raised.exception.reason_code, "dispatch_reconciliation_required")
+        self.assertEqual(len(self.repository.list_dispatches()), 1)
+
+    def test_same_idempotency_key_with_changed_payload_is_a_hard_conflict(self) -> None:
+        self.repository.create_grant(_grant(self.plan, limit=4))
+        first = self.repository.authorize(
+            self.plan,
+            risk_class=RiskClass.NONE,
+            profile="full_delegated",
+            authority_session_id="repository-session",
+            selected_grant_id="grant-repository",
+            idempotency_key="payload-conflict",
+        )
+        self.repository.mark_dispatched(first.receipt)
+        self.repository.transition_dispatch(first.receipt.dispatch_id, "failed")
+        changed = _plan(include_inventory=True)
+        self.assertNotEqual(changed.authorization_fingerprint, self.plan.authorization_fingerprint)
+        with self.assertRaises(AuthorityRepositoryError) as raised:
+            self.repository.authorize(
+                changed,
+                risk_class=RiskClass.NONE,
+                profile="full_delegated",
+                authority_session_id="repository-session",
+                selected_grant_id="grant-repository",
+                idempotency_key="payload-conflict",
+            )
+        self.assertEqual(raised.exception.reason_code, "idempotency_conflict")
+
+    def test_pending_request_requires_its_server_held_resume_state(self) -> None:
+        first = self.repository.authorize(
+            self.plan,
+            risk_class=RiskClass.NONE,
+            profile="full_delegated",
+            authority_session_id="repository-session",
+            idempotency_key="pending-correlation-churn",
+        )
+        self.assertIsInstance(first.decision, ApprovalRequired)
+        churned = _plan(correlation="new-attempt")
+        with self.assertRaises(AuthorityRepositoryError) as raised:
+            self.repository.authorize(
+                churned,
+                risk_class=RiskClass.NONE,
+                profile="full_delegated",
+                authority_session_id="repository-session",
+                idempotency_key="pending-correlation-churn",
+            )
+        self.assertEqual(raised.exception.reason_code, "request_state_required")
 
     def test_explicit_idempotent_retry_links_failed_dispatch(self) -> None:
         self.repository.create_grant(_grant(self.plan, limit=3))
@@ -329,6 +418,197 @@ class AuthorityRepositoryTests(unittest.TestCase):
                 authority_session_id="repository-session",
                 request_state_id=request_state_id,
             )
+
+    def test_supervised_resume_restores_identity_and_is_consumed_exactly_once(self) -> None:
+        plan = _sensitive_plan()
+        grant = replace(
+            _grant(plan, limit=3),
+            mode=AuthorityMode.SUPERVISED,
+            state_change_policy=StateChangePolicy.REQUIRE_STEP_UP,
+        )
+        self.repository.create_grant(grant)
+        first = self.repository.authorize(
+            plan,
+            risk_class=RiskClass.HIGH,
+            profile="supervised",
+            authority_session_id="repository-session",
+            selected_grant_id=grant.grant_id,
+            idempotency_key="supervised-resume",
+        )
+        self.assertIsInstance(first.decision, ApprovalRequired)
+        request_state_id = first.decision.request_state_id
+        binding = self.repository.resume_request_binding(
+            request_state_id,
+            authority_session_id="repository-session",
+            action_id=plan.action_id,
+        )
+        self.assertEqual(binding["correlationId"], plan.correlation_id)
+        self.assertEqual(binding["idempotencyKey"], "supervised-resume")
+        self.assertEqual(binding["authorizationFingerprint"], plan.authorization_fingerprint)
+        self.repository.issue_request_step_up(
+            request_state_id,
+            approved_by="operator:test",
+            expires_at=NOW + timedelta(minutes=5),
+        )
+
+        barrier = threading.Barrier(2)
+        outcomes: list[object] = []
+
+        def resume() -> None:
+            barrier.wait()
+            try:
+                outcomes.append(
+                    WorkspaceAuthorityRepository("authority", clock=self.clock).authorize(
+                        plan,
+                        risk_class=RiskClass.HIGH,
+                        profile="supervised",
+                        authority_session_id="repository-session",
+                        selected_grant_id=grant.grant_id,
+                        idempotency_key="supervised-resume",
+                        request_state_id=request_state_id,
+                    )
+                )
+            except AuthorityRepositoryError as exc:
+                outcomes.append(exc)
+
+        threads = [threading.Thread(target=resume) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=3)
+        self.assertEqual(sum(isinstance(item, AuthorityRepositoryError) for item in outcomes), 1)
+        self.assertEqual(
+            [item.reason_code for item in outcomes if isinstance(item, AuthorityRepositoryError)],
+            ["request_state_replayed"],
+        )
+        self.assertEqual(len(self.repository.list_dispatches()), 1)
+        self.assertEqual(self.repository.budget_usage(grant.grant_id).dispatches_used, 1)
+        self.assertEqual(self.repository.list_request_states(), ())
+
+    def test_supervised_request_state_rejects_changed_identity_and_grant_revision(self) -> None:
+        plan = _sensitive_plan()
+        grant = replace(
+            _grant(plan),
+            mode=AuthorityMode.SUPERVISED,
+            state_change_policy=StateChangePolicy.REQUIRE_STEP_UP,
+        )
+        self.repository.create_grant(grant)
+        first = self.repository.authorize(
+            plan,
+            risk_class=RiskClass.HIGH,
+            profile="supervised",
+            authority_session_id="repository-session",
+            selected_grant_id=grant.grant_id,
+            idempotency_key="binding-rejection",
+        )
+        request_state_id = first.decision.request_state_id
+        changed = _sensitive_plan(include_inventory=True)
+        attempts = (
+            (changed, "repository-session", "binding-rejection"),
+            (plan, "different-session", "binding-rejection"),
+            (plan, "repository-session", "different-key"),
+        )
+        for attempted_plan, session, key in attempts:
+            with self.subTest(session=session, key=key, changed=attempted_plan is changed):
+                with self.assertRaises(AuthorityRepositoryError) as raised:
+                    self.repository.authorize(
+                        attempted_plan,
+                        risk_class=RiskClass.HIGH,
+                        profile="supervised",
+                        authority_session_id=session,
+                        selected_grant_id=grant.grant_id,
+                        idempotency_key=key,
+                        request_state_id=request_state_id,
+                    )
+                self.assertEqual(raised.exception.reason_code, "request_state_mismatch")
+
+        self.repository.issue_request_step_up(
+            request_state_id,
+            approved_by="operator:test",
+            expires_at=NOW + timedelta(minutes=5),
+        )
+        revised = replace(grant, revision=2, expires_at=grant.expires_at + timedelta(hours=1))
+        self.repository.revise_grant(revised, expected_grant_revision=1)
+        with self.assertRaises(AuthorityRepositoryError) as raised:
+            self.repository.authorize(
+                plan,
+                risk_class=RiskClass.HIGH,
+                profile="supervised",
+                authority_session_id="repository-session",
+                selected_grant_id=grant.grant_id,
+                idempotency_key="binding-rejection",
+                request_state_id=request_state_id,
+            )
+        self.assertEqual(raised.exception.reason_code, "request_state_grant_revised")
+
+    def test_step_up_expiry_and_grant_revocation_fail_closed_before_dispatch(self) -> None:
+        expiring_plan = _sensitive_plan()
+        expiring_grant = replace(
+            _grant(expiring_plan, grant_id="grant-expiring-stepup"),
+            mode=AuthorityMode.SUPERVISED,
+            state_change_policy=StateChangePolicy.REQUIRE_STEP_UP,
+        )
+        self.repository.create_grant(expiring_grant)
+        expiring = self.repository.authorize(
+            expiring_plan,
+            risk_class=RiskClass.HIGH,
+            profile="supervised",
+            authority_session_id="repository-session",
+            selected_grant_id=expiring_grant.grant_id,
+            idempotency_key="expiring-stepup",
+        )
+        self.repository.issue_request_step_up(
+            expiring.decision.request_state_id,
+            approved_by="operator:test",
+            expires_at=NOW + timedelta(seconds=1),
+        )
+        self.clock.value = NOW + timedelta(seconds=2)
+        expired = self.repository.authorize(
+            expiring_plan,
+            risk_class=RiskClass.HIGH,
+            profile="supervised",
+            authority_session_id="repository-session",
+            selected_grant_id=expiring_grant.grant_id,
+            idempotency_key="expiring-stepup",
+            request_state_id=expiring.decision.request_state_id,
+        )
+        self.assertIsInstance(expired.decision, ApprovalRequired)
+        self.assertEqual(str(expired.decision.reason), "step_up_required")
+        self.assertEqual(self.repository.list_dispatches(), ())
+
+        self.clock.value = NOW
+        revoked_grant = replace(
+            _grant(expiring_plan, grant_id="grant-revoked-resume"),
+            mode=AuthorityMode.SUPERVISED,
+            state_change_policy=StateChangePolicy.REQUIRE_STEP_UP,
+        )
+        self.repository.create_grant(revoked_grant)
+        revoked = self.repository.authorize(
+            expiring_plan,
+            risk_class=RiskClass.HIGH,
+            profile="supervised",
+            authority_session_id="repository-session",
+            selected_grant_id=revoked_grant.grant_id,
+            idempotency_key="revoked-resume",
+        )
+        self.repository.issue_request_step_up(
+            revoked.decision.request_state_id,
+            approved_by="operator:test",
+            expires_at=NOW + timedelta(minutes=5),
+        )
+        self.repository.revoke_grant(revoked_grant.grant_id, expected_grant_revision=1, revoked_at=NOW)
+        with self.assertRaises(AuthorityRepositoryError) as raised:
+            self.repository.authorize(
+                expiring_plan,
+                risk_class=RiskClass.HIGH,
+                profile="supervised",
+                authority_session_id="repository-session",
+                selected_grant_id=revoked_grant.grant_id,
+                idempotency_key="revoked-resume",
+                request_state_id=revoked.decision.request_state_id,
+            )
+        self.assertEqual(raised.exception.reason_code, "request_state_grant_revoked")
+        self.assertEqual(self.repository.list_dispatches(), ())
 
     def test_compaction_bounds_ephemeral_state_but_preserves_unresolved_dispatch(self) -> None:
         repository = WorkspaceAuthorityRepository("authority", clock=self.clock, decision_retention=3)

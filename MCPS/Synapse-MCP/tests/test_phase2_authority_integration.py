@@ -359,14 +359,13 @@ class AuthorityRegistryIntegrationTests(unittest.TestCase):
         self.assertEqual(ProbeHandler.requests, [])
         request_state_id = denied.details["requestStateId"]
         plan_fingerprint = denied.details["planFingerprint"]
-        self.service.issue_step_up(
-            grant_id=grant.grant_id,
-            grant_revision=grant.revision,
-            plan_fingerprint=plan_fingerprint,
-            idempotency_key="supervised-key",
-        )
+        self.service.issue_request_step_up(request_state_id)
         binding = self.service.resume_request_state(request_state_id)
         self.assertEqual(binding["planFingerprint"], plan_fingerprint)
+        self.assertEqual(
+            binding["authorizationFingerprint"],
+            REGISTRY.resolve_execution_plan("cors.execute_test", planning).authorization_fingerprint,
+        )
         resumed = _request(
             "cors.execute_test",
             arguments,

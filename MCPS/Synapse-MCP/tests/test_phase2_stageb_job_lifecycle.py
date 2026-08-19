@@ -25,6 +25,91 @@ def _start_job(*, finalizer_name: str = "", command: str = "exit 0") -> dict:
 
 
 class TransactionalJobLifecycleTests(unittest.TestCase):
+    def test_status_does_not_steal_timeout_from_a_live_watchdog(self) -> None:
+        with TemporaryDirectory() as tmp, isolated_state(Path(tmp)):
+            workspace.create_workspace("ws", hosts=["example.test"])
+            with patch.object(background_jobs, "_start_watchdog"):
+                started = _start_job(command="sleep 30")
+            job_id = started["jobId"]
+            release = threading.Event()
+            fake_watchdog = threading.Thread(target=lambda: release.wait(timeout=5))
+            fake_watchdog.start()
+            background_jobs._WATCHDOGS[job_id] = fake_watchdog
+            try:
+                record = background_jobs._read_record(job_id)
+                record["startedAt"] = "2000-01-01T00:00:00Z"
+                background_jobs._write_record(record)
+                observed = background_jobs.status(job_id)
+                self.assertEqual(observed["status"], "running")
+                self.assertEqual(observed["error"], "")
+            finally:
+                release.set()
+                fake_watchdog.join(timeout=3)
+                background_jobs._WATCHDOGS.pop(job_id, None)
+                record = background_jobs._read_record(job_id)
+                record["startedAt"] = background_jobs._utc_now()
+                background_jobs._write_record(record)
+                background_jobs.cancel(job_id)
+
+    def test_observer_cannot_recreate_returncode_after_watchdog_finalization(self) -> None:
+        with TemporaryDirectory() as tmp, isolated_state(Path(tmp)):
+            workspace.create_workspace("ws", hosts=["example.test"])
+            original_status = background_jobs.status
+            original_observation = background_jobs._process_observation
+            release_watchdog = threading.Event()
+            watchdog_done = threading.Event()
+            observer_ready = threading.Event()
+            release_observer = threading.Event()
+            pause_observer = threading.Event()
+
+            def controlled_status(*args, **kwargs):
+                if threading.current_thread().name.startswith("synapse-job-watchdog-"):
+                    self.assertTrue(release_watchdog.wait(timeout=5))
+                    try:
+                        return original_status(*args, **kwargs)
+                    finally:
+                        watchdog_done.set()
+                return original_status(*args, **kwargs)
+
+            def controlled_observation(record):
+                observed = original_observation(record)
+                if (
+                    pause_observer.is_set()
+                    and not threading.current_thread().name.startswith("synapse-job-watchdog-")
+                    and observed["returnCode"] is not None
+                ):
+                    observer_ready.set()
+                    self.assertTrue(release_observer.wait(timeout=5))
+                return observed
+
+            with patch.object(background_jobs, "status", side_effect=controlled_status), patch.object(
+                background_jobs,
+                "_process_observation",
+                side_effect=controlled_observation,
+            ):
+                started = _start_job(command="sleep 1")
+                job_id = started["jobId"]
+                job_dir = background_jobs._find_record_path(job_id).parent
+                background_jobs._PROCESSES[job_id].wait(timeout=3)
+                pause_observer.set()
+                result: list[dict] = []
+                observer = threading.Thread(target=lambda: result.append(original_status(job_id)))
+                observer.start()
+                self.assertTrue(observer_ready.wait(timeout=3))
+                release_watchdog.set()
+                self.assertTrue(watchdog_done.wait(timeout=5))
+                finalized = background_jobs.snapshot_record(job_id)
+                self.assertTrue(finalized["finalized"])
+                self.assertFalse((job_dir / "returncode.txt").exists())
+                release_observer.set()
+                observer.join(timeout=5)
+
+            self.assertEqual(len(result), 1)
+            self.assertTrue(result[0]["finalized"])
+            self.assertFalse((job_dir / "stdout.txt").exists())
+            self.assertFalse((job_dir / "stderr.txt").exists())
+            self.assertFalse((job_dir / "returncode.txt").exists())
+
     def test_two_status_callers_share_one_reserved_finalization_and_cleanup(self) -> None:
         with TemporaryDirectory() as tmp, isolated_state(Path(tmp)):
             workspace.create_workspace("ws", hosts=["example.test"])
