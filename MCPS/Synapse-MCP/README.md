@@ -25,7 +25,7 @@ execution. The checked-in generated inventory preserves exact name/order/schema
 projection and serializer ownership; the retained implementation adapter stays
 available as the per-action rollback path.
 
-Phase 3B adds protocol-independent surfaces under `synapse_mcp.app.facade`.
+Phase 3B added protocol-independent surfaces under `synapse_mcp.app.facade`.
 `modern-compact` has exactly eleven bounded engagement/context/catalog/action/
 review/artifact/report/task operations; `modern-direct` deterministically
 projects all 174 descriptors. Both validate nested inputs and outputs and enter
@@ -33,8 +33,14 @@ the same Registry policy, authority, executor, and ledger path. Passive dynamic
 dispatch fails closed on traffic, credentials/secrets, remote mutation, or
 destructive effects. Local file results become opaque, versioned references
 reauthorized against principal, authority session, and workspace on every
-read. These are application services, not an MCP server; the SDK adapter remains
-the separate three-action spike until Phase 3C.
+read.
+
+Phase 3C projects either surface through `synapse-mcp-modern` using the pinned
+official SDK. It supports stdio and authenticated Streamable HTTP, persists
+operation and artifact reference records for restart/multi-worker use, and
+seals resume state with an operator rotation keyring bound to the authenticated
+principal and stable server audience. The legacy `synapse-mcp` launcher remains
+the default; the old spike entry point is a deprecated forwarding alias.
 
 Authority state lives at
 `DATA/workspaces/<workspace>/authority/state.json`. Manage it with the local
@@ -44,9 +50,10 @@ Covered full-delegated work does not require caller confirmation. Uncovered
 work returns approval-required (`-32001`) without dispatch; scope denial remains
 `-32002`. Supervised modern calls resume through the official SDK
 `request_state` carrier; mutable environment state is not a resume channel.
-The SDK's sealed client token is process-local by default, while the distinct
-raw authority request remains durable in the workspace repository. Dispatch
-budgets count actions, not outbound HTTP requests.
+The SDK's sealed client token uses persistent rotation keys in production;
+explicit ephemeral keys are limited to local single-process development. The
+distinct raw authority request remains durable in the workspace repository.
+Dispatch budgets count actions, not outbound HTTP requests.
 
 ## Runtime Python
 

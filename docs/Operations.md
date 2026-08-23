@@ -113,21 +113,113 @@ server-held authority instead. Its supported execution profiles are `observe`,
 `supervised`, and `full_delegated`; action input cannot select a profile, grant,
 session, step-up, dispatch, or resume state.
 
-Phase 3B also provides transport-independent `modern-compact` and
-`modern-direct` application projections under `synapse_mcp.app.facade`. They
-are not launchers and do not change the current default. Compact exposes eleven
-fixed operations; direct exposes all 174 actions in Registry order. Both
-receive principal/session/grant bindings only through `FacadeCallContext` from
-a trusted future adapter, reject those fields in model arguments, and call the
-same Registry path as legacy. `actions.run_passive` additionally rejects any
+The production `synapse-mcp-modern` launcher projects either
+`modern-compact` or `modern-direct` through official SDK 2.0.0. Compact exposes
+eleven fixed operations; direct exposes all 174 actions in Registry order. Both
+receive principal/session/grant bindings only through trusted adapter context,
+reject those fields and `confirm` in model arguments, and call the same
+Registry path as legacy. `actions.run_passive` additionally rejects any
 descriptor whose maximum effects permit traffic, credential/secret use, remote
-mutation, or local destruction.
+mutation, or local destruction. The modern launcher is additive; it does not
+change the default frozen `synapse-mcp` server.
 
 Generated local files are returned as opaque resource references rather than
-paths. References are process-local in Phase 3B and can be read only through
-the same principal, authority session, and workspace while the recorded file
-version is unchanged. Do not treat them as durable remote resource URLs; that
-adapter/keyring work belongs to Phase 3C.
+paths. The modern adapter persists their private server-held records under
+`DATA/modern-adapter/`; reads require the same principal, authority session,
+workspace, allowed root, and file version after restart or across workers.
+
+Install the isolated modern runtime with:
+
+```bash
+pip install -e '.[modern]'
+```
+
+Production startup requires private (`0600`) operator files. The identity
+binding maps authenticated principals to server-held workspace and authority
+contexts:
+
+```json
+{
+  "version": 1,
+  "principals": {
+    "local-operator": {
+      "defaultWorkspace": "workspace-id",
+      "default": {
+        "executionProfile": "supervised",
+        "authoritySessionId": "operator-session"
+      },
+      "workspaces": {
+        "workspace-id": {
+          "executionProfile": "supervised",
+          "authoritySessionId": "operator-session",
+          "selectedGrantId": "optional-grant-id"
+        }
+      }
+    }
+  }
+}
+```
+
+The request-state keyring is ordered: the first key seals new state and all
+listed keys may unseal during rotation. Each decoded key must be at least 32
+bytes. Add a new first key, allow in-flight TTLs to expire, then retire the old
+key. Keep the server name and audience stable across workers.
+
+```json
+{
+  "version": 1,
+  "keys": ["base64:<operator-generated-32-byte-or-longer-key>"]
+}
+```
+
+Launch stdio with an explicitly configured local principal:
+
+```bash
+synapse-mcp-modern \
+  --surface modern-compact \
+  --transport stdio \
+  --server-name synapse-modern \
+  --audience synapse-modern \
+  --identity-bindings DATA/modern-adapter/identity-bindings.json \
+  --stdio-principal local-operator \
+  --request-state-keyring DATA/modern-adapter/request-state-keyring.json
+```
+
+`config/modern-inspector.json` contains the corresponding Inspector template.
+An explicit `--allow-ephemeral-request-state` is permitted only for local,
+single-process development and warns that resume does not survive restart.
+
+Streamable HTTP additionally requires a private digest-to-principal map. Store
+only the lowercase SHA-256 digest of a high-entropy bearer token, never the raw
+token:
+
+```json
+{
+  "version": 1,
+  "tokenDigests": {
+    "<64-lowercase-hex-sha256-digest>": "local-operator"
+  }
+}
+```
+
+Loopback HTTP uses `--transport streamable-http --http-token-map <path>` and
+still requires an identity binding and persistent keyring unless explicit
+ephemeral development mode is selected. Non-loopback HTTP also requires
+`--enable-remote`, one or more `--allowed-host` and `--allowed-origin` values,
+and either `--tls-termination direct` with certificate/key files or
+`--tls-termination trusted-proxy` with explicit proxy CIDRs. Ambiguous or
+untrusted forwarded headers, unused `X-Forwarded-*` fields, wildcard/blank
+allowlists, non-HTTPS remote origins, duplicate/missing bearer authentication,
+Host or Origin violations, and contradictory remote/TLS settings fail closed. The
+adapter does not provide OAuth; deployers supply the narrow token resolver and
+TLS boundary. Authenticated HTTP responses use private/no-store caching.
+
+`--observability otel` preserves an active OpenTelemetry trace ID and uses the
+deployment's standard OpenTelemetry provider/exporter configuration; without an
+exporter, the SDK API remains a no-op. `--observability disabled` removes the
+SDK server tracing middleware while retaining a bounded local invocation trace
+ID. Trace identity affects correlation only, never authorization, and
+secret/request-state contents are not logged.
 
 Authority state is private, crash-atomic JSON at:
 
@@ -185,31 +277,23 @@ resolve target headers for every actual destination. An uncovered redirect or
 discovered in-scope origin continues anonymously with a credential-coverage
 observation; provider credentials remain confined to the proxy transport.
 
-For the opt-in modern SDK server, select trusted local bindings through its
-process environment:
-
-```text
-SYNAPSE_MODERN_AUTHORITY_PROFILE=observe|supervised|full_delegated
-SYNAPSE_MODERN_AUTHORITY_GRANT_ID=<grant-id>
-SYNAPSE_MODERN_AUTHORITY_SESSION_ID=<local-session-id>
-```
-
-Per-request resume state is never read from process environment. The official
-SDK seals Synapse's raw repository request-state ID into the client-visible
-token. Drive a human-supervised round manually so the SDK's short automatic
-state-only retry loop does not expire while waiting for an operator:
+The modern adapter selects trusted bindings only from its private identity
+file; per-request resume state is never read from process environment. The
+official SDK seals Synapse's opaque operation handle into the client-visible
+token. Drive a human-supervised round manually so an automatic state-only retry
+loop does not expire while waiting for an operator:
 
 ```python
 first = await client.session.call_tool(
-    "cors.execute_test",
-    arguments,
+    "actions.run_active",
+    {"actionId": "cors.execute_test", "arguments": arguments},
     allow_input_required=True,
 )
 # A trusted operator lists/inspects the raw server-held request and runs:
 # synapse-authority --workspace <workspace> approve-request <raw-request-id>
 result = await client.session.call_tool(
-    "cors.execute_test",
-    arguments,
+    "actions.run_active",
+    {"actionId": "cors.execute_test", "arguments": arguments},
     request_state=first.request_state,
     allow_input_required=True,
 )
@@ -217,13 +301,12 @@ result = await client.session.call_tool(
 
 The retry must use the identical action and arguments. Synapse restores the
 original correlation, idempotency key, profile, grant, and grant revision from
-the durable repository before replanning. The default SDK request-state key is
-process-local, so its client-visible `v1` token does **not** survive a modern
-server restart. The raw repository request remains durable and visible through
-`list-requests`/`inspect-request`; after a restart, review that pending record,
-let it expire, and initiate and approve a new protocol request. Cross-process
-SDK-token continuation requires a separately managed persistent SDK key and is
-deferred to the authenticated Phase 3 transport design.
+the durable repository before replanning. With the required production
+keyring, both the client token and its bound server-held operation record
+survive restart; all workers must share the same state directory, ordered
+keyring, server name, audience, and identity binding. The raw authority request
+remains separately durable and visible through `list-requests` and
+`inspect-request`.
 
 Rollback stops the modern server or selects the stable legacy server. Preserve
 the authority file: authorized, dispatched, unknown, and historical records
@@ -1514,19 +1597,20 @@ The isolated modern SDK profile is installed and tested separately so the
 stable installation has no MCP SDK dependency:
 
 ```bash
-pip install -e '.[modern-spike]'
+pip install -e '.[modern]'
 bin/test-modern
 ```
 
-The feature flag `SYNAPSE_ENABLE_MODERN_SPIKE=1` is mandatory. The launcher is
-restricted to stdio or loopback Streamable HTTP, exposes exactly
-`workspace.summary`, `headers_cookies.analyze_workspace`, and
-`cors.execute_test`, and never accepts legacy `confirm=true` as modern
-authority. It evaluates the selected durable authority profile and returns
-protocol `input_required` when uncovered. Disable the flag or use `synapse-mcp`
-to roll back immediately to the stable legacy profile. CI runs the full suite and contract subset on Python
-3.10–3.13, then runs this optional extra in a separate Python 3.13 job; every
-job asserts that tests leave the checkout clean.
+The production suite covers both compact/direct surfaces and both official-SDK
+supported wire eras over stdio and loopback Streamable HTTP, including complete
+schemas, structured outcomes, authority spoofing denial, HTTP protocol and
+security checks, durable resource isolation, rotating request state, restart
+resume exactly once, and real subprocess startup. Use `synapse-mcp` to roll
+back immediately to the stable legacy profile. The deprecated `modern-spike`
+extra and `synapse-mcp-modern-spike` command only forward to the production
+runtime. CI runs the full suite and contract subset on Python 3.10–3.13, then
+runs the optional modern extra in a separate Python 3.13 job; every job asserts
+that tests leave the checkout clean.
 
 The helper sets `PYTHONDONTWRITEBYTECODE=1` and the correct `PYTHONPATH` values
 for the core MCP suite and the custom adapter template tests. The current suite

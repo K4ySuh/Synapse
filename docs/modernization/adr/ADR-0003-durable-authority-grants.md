@@ -64,10 +64,11 @@ dispatch remains non-replayable across correlation churn.
 For MCP 2026-07-28, the official SDK encrypts and binds the client-visible
 request-state token and provides Synapse's raw durable request ID to the handler
 through `ctx.request_state`. The SDK token and repository ID are deliberately
-different layers. The current opt-in server uses the SDK's default
-process-local key, so the client token is not restart durable; persistent
-protocol-key management belongs to Phase 3 and is not implied by the durable
-application repository.
+different layers. The precursor spike used the SDK's default process-local
+key. Phase 3C now requires operator-managed rotating protocol keys for
+production and binds the sealed token to the authenticated principal and stable
+audience. The separate durable application repository remains authoritative
+for raw approval and dispatch state.
 
 Polling/finalization of already dispatched background work is a continuation of
 that dispatch, not a new authority request. The creation-time plan records the

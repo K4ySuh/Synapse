@@ -9,7 +9,7 @@ if [ ! -x "$SYNAPSE_PYTHON" ]; then
     SYNAPSE_PYTHON="${SYNAPSE_PYTHON_FALLBACK:-python3}"
 fi
 
-printf 'Running isolated modern MCP spike tests...\n'
+printf 'Running isolated production modern MCP adapter tests...\n'
 PYTHONDONTWRITEBYTECODE=1 \
 PYTHONPATH="$ROOT_DIR/MCPS/Synapse-MCP:$ROOT_DIR/MCPS/Synapse-MCP/tests" \
 "$SYNAPSE_PYTHON" -m unittest discover "$ROOT_DIR/MCPS/Synapse-MCP/modern_tests" "$@"

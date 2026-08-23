@@ -1,9 +1,9 @@
 # Phase 3 running status
 
-Updated: 2026-08-19
-Current session: Phase 3B — compact/direct application facade
+Updated: 2026-08-20
+Current session: Phase 3C — production modern MCP adapter
 Baseline: `6f46dae128520e06056dce50632e750023aedc80` on `Beta`
-State: Sessions 3A and 3B complete; Session 3C not started
+State: Sessions 3A, 3B, and 3C complete; Session 3D not started
 
 ## Preflight
 
@@ -227,3 +227,131 @@ tracked links were reconciled.
   physical branch retirement remains a separate reviewed decision.
 
 PHASE_3B_PASS
+
+## Session 3C preflight
+
+- Began on `Beta` at `aa2dc5708f14ae69d4aeff1f2dc180298b892ff1`;
+  `6f46dae128520e06056dce50632e750023aedc80` remained an ancestor and the
+  latest commit was the complete Phase 3B gate. Both predecessor tokens were
+  present. Unrelated operator changes already present in `bin/check-setup` and
+  `docs/Operations.md` were preserved.
+- Read the repository policy, Phase 3 execution pack and 3C brief, Phase 3
+  plan/status, ADR-0004, spike and packaging/entry points, compact/direct
+  services, authority integration/repository, resource resolver, SDK request-
+  state implementation, official SDK documentation, and relevant tests before
+  editing.
+- Rechecked primary sources on 2026-08-20. Official Python SDK
+  [`v2.0.0`](https://github.com/modelcontextprotocol/python-sdk/releases/tag/v2.0.0)
+  remained the latest stable release and the normative specification remained
+  [`2026-07-28`](https://modelcontextprotocol.io/specification/2026-07-28).
+  The exact `mcp==2.0.0` pin was retained; no unreviewed upgrade was proposed.
+- Pre-edit gates passed: 26 facade/Registry/architecture tests and 6 isolated
+  official-SDK spike tests.
+
+## Production adapter and entry points
+
+- Added `synapse_mcp.transport.modern` and the `synapse-mcp-modern` entry point.
+  Startup must explicitly select `modern-compact` or `modern-direct`, and
+  `stdio` or `streamable-http`. The `modern` extra isolates `mcp==2.0.0` from
+  the stable installation. `modern-spike` and `synapse-mcp-modern-spike` remain
+  deprecated compatibility aliases that forward to the production runtime.
+- The SDK boundary is confined to `transport/modern/`. It projects exactly the
+  Phase 3B application contracts: 11 compact tools or 174 canonical direct
+  tools, deterministic order, complete input/output schemas, structured common
+  outcomes, concise descriptions/instructions, truthful annotations, and
+  opaque `synapse://artifact/{reference}` links. `confirm` is omitted.
+- Success returns schema-valid structured content; unavailable/policy/runtime
+  failures return the same schema with `isError`; validation uses the SDK
+  protocol error path. On `2026-07-28`, approval returns official
+  `InputRequiredResult` containing only an opaque operation handle, bounded
+  requested input, dispatch state, reason, and trace. Earlier negotiated eras
+  receive a schema-conformant error outcome rather than an invented extension.
+- `tasks.control` continues to use the existing application service. No
+  standard Tasks extension or other optional extension is enabled because SDK
+  2.0.0 does not supply the required standard Tasks implementation.
+
+## Identity, state, and HTTP threat model
+
+- Stdio requires an operator-configured local principal. HTTP requires one
+  high-entropy bearer token mapped by constant-time SHA-256 digest lookup to a
+  stable principal. A private, reloadable server-held binding then maps exact
+  principal/workspace context to `observe`, `supervised`, or `full_delegated`
+  authority session and optional selected grant. `clientInfo`, display names,
+  tool input, and unverified forwarded headers never authenticate or authorize.
+- Private, locked, crash-atomic `operations.json` and `resources.json` records
+  retain exact arguments and artifact paths only server-side. They bind opaque
+  handles to principal, workspace, authority session, correlation,
+  idempotency, allowed roots, and content version across restart/workers.
+- Operator keyrings use schema version 1 and ordered `hex:`/`base64:` keys of
+  at least 32 decoded bytes. The first key seals and all keys unseal. SDK state
+  is bound to stable audience and authenticated principal. Expiry, tamper,
+  wrong audience/principal, retired key, cross-binding resource access, and
+  replay fail before dispatch/read. Explicit ephemeral state is limited to
+  local single-process development and logs a restart warning.
+- Loopback is the HTTP default. Non-loopback startup requires explicit remote
+  enablement, digest-backed authentication, allowed hosts and origins,
+  persistent keyring, and either direct TLS files or explicit trusted-proxy
+  CIDRs. Ambiguous/untrusted forwarded headers, missing/duplicate bearer auth,
+  Host/Origin attacks, and MCP method/version body-header mismatches fail
+  closed. Authenticated responses are private/no-store; public cache hints are
+  limited to caller-identical discovery/tool/resource-template metadata.
+- `--observability otel` preserves an active OpenTelemetry trace ID and uses
+  the deployment's standard provider/exporter; `disabled` removes the SDK
+  tracing middleware while retaining a bounded local trace ID. Correlation is
+  propagated through the facade/Registry/authority path but never changes
+  authorization; bearer, credential, grant, raw path, and sealed-state contents
+  are not logged.
+
+## Transport and profile verification matrix
+
+| Surface | Stdio | Loopback Streamable HTTP | Authority evidence |
+|---|---|---|---|
+| `modern-compact` (11) | real subprocess; all 5 SDK revisions | authenticated real subprocess; all 5 SDK revisions | observe discovery/error, supervised restart/step-up/exactly-once resume |
+| `modern-direct` (174) | real subprocess plus all-revision in-process discovery | authenticated real subprocess plus all-revision in-process discovery | same Registry binding; Phase 3B full-delegated and denial suites remain green |
+
+The five SDK-supported revisions exercised were modern `2026-07-28` and
+handshake revisions `2024-11-05`, `2025-03-26`, `2025-06-18`, and
+`2025-11-25`. Every revision published the same configured Synapse surface;
+wire negotiation did not select a surface or authority profile.
+
+## Session 3C final verification
+
+- Production modern adapter: 12 tests passed in 9.454 seconds. Coverage
+  includes both surfaces/transports, all five supported revisions, discovery
+  TTL/cache scope, deterministic schemas/annotations, structured outcomes,
+  resource links, client/argument spoofing denial, remote startup matrix,
+  HTTP authentication/Host/Origin/forwarded/method/version checks, persistent
+  resources, key rotation/restart/expiry/tamper/audience/principal/retirement,
+  supervised trace-continuous resume, and exact one-request dispatch.
+- Existing focused facade/architecture/Registry/authority/job/credential gate:
+  76 tests passed before the final suite. This retains cancellation, job race,
+  dispatch ledger, continuation, credential confinement, and full-delegated
+  application behavior.
+- `bin/test`: 596 core tests passed in 45.697 seconds; 2 template tests passed.
+  Workflow calls remained `1,5,1,2,3,6,1`.
+- `pip install -e '.[modern]'` and `synapse-mcp-modern --help` passed. Final
+  `bin/test-modern`, `compileall` over core/core-tests/modern-tests,
+  `bin/generate-action-inventory --check` (174 actions), and
+  `git diff --check` passed.
+- Official MCP Inspector 2.3.0: PASS. Its CLI connected through
+  `config/modern-inspector.json` and returned all 11 compact tools with complete
+  schemas and annotations.
+- Official MCP conformance 0.1.16: **NOT_RUN**. Exact blocker: its `server`
+  command accepts only `--url` and exposes no request-header/token option, so it
+  cannot reach Synapse's mandatory authenticated HTTP endpoint; its listed
+  server scenarios also stop at specification `2025-11-25` and do not cover
+  `2026-07-28`. Phase 3D owns the final cross-client/conformance gate.
+
+## Deferred by the Session 3C boundary
+
+- The frozen `synapse-mcp` legacy server remains independently invocable and
+  default. Phase 3C makes no adoption/removal decision and adds no silent wire-
+  revision fallback.
+- Phase 3D must run the fixed client/workflow corpus, resolve the conformance
+  authentication/revision gap, decide the default, and close or revise
+  ADR-0004. No Phase 3D implementation was started here.
+- Public remote deployment remains non-default. The adapter supplies a narrow
+  digest-backed principal resolver and explicit TLS/proxy boundary, not OAuth
+  or a public deployment opinion.
+
+PHASE_3C_PASS

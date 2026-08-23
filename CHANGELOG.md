@@ -24,6 +24,17 @@ durable dispatch and continuation truth.
 
 ### Added
 
+- **Phase 3C production modern MCP adapter.** Replaced the three-action spike
+  with the exact eleven-tool compact and generated 174-tool direct projections
+  over the pinned official Python SDK 2.0.0, stdio, and authenticated
+  Streamable HTTP. Added deterministic complete schemas, structured outcomes,
+  opaque resource links, persistent principal/workspace-bound operation and
+  artifact records, server-held authority bindings, rotating principal/audience-
+  bound request-state keys, strict remote/TLS/proxy/host/origin startup policy,
+  private HTTP caching, trace continuity, and real subprocess coverage. The
+  legacy launcher remains unchanged and default; the spike command is a
+  deprecated forwarding alias.
+
 - **Phase 3B compact and direct application services.** Added an exact
   eleven-operation compact facade plus a deterministic 174-operation direct
   projection over the canonical Registry. Bounded catalog search and exact
@@ -70,9 +81,9 @@ durable dispatch and continuation truth.
   by canonical ID, validates six real typed output contracts, resolves
   multidimensional request effects, evaluates runtime availability before
   policy, and supplies canonical operational metadata for migrated adapters.
-- **Official MCP SDK spike and functional vertical.** An isolated
-  `mcp==2.0.0` extra proves three actions over protocol `2026-07-28`, stdio, and
-  loopback Streamable HTTP without treating legacy confirmation as authority.
+- **Official MCP SDK feasibility vertical.** The precursor isolated
+  `mcp==2.0.0` spike proved protocol `2026-07-28`, stdio, loopback Streamable
+  HTTP, and authority-aware supervised resume before replacement by Phase 3C.
   A deterministic local HTTP fixture proves crawl discovery, vulnerable/safe
   CORS controls, header/cookie analysis, ingestion, and evidence traceability.
 

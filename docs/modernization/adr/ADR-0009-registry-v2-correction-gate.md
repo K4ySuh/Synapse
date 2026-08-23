@@ -71,9 +71,9 @@ only in a reversible three-action spike. The stable legacy profile is unchanged.
 
 ## Migration and rollback
 
-Migrate remaining actions individually using the v2 descriptor pattern; do not
-bulk-copy the schema converter. Rollback disables `SYNAPSE_ENABLE_MODERN_SPIKE`
-and keeps the stable `synapse-mcp` launcher. The legacy dispatch switch can
+Migrate remaining actions using the v2 descriptor pattern and checked
+inventory. Rollback stops the additive modern adapter and keeps the stable
+`synapse-mcp` launcher. The legacy dispatch switch can
 return an individual migrated call to its preserved branch without changing its
 descriptor-owned legacy input schema.
 

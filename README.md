@@ -94,14 +94,24 @@ prior assessment knowledge available through MCP tools and resources.
 
 ## Modernization Status
 
-Phase 3B completes the protocol-independent modern application surfaces. The
+Phase 3C completes the production official-SDK adapter over the
+protocol-independent modern application surfaces. `synapse-mcp-modern` serves
+either the eleven-operation `modern-compact` projection or the generated
+174-operation `modern-direct` projection over stdio or authenticated
+Streamable HTTP. The adapter pins official Python MCP SDK 2.0.0, negotiates MCP
+`2026-07-28` and its supported earlier revision, persists bound operation and
+artifact records, and uses rotating principal/audience-bound request-state
+keys. Remote HTTP is disabled by default and fails startup without explicit
+host/origin, authentication, persistent keyring, and TLS trust configuration.
+The frozen legacy stdio launcher remains the default pending Phase 3D.
+
+Phase 3B completed the protocol-independent modern application surfaces. The
 eleven-operation compact facade provides engagement, context, catalog,
 validated passive/active execution, reviews, opaque artifacts, reports, and
 task control; the generated direct surface exposes all 174 canonical actions.
 Both use the same Action Registry policy, authority, executor, continuation,
 and ledger path. Compact application metadata is 21,648 bytes under the Phase
-3 measurement, below the 24,834-byte gate. No modern MCP transport is enabled
-by this application-only phase.
+3 measurement, below the 24,834-byte gate.
 
 Phase 3A established the canonical application boundary. All 174 frozen legacy
 actions now enter Action Registry v2 by canonical `action_id`, validate typed
@@ -126,13 +136,9 @@ identity excludes correlation/deadline metadata while the complete plan seal
 retains it for audit integrity; idempotency keys cannot be reused for a changed
 logical request or to bypass an unresolved dispatch.
 
-An isolated, opt-in authority-aware profile proves exactly three actions with the official Python
-MCP SDK 2.0.0 and protocol revision `2026-07-28` over stdio and loopback
-Streamable HTTP, including a standard SDK supervised resume that dispatches
-exactly once. The SDK token is distinct from durable raw repository state and,
-under the default process-local SDK key, does not survive a server restart. It
-remains opt-in rather than the default stable server. Durable modernization
-decisions and current gate evidence are indexed under
+The former three-action feasibility command now forwards to the production
+adapter as a deprecated alias. Durable modernization decisions and current
+gate evidence are indexed under
 [`docs/modernization/`](docs/modernization/README.md).
 
 ## Main Features
@@ -539,15 +545,15 @@ Useful focused modes:
 bin/test --core
 bin/test --template
 bin/test --core -k access_control
-bin/test-modern # after: pip install -e '.[modern-spike]'
+bin/test-modern # after: pip install -e '.[modern]'
 ```
 
 The suite covers adapter analysis, credential safety, evidence redaction,
 workspace ingestion and deduplication, passive Burp context parsing, candidate
 analyzers, JS intelligence extraction/reporting, finding lifecycle operations,
 active-tool ingestion hooks, MCP dispatch, and the custom adapter template.
-The separate modern command runs the pinned official-SDK stdio and loopback
-Streamable HTTP spike; it is also an isolated CI job.
+The separate modern command runs the pinned production official-SDK adapter
+suite across stdio and loopback Streamable HTTP; it is also an isolated CI job.
 
 ## Authorized Use Notice
 

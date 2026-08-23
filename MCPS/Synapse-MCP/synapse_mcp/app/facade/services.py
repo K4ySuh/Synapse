@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
+from pathlib import Path
 import secrets
 from typing import Any
 from uuid import uuid4
@@ -28,6 +30,7 @@ from synapse_mcp.app.actions import (
 )
 from synapse_mcp.app.actions.registry import ActionRegistry
 from synapse_mcp.core import workspace
+from synapse_mcp.core.atomic_io import atomic_write_text, file_lock
 from synapse_mcp.policy.repository import AuthorityRepositoryError, WorkspaceAuthorityRepository
 
 from .catalog import ActionCatalogService, effect_summary
@@ -198,9 +201,14 @@ class _PendingOperation:
 
 
 class OperationHandleService:
-    """Opaque facade handles over server-held Phase 2 request state."""
+    """Opaque facade handles over server-held Phase 2 request state.
 
-    def __init__(self) -> None:
+    The default remains process-local for the Phase 3B application facade. A
+    modern adapter supplies a private state path for restart/multi-worker use.
+    """
+
+    def __init__(self, *, state_path: Path | None = None) -> None:
+        self._state_path = Path(state_path).resolve() if state_path is not None else None
         self._operations: dict[str, _PendingOperation] = {}
         self._by_request_state: dict[str, str] = {}
 
@@ -215,12 +223,8 @@ class OperationHandleService:
         correlation_id: str,
         idempotency_key: str,
     ) -> str:
-        existing = self._by_request_state.get(request_state_id)
-        if existing:
-            return existing
-        handle = f"operation-{secrets.token_urlsafe(24)}"
-        self._operations[handle] = _PendingOperation(
-            handle=handle,
+        operation = _PendingOperation(
+            handle=f"operation-{secrets.token_urlsafe(24)}",
             request_state_id=request_state_id,
             action_id=action_id,
             arguments=dict(arguments),
@@ -230,8 +234,32 @@ class OperationHandleService:
             correlation_id=correlation_id,
             idempotency_key=idempotency_key,
         )
-        self._by_request_state[request_state_id] = handle
-        return handle
+        if self._state_path is None:
+            existing = self._by_request_state.get(request_state_id)
+            if existing:
+                return existing
+            self._operations[operation.handle] = operation
+            self._by_request_state[request_state_id] = operation.handle
+            return operation.handle
+        with file_lock(self._state_path):
+            state = self._read_state()
+            existing = state["byRequestState"].get(request_state_id)
+            if existing:
+                return str(existing)
+            state["operations"][operation.handle] = self._serialize(operation)
+            state["byRequestState"][request_state_id] = operation.handle
+            self._write_state(state)
+        return operation.handle
+
+    def workspace_hint(self, handle: str, *, principal_id: str) -> str:
+        """Return a principal-bound workspace hint for adapter binding lookup."""
+
+        operation = self._get(handle)
+        if operation is None:
+            raise ResourceAccessError("operation_handle_invalid", "Operation handle is unknown")
+        if not secrets.compare_digest(operation.principal_id, principal_id):
+            raise ResourceAccessError("operation_principal_mismatch", "Operation principal binding does not match")
+        return operation.workspace_id
 
     def inspect(self, handle: str, *, context: FacadeCallContext) -> dict[str, Any]:
         operation = self._bound(handle, context=context)
@@ -249,11 +277,19 @@ class OperationHandleService:
         return operation
 
     def mark_terminal(self, handle: str, state: str) -> None:
-        if handle in self._operations:
-            self._operations[handle].state = state
+        if self._state_path is None:
+            if handle in self._operations:
+                self._operations[handle].state = state
+            return
+        with file_lock(self._state_path):
+            stored = self._read_state()
+            raw = stored["operations"].get(handle)
+            if isinstance(raw, dict):
+                raw["state"] = state
+                self._write_state(stored)
 
     def _bound(self, handle: str, *, context: FacadeCallContext) -> _PendingOperation:
-        operation = self._operations.get(handle)
+        operation = self._get(handle)
         if operation is None:
             raise ResourceAccessError("operation_handle_invalid", "Operation handle is unknown")
         if not secrets.compare_digest(operation.principal_id, context.principal_id):
@@ -264,6 +300,75 @@ class OperationHandleService:
         if not trusted_workspace or not secrets.compare_digest(operation.workspace_id, trusted_workspace):
             raise ResourceAccessError("operation_workspace_mismatch", "Operation workspace binding does not match")
         return operation
+
+    def _get(self, handle: str) -> _PendingOperation | None:
+        if self._state_path is None:
+            return self._operations.get(handle)
+        with file_lock(self._state_path):
+            raw = self._read_state()["operations"].get(handle)
+        if raw is None:
+            return None
+        try:
+            return self._deserialize(raw)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ResourceAccessError("operation_record_corrupt", "Operation handle record is invalid") from exc
+
+    def _read_state(self) -> dict[str, Any]:
+        assert self._state_path is not None
+        if not self._state_path.exists():
+            return {"version": 1, "operations": {}, "byRequestState": {}}
+        try:
+            value = json.loads(self._state_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ResourceAccessError("operation_store_corrupt", "Operation handle store is unreadable") from exc
+        if (
+            not isinstance(value, dict)
+            or value.get("version") != 1
+            or not isinstance(value.get("operations"), dict)
+            or not isinstance(value.get("byRequestState"), dict)
+        ):
+            raise ResourceAccessError("operation_store_corrupt", "Operation handle store has an unknown schema")
+        return value
+
+    def _write_state(self, state: dict[str, Any]) -> None:
+        assert self._state_path is not None
+        atomic_write_text(
+            self._state_path,
+            json.dumps(state, sort_keys=True, separators=(",", ":")) + "\n",
+            mode=0o600,
+        )
+
+    @staticmethod
+    def _serialize(operation: _PendingOperation) -> dict[str, Any]:
+        return {
+            "handle": operation.handle,
+            "requestStateId": operation.request_state_id,
+            "actionId": operation.action_id,
+            "arguments": operation.arguments,
+            "workspaceId": operation.workspace_id,
+            "principalId": operation.principal_id,
+            "authoritySessionId": operation.authority_session_id,
+            "correlationId": operation.correlation_id,
+            "idempotencyKey": operation.idempotency_key,
+            "state": operation.state,
+        }
+
+    @staticmethod
+    def _deserialize(value: Any) -> _PendingOperation:
+        if not isinstance(value, dict) or not isinstance(value.get("arguments"), dict):
+            raise TypeError("operation record must be an object")
+        return _PendingOperation(
+            handle=str(value["handle"]),
+            request_state_id=str(value["requestStateId"]),
+            action_id=str(value["actionId"]),
+            arguments=dict(value["arguments"]),
+            workspace_id=str(value["workspaceId"]),
+            principal_id=str(value["principalId"]),
+            authority_session_id=str(value["authoritySessionId"]),
+            correlation_id=str(value["correlationId"]),
+            idempotency_key=str(value["idempotencyKey"]),
+            state=str(value.get("state") or "input_required"),
+        )
 
 
 class ActionExecutionService:
@@ -540,10 +645,15 @@ class CompactFacadeService:
         *,
         registry: ActionRegistry = REGISTRY,
         resources: ResourceReferenceService | None = None,
+        operations: OperationHandleService | None = None,
     ) -> None:
         self.resources = resources or ResourceReferenceService()
         self.catalog = ActionCatalogService(registry)
-        self.execution = ActionExecutionService(registry=registry, resources=self.resources)
+        self.execution = ActionExecutionService(
+            registry=registry,
+            resources=self.resources,
+            operations=operations,
+        )
 
     def invoke(
         self,

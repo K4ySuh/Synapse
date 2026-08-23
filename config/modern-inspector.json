@@ -1,0 +1,25 @@
+{
+  "mcpServers": {
+    "synapse-modern": {
+      "command": ".venv/bin/python",
+      "args": [
+        "-m",
+        "synapse_mcp.transport.modern",
+        "--surface",
+        "modern-compact",
+        "--transport",
+        "stdio",
+        "--server-name",
+        "synapse-modern",
+        "--audience",
+        "synapse-modern",
+        "--identity-bindings",
+        "DATA/modern-adapter/identity-bindings.json",
+        "--stdio-principal",
+        "local-operator",
+        "--request-state-keyring",
+        "DATA/modern-adapter/request-state-keyring.json"
+      ]
+    }
+  }
+}

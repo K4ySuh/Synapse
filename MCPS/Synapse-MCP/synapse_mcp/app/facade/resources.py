@@ -8,12 +8,14 @@ from __future__ import annotations
 import base64
 from dataclasses import dataclass
 from hashlib import sha256
+import json
 import mimetypes
 from pathlib import Path
 import secrets
 from typing import Any
 
 from synapse_mcp.core import evidence, paths, workspace
+from synapse_mcp.core.atomic_io import atomic_write_text, file_lock
 
 from .contracts import FacadeCallContext, ResolvedArtifact, ResourceReference
 
@@ -44,13 +46,19 @@ def _file_version(path: Path) -> tuple[str, int]:
 
 
 class ResourceReferenceService:
-    """Server-held resource map; public references contain no local paths."""
+    """Server-held resource map; public references contain no local paths.
+
+    Phase 3B keeps the default process-local map. A modern transport supplies a
+    private state path so references survive restarts and can be reauthorized
+    consistently by multiple workers.
+    """
 
     def __init__(
         self,
         *,
         allowed_roots: tuple[Path, ...] | None = None,
         max_read_bytes: int = 16 * 1024 * 1024,
+        state_path: Path | None = None,
     ) -> None:
         configured = allowed_roots or (
             workspace.WORKSPACES_DIR,
@@ -61,6 +69,7 @@ class ResourceReferenceService:
         )
         self._allowed_roots = tuple(root.resolve() for root in configured)
         self._max_read_bytes = max_read_bytes
+        self._state_path = Path(state_path).resolve() if state_path is not None else None
         self._records: dict[str, _ResourceRecord] = {}
 
     def issue(
@@ -82,17 +91,24 @@ class ResourceReferenceService:
             version=version,
             size=size,
         )
-        self._records[token] = _ResourceRecord(
+        record = _ResourceRecord(
             reference=reference,
             path=resolved,
             workspace_id=workspace.normalize_workspace_id(workspace_id),
             principal_id=context.principal_id,
             authority_session_id=context.authority_session_id,
         )
+        if self._state_path is None:
+            self._records[token] = record
+        else:
+            with file_lock(self._state_path):
+                state = self._read_state()
+                state["records"][token] = self._serialize_record(record)
+                self._write_state(state)
         return reference
 
     def resolve(self, reference: str, *, context: FacadeCallContext) -> ResolvedArtifact:
-        record = self._records.get(reference)
+        record = self._record(reference)
         if record is None:
             raise ResourceAccessError("resource_reference_invalid", "Opaque resource reference is unknown")
         if not secrets.compare_digest(record.principal_id, context.principal_id):
@@ -116,6 +132,16 @@ class ResourceReferenceService:
             rendered = base64.b64encode(content).decode("ascii")
             encoding = "base64"
         return ResolvedArtifact(reference=record.reference, encoding=encoding, content=rendered)
+
+    def workspace_hint(self, reference: str, *, principal_id: str) -> str:
+        """Return a principal-bound workspace hint for adapter identity resolution."""
+
+        record = self._record(reference)
+        if record is None:
+            raise ResourceAccessError("resource_reference_invalid", "Opaque resource reference is unknown")
+        if not secrets.compare_digest(record.principal_id, principal_id):
+            raise ResourceAccessError("resource_principal_mismatch", "Resource principal binding does not match")
+        return record.workspace_id
 
     def sanitize_result(
         self,
@@ -164,6 +190,60 @@ class ResourceReferenceService:
         if not any(_is_relative_to(resolved, root) for root in self._allowed_roots):
             raise ResourceAccessError("resource_outside_allowed_roots", "Resource is outside Synapse artifact roots")
         return resolved
+
+    def _record(self, reference: str) -> _ResourceRecord | None:
+        if self._state_path is None:
+            return self._records.get(reference)
+        with file_lock(self._state_path):
+            raw = self._read_state()["records"].get(reference)
+        if raw is None:
+            return None
+        try:
+            return self._deserialize_record(raw)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ResourceAccessError("resource_record_corrupt", "Opaque resource record is invalid") from exc
+
+    def _read_state(self) -> dict[str, Any]:
+        assert self._state_path is not None
+        if not self._state_path.exists():
+            return {"version": 1, "records": {}}
+        try:
+            value = json.loads(self._state_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ResourceAccessError("resource_store_corrupt", "Opaque resource store is unreadable") from exc
+        if not isinstance(value, dict) or value.get("version") != 1 or not isinstance(value.get("records"), dict):
+            raise ResourceAccessError("resource_store_corrupt", "Opaque resource store has an unknown schema")
+        return value
+
+    def _write_state(self, state: dict[str, Any]) -> None:
+        assert self._state_path is not None
+        atomic_write_text(
+            self._state_path,
+            json.dumps(state, sort_keys=True, separators=(",", ":")) + "\n",
+            mode=0o600,
+        )
+
+    @staticmethod
+    def _serialize_record(record: _ResourceRecord) -> dict[str, Any]:
+        return {
+            "reference": record.reference.model_dump(mode="json", by_alias=True),
+            "path": str(record.path),
+            "workspaceId": record.workspace_id,
+            "principalId": record.principal_id,
+            "authoritySessionId": record.authority_session_id,
+        }
+
+    @staticmethod
+    def _deserialize_record(value: Any) -> _ResourceRecord:
+        if not isinstance(value, dict):
+            raise TypeError("resource record must be an object")
+        return _ResourceRecord(
+            reference=ResourceReference.model_validate(value["reference"]),
+            path=Path(value["path"]),
+            workspace_id=str(value["workspaceId"]),
+            principal_id=str(value["principalId"]),
+            authority_session_id=str(value["authoritySessionId"]),
+        )
 
 
 def _is_relative_to(path: Path, root: Path) -> bool:

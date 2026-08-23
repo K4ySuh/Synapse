@@ -15,9 +15,9 @@ Python MCP SDK is not a core dependency. Phase 0 fixtures now preserve
 initialization, tools, resources, prompts, errors, and representative results,
 while P0-3 provides a behavioral corpus for volatile workflows.
 
-On 2026-08-09 the normative MCP revision was `2026-07-28` and the official
-Python SDK stable release was 2.0.0. The correction gate pins `mcp==2.0.0` in
-the `modern-spike` optional extra. Sources: the
+Rechecked on 2026-08-20, the normative MCP revision remains `2026-07-28` and
+the official Python SDK stable release remains 2.0.0. Phase 3C pins
+`mcp==2.0.0` in the isolated `modern` optional extra. Sources: the
 [official specification](https://modelcontextprotocol.io/specification/2026-07-28),
 [official SDK release](https://github.com/modelcontextprotocol/python-sdk/releases/tag/v2.0.0),
 and [PyPI project metadata](https://pypi.org/project/mcp/2.0.0/).
@@ -48,17 +48,27 @@ A newer client may deliberately use the legacy surface, and a modern surface
 does not imply more authority. A surface selection never changes scope or
 creates a principal.
 
-The first implementation is a feature-flagged feasibility spike with exactly
-three Registry v2 actions. It proves stdio, loopback Streamable HTTP,
-negotiation, typed input/output schemas, structured content, annotations, and
-`input_required` without active dispatch. It is not the default adapter.
+The first implementation was a feature-flagged feasibility spike with exactly
+three Registry v2 actions. Phase 3C replaces it with the production
+`synapse-mcp-modern` adapter. The former spike entry point and extra remain
+deprecated forwarding/installation aliases, not an independent surface.
 
 Phase 3B implements the transport-independent side of this decision. The
 `modern-compact` application projection exposes exactly eleven ordered
 operations and serializes to 21,648 bytes of deterministic metadata under the
 Phase 3 measurement. `modern-direct` generates one operation for each of the
 174 canonical descriptors. Both call the same Registry seam; neither imports
-the MCP SDK, chooses a default modern surface, or changes the spike transport.
+the MCP SDK or chooses a default modern surface.
+
+Phase 3C implements the adapter side with official SDK 2.0.0 over stdio and
+authenticated Streamable HTTP. It publishes one trusted startup-selected
+surface, persists opaque operation/resource bindings, resolves principals to
+server-held workspace/authority sessions, and uses a rotating keyring whose
+first key seals while every configured key may unseal. Sealed request state is
+bound to the principal and stable audience. Loopback remains the HTTP default;
+remote startup requires explicit enablement, authentication, allowed hosts and
+origins, a persistent keyring, and direct-TLS or trusted-proxy policy. This does
+not change the Phase 3D default decision: `synapse-mcp` remains the default.
 
 ## Invariants
 
@@ -79,6 +89,12 @@ the MCP SDK, chooses a default modern surface, or changes the spike transport.
 - Local artifacts use opaque principal/session/workspace/version-bound
   references and are reauthorized on every read; model-facing results do not
   expose raw filesystem paths.
+- HTTP client identity is authenticated only through the digest-backed bearer
+  resolver; `clientInfo`, forwarded display values, and tool arguments cannot
+  create a principal or authority context.
+- Request-state keys, authority bindings, and bearer-token digests are private
+  operator files. Remote HTTP fails closed without persistent rotation and an
+  explicit transport trust policy.
 - Modern adoption is additive until both target clients pass the fixed benchmark corpus.
 
 ## Alternatives considered
@@ -131,13 +147,14 @@ in trusted operator configuration; keep authenticated principal/authority
 context separate. Pin the official SDK exactly in an isolated optional
 environment. Classify every contract delta. Rollback selects the legacy surface
 and launcher without changing wire negotiation, grants, or operational state.
-The current rollback is to unset `SYNAPSE_ENABLE_MODERN_SPIKE` and use the
-unchanged `synapse-mcp` launcher.
+The current rollback is to stop `synapse-mcp-modern` and use the unchanged
+`synapse-mcp` launcher. No grant, workspace, or legacy contract change is
+required.
 
-Phase 3B rollback removes the `app/facade/` projection from a future adapter;
-the legacy launcher, canonical Registry, and retained implementation bridge do
-not depend on it. Phase 3C must add authenticated adapter identity and durable
-multi-worker request-state/resource-key handling before any remote HTTP posture.
+The legacy launcher, canonical Registry, and retained implementation bridge do
+not depend on `app/facade/` or `transport/modern/`. The production modern
+adapter remains additive until Phase 3D completes fixed-corpus client and
+conformance evaluation.
 
 ## Verification
 
@@ -158,3 +175,6 @@ multi-worker request-state/resource-key handling before any remote HTTP posture.
   schema serialization below 24,834 bytes, complete catalog filters, passive
   pre-dispatch denial, server-held authority input rejection, exactly-once
   resume, and cross-principal/workspace/version resource denial.
+- Test key rotation/restart, expiry, tamper, retired-key, wrong-principal, and
+  wrong-audience denials; authenticated HTTP Host/Origin/protocol/body-header
+  consistency; and unsafe remote startup combinations.

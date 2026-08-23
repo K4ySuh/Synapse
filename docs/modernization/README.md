@@ -36,7 +36,7 @@ tests, and the shared [changelog](../../CHANGELOG.md).
 ## Phase 3
 
 - [Execution plan](phase-3-plan.md) — strict Session A–D sequence
-- [Running status](phase-3-status.md) — exact Session 3A and 3B gate evidence
+- [Running status](phase-3-status.md) — exact Session 3A–3C gate evidence
 - [Canonical action migration guide](action-migration-guide.md) — current
   bounded pack-batch and manifest procedure
 

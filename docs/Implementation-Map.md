@@ -326,8 +326,7 @@ The application action layer is under `synapse_mcp/app/actions/`:
 
 `REGISTRY.contract_schema(action_id)` exposes the canonical `inputSchema` and
 typed `outputSchema` for all 174 actions. The stable legacy tools list stays
-frozen and therefore does not publish these output schemas. The isolated modern
-spike remains intentionally fixed at exactly three actions until Phase 3C.
+frozen and therefore does not publish these output schemas.
 
 The Phase 3B application surfaces are under `synapse_mcp/app/facade/`:
 
@@ -345,8 +344,15 @@ The Phase 3B application surfaces are under `synapse_mcp/app/facade/`:
   174-operation direct surface plus static annotations from descriptor truth.
 
 The compact application descriptor payload is 21,648 bytes under deterministic
-compact JSON. These are application services only; official-SDK transport
-projection begins in Phase 3C.
+compact JSON. `synapse_mcp/transport/modern/` projects either surface through
+official SDK 2.0.0 over stdio or authenticated Streamable HTTP. `config.py`
+owns fail-closed startup policy and keyrings, `identity.py` owns principal and
+authority-session binding, `http_security.py` owns the HTTP authentication and
+proxy trust boundary, and `server.py` owns discovery, tools, resources,
+request-state security, outcome mapping, and transport startup. Persistent
+private `operations.json` and `resources.json` records support restart and
+multi-worker resume/read without putting paths, grants, or sessions on the
+wire.
 
 The protocol-independent Phase 2 authority model is under
 `synapse_mcp/policy/`:

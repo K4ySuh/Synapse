@@ -11,12 +11,12 @@ use.
 
 ## Runtime Topology
 
-The frozen transport and both Phase 3B application projections reach all 174
+The frozen transport and both modern application projections reach all 174
 canonical operations through one protocol-independent execution boundary:
 
 ```text
-legacy stdio projection     compact facade / direct projection     modern spike
-             \                         |                          /
+legacy stdio projection       production SDK adapter (stdio / authenticated HTTP)
+             \                       compact / direct                         /
               -> ActionRegistry.execute(action_id, request)
                    -> runtime availability
                    -> request-effective ActionEffects
@@ -31,10 +31,11 @@ legacy stdio projection     compact facade / direct projection     modern spike
 ```
 
 The compact facade has exactly eleven stable application operations; the
-direct projection is generated in canonical Registry order. Phase 3B adds no
-MCP transport. Startup surface selection is trusted configuration and is
-independent from wire negotiation and authority. Dynamic facade inputs cannot
-submit a principal, grant, authority profile, session, or request state.
+direct projection is generated in canonical Registry order. The Phase 3C
+official-SDK adapter publishes exactly one selected projection. Startup surface
+selection is trusted configuration and is independent from wire negotiation,
+client metadata, and authority. Dynamic facade inputs cannot submit a
+principal, grant, authority profile, session, or request state.
 
 `ActionEffects` independently describes authorized-target/third-party traffic,
 local write domains, local change/destruction, possible remote state change,
@@ -74,6 +75,8 @@ MCP client
                    |-- app/
                    |   |-- actions/ (174 canonical descriptors and Registry)
                    |   `-- facade/ (compact/direct services, catalog, resources)
+                   |-- transport/modern/ (official-SDK stdio/HTTP adapter,
+                   |                     identity, keyring, HTTP security)
                    |-- core/
                    |   |-- paths.py
                    |   |-- errors.py
@@ -211,8 +214,18 @@ Local files are removed from model-facing results and represented by random
 resource references. The server-held record binds the principal, authority
 session, workspace, artifact type, and content version; every read repeats the
 binding, allowed-root, and version checks. Raw filesystem paths are not part of
-the public reference. These application references are process-local in Phase
-3B; authenticated multi-worker persistence belongs to the Phase 3C adapter.
+the public reference. The transport-neutral service remains in-memory by
+default; the Phase 3C adapter supplies locked, crash-atomic private persistence
+under `DATA/modern-adapter/` so bound operation and resource records survive
+restart and can be shared by workers.
+
+The modern HTTP boundary authenticates one high-entropy bearer token by
+server-held digest, then resolves principal/workspace to a server-held authority
+binding. Host and Origin checks, forwarded-header trust, and TLS termination are
+startup policy; non-loopback binding requires explicit remote enablement and a
+persistent keyring. Successful authenticated HTTP responses are private/no-
+store. Public SDK discovery cache hints are limited to projection metadata that
+is identical for every caller.
 
 The credential store uses a single file-lock-scoped mutation primitive for the
 complete read-modify-write cycle. Atomic replacement, `0600`, file/directory

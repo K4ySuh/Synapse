@@ -33,12 +33,17 @@ browser = [
     "playwright>=1.44,<2",
     "selenium>=4.20,<5",
 ]
+modern = [
+    "mcp==2.0.0",
+]
 modern-spike = [
+    # Deprecated compatibility alias; use the production `modern` extra.
     "mcp==2.0.0",
 ]
 
 [project.scripts]
 synapse-mcp = "synapse_mcp.transport.stdio_server:main"
+synapse-mcp-modern = "synapse_mcp.transport.modern.__main__:main"
 synapse-mcp-modern-spike = "synapse_mcp.transport.modern_spike:main"
 synapse-authority = "synapse_mcp.policy.operator_cli:main"
 
