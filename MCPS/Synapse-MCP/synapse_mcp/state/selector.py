@@ -13,7 +13,7 @@ from .artifacts import normalize_workspace_id
 from .contracts import WorkspaceRepositoryBundle
 from .errors import StateSelectionError
 from .json_v1 import JsonV1EvidenceRepository, JsonV1WorkspaceRepository
-from .sqlite_store import SQLiteWorkspaceRepository
+from .runtime import ActivatedWorkspaceRepository
 
 
 StoreVersion = Literal["json-v1", "sqlite-v2"]
@@ -52,6 +52,9 @@ def assert_json_v1_write_allowed(path: Path) -> None:
         return
     workspace_root = Path(*parts[: index + 2])
     if selected_store_version(workspace_root) == "sqlite-v2":
+        relative = candidate.relative_to(workspace_root)
+        if relative.parts and relative.parts[0] == "state-v2":
+            return
         raise StateSelectionError(
             "json_v1_write_after_activation",
             "JSON-v1 is immutable after SQLite-v2 activation.",
@@ -68,7 +71,7 @@ def repository_bundle(workspace_id: str, workspaces_root: Path) -> WorkspaceRepo
             workspace=JsonV1WorkspaceRepository(normalized_workspace_id),
             evidence=JsonV1EvidenceRepository(),
         )
-    repository = SQLiteWorkspaceRepository(normalized_workspace_id, root)
+    repository = ActivatedWorkspaceRepository(normalized_workspace_id, root)
     return WorkspaceRepositoryBundle(
         store_version=selected,
         workspace=repository,

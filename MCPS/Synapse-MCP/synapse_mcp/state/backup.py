@@ -16,6 +16,8 @@ def online_backup(source: ConnectionFactory, destination_path: Path) -> Path:
     destination = Path(destination_path).resolve(strict=False)
     if destination == source.database_path.resolve(strict=False):
         raise StateStoreError("backup_destination_invalid", "Backup destination must differ from the live database.")
+    if destination.exists():
+        raise StateStoreError("backup_destination_exists", "Backup destination already exists and will not be overwritten.")
     destination_factory = ConnectionFactory(
         destination,
         readiness=source.readiness,

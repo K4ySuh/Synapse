@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 import os
 import re
 import signal
@@ -77,9 +78,53 @@ def _utc_now() -> str:
 
 
 def _workspace_jobs_dir(workspace_id: str) -> Path:
-    root = workspace.workspace_path(workspace.normalize_workspace_id(workspace_id)) / "jobs"
+    workspace_root = workspace.workspace_path(workspace.normalize_workspace_id(workspace_id))
+    from ..state.selector import selected_store_version
+
+    root = (
+        workspace_root / "state-v2" / "runtime" / "jobs"
+        if selected_store_version(workspace_root) == "sqlite-v2"
+        else workspace_root / "jobs"
+    )
     root.mkdir(parents=True, exist_ok=True)
     return root
+
+
+def _task_repository(workspace_id: str):
+    from ..state.runtime import ActivatedWorkspaceRepository
+    from ..state.selector import selected_store_version
+
+    wid = workspace.normalize_workspace_id(workspace_id)
+    root = workspace.workspace_path(wid)
+    if selected_store_version(root) != "sqlite-v2":
+        return None
+    return ActivatedWorkspaceRepository(wid, root)
+
+
+def _find_task_record(job_id: str, workspace_id: str = "") -> dict[str, Any] | None:
+    if workspace_id:
+        repository = _task_repository(workspace_id)
+        return repository.read_task(job_id) if repository is not None else None
+    if workspace.WORKSPACES_DIR.exists():
+        for candidate in sorted(workspace.WORKSPACES_DIR.iterdir()):
+            if not candidate.is_dir():
+                continue
+            repository = _task_repository(candidate.name)
+            if repository is None:
+                continue
+            record = repository.read_task(job_id)
+            if record is not None:
+                return record
+    return None
+
+
+@contextmanager
+def _job_mutation_lock(workspace_id: str):
+    if _task_repository(workspace_id) is not None:
+        yield
+        return
+    with workspace.workspace_lock(workspace_id):
+        yield
 
 
 def _job_root_for_record(record: dict[str, Any]) -> Path:
@@ -233,7 +278,21 @@ def _write_record(record: dict[str, Any], *, expected_revision: int | None = Non
 
     job_id = str(record["jobId"])
     workspace_id = str(record.get("workspaceId", "")).strip() or workspace.default_workspace_id()
-    with workspace.workspace_lock(workspace_id):
+    repository = _task_repository(workspace_id)
+    if repository is not None:
+        expected = int(record.get("revision", 0)) if expected_revision is None else int(expected_revision)
+        try:
+            revision = repository.write_task(record, expected_revision=expected)
+        except Exception as exc:
+            from ..state.errors import StateConflictError
+
+            if isinstance(exc, StateConflictError) and exc.reason_code == "task_revision_conflict":
+                current = repository.read_task(job_id)
+                raise JobRevisionConflict(job_id, expected, int((current or {}).get("revision", 0))) from exc
+            raise
+        record["revision"] = revision
+        return
+    with _job_mutation_lock(workspace_id):
         root = _job_dir_for_record(record)
         from ..state.selector import assert_json_v1_write_allowed
 
@@ -261,8 +320,18 @@ def _read_record(job_id: str) -> dict[str, Any]:
     record_path = _find_record_path(job_id)
     record = _read_json(record_path, None) if record_path else None
     if not isinstance(record, dict):
+        record = _find_task_record(job_id)
+    if not isinstance(record, dict):
         raise McpError(-32602, f"Unknown background job: {job_id}")
     return _ensure_lifecycle_fields(record)
+
+
+def _current_record(job_id: str, workspace_id: str) -> dict[str, Any] | None:
+    repository = _task_repository(workspace_id)
+    if repository is not None:
+        return repository.read_task(job_id)
+    path = _find_record_path(job_id, workspace_id)
+    return _read_json(path, None) if path else None
 
 
 def _transition_status(record: dict[str, Any], requested: str) -> None:
@@ -287,8 +356,10 @@ def snapshot(job_id: str, include_result: bool = False) -> dict[str, Any]:
 
 
 def _tail(path: str, limit: int = 12000) -> str:
+    if not str(path).strip():
+        return ""
     target = Path(path)
-    if not target.exists():
+    if not target.is_file():
         return ""
     text = target.read_text(encoding="utf-8", errors="replace")
     return text[-limit:]
@@ -705,9 +776,12 @@ def _cleanup_sidecar_files(record: dict[str, Any]) -> list[str]:
 
 def _finalize_record(record: dict[str, Any]) -> dict[str, Any]:
     workspace_id = str(record.get("workspaceId", "")).strip() or workspace.default_workspace_id()
-    with workspace.workspace_lock(workspace_id):
-        latest = _read_json(_find_record_path(str(record["jobId"]), workspace_id), None)
-        return _finalize_record_locked(latest if isinstance(latest, dict) else record)
+    with _job_mutation_lock(workspace_id):
+        latest = _current_record(str(record["jobId"]), workspace_id)
+        try:
+            return _finalize_record_locked(latest if isinstance(latest, dict) else record)
+        except JobRevisionConflict:
+            return _read_record(str(record["jobId"]))
 
 
 def _finalize_record_locked(record: dict[str, Any]) -> dict[str, Any]:
@@ -741,6 +815,9 @@ def _finalize_record_locked(record: dict[str, Any]) -> dict[str, Any]:
         return record
     finalization = record["finalization"]
     if str(finalization.get("state") or "pending") == "applying":
+        owner_pid = finalization.get("ownerPid")
+        if isinstance(owner_pid, int) and _is_pid_alive(owner_pid):
+            return record
         _transition_status(record, "failed")
         record["error"] = (
             "Background job finalization was interrupted after its durable reservation; "
@@ -767,6 +844,7 @@ def _finalize_record_locked(record: dict[str, Any]) -> dict[str, Any]:
         "token": finalization_token,
         "error": "",
         "startedAt": _utc_now(),
+        "ownerPid": os.getpid(),
     }
     # Persist the reservation before any finalizer, evidence, or cleanup effect.
     # A process crash can therefore require reconciliation instead of replaying
@@ -903,8 +981,8 @@ def _process_observation(record: dict[str, Any]) -> dict[str, Any]:
 def _reserve_control(job_id: str, kind: str) -> tuple[str, dict[str, Any]]:
     record = _read_record(job_id)
     workspace_id = str(record.get("workspaceId") or workspace.default_workspace_id())
-    with workspace.workspace_lock(workspace_id):
-        latest = _read_json(_find_record_path(job_id, workspace_id), None)
+    with _job_mutation_lock(workspace_id):
+        latest = _current_record(job_id, workspace_id)
         if not isinstance(latest, dict):
             raise McpError(-32602, f"Unknown background job: {job_id}")
         _ensure_lifecycle_fields(latest)
@@ -927,13 +1005,16 @@ def _complete_control(
 ) -> dict[str, Any]:
     record = _read_record(job_id)
     workspace_id = str(record.get("workspaceId") or workspace.default_workspace_id())
-    with workspace.workspace_lock(workspace_id):
-        latest = _read_json(_find_record_path(job_id, workspace_id), None)
+    with _job_mutation_lock(workspace_id):
+        latest = _current_record(job_id, workspace_id)
         if not isinstance(latest, dict):
             raise McpError(-32602, f"Unknown background job: {job_id}")
         _ensure_lifecycle_fields(latest)
         reservation = latest.get("controlReservation")
-        if not isinstance(reservation, dict) or str(reservation.get("token")) != token:
+        from ..state.runtime import opaque_matches
+
+        stored_token = str(reservation.get("token")) if isinstance(reservation, dict) else ""
+        if not isinstance(reservation, dict) or not (stored_token == token or opaque_matches(stored_token, token)):
             return latest
         if str(latest.get("status")) in ACTIVE_STATUSES:
             _transition_status(latest, status_value)
@@ -959,13 +1040,16 @@ def _complete_control_reconciliation(
 
     record = _read_record(job_id)
     workspace_id = str(record.get("workspaceId") or workspace.default_workspace_id())
-    with workspace.workspace_lock(workspace_id):
-        latest = _read_json(_find_record_path(job_id, workspace_id), None)
+    with _job_mutation_lock(workspace_id):
+        latest = _current_record(job_id, workspace_id)
         if not isinstance(latest, dict):
             raise McpError(-32602, f"Unknown background job: {job_id}")
         _ensure_lifecycle_fields(latest)
         reservation = latest.get("controlReservation")
-        if not isinstance(reservation, dict) or str(reservation.get("token")) != token:
+        from ..state.runtime import opaque_matches
+
+        stored_token = str(reservation.get("token")) if isinstance(reservation, dict) else ""
+        if not isinstance(reservation, dict) or not (stored_token == token or opaque_matches(stored_token, token)):
             return latest
         if str(latest.get("status")) in ACTIVE_STATUSES:
             _transition_status(latest, status_value)
@@ -994,6 +1078,22 @@ def _refresh(record: dict[str, Any]) -> dict[str, Any]:
     latest = _read_record(job_id)
     if str(latest.get("status")) in ACTIVE_STATUSES and not latest.get("controlReservation"):
         observation = _process_observation(latest)
+        workspace_id = str(latest.get("workspaceId") or workspace.default_workspace_id())
+        if (
+            _task_repository(workspace_id) is not None
+            and observation["returnCode"] is None
+            and not observation["hasProcessHandle"]
+            and latest.get("startedAt")
+        ):
+            token, _reserved = _reserve_control(job_id, "restart_reconciliation")
+            if token:
+                return _complete_control_reconciliation(
+                    job_id,
+                    token,
+                    status_value="failed",
+                    error="Running process truth is unavailable after MCP restart; the job was not redispatched.",
+                    reason_code="process_truth_unknown_after_restart",
+                )
         if (
             observation["returnCode"] is None
             and observation["timedOut"]
@@ -1029,16 +1129,15 @@ def _refresh(record: dict[str, Any]) -> dict[str, Any]:
                     error=error,
                     timed_out=True,
                 )
-        workspace_id = str(latest.get("workspaceId") or workspace.default_workspace_id())
-        with workspace.workspace_lock(workspace_id):
-            current = _read_json(_find_record_path(job_id, workspace_id), None)
+        with _job_mutation_lock(workspace_id):
+            current = _current_record(job_id, workspace_id)
             return _refresh_locked(
                 _ensure_lifecycle_fields(current) if isinstance(current, dict) else latest,
                 observation,
             )
     workspace_id = str(latest.get("workspaceId") or workspace.default_workspace_id())
-    with workspace.workspace_lock(workspace_id):
-        current = _read_json(_find_record_path(job_id, workspace_id), None)
+    with _job_mutation_lock(workspace_id):
+        current = _current_record(job_id, workspace_id)
         current = _ensure_lifecycle_fields(current) if isinstance(current, dict) else latest
         if str(current.get("status")) in TERMINAL_STATUSES:
             return _finalize_record_locked(current)
@@ -1103,7 +1202,13 @@ def _refresh_locked(record: dict[str, Any], observation: dict[str, Any]) -> dict
 
 
 def status(job_id: str, include_result: bool = False) -> dict[str, Any]:
-    return _job_response(_refresh(_read_record(job_id)), include_result=include_result)
+    try:
+        record = _refresh(_read_record(job_id))
+    except JobRevisionConflict:
+        # Observational callers may lose a CAS race to the one writer that
+        # advanced truth. Return that committed truth without replaying work.
+        record = _read_record(job_id)
+    return _job_response(record, include_result=include_result)
 
 
 def list_jobs(limit: int = 20, active_only: bool = False, workspace_id: str = "", include_result: bool = False) -> dict[str, Any]:
@@ -1116,6 +1221,27 @@ def list_jobs(limit: int = 20, active_only: bool = False, workspace_id: str = ""
             refreshed = _refresh(record)
             if not active_only or refreshed.get("status") in {"queued", "running"}:
                 records.append(_job_response(refreshed, include_result=include_result))
+    candidates = (
+        [workspace.workspace_path(workspace_id)]
+        if workspace_id
+        else [item for item in workspace.WORKSPACES_DIR.iterdir() if item.is_dir()]
+        if workspace.WORKSPACES_DIR.exists()
+        else []
+    )
+    known = {str(item.get("jobId") or "") for item in records}
+    for candidate in candidates:
+        repository = _task_repository(candidate.name)
+        if repository is None:
+            continue
+        for record in repository.list_tasks():
+            if str(record.get("jobId") or "") in known:
+                continue
+            if active_only and record.get("status") not in ACTIVE_STATUSES:
+                continue
+            refreshed = _refresh(record)
+            if not active_only or refreshed.get("status") in ACTIVE_STATUSES:
+                records.append(_job_response(refreshed, include_result=include_result))
+                known.add(str(record.get("jobId") or ""))
     records.sort(key=lambda item: str(item.get("createdAt", "")), reverse=True)
     return {"jobs": records[: max(int(limit), 1)], "count": len(records)}
 

@@ -212,11 +212,25 @@ def log_event(event_type: str, summary: str, data: dict[str, Any] | None = None)
     event_data = data or {}
     workspace_id = event_data.get("workspaceId") or event_data.get("workspace_id")
     if isinstance(workspace_id, str) and workspace_id.strip():
-        from ..state.selector import assert_json_v1_write_allowed
+        from ..state.runtime import ActivatedWorkspaceRepository
+        from ..state.selector import assert_json_v1_write_allowed, selected_store_version
 
-        assert_json_v1_write_allowed(
-            EVIDENCE_DIR.parent / "workspaces" / slug(workspace_id) / "workspace.json"
-        )
+        workspace_root = EVIDENCE_DIR.parent / "workspaces" / slug(workspace_id)
+        if selected_store_version(workspace_root) == "sqlite-v2":
+            repository = ActivatedWorkspaceRepository(slug(workspace_id), workspace_root)
+            result = repository.append_audit(event_type, summary, sanitize_data(event_data))
+            return {
+                **result,
+                "path": str(repository.database_path),
+                "indexedPaths": [],
+                "event": {
+                    "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                    "type": event_type,
+                    "summary": summary,
+                    "data": sanitize_data(event_data),
+                },
+            }
+        assert_json_v1_write_allowed(workspace_root / "workspace.json")
     EVIDENCE_LOG.parent.mkdir(parents=True, exist_ok=True)
     event = {
         "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),

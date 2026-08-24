@@ -240,14 +240,13 @@ verification, and activation workflow. Protocol selection (`legacy`,
 `modern-compact`, or `modern-direct`) is independent of the workspace
 store selector.
 
-Task 4A adds the dormant State Store v2 foundations used by isolated tests:
-versioned migration `0001`, per-operation verified connections, monotonic
-workspace revisions, atomic change/audit transactions, a workspace-local
-content-addressed artifact repository, and SQLite online backup. The fixed v2
-layout is `DATA/workspaces/<workspaceId>/state-v2/state.sqlite3` with artifacts
-under `state-v2/artifacts/sha256/<prefix>/<digest>`. Do not create a v2 selector
-manually. An absent selector means JSON v1 and production workspaces must not
-dual-write.
+The State Store v2 foundation uses versioned migrations, per-operation verified
+connections, monotonic workspace and task revisions, transactional domain and
+audit writes, a workspace-local content-addressed artifact repository, and the
+selected SQLite binding's online backup API. The fixed v2 layout is
+`DATA/workspaces/<workspaceId>/state-v2/state.sqlite3` with artifacts under
+`state-v2/artifacts/sha256/<prefix>/<digest>`. Do not create a v2 selector
+manually. An absent selector means JSON v1 and workspaces never dual-write.
 
 ### Deterministic JSON-v1 migration and cutover
 
@@ -290,9 +289,29 @@ bin/state import /private/path/bundle
 
 Credential bodies, cookies, bearer values, encryption/request-state keys, and
 raw request/step-up handles are excluded. Request and step-up metadata use
-deterministic hashed mappings. At the Task 4B checkpoint, activation is an
-operator migration boundary; keep the MCP service stopped for cutover. Task 4C
-adopts SQLite-v2 throughout the live legacy and modern runtime.
+deterministic hashed mappings. Keep the MCP service stopped during migration,
+verification, and activation. After activation, both legacy and modern protocol
+profiles use SQLite-v2 for workspace state, normalized entities and relations,
+evidence and artifact metadata, findings and reviews, authority and dispatches,
+background tasks and finalization, durable resource references, revisions, and
+audit. Selecting the legacy protocol does not select JSON v1.
+
+The status command includes bounded passive WAL/checkpoint state for activated
+workspaces. One operator may request a bounded manual checkpoint; a lease
+prevents competing manual checkpoints. Online backup uses the SQLite backup API
+and refuses to overwrite an existing destination:
+
+```bash
+bin/state status <workspace>
+bin/state checkpoint <workspace>
+bin/state backup <workspace> --output /private/path/state-backup.sqlite3
+```
+
+Writers wait only for the configured bounded busy timeout. Contention before a
+transaction obtains write authority is a retryable `state_busy_retryable`
+result. An ambiguous commit is `state_commit_unknown` and must be reconciled,
+not blindly retried. Tasks found running after their process dies likewise move
+to reconciliation-required truth without redispatch.
 
 Production startup requires private (`0600`) operator files. The identity
 binding maps authenticated principals to server-held workspace and authority

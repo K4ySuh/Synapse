@@ -24,6 +24,20 @@ durable dispatch and continuation truth.
 
 ### Added
 
+- **Phase 4C transactional runtime adoption.** Activated workspaces now route
+  workspace/entity/relation, evidence/artifact, finding/review, authority,
+  dispatch, task/finalization, resource-reference, revision, and audit truth
+  through the SQLite-v2 repository bundle under both legacy and modern protocol
+  profiles. Use-case transactions combine domain changes with CAS revisions,
+  uniqueness, evidence/result links, and audit; bounded pre-commit contention is
+  retryable while ambiguous commit and post-process-death work require explicit
+  reconciliation without redispatch. Modern resources use durable
+  workspace-bound CAS references whose model, principal, session, and source
+  values are stored only as opaque digests. Added bounded WAL status/manual
+  checkpoint and online backup operations, plus deterministic 100-round
+  multiprocess dispatch, finalization, and same-entity races and real-process
+  crash tests. JSON-v1 remains unchanged for unactivated/frozen workspaces and
+  credential bodies remain in their confined store.
 - **Phase 4B deterministic migration and cutover.** Added a transport-neutral
   operator service and `synapse-state`/`bin/state` CLI for read-only
   inventory/dry-run, immutable pre-cutover snapshots, restartable idempotent

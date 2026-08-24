@@ -75,7 +75,12 @@ stages, verifies the SQLite-v2 result, and keeps activation explicit. Its
 `status`, `activate`, and bounded `rollback` commands enforce the first
 v2-only-write boundary. Canonical `export` and empty-workspace `import`
 commands validate artifact paths, hashes, workspace identity, duplicates, and
-schema version. Credential bodies and raw opaque request state are excluded.
+schema version. Once activated, SQLite-v2 is authoritative for workspace,
+authority/dispatch, task/finalization, durable resource, revision, and audit
+truth under both legacy and modern protocol profiles. `status` includes bounded
+WAL state; `checkpoint` serializes manual checkpoints and `backup` uses the
+online backup API without overwriting an existing destination. Credential
+bodies and raw opaque request state are excluded.
 See [Operations](../../docs/Operations.md) for the exact workflow.
 
 ## Runtime Python

@@ -11,6 +11,8 @@ edit its JSON shape directly.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 import json
@@ -21,6 +23,9 @@ from uuid import uuid4
 from synapse_mcp.core import atomic_io, background_jobs, workspace
 from synapse_mcp.core.errors import McpError
 from synapse_mcp.core.execution import EffectEnvelope, ExecutionPlan
+from synapse_mcp.state.errors import StateStoreError
+from synapse_mcp.state.runtime import ActivatedWorkspaceRepository, opaque_ref
+from synapse_mcp.state.selector import selected_store_version
 
 from .authority import (
     Allow,
@@ -212,13 +217,48 @@ class WorkspaceAuthorityRepository:
         self._clock = clock
         self._decision_retention = max(int(decision_retention), 1)
         self._request_state_ttl = request_state_ttl
+        self._active_connection: ContextVar[Any | None] = ContextVar(
+            f"synapse_authority_connection_{id(self)}",
+            default=None,
+        )
 
     @property
     def path(self) -> Path:
         return workspace.workspace_path(self.workspace_id) / "authority" / "state.json"
 
+    @property
+    def _activated(self) -> bool:
+        return selected_store_version(workspace.workspace_path(self.workspace_id)) == "sqlite-v2"
+
+    def _runtime_repository(self) -> ActivatedWorkspaceRepository:
+        return ActivatedWorkspaceRepository(self.workspace_id, workspace.workspace_path(self.workspace_id))
+
+    @contextmanager
+    def _repository_transaction(self):
+        if not self._activated:
+            with workspace.workspace_lock(self.workspace_id):
+                yield
+            return
+        repository = self._runtime_repository()
+        try:
+            with repository.transaction() as connection:
+                token = self._active_connection.set(connection)
+                try:
+                    yield
+                finally:
+                    self._active_connection.reset(token)
+        except StateStoreError as exc:
+            raise AuthorityRepositoryError(exc.reason_code, str(exc)) from exc
+
+    def _opaque(self, value: str, source_kind: str = "") -> str:
+        if not self._activated or not value:
+            return value
+        if source_kind:
+            return self._runtime_repository().resolve_migrated_opaque_id(source_kind, value)
+        return opaque_ref(value)
+
     def snapshot(self) -> dict[str, Any]:
-        with workspace.workspace_lock(self.workspace_id):
+        with self._repository_transaction():
             return json.loads(json.dumps(self._read_locked()))
 
     def create_grant(
@@ -231,7 +271,7 @@ class WorkspaceAuthorityRepository:
             raise AuthorityRepositoryError("grant_workspace_mismatch", "Grant workspace does not match repository.")
         if grant.revision != 1:
             raise AuthorityRepositoryError("grant_revision_invalid", "A new grant must begin at revision 1.")
-        with workspace.workspace_lock(self.workspace_id):
+        with self._repository_transaction():
             state = self._read_locked()
             self._check_revision(state, expected_repository_revision)
             if grant.grant_id in state["grants"]:
@@ -245,12 +285,12 @@ class WorkspaceAuthorityRepository:
         return grant
 
     def inspect_grant(self, grant_id: str, revision: int | None = None) -> AuthorityGrant:
-        with workspace.workspace_lock(self.workspace_id):
+        with self._repository_transaction():
             state = self._read_locked()
             return self._grant_from_state(state, grant_id, revision)
 
     def list_grants(self) -> tuple[AuthorityGrant, ...]:
-        with workspace.workspace_lock(self.workspace_id):
+        with self._repository_transaction():
             state = self._read_locked()
             return tuple(
                 self._grant_from_state(state, grant_id)
@@ -266,7 +306,7 @@ class WorkspaceAuthorityRepository:
     ) -> AuthorityGrant:
         if replacement.workspace_id != self.workspace_id:
             raise AuthorityRepositoryError("grant_workspace_mismatch", "Grant workspace does not match repository.")
-        with workspace.workspace_lock(self.workspace_id):
+        with self._repository_transaction():
             state = self._read_locked()
             self._check_revision(state, expected_repository_revision)
             current = self._grant_from_state(state, replacement.grant_id)
@@ -297,8 +337,13 @@ class WorkspaceAuthorityRepository:
         return self.revise_grant(revoked, expected_grant_revision=expected_grant_revision)
 
     def issue_step_up(self, authorization: StepUpAuthorization) -> str:
+        if self._activated:
+            authorization = replace(
+                authorization,
+                idempotency_key=self._opaque(authorization.idempotency_key),
+            )
         step_up_id = f"stepup-{uuid4().hex}"
-        with workspace.workspace_lock(self.workspace_id):
+        with self._repository_transaction():
             state = self._read_locked()
             if self._grant_from_state(state, authorization.grant_id).revision != authorization.grant_revision:
                 raise AuthorityRepositoryError("step_up_grant_stale", "Step-up grant revision is not current.")
@@ -330,7 +375,8 @@ class WorkspaceAuthorityRepository:
     ) -> str:
         """Issue one exact step-up using only trusted pending-request state."""
 
-        with workspace.workspace_lock(self.workspace_id):
+        request_state_id = self._opaque(request_state_id, "request_state")
+        with self._repository_transaction():
             state = self._read_locked()
             now = self._clock()
             request_state = self._pending_request_state_locked(state, request_state_id, now)
@@ -399,6 +445,9 @@ class WorkspaceAuthorityRepository:
                 "authority_session_missing",
                 "Authority execution requires a trusted session binding.",
             )
+        authority_session_id = self._opaque(authority_session_id)
+        idempotency_key = self._opaque(idempotency_key)
+        request_state_id = self._opaque(request_state_id, "request_state")
         if plan.intent.workspace_id != self.workspace_id:
             raise AuthorityRepositoryError(
                 "authority_workspace_mismatch",
@@ -409,7 +458,7 @@ class WorkspaceAuthorityRepository:
         except ValueError as exc:
             raise AuthorityRepositoryError("authority_profile_invalid", f"Unknown authority profile: {profile}") from exc
         now = self._clock()
-        with workspace.workspace_lock(self.workspace_id):
+        with self._repository_transaction():
             state = self._read_locked()
             resumed = (
                 self._request_state_locked(
@@ -484,7 +533,7 @@ class WorkspaceAuthorityRepository:
         if requested not in DISPATCH_STATES:
             raise AuthorityRepositoryError("dispatch_state_invalid", f"Unknown dispatch state: {requested}")
         now = self._clock()
-        with workspace.workspace_lock(self.workspace_id):
+        with self._repository_transaction():
             state = self._read_locked()
             dispatch = self._dispatch_locked(state, dispatch_id)
             current = str(dispatch["state"])
@@ -545,7 +594,7 @@ class WorkspaceAuthorityRepository:
         }
         if not binding["handler"] or not binding["bindingFingerprint"]:
             raise AuthorityRepositoryError("job_binding_missing", "Background job continuation is not sealed.")
-        with workspace.workspace_lock(self.workspace_id):
+        with self._repository_transaction():
             state = self._read_locked()
             dispatch = self._dispatch_locked(state, receipt.dispatch_id)
             if dispatch["state"] != "dispatched":
@@ -571,6 +620,7 @@ class WorkspaceAuthorityRepository:
         now = self._clock()
         if not authority_session_id.strip():
             raise AuthorityRepositoryError("authority_session_missing", "Legacy adoption requires a session binding.")
+        authority_session_id = self._opaque(authority_session_id)
         record = background_jobs.snapshot_record(job_id)
         if str(record.get("workspaceId") or "") != self.workspace_id:
             raise AuthorityRepositoryError("job_workspace_mismatch", "Legacy job belongs to another workspace.")
@@ -581,7 +631,7 @@ class WorkspaceAuthorityRepository:
         finalizer_effects = record.get("finalizerEffects")
         if not isinstance(finalizer_effects, Mapping):
             raise AuthorityRepositoryError("job_effects_missing", "Legacy job has no finalizer effect envelope.")
-        with workspace.workspace_lock(self.workspace_id):
+        with self._repository_transaction():
             state = self._read_locked()
             if any(
                 isinstance(item.get("continuation"), Mapping)
@@ -668,12 +718,13 @@ class WorkspaceAuthorityRepository:
             return json.loads(json.dumps(state["dispatches"][dispatch_id]))
 
     def inspect_dispatch(self, dispatch_id: str) -> dict[str, Any]:
-        with workspace.workspace_lock(self.workspace_id):
+        with self._repository_transaction():
             state = self._read_locked()
             return json.loads(json.dumps(self._dispatch_locked(state, dispatch_id)))
 
     def inspect_request_state(self, request_state_id: str) -> dict[str, Any]:
-        with workspace.workspace_lock(self.workspace_id):
+        request_state_id = self._opaque(request_state_id, "request_state")
+        with self._repository_transaction():
             state = self._read_locked()
             request_state = self._pending_request_state_locked(state, request_state_id, self._clock())
             return json.loads(json.dumps(request_state))
@@ -681,7 +732,7 @@ class WorkspaceAuthorityRepository:
     def list_request_states(self) -> tuple[dict[str, Any], ...]:
         """List unexpired pending authority requests for the trusted operator plane."""
 
-        with workspace.workspace_lock(self.workspace_id):
+        with self._repository_transaction():
             state = self._read_locked()
             now = self._clock()
             values = [
@@ -700,7 +751,9 @@ class WorkspaceAuthorityRepository:
     ) -> dict[str, Any]:
         """Return trusted execution identity before a protocol retry is planned."""
 
-        with workspace.workspace_lock(self.workspace_id):
+        request_state_id = self._opaque(request_state_id, "request_state")
+        authority_session_id = self._opaque(authority_session_id)
+        with self._repository_transaction():
             state = self._read_locked()
             request_state = self._pending_request_state_locked(state, request_state_id, self._clock())
             required = {
@@ -739,7 +792,7 @@ class WorkspaceAuthorityRepository:
             }
 
     def list_dispatches(self) -> tuple[dict[str, Any], ...]:
-        with workspace.workspace_lock(self.workspace_id):
+        with self._repository_transaction():
             state = self._read_locked()
             return tuple(json.loads(json.dumps(item)) for item in state["dispatches"].values())
 
@@ -747,7 +800,7 @@ class WorkspaceAuthorityRepository:
         if resolution not in {"succeeded", "failed", "cancelled"}:
             raise AuthorityRepositoryError("reconciliation_invalid", "Resolution must be succeeded, failed, or cancelled.")
         now = self._clock()
-        with workspace.workspace_lock(self.workspace_id):
+        with self._repository_transaction():
             state = self._read_locked()
             dispatch = self._dispatch_locked(state, dispatch_id)
             if dispatch["state"] != "unknown":
@@ -778,7 +831,7 @@ class WorkspaceAuthorityRepository:
             return json.loads(json.dumps(dispatch))
 
     def budget_usage(self, grant_id: str) -> BudgetUsage:
-        with workspace.workspace_lock(self.workspace_id):
+        with self._repository_transaction():
             state = self._read_locked()
             grant = self._grant_from_state(state, grant_id)
             return self._budget_usage_locked(state, grant, self._clock())
@@ -810,6 +863,14 @@ class WorkspaceAuthorityRepository:
         return state
 
     def _read_locked(self) -> dict[str, Any]:
+        if self._activated:
+            connection = self._active_connection.get()
+            if connection is None:
+                raise AuthorityRepositoryError(
+                    "authority_transaction_missing",
+                    "Activated authority state must be read inside its workspace transaction.",
+                )
+            return self._runtime_repository().authority_state(connection)
         if not self.path.exists():
             return _initial_state()
         try:
@@ -819,6 +880,18 @@ class WorkspaceAuthorityRepository:
 
     def _commit_locked(self, state: dict[str, Any]) -> None:
         state["revision"] = int(state["revision"]) + 1
+        if self._activated:
+            connection = self._active_connection.get()
+            if connection is None:
+                raise AuthorityRepositoryError(
+                    "authority_transaction_missing",
+                    "Activated authority state must commit inside its workspace transaction.",
+                )
+            try:
+                self._runtime_repository().save_authority_state(connection, state)
+            except StateStoreError as exc:
+                raise AuthorityRepositoryError(exc.reason_code, str(exc)) from exc
+            return
         atomic_io.atomic_write_text(
             self.path,
             json.dumps(state, indent=2, sort_keys=True, ensure_ascii=False) + "\n",

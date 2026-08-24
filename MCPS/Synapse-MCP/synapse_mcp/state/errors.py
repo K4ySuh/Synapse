@@ -22,6 +22,18 @@ class StateConflictError(StateStoreError):
     pass
 
 
+class StateBusyError(StateConflictError):
+    """Bounded lock wait expired before any durable truth was attempted."""
+
+    retryable = True
+
+
+class StateCommitUnknownError(StateStoreError):
+    """Commit returned an ambiguous outcome and must never be blindly retried."""
+
+    retryable = False
+
+
 class StateIntegrityError(StateStoreError):
     pass
 

@@ -15,6 +15,8 @@ from typing import Sequence
 from .bundles import StateBundleService
 from .errors import StateStoreError
 from .migration import StateMigrationService
+from .runtime import ActivatedWorkspaceRepository
+from .selector import selected_store_version
 
 
 def _default_data_root() -> Path:
@@ -28,9 +30,12 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="synapse-state", description="Synapse State Store migration operator service")
     parser.add_argument("--data-root", type=Path, default=_default_data_root())
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("inventory", "verify", "activate", "rollback", "status"):
+    for name in ("inventory", "verify", "activate", "rollback", "status", "checkpoint"):
         command = commands.add_parser(name)
         command.add_argument("workspace")
+    backup = commands.add_parser("backup")
+    backup.add_argument("workspace")
+    backup.add_argument("--output", type=Path)
     migrate = commands.add_parser("migrate")
     migrate.add_argument("workspace")
     selection = migrate.add_mutually_exclusive_group(required=True)
@@ -60,7 +65,25 @@ def run(arguments: Sequence[str] | None = None) -> dict:
     if values.command == "rollback":
         return migration.rollback(values.workspace)
     if values.command == "status":
-        return migration.status(values.workspace)
+        result = migration.status(values.workspace)
+        root = migration.workspaces_root / result["workspaceId"]
+        if selected_store_version(root) == "sqlite-v2":
+            result["wal"] = ActivatedWorkspaceRepository(result["workspaceId"], root).checkpoint_status()
+        return result
+    if values.command == "checkpoint":
+        root = migration.workspaces_root / values.workspace
+        if selected_store_version(root) != "sqlite-v2":
+            raise StateStoreError("checkpoint_store_not_active", "Manual checkpoints require an activated SQLite-v2 workspace.")
+        return ActivatedWorkspaceRepository(values.workspace, root).checkpoint_status(manual=True)
+    if values.command == "backup":
+        root = migration.workspaces_root / values.workspace
+        if selected_store_version(root) != "sqlite-v2":
+            raise StateStoreError("backup_store_not_active", "Online backup requires an activated SQLite-v2 workspace.")
+        output = values.output or (
+            values.data_root / "backups" / values.workspace / f"state-{os.getpid()}.sqlite3"
+        )
+        path = ActivatedWorkspaceRepository(values.workspace, root).backup_to(output)
+        return {"workspaceId": values.workspace, "path": str(path), "storeVersion": "sqlite-v2"}
     if values.command == "export":
         output = values.output
         if output is None:

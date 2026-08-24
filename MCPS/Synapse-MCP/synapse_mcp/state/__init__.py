@@ -21,6 +21,8 @@ from .errors import (
     ArtifactCollisionError,
     ArtifactLimitError,
     ArtifactStoreError,
+    StateBusyError,
+    StateCommitUnknownError,
     StateConflictError,
     StateIntegrityError,
     StateReadinessError,
@@ -38,6 +40,7 @@ from .migration import (
 )
 from .selector import assert_json_v1_write_allowed, repository_bundle, selected_store_version
 from .sqlite_store import SQLiteWorkspaceRepository
+from .runtime import ActivatedWorkspaceRepository, activated_repository, opaque_matches, opaque_ref
 
 
 __all__ = [
@@ -52,6 +55,9 @@ __all__ = [
     "EvidenceRecord",
     "RelationRecord",
     "SQLiteWorkspaceRepository",
+    "ActivatedWorkspaceRepository",
+    "StateBusyError",
+    "StateCommitUnknownError",
     "StateConflictError",
     "StateIntegrityError",
     "StateReadinessError",
@@ -75,4 +81,7 @@ __all__ = [
     "repository_bundle",
     "selected_store_version",
     "assert_json_v1_write_allowed",
+    "activated_repository",
+    "opaque_matches",
+    "opaque_ref",
 ]

@@ -68,15 +68,19 @@ emitted only when the optional launcher is present.
 SQLite runtimes through the transport-independent `synapse_mcp/state/readiness.py`
 contract and fails below SQLite 3.51.3. `synapse_mcp/state/` now also owns
 repository contracts and selection, JSON-v1 compatibility adapters, verified
-SQLite connection/transaction helpers, migration `0001`, workspace revisions,
-the isolated v2 vertical-slice repository, online backup, and the bounded
-workspace-local SHA-256 artifact store. `state/migration.py` now owns
+SQLite connection/transaction helpers, migrations `0001` and `0002`, workspace
+and task revisions, the activated transactional runtime repository, bounded WAL
+checkpoint/status and online backup, and the workspace-local SHA-256 artifact
+store. `state/runtime.py` owns activated workspace, entity/relation, evidence,
+artifact/resource, finding/review, authority/dispatch, task/finalization, and
+audit operations. `state/migration.py` owns
 read-only inventory, immutable snapshots, restartable/idempotent v1-to-v2
 stages, verification, guarded activation, and rollback-boundary enforcement.
 `state/bundles.py` owns canonical export/import and artifact-manifest
 validation; `state/cli.py` and `bin/state` expose the operator surface.
 Raw SQL remains confined to this package. The selector still defaults to JSON
-v1 and migration never activates implicitly.
+v1 and migration never activates implicitly; an activated selector makes v2
+authoritative for both protocol profiles without dual-write.
 
 ## Data Layout
 
@@ -88,11 +92,12 @@ DATA/
 |-- workspaces/<workspace-id>/    normalized engagement/target knowledge
 |   |-- workspace.json
 |   |-- scope.json                workspace-owned hosts, patterns, and CIDRs
-|   |-- state-v2/                 isolated/migrated store only; absent selector means JSON v1
+|   |-- state-v2/                 authoritative after activation; absent selector means JSON v1
 |   |   |-- state.sqlite3         WAL database (never copied live as a raw file)
-|   |   `-- artifacts/sha256/     workspace-local immutable content-addressed blobs
-|   |-- authority/state.json      grants, budgets, decisions, dispatch/continuation truth (0600)
-|   |-- jobs/<job-id>/job.json    background job records (sidecars embedded on finalization)
+|   |   |-- artifacts/sha256/     workspace-local immutable content-addressed blobs
+|   |   `-- runtime/jobs/         v2 worker sidecars; relational task truth stays in SQLite
+|   |-- authority/state.json      JSON-v1 authority truth only (0600)
+|   |-- jobs/<job-id>/job.json    JSON-v1 background job records
 |   |-- outputs/                  workspace-level generated outputs
 |   `-- targets/<host>/
 |       |-- target.json

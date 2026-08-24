@@ -75,8 +75,8 @@ _TABLE_STAGES = {
         "scope_snapshots",
         "targets",
     ),
-    "knowledge": ("entities", "entity_relations", "findings", "review_events", "evidence"),
-    "evidence_artifacts": ("artifacts", "evidence_artifacts"),
+    "knowledge": ("entities", "entity_relations", "findings", "review_events", "evidence", "entity_evidence"),
+    "evidence_artifacts": ("artifacts", "evidence_artifacts", "artifact_resource_refs"),
     "execution_authority": (
         "actions",
         "authority_grants",
@@ -87,7 +87,13 @@ _TABLE_STAGES = {
         "action_dispatches",
         "tasks",
         "task_events",
+        "task_dispatch_links",
+        "execution_result_links",
         "reconciliations",
+        "authority_runtime_payloads",
+        "authority_repository_revisions",
+        "authority_decisions",
+        "checkpoint_leases",
         "audit_events",
         "id_mappings",
     ),
@@ -119,6 +125,14 @@ _PRIMARY_KEYS = {
     "migration_runs": ("migration_run_id",),
     "migration_orphans": ("migration_orphan_id",),
     "id_mappings": ("migration_run_id", "source_kind", "source_id"),
+    "entity_evidence": ("workspace_id", "entity_id", "evidence_id"),
+    "authority_repository_revisions": ("workspace_id",),
+    "authority_decisions": ("decision_id",),
+    "artifact_resource_refs": ("reference_digest",),
+    "checkpoint_leases": ("workspace_id",),
+    "authority_runtime_payloads": ("workspace_id", "record_kind", "record_id"),
+    "task_dispatch_links": ("workspace_id", "task_id", "dispatch_id"),
+    "execution_result_links": ("result_link_id",),
 }
 
 
@@ -245,6 +259,24 @@ def _sanitize(value: Any) -> Any:
     if value is None or isinstance(value, (bool, int, float)):
         return value
     return str(value)
+
+
+def _opaque_runtime(value: Any) -> str:
+    text = str(value or "")
+    if re.fullmatch(r"sha256:[0-9a-f]{64}", text):
+        return text
+    return f"sha256:{sha256(text.encode('utf-8')).hexdigest()}"
+
+
+def _authority_runtime_payload(value: Mapping[str, Any], **overrides: Any) -> dict[str, Any]:
+    payload = _sanitize(value)
+    if not isinstance(payload, dict):
+        payload = {}
+    for name in ("authoritySessionId", "idempotencyKey"):
+        if value.get(name):
+            payload[name] = _opaque_runtime(value[name])
+    payload.update(overrides)
+    return payload
 
 
 def _body_contains_secret(path: Path) -> bool:
@@ -1117,6 +1149,26 @@ class StateMigrationService:
         self._authority_rows(wid, authority, rows, mappings, action_values, run, created, updated)
         self._job_rows(inventory, snapshot, rows, action_values, mappings, run, created, updated)
         self._action_rows(wid, rows, action_values, mappings, run, created, updated)
+        evidence_identity = {row["evidence_id"] for row in rows["evidence"]}
+        evidence_mapping = {
+            row["source_id"]: row["target_id"]
+            for row in mappings
+            if row["source_kind"] == "evidence"
+        }
+        for entity_row in rows["entities"]:
+            payload = json.loads(str(entity_row["payload_json"]))
+            linked = payload.get("evidenceIds") if isinstance(payload, Mapping) else []
+            for raw_evidence_id in linked if isinstance(linked, list) else []:
+                evidence_id = evidence_mapping.get(str(raw_evidence_id), str(raw_evidence_id))
+                if evidence_id in evidence_identity:
+                    rows["entity_evidence"].append(
+                        {
+                            "workspace_id": wid,
+                            "entity_id": entity_row["entity_id"],
+                            "evidence_id": evidence_id,
+                            "created_revision": 1,
+                        }
+                    )
         rows["audit_events"].append(
             {
                 "event_id": _stable_id("audit", wid, run["runId"]),
@@ -1252,6 +1304,11 @@ class StateMigrationService:
                 action_ids.add(action_id)
             return action_id
 
+        raw_step_ups = value.get("stepUps") if isinstance(value.get("stepUps"), Mapping) else {}
+        step_up_mapping: dict[str, str] = {
+            str(raw_id): _stable_id("step-up", wid, sha256(str(raw_id).encode("utf-8")).hexdigest())
+            for raw_id in raw_step_ups
+        }
         request_mapping: dict[str, str] = {}
         request_states = value.get("requestStates") if isinstance(value.get("requestStates"), Mapping) else {}
         for raw_id, item in sorted(request_states.items()):
@@ -1280,8 +1337,22 @@ class StateMigrationService:
                     "updated_at": _timestamp(item.get("lastEvaluatedAt") or item.get("consumedAt"), item_created),
                 }
             )
-        step_up_mapping: dict[str, str] = {}
-        step_ups = value.get("stepUps") if isinstance(value.get("stepUps"), Mapping) else {}
+            rows["authority_runtime_payloads"].append(
+                {
+                    "workspace_id": wid,
+                    "record_kind": "request_state",
+                    "record_id": target_id,
+                    "payload_json": _json_text(
+                        _authority_runtime_payload(
+                            item,
+                            requestStateId=target_id,
+                            stepUpId=step_up_mapping.get(str(item.get("stepUpId") or ""), ""),
+                        )
+                    ),
+                    "updated_revision": 1,
+                }
+            )
+        step_ups = raw_step_ups
         for raw_id, item in sorted(step_ups.items()):
             if not isinstance(item, Mapping):
                 continue
@@ -1290,8 +1361,7 @@ class StateMigrationService:
             if not any(row["grant_id"] == grant_id and row["grant_revision"] == grant_revision for row in rows["authority_grant_revisions"]):
                 self._add_orphan(run, "step_up", f"sha256:{sha256(str(raw_id).encode()).hexdigest()}", "grant_revision_missing", True)
                 continue
-            target_id = _stable_id("step-up", wid, sha256(str(raw_id).encode("utf-8")).hexdigest())
-            step_up_mapping[str(raw_id)] = target_id
+            target_id = step_up_mapping[str(raw_id)]
             mappings.append(self._mapping(run, "step_up", str(raw_id), "step_up", target_id, opaque=True))
             rows["step_ups"].append(
                 {
@@ -1305,6 +1375,15 @@ class StateMigrationService:
                     "consumed_at": item.get("consumedAt") or None,
                     "created_revision": 1,
                     "created_at": _timestamp(item.get("createdAt"), created),
+                }
+            )
+            rows["authority_runtime_payloads"].append(
+                {
+                    "workspace_id": wid,
+                    "record_kind": "step_up",
+                    "record_id": target_id,
+                    "payload_json": _json_text(_authority_runtime_payload(item)),
+                    "updated_revision": 1,
                 }
             )
         budgets = value.get("budgetWindows") if isinstance(value.get("budgetWindows"), Mapping) else {}
@@ -1329,6 +1408,15 @@ class StateMigrationService:
                         "reserved": amount if reserved else 0,
                         "consumed": 0 if reserved else amount,
                         "created_revision": 1,
+                        "updated_revision": 1,
+                    }
+                )
+                rows["authority_runtime_payloads"].append(
+                    {
+                        "workspace_id": wid,
+                        "record_kind": "budget_window",
+                        "record_id": rows["budget_windows"][-1]["budget_window_id"],
+                        "payload_json": _json_text(_sanitize(item)),
                         "updated_revision": 1,
                     }
                 )
@@ -1359,7 +1447,7 @@ class StateMigrationService:
                     "authority_grant_id": grant_id,
                     "state": str(item.get("state") or "unknown"),
                     "idempotency_key": f"sha256:{sha256(idempotency.encode()).hexdigest()}" if idempotency else "",
-                    "payload_json": _json_text(_sanitize(item)),
+                    "payload_json": _json_text(_authority_runtime_payload(item)),
                     "created_revision": 1,
                     "updated_revision": 1,
                     "created_at": item_created,
@@ -1406,6 +1494,22 @@ class StateMigrationService:
                     "created_at": _timestamp(item.get("at"), created),
                 }
             )
+            rows["authority_decisions"].append(
+                {
+                    "decision_id": event_id,
+                    "workspace_id": wid,
+                    "payload_json": _json_text(_authority_runtime_payload(item)),
+                    "created_revision": 1,
+                    "created_at": _timestamp(item.get("at"), created),
+                }
+            )
+        rows["authority_repository_revisions"].append(
+            {
+                "workspace_id": wid,
+                "revision": max(int(value.get("revision") or 0), 0),
+                "updated_at": updated,
+            }
+        )
 
     def _job_rows(
         self,

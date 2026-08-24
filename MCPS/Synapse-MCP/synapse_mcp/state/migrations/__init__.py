@@ -14,15 +14,22 @@ from ..connections import StateConnection, immediate_transaction
 from ..errors import StateIntegrityError
 
 
-MIGRATION_NAME = "0001_initial.sql"
+MIGRATION_NAMES = ("0001_initial.sql", "0002_runtime_adoption.sql")
 
 
-def migration_text() -> str:
-    return files(__package__).joinpath(MIGRATION_NAME).read_text(encoding="utf-8")
+def migration_text(name: str = MIGRATION_NAMES[0]) -> str:
+    if name not in MIGRATION_NAMES:
+        raise StateIntegrityError("migration_unknown", "State Store migration is not registered.")
+    return files(__package__).joinpath(name).read_text(encoding="utf-8")
+
+
+def migration_hash(name: str) -> str:
+    return sha256(migration_text(name).encode("utf-8")).hexdigest()
 
 
 def schema_hash() -> str:
-    return sha256(migration_text().encode("utf-8")).hexdigest()
+    manifest = "\n".join(f"{name}:{migration_hash(name)}" for name in MIGRATION_NAMES)
+    return sha256(manifest.encode("utf-8")).hexdigest()
 
 
 def _statements(script: str) -> Iterator[str]:
@@ -44,28 +51,66 @@ def apply_migrations(connection: StateConnection) -> str:
         "SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'"
     ).fetchone()
     if existing:
-        row = connection.execute(
-            "SELECT schema_hash FROM schema_migrations WHERE version=1"
-        ).fetchone()
-        if row is None or str(row[0]) != expected_hash:
-            raise StateIntegrityError(
-                "schema_hash_mismatch",
-                "State Store schema does not match the reviewed migration hash.",
-            )
-        return expected_hash
-
+        installed_rows = list(connection.execute(
+            "SELECT version, name, schema_hash FROM schema_migrations ORDER BY version"
+        ))
+        installed = {int(row[0]): (str(row[1]), str(row[2])) for row in installed_rows}
+        complete = True
+        for version, name in enumerate(MIGRATION_NAMES, start=1):
+            prior = installed.get(version)
+            if prior is None:
+                complete = False
+                continue
+            if prior != (name, migration_hash(name)):
+                raise StateIntegrityError(
+                    "schema_hash_mismatch",
+                    "State Store schema does not match the reviewed migration hash.",
+                )
+        if complete:
+            metadata = connection.execute(
+                "SELECT value FROM store_metadata WHERE key='schema_hash'"
+            ).fetchone()
+            if metadata is None or str(metadata[0]) != expected_hash:
+                raise StateIntegrityError(
+                    "schema_hash_mismatch",
+                    "State Store schema metadata does not match the reviewed migration set.",
+                )
+            return expected_hash
     with immediate_transaction(connection):
-        for statement in _statements(migration_text()):
-            connection.execute(statement)
+        existing = connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'"
+        ).fetchone()
+        installed: dict[int, tuple[str, str]] = {}
+        if existing:
+            installed = {
+                int(row[0]): (str(row[1]), str(row[2]))
+                for row in connection.execute(
+                    "SELECT version, name, schema_hash FROM schema_migrations ORDER BY version"
+                )
+            }
+        for version, name in enumerate(MIGRATION_NAMES, start=1):
+            migration_digest = migration_hash(name)
+            prior = installed.get(version)
+            if prior is not None:
+                if prior != (name, migration_digest):
+                    raise StateIntegrityError(
+                        "schema_hash_mismatch",
+                        "State Store schema does not match the reviewed migration hash.",
+                    )
+                continue
+            for statement in _statements(migration_text(name)):
+                connection.execute(statement)
+            connection.execute(
+                "INSERT INTO schema_migrations(version, name, schema_hash) VALUES(?, ?, ?)",
+                (version, name, migration_digest),
+            )
         connection.execute(
-            "INSERT INTO schema_migrations(version, name, schema_hash) VALUES(1, ?, ?)",
-            (MIGRATION_NAME, expected_hash),
-        )
-        connection.execute(
-            "INSERT INTO store_metadata(key, value) VALUES('schema_hash', ?)",
+            "INSERT INTO store_metadata(key, value) VALUES('schema_hash', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             (expected_hash,),
         )
         connection.execute(
-            "INSERT INTO store_metadata(key, value) VALUES('store_version', 'sqlite-v2')"
+            "INSERT INTO store_metadata(key, value) VALUES('store_version', 'sqlite-v2') "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value"
         )
     return expected_hash

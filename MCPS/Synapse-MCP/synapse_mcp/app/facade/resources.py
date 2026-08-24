@@ -34,6 +34,7 @@ class _ResourceRecord:
     workspace_id: str
     principal_id: str
     authority_session_id: str
+    durable_artifact: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -214,8 +215,31 @@ class ResourceReferenceService:
         media_type: str | None = None,
     ) -> ResourceReference:
         resolved = self._validated_path(Path(path))
-        version, size = _path_version(resolved, self._directory_limits)
         token = f"resource-{secrets.token_urlsafe(24)}"
+        trusted_workspace = workspace.normalize_workspace_id(workspace_id)
+        from synapse_mcp.state.runtime import ActivatedWorkspaceRepository, opaque_ref
+        from synapse_mcp.state.selector import selected_store_version
+
+        workspace_root = workspace.workspace_path(trusted_workspace)
+        durable_repository = (
+            ActivatedWorkspaceRepository(trusted_workspace, workspace_root)
+            if selected_store_version(workspace_root) == "sqlite-v2"
+            else None
+        )
+        artifact = (
+            durable_repository.artifacts.ingest_path(
+                resolved,
+                media_type=media_type or mimetypes.guess_type(resolved.name)[0] or "application/octet-stream",
+                origin="modern.resource",
+            )
+            if durable_repository is not None
+            else None
+        )
+        version, size = (
+            (artifact.digest, artifact.size)
+            if artifact is not None
+            else _path_version(resolved, self._directory_limits)
+        )
         reference = ResourceReference(
             reference=token,
             artifact_type=artifact_type or "artifact",
@@ -230,12 +254,22 @@ class ResourceReferenceService:
         )
         record = _ResourceRecord(
             reference=reference,
-            path=resolved,
-            workspace_id=workspace.normalize_workspace_id(workspace_id),
-            principal_id=context.principal_id,
-            authority_session_id=context.authority_session_id,
+            path=artifact.path if artifact is not None else resolved,
+            workspace_id=trusted_workspace,
+            principal_id=opaque_ref(context.principal_id) if artifact is not None else context.principal_id,
+            authority_session_id=opaque_ref(context.authority_session_id) if artifact is not None else context.authority_session_id,
+            durable_artifact=artifact is not None,
         )
-        if self._state_path is None:
+        if durable_repository is not None and artifact is not None:
+            durable_repository.issue_resource(
+                artifact,
+                reference=token,
+                principal_id=context.principal_id,
+                authority_session_id=context.authority_session_id,
+                artifact_type=reference.artifact_type,
+                media_type=reference.media_type,
+            )
+        elif self._state_path is None:
             self._records[token] = record
         else:
             with file_lock(self._state_path):
@@ -254,15 +288,15 @@ class ResourceReferenceService:
         record = self._record(reference)
         if record is None:
             raise ResourceAccessError("resource_reference_invalid", "Opaque resource reference is unknown")
-        if not secrets.compare_digest(record.principal_id, context.principal_id):
+        if not _binding_matches(record.principal_id, context.principal_id):
             raise ResourceAccessError("resource_principal_mismatch", "Resource principal binding does not match")
-        if not secrets.compare_digest(record.authority_session_id, context.authority_session_id):
+        if not _binding_matches(record.authority_session_id, context.authority_session_id):
             raise ResourceAccessError("resource_authority_mismatch", "Resource authority binding does not match")
         trusted_workspace = workspace.normalize_workspace_id(context.workspace_id)
         if not trusted_workspace or not secrets.compare_digest(record.workspace_id, trusted_workspace):
             raise ResourceAccessError("resource_workspace_mismatch", "Resource workspace binding does not match")
         resolved = self._validated_path(record.path)
-        version, size = _path_version(resolved, self._directory_limits)
+        version, size = _record_version(record, resolved, self._directory_limits)
         if not secrets.compare_digest(version, record.reference.version) or size != record.reference.size:
             raise ResourceAccessError("resource_version_stale", "Resource changed after the reference was issued")
         content = (
@@ -286,15 +320,15 @@ class ResourceReferenceService:
         record = self._record(reference)
         if record is None:
             raise ResourceAccessError("resource_reference_invalid", "Opaque resource reference is unknown")
-        if not secrets.compare_digest(record.principal_id, context.principal_id):
+        if not _binding_matches(record.principal_id, context.principal_id):
             raise ResourceAccessError("resource_principal_mismatch", "Resource principal binding does not match")
-        if not secrets.compare_digest(record.authority_session_id, context.authority_session_id):
+        if not _binding_matches(record.authority_session_id, context.authority_session_id):
             raise ResourceAccessError("resource_authority_mismatch", "Resource authority binding does not match")
         trusted_workspace = workspace.normalize_workspace_id(context.workspace_id)
         if not trusted_workspace or not secrets.compare_digest(record.workspace_id, trusted_workspace):
             raise ResourceAccessError("resource_workspace_mismatch", "Resource workspace binding does not match")
         resolved = self._validated_path(record.path)
-        version, size = _path_version(resolved, self._directory_limits)
+        version, size = _record_version(record, resolved, self._directory_limits)
         if not secrets.compare_digest(version, record.reference.version) or size != record.reference.size:
             raise ResourceAccessError("resource_version_stale", "Resource changed after the reference was issued")
         return resolved
@@ -305,7 +339,7 @@ class ResourceReferenceService:
         record = self._record(reference)
         if record is None:
             raise ResourceAccessError("resource_reference_invalid", "Opaque resource reference is unknown")
-        if not secrets.compare_digest(record.principal_id, principal_id):
+        if not _binding_matches(record.principal_id, principal_id):
             raise ResourceAccessError("resource_principal_mismatch", "Resource principal binding does not match")
         return record.workspace_id
 
@@ -360,7 +394,35 @@ class ResourceReferenceService:
 
     def _record(self, reference: str) -> _ResourceRecord | None:
         if self._state_path is None:
-            return self._records.get(reference)
+            local = self._records.get(reference)
+            if local is not None:
+                return local
+        from synapse_mcp.state.runtime import ActivatedWorkspaceRepository
+        from synapse_mcp.state.selector import selected_store_version
+
+        if workspace.WORKSPACES_DIR.exists():
+            for root in sorted(workspace.WORKSPACES_DIR.iterdir()):
+                if not root.is_dir() or selected_store_version(root) != "sqlite-v2":
+                    continue
+                value = ActivatedWorkspaceRepository(root.name, root).resource_record(reference)
+                if value is None:
+                    continue
+                return _ResourceRecord(
+                    reference=ResourceReference(
+                        reference=reference,
+                        artifact_type=str(value["artifactType"]),
+                        media_type=str(value["mediaType"]),
+                        version=str(value["version"]),
+                        size=int(value["size"]),
+                    ),
+                    path=Path(value["path"]),
+                    workspace_id=str(value["workspaceId"]),
+                    principal_id=str(value["principalRef"]),
+                    authority_session_id=str(value["authoritySessionRef"]),
+                    durable_artifact=True,
+                )
+        if self._state_path is None:
+            return None
         with file_lock(self._state_path):
             raw = self._read_state()["records"].get(reference)
         if raw is None:
@@ -398,6 +460,7 @@ class ResourceReferenceService:
             "workspaceId": record.workspace_id,
             "principalId": record.principal_id,
             "authoritySessionId": record.authority_session_id,
+            "durableArtifact": record.durable_artifact,
         }
 
     @staticmethod
@@ -410,6 +473,7 @@ class ResourceReferenceService:
             workspace_id=str(value["workspaceId"]),
             principal_id=str(value["principalId"]),
             authority_session_id=str(value["authoritySessionId"]),
+            durable_artifact=bool(value.get("durableArtifact")),
         )
 
 
@@ -419,6 +483,25 @@ def _is_relative_to(path: Path, root: Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+def _binding_matches(stored: str, supplied: str) -> bool:
+    if str(stored).startswith("sha256:"):
+        from synapse_mcp.state.runtime import opaque_matches
+
+        return opaque_matches(stored, supplied)
+    return secrets.compare_digest(stored, supplied)
+
+
+def _record_version(
+    record: _ResourceRecord,
+    path: Path,
+    directory_limits: _DirectoryLimits,
+) -> tuple[str, int]:
+    if record.durable_artifact:
+        content = path.read_bytes()
+        return sha256(content).hexdigest(), len(content)
+    return _path_version(path, directory_limits)
 
 
 def _is_path_key(key: str) -> bool:

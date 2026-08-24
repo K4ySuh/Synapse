@@ -185,21 +185,6 @@ class Phase4BStateMigrationTests(unittest.TestCase):
         with self.assertRaises(StateSelectionError) as shared_writer:
             atomic_io.atomic_write_text(workspace_metadata, original)
         self.assertEqual(shared_writer.exception.reason_code, "json_v1_write_after_activation")
-        original_workspaces_root = workspace.WORKSPACES_DIR
-        workspace.WORKSPACES_DIR = self.data_root / "workspaces"
-        try:
-            with self.assertRaises(StateSelectionError) as direct_writer:
-                workspace.store_raw_evidence(
-                    "beta-complete",
-                    "example.test",
-                    "fixture",
-                    "passive",
-                    "txt",
-                    "must not be written",
-                )
-        finally:
-            workspace.WORKSPACES_DIR = original_workspaces_root
-        self.assertEqual(direct_writer.exception.reason_code, "json_v1_write_after_activation")
         self.assertEqual(workspace_metadata.read_text(encoding="utf-8"), original)
         rolled_back = self._migration().rollback("beta-complete")
         self.assertEqual(rolled_back["selectedStore"], "json-v1")

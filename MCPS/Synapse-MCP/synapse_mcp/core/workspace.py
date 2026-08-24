@@ -126,8 +126,10 @@ def target_path(workspace_id: str, target: str) -> Path:
 
 def target_entity_dir(workspace_id: str, target: str) -> Path:
     root = target_path(workspace_id, target) / "entities"
-    from ..state.selector import assert_json_v1_write_allowed
+    from ..state.selector import assert_json_v1_write_allowed, selected_store_version
 
+    if selected_store_version(workspace_path(workspace_id)) == "sqlite-v2":
+        return root
     assert_json_v1_write_allowed(root)
     root.mkdir(parents=True, exist_ok=True)
     return root
@@ -146,8 +148,14 @@ def timestamped_filename(suffix: str) -> str:
 
 
 def workspace_output_path(workspace_id: str, tool: str, suffix: str) -> Path:
-    root = workspace_path(workspace_id) / "outputs" / slug(tool)
-    from ..state.selector import assert_json_v1_write_allowed
+    from ..state.selector import assert_json_v1_write_allowed, selected_store_version
+
+    base = workspace_path(workspace_id)
+    root = (
+        base / "state-v2" / "generated" / "outputs" / slug(tool)
+        if selected_store_version(base) == "sqlite-v2"
+        else base / "outputs" / slug(tool)
+    )
 
     assert_json_v1_write_allowed(root)
     root.mkdir(parents=True, exist_ok=True)
@@ -155,8 +163,14 @@ def workspace_output_path(workspace_id: str, tool: str, suffix: str) -> Path:
 
 
 def target_output_dir(workspace_id: str, target: str, tool: str) -> Path:
-    root = target_path(workspace_id, target) / "outputs" / slug(tool)
-    from ..state.selector import assert_json_v1_write_allowed
+    from ..state.selector import assert_json_v1_write_allowed, selected_store_version
+
+    base = workspace_path(workspace_id)
+    root = (
+        base / "state-v2" / "generated" / "targets" / slug(normalize_target(target)) / "outputs" / slug(tool)
+        if selected_store_version(base) == "sqlite-v2"
+        else target_path(workspace_id, target) / "outputs" / slug(tool)
+    )
 
     assert_json_v1_write_allowed(root)
     root.mkdir(parents=True, exist_ok=True)
@@ -193,10 +207,16 @@ def retain_latest_artifacts(
 
 
 def target_model_dir(workspace_id: str, target: str, model: str = "") -> Path:
-    root = target_path(workspace_id, target) / "models"
+    from ..state.selector import assert_json_v1_write_allowed, selected_store_version
+
+    base = workspace_path(workspace_id)
+    root = (
+        base / "state-v2" / "generated" / "targets" / slug(normalize_target(target)) / "models"
+        if selected_store_version(base) == "sqlite-v2"
+        else target_path(workspace_id, target) / "models"
+    )
     if model:
         root = root / slug(model)
-    from ..state.selector import assert_json_v1_write_allowed
 
     assert_json_v1_write_allowed(root)
     root.mkdir(parents=True, exist_ok=True)
@@ -235,7 +255,84 @@ def scope_status_for_target(target: str) -> dict[str, Any]:
     }
 
 
+def _activated_repository(workspace_id: str):
+    from ..state.runtime import ActivatedWorkspaceRepository
+    from ..state.selector import selected_store_version
+
+    wid = normalize_workspace_id(workspace_id)
+    root = workspace_path(wid)
+    if selected_store_version(root) != "sqlite-v2":
+        return None
+    return ActivatedWorkspaceRepository(wid, root)
+
+
+def _workspace_path_binding(path: Path) -> tuple[Any, tuple[str, ...]] | None:
+    candidate = Path(path).resolve(strict=False)
+    try:
+        relative = candidate.relative_to(WORKSPACES_DIR.resolve(strict=False))
+    except ValueError:
+        return None
+    if len(relative.parts) < 2:
+        return None
+    repository = _activated_repository(relative.parts[0])
+    return (repository, relative.parts[1:]) if repository is not None else None
+
+
+def _target_natural_for_slug(repository: Any, target_slug: str) -> str:
+    for item in repository.target_documents():
+        natural = str(item.get("target") or "") if isinstance(item, dict) else ""
+        if slug(normalize_target(natural)) == target_slug:
+            return normalize_target(natural)
+    return target_slug
+
+
+def _v2_read_path(path: Path) -> tuple[bool, Any]:
+    binding = _workspace_path_binding(path)
+    if binding is None:
+        return False, None
+    repository, parts = binding
+    if parts == ("workspace.json",):
+        return True, repository.workspace_document()
+    if parts == ("scope.json",):
+        return True, repository.scope_document()
+    if len(parts) == 3 and parts[0] == "targets" and parts[2] == "target.json":
+        target = _target_natural_for_slug(repository, parts[1])
+        return True, repository.target_document(target)
+    if len(parts) == 4 and parts[0] == "targets" and parts[2] == "entities":
+        entity_name = next((name for name, filename in ENTITY_FILES.items() if filename == parts[3]), "")
+        if entity_name:
+            target = _target_natural_for_slug(repository, parts[1])
+            return True, repository.collection(target, entity_name)
+    return False, None
+
+
+def _v2_write_path(path: Path, payload: Any) -> bool:
+    binding = _workspace_path_binding(path)
+    if binding is None:
+        return False
+    repository, parts = binding
+    if parts == ("workspace.json",) and isinstance(payload, dict):
+        repository.update_workspace(payload)
+        return True
+    if parts == ("scope.json",) and isinstance(payload, dict):
+        repository.replace_scope(payload)
+        return True
+    if len(parts) == 3 and parts[0] == "targets" and parts[2] == "target.json" and isinstance(payload, dict):
+        repository.upsert_target(normalize_target(str(payload.get("target") or parts[1])), payload)
+        return True
+    if len(parts) == 4 and parts[0] == "targets" and parts[2] == "entities" and isinstance(payload, list):
+        entity_name = next((name for name, filename in ENTITY_FILES.items() if filename == parts[3]), "")
+        if entity_name:
+            target = _target_natural_for_slug(repository, parts[1])
+            repository.replace_collection(target, entity_name, tuple(item for item in payload if isinstance(item, dict)))
+            return True
+    return False
+
+
 def _read_json(path: Path, default: Any) -> Any:
+    handled, value = _v2_read_path(path)
+    if handled:
+        return value
     if not path.exists():
         return default
     try:
@@ -245,6 +342,8 @@ def _read_json(path: Path, default: Any) -> Any:
 
 
 def _write_json(path: Path, payload: Any) -> None:
+    if _v2_write_path(path, payload):
+        return
     atomic_io.atomic_write_text(
         path,
         json.dumps(payload, indent=2, ensure_ascii=False),
@@ -349,6 +448,20 @@ def add_target(workspace_id: str, target: str, kind: str = "host", notes: str = 
     host = normalize_target(target)
     if not host:
         raise McpError(-32602, "target must include a hostname or IP.")
+    repository = _activated_repository(wid)
+    if repository is not None:
+        existing = repository.target_document(host)
+        created_at = existing.get("createdAt") or now_utc()
+        payload = {
+            "workspaceId": wid,
+            "target": host,
+            "kind": kind or existing.get("kind", "host"),
+            "notes": notes or existing.get("notes", ""),
+            "createdAt": created_at,
+            "updatedAt": now_utc(),
+        }
+        created, _revision = repository.upsert_target(host, payload)
+        return {"added": created, "target": payload, "path": str(target_path(wid, host))}
     path = target_path(wid, host)
     existing = _read_json(path / "target.json", {})
     created = not bool(existing)
@@ -461,12 +574,26 @@ def render_findings_markdown(workspace_id: str, target: str) -> str:
 def write_findings_markdown(workspace_id: str, target: str) -> dict[str, Any]:
     wid = normalize_workspace_id(workspace_id)
     host = normalize_target(target)
+    content = render_findings_markdown(wid, host)
+    repository = _activated_repository(wid)
+    if repository is not None:
+        artifact = repository.artifacts.ingest_bytes(
+            content.encode("utf-8"),
+            media_type="text/markdown",
+            origin="workspace.findings",
+        )
+        repository.register_artifact(artifact, event_type="workspace.findings_rendered")
+        return {
+            "path": str(artifact.path),
+            "artifactId": artifact.artifact_id,
+            "bytes": artifact.size,
+            "storeVersion": "sqlite-v2",
+        }
     path = target_path(wid, host) / "evidence" / "findings.md"
     from ..state.selector import assert_json_v1_write_allowed
 
     assert_json_v1_write_allowed(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    content = render_findings_markdown(wid, host)
     path.write_text(content, encoding="utf-8")
     return {"path": str(path), "bytes": len(content.encode("utf-8"))}
 
@@ -908,6 +1035,51 @@ def store_raw_evidence(
     raw_data: str,
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    repository = _activated_repository(workspace_id)
+    if repository is not None:
+        host = normalize_target(target)
+        stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
+        evidence_id = f"ev_{stamp}_{time.time_ns() % 1_000_000:06d}_{slug(source)[:32]}"
+        media_type = {
+            "json": "application/json",
+            "jsonl": "application/x-ndjson",
+            "xml": "application/xml",
+        }.get(format_name.lower(), "text/plain")
+        artifact = repository.artifacts.ingest_bytes(
+            raw_data.encode("utf-8", errors="replace"),
+            media_type=media_type,
+            origin=f"workspace.evidence:{source}",
+        )
+        existing = repository.target_document(host)
+        target_payload = {
+            "workspaceId": workspace_id,
+            "target": host,
+            "kind": str(existing.get("kind") or "host"),
+            "notes": str(existing.get("notes") or ""),
+            "createdAt": str(existing.get("createdAt") or now_utc()),
+            "updatedAt": now_utc(),
+        }
+        payload = {
+            "evidenceId": evidence_id,
+            "workspaceId": workspace_id,
+            "target": host,
+            "source": source,
+            "dataType": data_type,
+            "format": format_name,
+            "rawPath": str(artifact.path),
+            "artifactId": artifact.artifact_id,
+            "metadata": evidence.sanitize_data(metadata or {}),
+            "createdAt": now_utc(),
+        }
+        repository.ingest_collections(
+            target=host,
+            target_payload=target_payload,
+            evidence_payload=payload,
+            artifact=artifact,
+            collections={},
+            audit_payload={"summary": f"Stored {source} evidence for {host}.", "source": source},
+        )
+        return payload
     evidence_dir = target_path(workspace_id, target) / "evidence"
     from ..state.selector import assert_json_v1_write_allowed
 
@@ -945,6 +1117,15 @@ def prune_generated_evidence(
 ) -> dict[str, Any]:
     if keep < 1:
         keep = 1
+    repository = _activated_repository(workspace_id)
+    if repository is not None:
+        return repository.prune_evidence(
+            target=normalize_target(target),
+            source=source,
+            data_type=data_type,
+            keep=keep,
+            preserve_evidence_id=preserve_evidence_id,
+        )
     evidence_dir = target_path(workspace_id, target) / "evidence"
     from ..state.selector import assert_json_v1_write_allowed
 
@@ -2336,6 +2517,117 @@ def _compact_summary(target: str, counts: dict[str, int], observations: list[dic
     return " ".join(pieces)
 
 
+def _ingest_data_v2(
+    repository: Any,
+    *,
+    workspace_id: str,
+    target: str,
+    source: str,
+    data_type: str,
+    format_name: str,
+    raw_data: str,
+    metadata: dict[str, Any] | None,
+    scope_context: dict[str, Any],
+    warnings: list[str],
+) -> dict[str, Any]:
+    host = normalize_target(target)
+    parsed_entities = parse_by_source(source, format_name, raw_data, metadata)
+    normalized_observations = [
+        _normalize_observation_for_workspace(item)
+        for item in parsed_entities.get("observations", [])
+        if isinstance(item, dict)
+    ]
+    observations_by_key: dict[str, dict[str, Any]] = {}
+    for item in normalized_observations:
+        observations_by_key.setdefault(_entity_key(item), item)
+    observations = list(observations_by_key.values())
+    parsed_entities["observations"] = observations
+    collections: dict[str, list[dict[str, Any]]] = {}
+    for entity_name in ENTITY_FILES:
+        values = parsed_entities.get(entity_name, [])
+        collections[entity_name] = (
+            _normalize_entities_for_workspace(workspace_id, host, entity_name, values)
+            if values
+            else []
+        )
+
+    stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
+    evidence_id = f"ev_{stamp}_{time.time_ns() % 1_000_000:06d}_{slug(source)[:32]}"
+    media_type = {
+        "json": "application/json",
+        "jsonl": "application/x-ndjson",
+        "xml": "application/xml",
+    }.get(format_name.lower(), "text/plain")
+    artifact = repository.artifacts.ingest_bytes(
+        raw_data.encode("utf-8", errors="replace"),
+        media_type=media_type,
+        origin=f"workspace.ingest:{source}",
+    )
+    target_existing = repository.target_document(host)
+    target_payload = {
+        "workspaceId": workspace_id,
+        "target": host,
+        "kind": str(target_existing.get("kind") or "host"),
+        "notes": str(target_existing.get("notes") or ""),
+        "createdAt": str(target_existing.get("createdAt") or now_utc()),
+        "updatedAt": now_utc(),
+    }
+    evidence_payload = {
+        "evidenceId": evidence_id,
+        "workspaceId": workspace_id,
+        "target": host,
+        "source": source,
+        "dataType": data_type,
+        "format": format_name,
+        "rawPath": str(artifact.path),
+        "artifactId": artifact.artifact_id,
+        "metadata": evidence.sanitize_data(metadata or {}),
+        "createdAt": now_utc(),
+    }
+    summary = _compact_summary(host, {name: len(values) for name, values in collections.items()}, observations, source)
+    _revision, counts = repository.ingest_collections(
+        target=host,
+        target_payload=target_payload,
+        evidence_payload=evidence_payload,
+        artifact=artifact,
+        collections=collections,
+        audit_payload={
+            "summary": summary,
+            "workspaceId": workspace_id,
+            "target": host,
+            "source": source,
+            "scopeStatus": scope_context["scopeStatus"],
+            "scopeReason": scope_context["scopeReason"],
+            "warnings": warnings,
+            "approval": (
+                metadata.get("approval", {})
+                if isinstance(metadata, dict) and isinstance(metadata.get("approval"), dict)
+                else metadata or {}
+            ),
+        },
+    )
+    stored = {name: repository.collection(host, name) for name in ENTITY_FILES}
+    findings_document = write_findings_markdown(workspace_id, host) if counts.get("findings") else None
+    return {
+        "ingestId": evidence_id.replace("ev_", "ing_", 1),
+        "workspaceId": workspace_id,
+        "target": host,
+        "scopeStatus": scope_context["scopeStatus"],
+        "scopeReason": scope_context["scopeReason"],
+        "evidenceId": evidence_id,
+        "rawPath": str(artifact.path),
+        "artifactId": artifact.artifact_id,
+        "entitiesCreated": counts,
+        "retention": {},
+        "warnings": warnings,
+        "interestingObservations": observations[:10],
+        "recommendedNextActions": recommended_next_actions(stored, observations),
+        "llmSummary": summary,
+        "storeVersion": "sqlite-v2",
+        **({"findingsDocument": findings_document} if findings_document else {}),
+    }
+
+
 def ingest_data(
     workspace_id: str | None,
     target: str,
@@ -2351,6 +2643,20 @@ def ingest_data(
     warnings: list[str] = []
     if scope_context["scopeStatus"] != "in_scope":
         warnings.append(f"Target scope status is {scope_context['scopeStatus']}: {scope_context['scopeReason']}")
+    repository = _activated_repository(wid)
+    if repository is not None:
+        return _ingest_data_v2(
+            repository,
+            workspace_id=wid,
+            target=target,
+            source=source,
+            data_type=data_type,
+            format_name=format_name,
+            raw_data=raw_data,
+            metadata=metadata,
+            scope_context=scope_context,
+            warnings=warnings,
+        )
     add_target(wid, target)
     evidence_metadata = dict(metadata or {})
     if source.lower().replace("-", "_") in {"sitemap", "crawler", "crawler_crawl", "sitemap_from_dump"}:
@@ -2696,6 +3002,70 @@ def workspace_summary(
     page_limit = int(limit)
     if page_limit < 1 or page_limit > MAX_SUMMARY_PAGE_SIZE:
         raise McpError(-32602, f"limit must be between 1 and {MAX_SUMMARY_PAGE_SIZE}.")
+    repository = _activated_repository(wid)
+    if repository is not None:
+        workspace_document = repository.workspace_document()
+        targets = []
+        for target_meta in repository.target_documents():
+            target = str(target_meta.get("target") or "")
+            entities = {name: repository.collection(target, name) for name in ENTITY_FILES}
+            targets.append(
+                {
+                    "target": target,
+                    "serviceCount": len(entities["services"]),
+                    "analysisEligibleServiceCount": sum(
+                        1
+                        for item in entities["services"]
+                        if isinstance(item, dict) and is_reportable(item) and item.get("analysisEligible") is not False
+                    ),
+                    "suppressedServiceCount": sum(
+                        1
+                        for item in entities["services"]
+                        if not is_reportable(item) or (isinstance(item, dict) and item.get("analysisEligible") is False)
+                    ),
+                    "endpointCount": len(entities["endpoints"]),
+                    "parameterCount": len(entities["parameters"]),
+                    "findingCount": len(entities["findings"]),
+                    "observationCount": len(entities["observations"]),
+                }
+            )
+        targets.sort(key=lambda item: str(item["target"]))
+        totals = {
+            "services": sum(item["serviceCount"] for item in targets),
+            "analysisEligibleServices": sum(item["analysisEligibleServiceCount"] for item in targets),
+            "suppressedServices": sum(item["suppressedServiceCount"] for item in targets),
+            "endpoints": sum(item["endpointCount"] for item in targets),
+            "parameters": sum(item["parameterCount"] for item in targets),
+            "findings": sum(item["findingCount"] for item in targets),
+            "observations": sum(item["observationCount"] for item in targets),
+        }
+        offset = _summary_cursor(cursor)
+        if include_inventory:
+            page = targets
+            offset = 0
+        else:
+            effective_limit = page_limit if cursor is not None else min(DEFAULT_SUMMARY_PREVIEW, page_limit)
+            page = targets[offset : offset + effective_limit]
+        next_offset = offset + len(page)
+        has_more = next_offset < len(targets)
+        return {
+            "workspace": workspace_document,
+            "path": str(workspace_path(wid)),
+            "targetCount": len(targets),
+            "entityTotals": totals,
+            "targets": page,
+            "inventoryIncluded": include_inventory,
+            "pagination": {
+                "cursor": str(offset),
+                "limit": len(page),
+                "returned": len(page),
+                "total": len(targets),
+                "hasMore": has_more,
+                "nextCursor": str(next_offset) if has_more else None,
+            },
+            "storeVersion": "sqlite-v2",
+            "revision": repository.revision(),
+        }
     path = workspace_path(wid)
     workspace = _read_json(path / "workspace.json", {})
     targets = []
@@ -2861,6 +3231,9 @@ def _find_finding_index(findings: list[dict[str, Any]], finding_id: str) -> int:
 
 
 def _evidence_id_exists(workspace_id: str, target: str, evidence_id: str) -> bool:
+    repository = _activated_repository(workspace_id)
+    if repository is not None:
+        return repository.evidence_exists(evidence_id, normalize_target(target))
     evidence_dir = target_path(workspace_id, target) / "evidence"
     return (evidence_dir / f"{evidence_id}.json").exists() or bool(list(evidence_dir.glob(f"{evidence_id}_raw.*")))
 

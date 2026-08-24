@@ -53,14 +53,16 @@ input fingerprint as one `ExecutionPlan`; policy and executor receive that same
 immutable instance. Caller input describes a request and cannot manufacture a
 grant.
 
-Authority-aware profiles reload
-`DATA/workspaces/<workspace>/authority/state.json` for each decision while
-holding the existing workspace lock. The schema-versioned private JSON file is
-replaced crash-atomically and contains grant revision history, exact step-ups,
-opaque request states, dispatch-total/rate-window/active budgets, audit
-decisions, dispatch state, job continuation bindings, and reconciliation. It
-contains fingerprints and credential references, never request bodies or
-credential values. The minimum dispatch state machine is
+Authority-aware profiles load the selected workspace repository for every
+decision. JSON-v1 workspaces retain the crash-atomic private authority file and
+workspace lock. Activated workspaces use one SQLite transaction for authority
+decision, budget consumption, dispatch reservation, repository revision, and
+audit; raw opaque handles are represented by digests. Both stores contain grant
+revision history, exact step-ups, opaque request states,
+dispatch-total/rate-window/active budgets, audit decisions, dispatch state, job
+continuation bindings, and reconciliation. They contain fingerprints and
+credential references, never request bodies or credential values. The minimum
+dispatch state machine is
 `authorized -> dispatched -> succeeded|failed|unknown` and
 `authorized -> cancelled`; unknown state-changing work is never replayed.
 
@@ -222,7 +224,8 @@ Phase 3C adapter supplies locked, crash-atomic private persistence under
 `DATA/modern-adapter/` so bound operation and resource records survive restart
 and can be shared by workers.
 
-Phase 4 state foundations are transport-independent under `state/`. Every
+Phase 4 state foundations and the activated runtime are transport-independent
+under `state/`. Every
 connection records and verifies the actual stdlib or reviewed fallback runtime,
 refuses SQLite below 3.51.3 and known unsupported/network filesystems, and
 reasserts WAL, foreign keys, FULL synchronous writes, and a bounded busy
@@ -232,6 +235,12 @@ state. One revision transaction commits domain changes, change-log rows, and
 append-only audit together. Immutable artifact bytes are streamed into a
 bounded, fsynced, collision-checking SHA-256 namespace before metadata commits;
 live database backups use the selected SQLite binding's online backup API.
+Migration `0002` adds normalized runtime linkage for entity evidence,
+authority decisions/revisions, tasks, dispatches/results, durable resource
+references, and checkpoint leases. Activated workspace use cases commit their
+domain rows, CAS revision, change log, and audit together. Background workers
+open connections per operation; dead running/finalizing processes become
+reconciliation-required truth and are never redispatched automatically.
 
 ADR-0005 fixes one database and artifact namespace per workspace, with
 credential secrets kept outside SQLite and protocol rollback separated from
@@ -243,6 +252,9 @@ and makes legacy JSON writes fail closed. Pre-first-v2-write rollback restores
 the exact prior selector; later rollback is refused to prevent data loss.
 Canonical bundles carry versioned relational JSON and a verified CAS artifact
 manifest. The selector still defaults to JSON v1 and there is no dual-write.
+Once selected, SQLite-v2 is authoritative under both legacy and modern protocol
+profiles. Durable model-facing resources resolve through workspace CAS rows and
+hashed principal/session/reference bindings rather than server paths.
 
 The modern HTTP boundary authenticates one high-entropy bearer token by
 server-held digest, then resolves principal/workspace to a server-held authority
