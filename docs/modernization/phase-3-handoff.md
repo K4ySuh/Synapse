@@ -4,14 +4,9 @@ Date: 2026-08-24
 Baseline: `c356b95412528e3a84c208b759225dd338d7bfd4`
 Decision: complete; `modern-compact` stdio is the Codex default
 
-Phase 3A through 3D are complete. The 2026-08-23 attempt is retained as
-historical evidence: its original two-client requirement could not finish
-because Claude Code was not authenticated and stable Codex did not expose the
-`2026-07-28` protocol request-state carrier.
-
-The operator removed Claude as a required or funded client on 2026-08-24. The
-closure contract was therefore revised to the client actually used in
-production: stable Codex, without experimental feature flags. Protocol-native
+Phase 3A through 3D are complete. A superseded client-comparison attempt is
+retained only in the historical evidence section below. The active closure
+contract uses stable Codex, without experimental feature flags. Protocol-native
 `input_required` remains supported when negotiated, but it is no longer the
 only valid supervised-resume carrier. Older negotiated revisions use the
 typed `approval_required` result, its opaque `operationHandle`, and
@@ -133,7 +128,8 @@ The corrective implementation is cumulative:
 - Phase 3R-3 adds bound opaque dump-directory/source pass-back, complete
   protocol/surface result metadata, standalone retained-action binding,
   concurrent exactly-once resume tests, a Codex-only exact transport/safety
-  runner, and a Codex-only objective-driven benchmark.
+  runner, and a Codex-only objective-driven benchmark. The implementation and
+  evidence are committed as `6b3b764`.
 
 The final exact smoke used Codex CLI `0.149.0`, `gpt-5.6-sol`, MCP
 `2025-06-18`, `modern-compact`, and stdio. Three independent repetitions all

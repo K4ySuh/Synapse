@@ -75,9 +75,8 @@ closure.
 
 ## 2026-08-24 closure amendment
 
-The operator removed Claude Code as a required client. Phase 3D closure now
-uses stable production Codex as the sole live model client and accepts either
-of Synapse's equivalent supervised carriers:
+Phase 3D closure uses stable production Codex as the sole live model client and
+accepts either of Synapse's equivalent supervised carriers:
 
 - MCP `input_required` plus protocol request state when the client negotiates
   `2026-07-28`; or
