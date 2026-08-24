@@ -222,13 +222,22 @@ Phase 3C adapter supplies locked, crash-atomic private persistence under
 `DATA/modern-adapter/` so bound operation and resource records survive restart
 and can be shared by workers.
 
-Phase 4 entry readiness is transport-independent under `state/readiness.py`.
-It records the actual stdlib and reviewed fallback SQLite runtimes and refuses
-State Store v2 WAL/multi-connection use below SQLite 3.51.3. ADR-0005 fixes one
-database and artifact namespace per workspace, with credential secrets kept
-outside SQLite and protocol rollback separated from state-engine rollback.
-This entry boundary does not yet migrate or activate workspaces; JSON v1
-remains authoritative until explicit verified cutover.
+Phase 4 state foundations are transport-independent under `state/`. Every
+connection records and verifies the actual stdlib or reviewed fallback runtime,
+refuses SQLite below 3.51.3 and known unsupported/network filesystems, and
+reasserts WAL, foreign keys, FULL synchronous writes, and a bounded busy
+timeout. Migration `0001` establishes workspace-local relational control,
+engagement, knowledge, evidence, execution, authority, audit, and migration
+state. One revision transaction commits domain changes, change-log rows, and
+append-only audit together. Immutable artifact bytes are streamed into a
+bounded, fsynced, collision-checking SHA-256 namespace before metadata commits;
+live database backups use the selected SQLite binding's online backup API.
+
+ADR-0005 fixes one database and artifact namespace per workspace, with
+credential secrets kept outside SQLite and protocol rollback separated from
+state-engine rollback. These foundations operate only in isolated v2 test
+workspaces at this checkpoint: the selector defaults to JSON v1, no production
+workspace is migrated or activated, and there is no dual-write.
 
 The modern HTTP boundary authenticates one high-entropy bearer token by
 server-held digest, then resolves principal/workspace to a server-held authority

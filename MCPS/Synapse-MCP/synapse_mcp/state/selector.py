@@ -1,0 +1,68 @@
+# Copyright 2026 Javier Roldán Ortiz
+# SPDX-License-Identifier: Apache-2.0
+
+"""Workspace store selection with an absent-selector JSON-v1 default."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Literal
+
+from .artifacts import normalize_workspace_id
+from .contracts import WorkspaceRepositoryBundle
+from .errors import StateSelectionError
+from .json_v1 import JsonV1EvidenceRepository, JsonV1WorkspaceRepository
+from .sqlite_store import SQLiteWorkspaceRepository
+
+
+StoreVersion = Literal["json-v1", "sqlite-v2"]
+
+
+def selector_path(workspace_root: Path) -> Path:
+    return Path(workspace_root) / "state-v2" / "store-selector.json"
+
+
+def selected_store_version(workspace_root: Path) -> StoreVersion:
+    path = selector_path(workspace_root)
+    if not path.exists():
+        return "json-v1"
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise StateSelectionError("store_selector_corrupt", "Workspace store selector is unreadable.") from exc
+    if not isinstance(value, dict) or value.get("version") != 1:
+        raise StateSelectionError("store_selector_corrupt", "Workspace store selector schema is invalid.")
+    selected = value.get("authoritativeStore")
+    if selected not in {"json-v1", "sqlite-v2"}:
+        raise StateSelectionError("store_selector_unknown", "Workspace store selector names an unknown store.")
+    return selected
+
+
+def repository_bundle(workspace_id: str, workspaces_root: Path) -> WorkspaceRepositoryBundle:
+    normalized_workspace_id = normalize_workspace_id(workspace_id)
+    root = Path(workspaces_root) / normalized_workspace_id
+    selected = selected_store_version(root)
+    if selected == "json-v1":
+        return WorkspaceRepositoryBundle(
+            store_version=selected,
+            workspace=JsonV1WorkspaceRepository(normalized_workspace_id),
+            evidence=JsonV1EvidenceRepository(),
+        )
+    repository = SQLiteWorkspaceRepository(normalized_workspace_id, root)
+    return WorkspaceRepositoryBundle(
+        store_version=selected,
+        workspace=repository,
+        evidence=_SQLiteEvidenceBoundary(),
+        artifacts=repository.artifacts,
+    )
+
+
+class _SQLiteEvidenceBoundary:
+    """No standalone v2 evidence writes: use the repository revision API."""
+
+    def record(self, event_type: str, summary: str, data: dict | None = None) -> dict:
+        raise StateSelectionError(
+            "sqlite_evidence_transaction_required",
+            "SQLite-v2 evidence must commit through a workspace revision transaction.",
+        )

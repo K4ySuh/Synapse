@@ -240,6 +240,15 @@ verification, and activation workflow. Protocol selection (`legacy`,
 `modern-compact`, or `modern-direct`) is independent of that future workspace
 store selector.
 
+Task 4A adds the dormant State Store v2 foundations used by isolated tests:
+versioned migration `0001`, per-operation verified connections, monotonic
+workspace revisions, atomic change/audit transactions, a workspace-local
+content-addressed artifact repository, and SQLite online backup. The fixed v2
+layout is `DATA/workspaces/<workspaceId>/state-v2/state.sqlite3` with artifacts
+under `state-v2/artifacts/sha256/<prefix>/<digest>`. Do not create a v2 selector
+manually. Until the deterministic migration/cutover checkpoint is accepted, an
+absent selector means JSON v1 and production workspaces must not dual-write.
+
 Production startup requires private (`0600`) operator files. The identity
 binding maps authenticated principals to server-held workspace and authority
 contexts:

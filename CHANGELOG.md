@@ -24,6 +24,16 @@ durable dispatch and continuation truth.
 
 ### Added
 
+- **Phase 4A State Store v2 foundations.** Added transport-independent
+  repository bundles with JSON-v1-default selection, a hashed `0001` SQLite
+  schema spanning workspace, knowledge, evidence, execution, authority, audit,
+  and migration state, verified WAL/foreign-key/FULL-sync connections, atomic
+  workspace revisions and change/audit commits, local-filesystem refusal, and
+  selected-binding online backup. Added a bounded, streaming, fsynced,
+  collision-checking workspace-local SHA-256 artifact store with canonical
+  directory manifests and install-before-metadata ordering. Production
+  workspaces remain JSON v1; this checkpoint performs no migration, activation,
+  credential-secret movement, or dual-write.
 - **Phase 4 entry readiness.** Added a transport-independent State Store v2
   runtime probe with a hard SQLite 3.51.3 floor, actual linked-version evidence,
   and a maintained APSW fallback across the Python 3.10–3.13 CI matrix.

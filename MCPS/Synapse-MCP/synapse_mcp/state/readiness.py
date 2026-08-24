@@ -9,13 +9,30 @@ import argparse
 from dataclasses import asdict, dataclass
 import importlib
 import json
+import os
+from pathlib import Path
 import platform
 import sqlite3
-from typing import Any
+from typing import Any, Callable
 
 
 MINIMUM_SQLITE_VERSION = (3, 51, 3)
 MINIMUM_SQLITE_VERSION_TEXT = ".".join(str(part) for part in MINIMUM_SQLITE_VERSION)
+NETWORK_FILESYSTEM_TYPES = frozenset(
+    {
+        "9p",
+        "afs",
+        "ceph",
+        "cifs",
+        "fuse.sshfs",
+        "glusterfs",
+        "lustre",
+        "nfs",
+        "nfs4",
+        "smb3",
+    }
+)
+UNSUPPORTED_FILESYSTEM_TYPES = frozenset({"fuse", "fuseblk"})
 
 
 def _version_tuple(value: str) -> tuple[int, ...]:
@@ -41,6 +58,17 @@ class RuntimeReadiness:
     selected_binding: str
     selected_sqlite_version: str
     minimum_sqlite_version: str
+    ready: bool
+    reason_code: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class FilesystemReadiness:
+    path: str
+    filesystem_type: str
     ready: bool
     reason_code: str
 
@@ -95,6 +123,73 @@ def probe_state_store_runtime() -> RuntimeReadiness:
         stdlib_sqlite_version=str(sqlite3.sqlite_version),
         apsw_sqlite_version=apsw_sqlite_version,
         apsw_binding_version=apsw_binding_version,
+    )
+
+
+def _unescape_mount_path(value: str) -> str:
+    return (
+        value.replace("\\040", " ")
+        .replace("\\011", "\t")
+        .replace("\\012", "\n")
+        .replace("\\134", "\\")
+    )
+
+
+def detect_filesystem_type(path: Path) -> str:
+    """Return the Linux mount type for the nearest existing ancestor.
+
+    Platforms without `/proc/self/mountinfo` report `unknown`; unknown is not
+    treated as a network filesystem, while explicitly unsupported fixtures and
+    known remote mounts fail closed.
+    """
+
+    candidate = Path(path).expanduser().resolve(strict=False)
+    while not candidate.exists() and candidate != candidate.parent:
+        candidate = candidate.parent
+    mountinfo = Path("/proc/self/mountinfo")
+    if not mountinfo.exists():
+        return "unknown"
+    best_mount = Path("/")
+    best_type = "unknown"
+    try:
+        lines = mountinfo.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return "unknown"
+    for line in lines:
+        fields = line.split()
+        try:
+            separator = fields.index("-")
+            mount_point = Path(_unescape_mount_path(fields[4])).resolve(strict=False)
+            filesystem_type = fields[separator + 1].lower()
+        except (ValueError, IndexError, OSError):
+            continue
+        try:
+            candidate.relative_to(mount_point)
+        except ValueError:
+            continue
+        if len(os.fspath(mount_point)) >= len(os.fspath(best_mount)):
+            best_mount = mount_point
+            best_type = filesystem_type
+    return best_type
+
+
+def check_filesystem_readiness(
+    path: Path,
+    *,
+    resolver: Callable[[Path], str] = detect_filesystem_type,
+) -> FilesystemReadiness:
+    filesystem_type = str(resolver(Path(path)) or "unknown").lower()
+    if filesystem_type in NETWORK_FILESYSTEM_TYPES:
+        reason = "network_filesystem_unsupported"
+    elif filesystem_type in UNSUPPORTED_FILESYSTEM_TYPES:
+        reason = "filesystem_unsupported"
+    else:
+        reason = "ready"
+    return FilesystemReadiness(
+        path=str(Path(path)),
+        filesystem_type=filesystem_type,
+        ready=reason == "ready",
+        reason_code=reason,
     )
 
 

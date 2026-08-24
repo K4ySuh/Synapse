@@ -66,8 +66,12 @@ running the checks; `--legacy` selects rollback, and an enabled Burp block is
 emitted only when the optional launcher is present.
 `bin/check-state-v2-readiness` reports the actual stdlib and maintained-fallback
 SQLite runtimes through the transport-independent `synapse_mcp/state/readiness.py`
-contract and fails below SQLite 3.51.3. It is an entry probe only; it does not
-migrate or select a workspace store.
+contract and fails below SQLite 3.51.3. `synapse_mcp/state/` now also owns
+repository contracts and selection, JSON-v1 compatibility adapters, verified
+SQLite connection/transaction helpers, migration `0001`, workspace revisions,
+the isolated v2 vertical-slice repository, online backup, and the bounded
+workspace-local SHA-256 artifact store. The probe and Task 4A foundations do
+not migrate or select a production workspace store.
 
 ## Data Layout
 
@@ -79,6 +83,9 @@ DATA/
 |-- workspaces/<workspace-id>/    normalized engagement/target knowledge
 |   |-- workspace.json
 |   |-- scope.json                workspace-owned hosts, patterns, and CIDRs
+|   |-- state-v2/                 isolated/migrated store only; absent selector means JSON v1
+|   |   |-- state.sqlite3         WAL database (never copied live as a raw file)
+|   |   `-- artifacts/sha256/     workspace-local immutable content-addressed blobs
 |   |-- authority/state.json      grants, budgets, decisions, dispatch/continuation truth (0600)
 |   |-- jobs/<job-id>/job.json    background job records (sidecars embedded on finalization)
 |   |-- outputs/                  workspace-level generated outputs

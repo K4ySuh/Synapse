@@ -60,6 +60,7 @@ include = ["synapse_mcp*"]
 synapse_mcp = [
     "app/actions/action_inventory.json",
     "app/actions/output_contracts.json",
+    "state/migrations/*.sql",
     "core/documentation/html_templates/*.html",
     "core/documentation/html_templates/*.md",
 ]
