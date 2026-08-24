@@ -1,0 +1,15 @@
+{
+  "jobId": "job-fixture",
+  "workspaceId": "beta-complete",
+  "tool": "headers.analyze",
+  "target": "example.test",
+  "status": "completed",
+  "revision": 3,
+  "createdAt": "2026-01-02T03:17:00Z",
+  "updatedAt": "2026-01-02T03:20:00Z",
+  "completedAt": "2026-01-02T03:20:00Z",
+  "executionPlan": {
+    "actionId": "action-passive-header",
+    "planFingerprint": "fixture-plan-fingerprint"
+  }
+}

@@ -235,9 +235,9 @@ The probe prints Python, the actual `sqlite3.sqlite_version`, APSW and its
 linked SQLite version when installed, and the selected State Store binding. A
 non-zero result is a hard State Store v2 readiness failure; do not weaken the
 SQLite floor. This entry probe does not migrate or activate a workspace.
-Existing workspaces remain JSON v1 until the later explicit migration,
+Existing workspaces remain JSON v1 until the explicit migration,
 verification, and activation workflow. Protocol selection (`legacy`,
-`modern-compact`, or `modern-direct`) is independent of that future workspace
+`modern-compact`, or `modern-direct`) is independent of the workspace
 store selector.
 
 Task 4A adds the dormant State Store v2 foundations used by isolated tests:
@@ -246,8 +246,53 @@ workspace revisions, atomic change/audit transactions, a workspace-local
 content-addressed artifact repository, and SQLite online backup. The fixed v2
 layout is `DATA/workspaces/<workspaceId>/state-v2/state.sqlite3` with artifacts
 under `state-v2/artifacts/sha256/<prefix>/<digest>`. Do not create a v2 selector
-manually. Until the deterministic migration/cutover checkpoint is accepted, an
-absent selector means JSON v1 and production workspaces must not dual-write.
+manually. An absent selector means JSON v1 and production workspaces must not
+dual-write.
+
+### Deterministic JSON-v1 migration and cutover
+
+`bin/state` (or the installed `synapse-state` entry point) exposes the
+versioned operator workflow. Inventory and dry-run are read-only. Apply creates
+an immutable pre-cutover JSON/JSONL snapshot, streams retained bodies into the
+workspace CAS, executes restartable stages under the existing workspace lock,
+and verifies counts, identities, relations, scope, authority totals, blobs,
+foreign keys, and database integrity. It does not activate the result.
+
+```bash
+bin/state inventory <workspace>
+bin/state migrate <workspace> --dry-run
+bin/state migrate <workspace> --apply
+bin/state verify <workspace>
+bin/state status <workspace>
+bin/state activate <workspace>
+```
+
+Activation is atomic and is refused unless verification succeeded with no
+blocking orphan. It makes JSON v1 immutable immediately; no comparison or
+dual-write mode exists. Preserve the original JSON and artifacts. Rollback is
+allowed only while the SQLite revision still equals its activation revision:
+
+```bash
+bin/state rollback <workspace>
+```
+
+After the first v2-only revision, rollback fails with
+`rollback_v2_data_loss_risk`; export and perform a forward migration instead.
+Canonical portable bundles contain versioned JSON plus a SHA-256 artifact
+manifest. Import accepts only an empty workspace with the same identity and
+rejects traversal, hash mismatch, duplicate identity, unsupported schema, and
+cross-workspace rows.
+
+```bash
+bin/state export <workspace> --output /private/path/bundle
+bin/state import /private/path/bundle
+```
+
+Credential bodies, cookies, bearer values, encryption/request-state keys, and
+raw request/step-up handles are excluded. Request and step-up metadata use
+deterministic hashed mappings. At the Task 4B checkpoint, activation is an
+operator migration boundary; keep the MCP service stopped for cutover. Task 4C
+adopts SQLite-v2 throughout the live legacy and modern runtime.
 
 Production startup requires private (`0600`) operator files. The identity
 binding maps authenticated principals to server-held workspace and authority

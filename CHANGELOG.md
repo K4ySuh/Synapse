@@ -24,6 +24,16 @@ durable dispatch and continuation truth.
 
 ### Added
 
+- **Phase 4B deterministic migration and cutover.** Added a transport-neutral
+  operator service and `synapse-state`/`bin/state` CLI for read-only
+  inventory/dry-run, immutable pre-cutover snapshots, restartable idempotent
+  JSON-v1-to-SQLite-v2 stages, complete relational/content verification,
+  explicit activation, rollback only before the first v2-only revision, and
+  status inspection. Canonical versioned export/import bundles verify
+  workspace identity, duplicate keys, traversal, schema, and SHA-256 artifact
+  content. Credential bodies, bearer/cookie values, encryption/request-state
+  keys, and raw opaque handles remain outside SQLite and exports; activation
+  installs a fail-closed JSON-v1 write barrier and never creates dual-write.
 - **Phase 4A State Store v2 foundations.** Added transport-independent
   repository bundles with JSON-v1-default selection, a hashed `0001` SQLite
   schema spanning workspace, knowledge, evidence, execution, authority, audit,

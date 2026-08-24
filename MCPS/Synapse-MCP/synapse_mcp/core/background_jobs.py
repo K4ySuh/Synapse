@@ -235,6 +235,9 @@ def _write_record(record: dict[str, Any], *, expected_revision: int | None = Non
     workspace_id = str(record.get("workspaceId", "")).strip() or workspace.default_workspace_id()
     with workspace.workspace_lock(workspace_id):
         root = _job_dir_for_record(record)
+        from ..state.selector import assert_json_v1_write_allowed
+
+        assert_json_v1_write_allowed(root)
         root.mkdir(parents=True, exist_ok=True)
         record_path = root / "job.json"
         current = _read_json(record_path, None)

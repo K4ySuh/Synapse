@@ -1,0 +1,9 @@
+{
+  "workspaceId": "beta-complete",
+  "hosts": [
+    "example.test"
+  ],
+  "patterns": [],
+  "cidrs": [],
+  "updatedAt": "2026-01-02T03:05:00Z"
+}

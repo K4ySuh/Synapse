@@ -372,8 +372,12 @@ Recommended optional tooling:
    The separate State Store v2 probe prints the actual linked SQLite versions
    and requires SQLite 3.51.3 or later. It does not migrate or activate an
    existing workspace. The Task 4A repository, migration, revision, online
-   backup, and content-addressed artifact foundations remain isolated behind a
-   JSON-v1-default workspace selector until the later verified cutover.
+   backup, and content-addressed artifact foundations remain behind a
+   JSON-v1-default workspace selector. Use `bin/state inventory`, `migrate
+   --dry-run`, `migrate --apply`, `verify`, and the separate `activate`
+   command for a guarded Task 4B cutover; migration never activates implicitly.
+   Stop the MCP service during this checkpoint's cutover. Task 4C supplies live
+   runtime adoption over v2.
 
 3. For a full active-adapter workstation, require scanner binaries too:
 

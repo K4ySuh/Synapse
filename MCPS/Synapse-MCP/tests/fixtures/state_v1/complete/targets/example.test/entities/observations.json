@@ -1,0 +1,10 @@
+[
+  {
+    "id": "observation-header",
+    "key": "observation:header:server",
+    "type": "observation",
+    "summary": "Observed a generic server header.",
+    "status": "observed",
+    "createdAt": "2026-01-02T03:11:00Z"
+  }
+]

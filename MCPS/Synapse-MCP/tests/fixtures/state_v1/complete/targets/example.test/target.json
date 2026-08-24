@@ -1,0 +1,8 @@
+{
+  "workspaceId": "beta-complete",
+  "target": "example.test",
+  "kind": "host",
+  "notes": "Sanitized fixture target.",
+  "createdAt": "2026-01-02T03:06:00Z",
+  "updatedAt": "2026-01-02T03:07:00Z"
+}

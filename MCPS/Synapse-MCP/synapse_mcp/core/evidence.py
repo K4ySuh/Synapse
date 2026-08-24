@@ -209,12 +209,20 @@ def _index_event(event: dict[str, Any]) -> list[str]:
 
 
 def log_event(event_type: str, summary: str, data: dict[str, Any] | None = None) -> dict[str, Any]:
+    event_data = data or {}
+    workspace_id = event_data.get("workspaceId") or event_data.get("workspace_id")
+    if isinstance(workspace_id, str) and workspace_id.strip():
+        from ..state.selector import assert_json_v1_write_allowed
+
+        assert_json_v1_write_allowed(
+            EVIDENCE_DIR.parent / "workspaces" / slug(workspace_id) / "workspace.json"
+        )
     EVIDENCE_LOG.parent.mkdir(parents=True, exist_ok=True)
     event = {
         "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "type": event_type,
         "summary": summary,
-        "data": sanitize_data(data or {}),
+        "data": sanitize_data(event_data),
     }
     _append_jsonl(EVIDENCE_LOG, event)
     indexed_paths = _index_event(event)

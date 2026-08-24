@@ -235,9 +235,14 @@ live database backups use the selected SQLite binding's online backup API.
 
 ADR-0005 fixes one database and artifact namespace per workspace, with
 credential secrets kept outside SQLite and protocol rollback separated from
-state-engine rollback. These foundations operate only in isolated v2 test
-workspaces at this checkpoint: the selector defaults to JSON v1, no production
-workspace is migrated or activated, and there is no dual-write.
+state-engine rollback. The deterministic migrator inventories JSON-v1 sources,
+captures immutable mutable-state snapshots, records each idempotent stage both
+externally and in SQLite, verifies relational/content equivalence, and leaves
+activation as a separate operator action. Activation flips one atomic selector
+and makes legacy JSON writes fail closed. Pre-first-v2-write rollback restores
+the exact prior selector; later rollback is refused to prevent data loss.
+Canonical bundles carry versioned relational JSON and a verified CAS artifact
+manifest. The selector still defaults to JSON v1 and there is no dual-write.
 
 The modern HTTP boundary authenticates one high-entropy bearer token by
 server-held digest, then resolves principal/workspace to a server-held authority

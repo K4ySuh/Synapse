@@ -1,0 +1,9 @@
+[
+  {
+    "actionId": "action-passive-header",
+    "tool": "headers.analyze",
+    "status": "completed",
+    "target": "example.test",
+    "createdAt": "2026-01-02T03:14:00Z"
+  }
+]

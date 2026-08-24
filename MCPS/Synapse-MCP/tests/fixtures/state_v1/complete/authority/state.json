@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "revision": 1,
+  "grants": {
+    "grant-fixture": {
+      "currentRevision": 1,
+      "revisions": {
+        "1": {
+          "grantId": "grant-fixture",
+          "workspaceId": "beta-complete",
+          "revision": 1,
+          "mode": "full_delegated",
+          "createdAt": "2026-01-02T03:16:00Z",
+          "expiresAt": "2027-01-02T03:16:00Z",
+          "constraints": {
+            "targets": [
+              "example.test"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "stepUps": {},
+  "requestStates": {},
+  "budgetWindows": {
+    "grant-fixture": {
+      "grantRevision": 1,
+      "dispatchesUsed": 1,
+      "windowStartedAt": "2026-01-02T03:16:00Z",
+      "dispatchWindowUsed": 1,
+      "activeDispatches": 0
+    }
+  },
+  "decisions": [
+    {
+      "auditId": "audit-authority-fixture",
+      "at": "2026-01-02T03:17:00Z",
+      "kind": "allow",
+      "reason": "covered_by_fixture_grant",
+      "actionId": "action-passive-header",
+      "grantId": "grant-fixture",
+      "grantRevision": 1,
+      "dispatchId": "dispatch-fixture"
+    }
+  ],
+  "dispatches": {
+    "dispatch-fixture": {
+      "dispatchId": "dispatch-fixture",
+      "revision": 2,
+      "workspaceId": "beta-complete",
+      "actionId": "action-passive-header",
+      "planFingerprint": "fixture-plan-fingerprint",
+      "grantId": "grant-fixture",
+      "grantRevision": 1,
+      "profile": "full_delegated",
+      "state": "succeeded",
+      "createdAt": "2026-01-02T03:17:00Z",
+      "updatedAt": "2026-01-02T03:18:00Z"
+    }
+  },
+  "reconciliations": {
+    "reconciliation-fixture": {
+      "reconciliationId": "reconciliation-fixture",
+      "dispatchId": "dispatch-fixture",
+      "state": "recorded",
+      "createdAt": "2026-01-02T03:19:00Z"
+    }
+  }
+}

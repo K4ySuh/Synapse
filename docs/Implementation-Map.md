@@ -70,8 +70,13 @@ contract and fails below SQLite 3.51.3. `synapse_mcp/state/` now also owns
 repository contracts and selection, JSON-v1 compatibility adapters, verified
 SQLite connection/transaction helpers, migration `0001`, workspace revisions,
 the isolated v2 vertical-slice repository, online backup, and the bounded
-workspace-local SHA-256 artifact store. The probe and Task 4A foundations do
-not migrate or select a production workspace store.
+workspace-local SHA-256 artifact store. `state/migration.py` now owns
+read-only inventory, immutable snapshots, restartable/idempotent v1-to-v2
+stages, verification, guarded activation, and rollback-boundary enforcement.
+`state/bundles.py` owns canonical export/import and artifact-manifest
+validation; `state/cli.py` and `bin/state` expose the operator surface.
+Raw SQL remains confined to this package. The selector still defaults to JSON
+v1 and migration never activates implicitly.
 
 ## Data Layout
 

@@ -1,0 +1,13 @@
+#!/usr/bin/env sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+ROOT_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+ENV_FILE=${SYNAPSE_ENV_FILE:-"$ROOT_DIR/config/synapse.env"}
+SYNAPSE_ROOT=${SYNAPSE_ROOT:-"$ROOT_DIR"}
+export SYNAPSE_ROOT
+if [ -f "$ENV_FILE" ]; then
+    . "$ENV_FILE"
+fi
+SYNAPSE_PYTHON=$("$ROOT_DIR/bin/resolve-synapse-python")
+PYTHONPATH="$ROOT_DIR/MCPS/Synapse-MCP" exec "$SYNAPSE_PYTHON" -m synapse_mcp.state.cli "$@"

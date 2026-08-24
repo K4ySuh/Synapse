@@ -30,6 +30,9 @@ def atomic_write_text(
     """Atomically replace a text file without exposing partial contents."""
 
     path = Path(path)
+    from ..state.selector import assert_json_v1_write_allowed
+
+    assert_json_v1_write_allowed(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     temp_path = path.with_name(f"{path.name}.{os.getpid()}.{uuid4().hex}.tmp")
     replaced = False

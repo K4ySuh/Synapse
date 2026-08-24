@@ -126,6 +126,9 @@ def target_path(workspace_id: str, target: str) -> Path:
 
 def target_entity_dir(workspace_id: str, target: str) -> Path:
     root = target_path(workspace_id, target) / "entities"
+    from ..state.selector import assert_json_v1_write_allowed
+
+    assert_json_v1_write_allowed(root)
     root.mkdir(parents=True, exist_ok=True)
     return root
 
@@ -144,12 +147,18 @@ def timestamped_filename(suffix: str) -> str:
 
 def workspace_output_path(workspace_id: str, tool: str, suffix: str) -> Path:
     root = workspace_path(workspace_id) / "outputs" / slug(tool)
+    from ..state.selector import assert_json_v1_write_allowed
+
+    assert_json_v1_write_allowed(root)
     root.mkdir(parents=True, exist_ok=True)
     return root / timestamped_filename(suffix)
 
 
 def target_output_dir(workspace_id: str, target: str, tool: str) -> Path:
     root = target_path(workspace_id, target) / "outputs" / slug(tool)
+    from ..state.selector import assert_json_v1_write_allowed
+
+    assert_json_v1_write_allowed(root)
     root.mkdir(parents=True, exist_ok=True)
     return root
 
@@ -165,6 +174,9 @@ def retain_latest_artifacts(
     keep: int = 1,
     sibling_suffixes: tuple[str, ...] = (),
 ) -> list[str]:
+    from ..state.selector import assert_json_v1_write_allowed
+
+    assert_json_v1_write_allowed(directory)
     if keep < 1 or not directory.exists():
         return []
     matches = sorted(directory.glob(f"*-{suffix}"), key=lambda path: path.name)
@@ -184,6 +196,9 @@ def target_model_dir(workspace_id: str, target: str, model: str = "") -> Path:
     root = target_path(workspace_id, target) / "models"
     if model:
         root = root / slug(model)
+    from ..state.selector import assert_json_v1_write_allowed
+
+    assert_json_v1_write_allowed(root)
     root.mkdir(parents=True, exist_ok=True)
     return root
 
@@ -447,6 +462,9 @@ def write_findings_markdown(workspace_id: str, target: str) -> dict[str, Any]:
     wid = normalize_workspace_id(workspace_id)
     host = normalize_target(target)
     path = target_path(wid, host) / "evidence" / "findings.md"
+    from ..state.selector import assert_json_v1_write_allowed
+
+    assert_json_v1_write_allowed(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     content = render_findings_markdown(wid, host)
     path.write_text(content, encoding="utf-8")
@@ -891,6 +909,9 @@ def store_raw_evidence(
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     evidence_dir = target_path(workspace_id, target) / "evidence"
+    from ..state.selector import assert_json_v1_write_allowed
+
+    assert_json_v1_write_allowed(evidence_dir)
     evidence_dir.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
     evidence_id = f"ev_{stamp}_{time.time_ns() % 1_000_000:06d}_{slug(source)[:32]}"
@@ -925,6 +946,9 @@ def prune_generated_evidence(
     if keep < 1:
         keep = 1
     evidence_dir = target_path(workspace_id, target) / "evidence"
+    from ..state.selector import assert_json_v1_write_allowed
+
+    assert_json_v1_write_allowed(evidence_dir)
     records = []
     for meta_path in sorted(evidence_dir.glob("ev_*.json")):
         payload = _read_json(meta_path, {})
@@ -3145,6 +3169,9 @@ def append_report_decision(workspace_id: str, record: dict[str, Any]) -> None:
     full copies of the discarded records — so it stays a compact, auditable log of the
     reportability calls taken in the workspace.
     """
+    from ..state.selector import assert_json_v1_write_allowed
+
+    assert_json_v1_write_allowed(workspace_path(workspace_id) / "workspace.json")
     path = report_decisions_path(workspace_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     decisions = read_report_decisions(workspace_id)

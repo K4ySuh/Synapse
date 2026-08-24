@@ -39,6 +39,25 @@ def selected_store_version(workspace_root: Path) -> StoreVersion:
     return selected
 
 
+def assert_json_v1_write_allowed(path: Path) -> None:
+    """Fail closed when a legacy writer targets an activated workspace."""
+
+    candidate = Path(path).resolve(strict=False)
+    parts = candidate.parts
+    indexes = [index for index, part in enumerate(parts) if part == "workspaces"]
+    if not indexes:
+        return
+    index = indexes[-1]
+    if len(parts) <= index + 1:
+        return
+    workspace_root = Path(*parts[: index + 2])
+    if selected_store_version(workspace_root) == "sqlite-v2":
+        raise StateSelectionError(
+            "json_v1_write_after_activation",
+            "JSON-v1 is immutable after SQLite-v2 activation.",
+        )
+
+
 def repository_bundle(workspace_id: str, workspaces_root: Path) -> WorkspaceRepositoryBundle:
     normalized_workspace_id = normalize_workspace_id(workspace_id)
     root = Path(workspaces_root) / normalized_workspace_id

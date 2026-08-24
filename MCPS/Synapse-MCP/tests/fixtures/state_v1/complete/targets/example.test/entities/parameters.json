@@ -1,0 +1,10 @@
+[
+  {
+    "id": "parameter-detail",
+    "key": "parameter:GET|https://example.test/health|query|detail",
+    "type": "parameter",
+    "name": "detail",
+    "location": "query",
+    "createdAt": "2026-01-02T03:10:00Z"
+  }
+]

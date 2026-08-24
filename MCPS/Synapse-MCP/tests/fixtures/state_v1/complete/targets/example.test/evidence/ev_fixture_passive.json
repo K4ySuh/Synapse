@@ -1,0 +1,13 @@
+{
+  "evidenceId": "ev_fixture_passive",
+  "workspaceId": "beta-complete",
+  "target": "example.test",
+  "source": "fixture",
+  "dataType": "passive_response",
+  "format": "txt",
+  "rawPath": "targets/example.test/evidence/ev_fixture_passive_raw.txt",
+  "metadata": {
+    "sanitized": true
+  },
+  "createdAt": "2026-01-02T03:15:00Z"
+}

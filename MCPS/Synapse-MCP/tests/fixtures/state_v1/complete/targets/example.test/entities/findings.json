@@ -1,0 +1,16 @@
+[
+  {
+    "id": "finding-security-header",
+    "key": "finding:security-header",
+    "title": "Security header not observed",
+    "status": "candidate",
+    "severity": "low",
+    "operatorReviewed": true,
+    "reviewedBy": "operator-fixture",
+    "evidenceIds": [
+      "ev_fixture_passive"
+    ],
+    "createdAt": "2026-01-02T03:12:00Z",
+    "updatedAt": "2026-01-02T03:13:00Z"
+  }
+]

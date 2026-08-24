@@ -67,6 +67,17 @@ explicit ephemeral keys are limited to local single-process development. The
 distinct raw authority request remains durable in the workspace repository.
 Dispatch budgets count actions, not outbound HTTP requests.
 
+## State Migration Operator
+
+`synapse-state` (repository launcher: `bin/state`) inventories and dry-runs
+JSON-v1 workspaces without mutation, applies restartable deterministic migration
+stages, verifies the SQLite-v2 result, and keeps activation explicit. Its
+`status`, `activate`, and bounded `rollback` commands enforce the first
+v2-only-write boundary. Canonical `export` and empty-workspace `import`
+commands validate artifact paths, hashes, workspace identity, duplicates, and
+schema version. Credential bodies and raw opaque request state are excluded.
+See [Operations](../../docs/Operations.md) for the exact workflow.
+
 ## Runtime Python
 
 Run this MCP through `MCPS/Synapse-MCP/bin/synapse-mcp`. The launcher sources

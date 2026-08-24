@@ -1,0 +1,16 @@
+[
+  {
+    "id": "endpoint-health",
+    "key": "endpoint:GET|https://example.test/health",
+    "type": "endpoint",
+    "method": "GET",
+    "url": "https://example.test/health",
+    "createdAt": "2026-01-02T03:09:00Z",
+    "relations": [
+      {
+        "targetEntityId": "parameter-detail",
+        "type": "accepts_parameter"
+      }
+    ]
+  }
+]

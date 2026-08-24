@@ -5,6 +5,7 @@
 
 from .artifacts import ArtifactLimits, ContentAddressedArtifactRepository
 from .backup import online_backup
+from .bundles import BUNDLE_FORMAT, BUNDLE_TABLES, StateBundleService
 from .contracts import (
     ArtifactRecord,
     AuditRecord,
@@ -26,7 +27,16 @@ from .errors import (
     StateSelectionError,
     StateStoreError,
 )
-from .selector import repository_bundle, selected_store_version
+from .migration import (
+    FORMAT_VERSION as MIGRATION_FORMAT_VERSION,
+    MIGRATION_STAGES,
+    InventoryResult,
+    JsonV1Inventory,
+    StateMigrationService,
+    canonical_digest,
+    canonical_json_bytes,
+)
+from .selector import assert_json_v1_write_allowed, repository_bundle, selected_store_version
 from .sqlite_store import SQLiteWorkspaceRepository
 
 
@@ -52,6 +62,17 @@ __all__ = [
     "WorkspaceRecord",
     "WorkspaceRepositoryBundle",
     "online_backup",
+    "BUNDLE_FORMAT",
+    "BUNDLE_TABLES",
+    "StateBundleService",
+    "MIGRATION_FORMAT_VERSION",
+    "MIGRATION_STAGES",
+    "InventoryResult",
+    "JsonV1Inventory",
+    "StateMigrationService",
+    "canonical_digest",
+    "canonical_json_bytes",
     "repository_bundle",
     "selected_store_version",
+    "assert_json_v1_write_allowed",
 ]
