@@ -385,6 +385,94 @@ class ModernPersistenceAndResourceTests(ModernAdapterFixture, unittest.IsolatedA
 
 
 class ModernResumeTests(ModernAdapterFixture, unittest.IsolatedAsyncioTestCase):
+    async def test_legacy_protocol_resumes_with_compact_operation_handle_after_restart(self) -> None:
+        probe = ThreadingHTTPServer(("127.0.0.1", 0), ProbeHandler)
+        thread = threading.Thread(target=probe.serve_forever, daemon=True)
+        thread.start()
+        ProbeHandler.requests = 0
+        try:
+            workspace.create_workspace("legacy-resume", hosts=["127.0.0.1"])
+            arguments = {
+                "workspaceId": "legacy-resume",
+                "url": f"http://127.0.0.1:{probe.server_port}/resume",
+                "method": "GET",
+                "followRedirects": False,
+            }
+            descriptor = REGISTRY.get(ACTIVE_ACTION_ID)
+            planning = ActionRequest(
+                descriptor.input_model.model_validate({**arguments, "confirm": False}),
+                ExecutionContext("legacy-resume", "planning", 45.0, None),
+            )
+            plan = REGISTRY.resolve_execution_plan(ACTIVE_ACTION_ID, planning)
+            now = datetime.now(timezone.utc)
+            grant = AuthorityGrant(
+                grant_id="legacy-protocol-supervised",
+                workspace_id="legacy-resume",
+                revision=1,
+                mode=AuthorityMode.SUPERVISED,
+                scope_digest=plan.intent.target_envelope.scope_digest,
+                target_envelope=plan.intent.target_envelope,
+                allowed_action_patterns=(ACTIVE_ACTION_ID,),
+                allowed_methods=plan.intent.methods,
+                allowed_effects=plan.effects,
+                risk_ceiling=RiskClass.HIGH,
+                credential_refs=plan.intent.credential_refs,
+                provider_routes=plan.intent.providers,
+                third_party_providers=(),
+                local_outputs=plan.intent.local_outputs,
+                budgets=BudgetLimits(4, None, None, 1),
+                state_change_policy=StateChangePolicy.REQUIRE_STEP_UP,
+                created_at=now - timedelta(minutes=1),
+                expires_at=now + timedelta(hours=1),
+                approved_by="operator:test",
+            )
+            operator = AuthorityOperatorService(
+                "legacy-resume",
+                OperatorPrincipal("operator:test", "test_fixture", True),
+            )
+            operator.create_grant(grant)
+            self._write_bindings(selected_grant_id=grant.grant_id)
+            payload = {
+                "actionId": ACTIVE_ACTION_ID,
+                "arguments": arguments,
+                "idempotencyKey": "legacy-protocol-resume-key",
+            }
+
+            initial_runtime = build_runtime(self.config())
+            with patch("mcp.client.session.LATEST_HANDSHAKE_VERSION", "2025-06-18"):
+                async with Client(initial_runtime.server, mode="legacy") as client:
+                    first = await client.call_tool("actions.run_active", payload)
+            self.assertIsInstance(first, CallToolResult)
+            self.assertTrue(first.is_error)
+            first_envelope = FacadeEnvelope.model_validate(first.structured_content)
+            self.assertEqual(first_envelope.outcome_kind, "approval_required")
+            self.assertEqual(first_envelope.diagnostics["dispatch"], "not_started")
+            self.assertTrue(first_envelope.operation_handle.startswith("operation-"))
+            self.assertNotIn(grant.grant_id, first.model_dump_json(by_alias=True))
+            self.assertEqual(ProbeHandler.requests, 0)
+
+            raw_request = operator.list_required_authority()[0]["requestStateId"]
+            operator.issue_request_step_up(raw_request)
+            restarted = build_runtime(self.config())
+            resume_payload = {
+                "operation": "resume",
+                "operationHandle": first_envelope.operation_handle,
+            }
+            with patch("mcp.client.session.LATEST_HANDSHAKE_VERSION", "2025-06-18"):
+                async with Client(restarted.server, mode="legacy") as client:
+                    resumed = await client.call_tool("tasks.control", resume_payload)
+                    self.assertFalse(resumed.is_error)
+                    resumed_envelope = FacadeEnvelope.model_validate(resumed.structured_content)
+                    self.assertEqual(resumed_envelope.outcome_kind, "success")
+                    self.assertEqual(resumed_envelope.trace_id, first_envelope.trace_id)
+                    with self.assertRaises(MCPError):
+                        await client.call_tool("tasks.control", resume_payload)
+            self.assertEqual(ProbeHandler.requests, 1)
+        finally:
+            probe.shutdown()
+            probe.server_close()
+            thread.join(timeout=3)
+
     async def test_rotation_restart_principal_audience_tamper_retirement_and_exactly_once(self) -> None:
         probe = ThreadingHTTPServer(("127.0.0.1", 0), ProbeHandler)
         thread = threading.Thread(target=probe.serve_forever, daemon=True)

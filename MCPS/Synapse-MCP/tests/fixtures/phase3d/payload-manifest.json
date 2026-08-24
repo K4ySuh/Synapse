@@ -1,0 +1,27 @@
+{
+  "compactMaximumBytes": 24834,
+  "compactStrictlyBelowLegacyQuarter": true,
+  "legacyBaselineBytes": 99337,
+  "schemaVersion": 1,
+  "serialization": "json.dumps(value, separators=(',', ':')).encode('utf-8')",
+  "surfaces": {
+    "legacy": {
+      "compactUtf8Bytes": 99337,
+      "fixture": "legacy-tools.json",
+      "sha256": "5f61dc5bcb5821b4d67fca12eaa2b0b1a369c4b4294fbcd43cb9b1fcaee18bb4",
+      "toolCount": 174
+    },
+    "modern-compact": {
+      "compactUtf8Bytes": 21648,
+      "fixture": "modern-compact-tools.json",
+      "sha256": "c4e513b657d21bb1b0729b90b7f90990cb3b4af2b6242690be80e82b56050956",
+      "toolCount": 11
+    },
+    "modern-direct": {
+      "compactUtf8Bytes": 578249,
+      "fixture": "modern-direct-tools.json",
+      "sha256": "0cb146b5eb47dc763da76522f100c3ac8734c05d0680ebb87b80285e8f75c20c",
+      "toolCount": 174
+    }
+  }
+}

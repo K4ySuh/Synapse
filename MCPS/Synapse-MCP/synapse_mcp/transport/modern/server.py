@@ -47,9 +47,11 @@ SERVER_INSTRUCTIONS = (
     "Use capabilities.search and actions.describe before dynamic execution. Passive calls fail "
     "closed on traffic, credentials, secrets, remote mutation, and destructive effects. Active "
     "calls use server-held scope and authority; tool arguments never grant authority. Approval "
-    "requests must be reviewed through the trusted operator service, then retried with the same "
-    "tool and arguments. Artifact links are opaque and reauthorized on every read. Never place "
-    "secrets in arguments, notes, logs, or reports."
+    "requests must be reviewed through the trusted operator service. When an approval result "
+    "contains operationHandle and tasks.control is available, resume with tasks.control using "
+    "operation=resume and that handle. Protocol input_required results are retried with the same "
+    "tool and arguments using their request state. Artifact links are opaque and reauthorized on "
+    "every read. Never place secrets in arguments, notes, logs, or reports."
 )
 
 

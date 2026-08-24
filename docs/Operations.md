@@ -13,7 +13,7 @@ cd /path/to/Synapse
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install -U pip
-python -m pip install -e '.[browser]'
+python -m pip install -e '.[browser,modern]'
 python -m playwright install chromium
 ```
 
@@ -60,11 +60,16 @@ Run:
 bin/check-setup
 ```
 
-The check validates local prerequisites, confirms the venv-aware Synapse MCP
-starts, checks optional Playwright/Selenium imports with the configured
-`SYNAPSE_PYTHON`, and prints MCP client config. The Synapse MCP entry is the
-required operational endpoint; the Burp MCP entry is optional but highly
-recommended when live Burp Suite state or UI/session operations are needed.
+The check validates local prerequisites, confirms required runtime imports,
+confirms the venv-aware Synapse MCP starts, checks optional Playwright/Selenium
+imports with the configured `SYNAPSE_PYTHON`, and prints MCP client config. A
+startup failure now includes the underlying interpreter/import error; an
+executable but stale venv after a system Python upgrade is not reported as a
+tool-discovery failure. The Synapse MCP entry is the required operational
+endpoint; the Burp MCP entry is optional but highly recommended when live Burp
+Suite state or UI/session operations are needed.
+Missing modern identity/keyring files are reported as provisioning warnings
+because their workspace, principal, and grant binding is operator-specific.
 External scanner binaries such as `sqlmap`, `ffuf`, `nmap`, and `nuclei` are
 warnings by default because passive workspace, dump, documentation, and static
 analysis workflows can run without them. Use `bin/check-setup --strict-tools`
@@ -79,12 +84,87 @@ To print only the MCP config:
 bin/print-mcp-config
 ```
 
-`bin/print-mcp-config` prints both the Codex TOML snippet and the Claude Code
-`.mcp.json` snippet. Copy the Claude snippet into your local `.mcp.json` or
-merge the `synapse` entry into an existing Claude Code MCP config. Do not
-commit local MCP configuration files because they often contain absolute paths.
-See `MCPS/Synapse-MCP/examples/claude-mcp-config.example.json` for a standalone
-template.
+`bin/print-mcp-config` prints only the recommended Codex configuration by
+default. Phase 3D selects `modern-compact` stdio. Use `--legacy` to print the
+frozen rollback/bootstrap profile. An optional Claude-compatible JSON block is
+available only with `--include-claude`; Claude is not required for setup,
+operation, or the Phase 3 acceptance gate. Do not commit local MCP
+configuration files because they contain absolute paths.
+
+### Codex modern compact profile
+
+The generated profile assumes the pinned modern runtime is installed and the
+private identity binding and request-state keyring described below have been
+created. Codex accepts the stdio server in `config.toml`:
+
+```toml
+[mcp_servers.synapse]
+command = "/absolute/path/to/Synapse/.venv/bin/python"
+args = [
+  "-m", "synapse_mcp.transport.modern",
+  "--surface", "modern-compact",
+  "--transport", "stdio",
+  "--server-name", "synapse",
+  "--audience", "synapse",
+  "--identity-bindings", "/private/path/identity-bindings.json",
+  "--stdio-principal", "local-operator",
+  "--request-state-keyring", "/private/path/request-state-keyring.json",
+  "--state-dir", "/absolute/path/to/Synapse/DATA/modern-adapter/state"
+]
+required = true
+default_tools_approval_mode = "approve"
+startup_timeout_sec = 20
+tool_timeout_sec = 120
+
+[mcp_servers.synapse.env]
+SYNAPSE_ROOT = "/absolute/path/to/Synapse"
+SYNAPSE_DATA_DIR = "/absolute/path/to/Synapse/DATA"
+PYTHONPATH = "/absolute/path/to/Synapse/MCPS/Synapse-MCP"
+```
+
+`default_tools_approval_mode="approve"` permits the trusted MCP invocation to
+reach Synapse. It does not create scope, select a grant, issue a step-up, or
+authorize execution; those decisions remain server-held. Use a narrower Codex
+host policy if desired, but ensure the eleven trusted Synapse operations can
+be invoked.
+
+For loopback or remotely terminated Streamable HTTP, start the server
+separately and let Codex read the bearer token from the environment:
+
+```toml
+[mcp_servers.synapse-modern-http]
+url = "http://127.0.0.1:8765/mcp"
+bearer_token_env_var = "SYNAPSE_MCP_TOKEN"
+startup_timeout_sec = 20
+tool_timeout_sec = 120
+```
+
+Do not embed the token in TOML. The official
+[Codex MCP guide](https://developers.openai.com/codex/mcp) documents stdio,
+Streamable HTTP, environment-backed bearer authentication, and server tool
+approval configuration. The frozen legacy tools have no read-only annotations;
+if Codex is configured never to approve MCP calls, even legacy read calls are
+host-blocked. Change a trusted server's approval configuration deliberately;
+it does not create Synapse scope or execution authority.
+
+Stable Codex does not need to negotiate `2026-07-28` to complete supervised
+work. On older revisions Synapse returns a typed `approval_required` result and
+opaque `operationHandle`; after trusted operator step-up Codex calls
+`tasks.control` with `operation=resume`. When protocol request state is
+available, the modern adapter can instead return `input_required`. Do not
+enable an under-development client protocol feature as a workaround.
+
+Run the exact Phase 3D client gate with:
+
+```bash
+bin/run-phase3d-codex --preflight
+bin/run-phase3d-codex --run --repetitions 3
+```
+
+The gate uses only a fictional disabled-traffic fixture and writes raw output
+under `DATA/phase3d-codex/`. See the
+[Phase 3 handoff](modernization/phase-3-handoff.md) for accepted results and
+rollback.
 
 ## Optional Burp MCP
 
@@ -108,8 +188,9 @@ checkout until the optional dependency is installed or started.
 ## Authority-Aware Execution
 
 The stable 174-tool stdio profile is `legacy`: its existing examples and
-`confirm=true` gates remain byte-compatible. The opt-in modern profile uses
-server-held authority instead. Its supported execution profiles are `observe`,
+`confirm=true` gates remain byte-compatible. The default Codex
+`modern-compact` profile uses server-held authority instead. Its supported
+execution profiles are `observe`,
 `supervised`, and `full_delegated`; action input cannot select a profile, grant,
 session, step-up, dispatch, or resume state.
 
@@ -120,8 +201,9 @@ receive principal/session/grant bindings only through trusted adapter context,
 reject those fields and `confirm` in model arguments, and call the same
 Registry path as legacy. `actions.run_passive` additionally rejects any
 descriptor whose maximum effects permit traffic, credential/secret use, remote
-mutation, or local destruction. The modern launcher is additive; it does not
-change the default frozen `synapse-mcp` server.
+mutation, or local destruction. The modern launcher is additive: selecting it
+as the generated Codex default does not modify the frozen `synapse-mcp`
+launcher or its public contract.
 
 Generated local files are returned as opaque resource references rather than
 paths. The modern adapter persists their private server-held records under
@@ -278,10 +360,10 @@ discovered in-scope origin continues anonymously with a credential-coverage
 observation; provider credentials remain confined to the proxy transport.
 
 The modern adapter selects trusted bindings only from its private identity
-file; per-request resume state is never read from process environment. The
-official SDK seals Synapse's opaque operation handle into the client-visible
-token. Drive a human-supervised round manually so an automatic state-only retry
-loop does not expire while waiting for an operator:
+file; per-request resume state is never read from process environment. On a
+`2026-07-28` session, the official SDK seals Synapse's opaque operation handle
+into the client-visible token. Drive a human-supervised round manually so an
+automatic state-only retry loop does not expire while waiting for an operator:
 
 ```python
 first = await client.session.call_tool(
@@ -298,6 +380,24 @@ result = await client.session.call_tool(
     allow_input_required=True,
 )
 ```
+
+On an older negotiated revision, the first call returns a structured
+`approval_required` envelope with `operationHandle` and
+`diagnostics.dispatch="not_started"`. After the same trusted operator approval,
+resume through the compact facade instead of resubmitting action arguments:
+
+```json
+{
+  "tool": "tasks.control",
+  "arguments": {
+    "operation": "resume",
+    "operationHandle": "<opaque-handle-from-approval-result>"
+  }
+}
+```
+
+Both carriers restore the same durable exact request. A consumed handle cannot
+be replayed.
 
 The retry must use the identical action and arguments. Synapse restores the
 original correlation, idempotency key, profile, grant, and grant revision from

@@ -1,0 +1,635 @@
+#!/usr/bin/env python3
+# Copyright 2026 Javier Roldán Ortiz
+# SPDX-License-Identifier: Apache-2.0
+
+"""Run the Claude-free Phase 3D live Codex interoperability gate."""
+
+from __future__ import annotations
+
+import argparse
+import base64
+from collections import Counter
+from datetime import datetime, timedelta, timezone
+import json
+import os
+from pathlib import Path
+import secrets
+import subprocess
+import sys
+from tempfile import TemporaryDirectory
+import time
+from typing import Any
+
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+PACKAGE_DIR = ROOT_DIR / "MCPS" / "Synapse-MCP"
+TEST_DIR = PACKAGE_DIR / "tests"
+DEFAULT_OUTPUT = ROOT_DIR / "DATA" / "phase3d-codex"
+DEFAULT_MODEL = "gpt-5.6-sol"
+WORKSPACE_ID = "benchmark"
+TARGET = "app.acme-demo.test"
+MCP_PRINCIPAL = "phase3d-codex"
+AUTHORITY_SESSION = "phase3d-codex-session"
+GRANT_ID = "phase3d-codex-supervised"
+READ_GRANT_ID = "phase3d-codex-observe"
+ACTIVE_ACTION_ID = "cors.execute_test"
+ACTIVE_ARGUMENTS = {
+    "workspaceId": WORKSPACE_ID,
+    "url": f"https://{TARGET}/api/items",
+    "method": "GET",
+    "probeOrigin": "https://phase3d.invalid",
+    "httpBackend": "disabled",
+    "disableTraffic": True,
+    "followRedirects": False,
+}
+
+
+class Phase3DRunnerError(RuntimeError):
+    """A deterministic Phase 3D precondition or live gate failed."""
+
+
+def _json_text(value: str) -> str:
+    return json.dumps(value)
+
+
+def _run(
+    command: list[str],
+    *,
+    env: dict[str, str] | None = None,
+    timeout: float = 900,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        command,
+        cwd=ROOT_DIR,
+        env=env,
+        text=True,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=timeout,
+        check=False,
+    )
+
+
+def _codex_preflight() -> dict[str, Any]:
+    version_result = _run(["codex", "--version"], timeout=30)
+    features_result = _run(["codex", "features", "list"], timeout=30)
+    if version_result.returncode != 0 or features_result.returncode != 0:
+        raise Phase3DRunnerError("Codex CLI preflight failed")
+    features: dict[str, dict[str, Any]] = {}
+    for line in features_result.stdout.splitlines():
+        columns = line.split()
+        if len(columns) < 3:
+            continue
+        enabled = columns[-1].lower()
+        if enabled not in {"true", "false"}:
+            continue
+        features[columns[0]] = {
+            "maturity": " ".join(columns[1:-1]),
+            "enabled": enabled == "true",
+        }
+    protocol_feature = features.get("mcp_2026_07_28")
+    if protocol_feature is None:
+        raise Phase3DRunnerError("Codex did not report the mcp_2026_07_28 feature")
+    return {
+        "codexCli": version_result.stdout.strip(),
+        "mcp20260728": protocol_feature,
+        "experimentalProtocolEnabledForGate": False,
+        "stableFallback": "approval_required envelope plus tasks.control resume",
+    }
+
+
+def _private_json(path: Path, value: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    path.chmod(0o600)
+
+
+def _configure_root(root: Path) -> None:
+    os.environ["SYNAPSE_ROOT"] = str(root)
+    os.environ["SYNAPSE_DATA_DIR"] = str(root / "DATA")
+    sys.path.insert(0, str(PACKAGE_DIR))
+    sys.path.insert(0, str(TEST_DIR))
+
+
+def _prepare_fixture(root: Path, *, supervised: bool) -> dict[str, Any]:
+    _configure_root(root)
+    from benchmark_support import seed_benchmark_workspace
+    from synapse_mcp.app.actions import ActionRequest, ExecutionContext, REGISTRY, RiskClass
+    from synapse_mcp.policy import (
+        AuthorityGrant,
+        AuthorityMode,
+        AuthorityOperatorService,
+        BudgetLimits,
+        OperatorPrincipal,
+        StateChangePolicy,
+    )
+
+    seed = seed_benchmark_workspace()
+    action_id = ACTIVE_ACTION_ID if supervised else "workspace.summary"
+    arguments = (
+        ACTIVE_ARGUMENTS
+        if supervised
+        else {
+            "workspaceId": WORKSPACE_ID,
+            "limit": 50,
+            "includeInventory": False,
+        }
+    )
+    grant_id = GRANT_ID if supervised else READ_GRANT_ID
+    descriptor = REGISTRY.get(action_id)
+    planning = ActionRequest(
+        descriptor.input_model.model_validate({**arguments, "confirm": False}),
+        ExecutionContext(WORKSPACE_ID, "planning", 45.0, None),
+    )
+    plan = REGISTRY.resolve_execution_plan(action_id, planning)
+    operator = AuthorityOperatorService(WORKSPACE_ID, OperatorPrincipal.current_local())
+    now = datetime.now(timezone.utc)
+    grant = AuthorityGrant(
+        grant_id=grant_id,
+        workspace_id=WORKSPACE_ID,
+        revision=1,
+        mode=AuthorityMode.SUPERVISED if supervised else AuthorityMode.OBSERVE,
+        scope_digest=plan.intent.target_envelope.scope_digest,
+        target_envelope=plan.intent.target_envelope,
+        allowed_action_patterns=(action_id,),
+        allowed_methods=plan.intent.methods,
+        allowed_effects=plan.effects,
+        risk_ceiling=RiskClass.HIGH if supervised else RiskClass.NONE,
+        credential_refs=plan.intent.credential_refs,
+        provider_routes=plan.intent.providers,
+        third_party_providers=(),
+        local_outputs=plan.intent.local_outputs,
+        budgets=BudgetLimits(4 if supervised else 2, None, None, 1),
+        state_change_policy=(
+            StateChangePolicy.REQUIRE_STEP_UP if supervised else StateChangePolicy.DENY
+        ),
+        created_at=now - timedelta(minutes=1),
+        expires_at=now + timedelta(hours=1),
+        approved_by=operator.principal.principal_id,
+    )
+    operator.create_grant(grant)
+
+    private = root / "DATA" / "modern-adapter"
+    binding = {
+        "executionProfile": "supervised" if supervised else "observe",
+        "authoritySessionId": AUTHORITY_SESSION,
+    }
+    binding["selectedGrantId"] = grant_id
+    _private_json(
+        private / "identity-bindings.json",
+        {
+            "version": 1,
+            "principals": {
+                MCP_PRINCIPAL: {
+                    "defaultWorkspace": WORKSPACE_ID,
+                    "default": binding,
+                    "workspaces": {WORKSPACE_ID: binding},
+                }
+            },
+        },
+    )
+    _private_json(
+        private / "request-state-keyring.json",
+        {
+            "version": 1,
+            "keys": ["base64:" + base64.b64encode(secrets.token_bytes(32)).decode("ascii")],
+        },
+    )
+    entity_totals = seed["summary"].get("entityTotals", {})
+    return {
+        "workspaceId": WORKSPACE_ID,
+        "target": TARGET,
+        "targetCount": seed["summary"].get("targetCount"),
+        "endpointCount": entity_totals.get("endpoints"),
+        "externalTraffic": "disabled",
+        "executionProfile": binding["executionProfile"],
+    }
+
+
+def _approve_fixture(root: Path) -> dict[str, Any]:
+    _configure_root(root)
+    from synapse_mcp.policy import AuthorityOperatorService, OperatorPrincipal
+
+    operator = AuthorityOperatorService(WORKSPACE_ID, OperatorPrincipal.current_local())
+    pending = operator.list_required_authority()
+    if len(pending) != 1:
+        raise Phase3DRunnerError(f"expected one pending request, found {len(pending)}")
+    operator.issue_request_step_up(str(pending[0]["requestStateId"]))
+    return {"pendingBeforeApproval": 1, "exactStepUpIssued": True}
+
+
+def _verify_fixture(root: Path) -> dict[str, Any]:
+    _configure_root(root)
+    from synapse_mcp.policy.repository import WorkspaceAuthorityRepository
+
+    repository = WorkspaceAuthorityRepository(WORKSPACE_ID)
+    snapshot = repository.snapshot()
+    request_states = list(snapshot["requestStates"].values())
+    dispatches = list(snapshot["dispatches"].values())
+    return {
+        "requestStateCount": len(request_states),
+        "resumedRequestCount": sum(bool(item.get("resumedDispatchId")) for item in request_states),
+        "dispatchCount": len(dispatches),
+        "dispatchStates": dict(Counter(str(item.get("state") or "unknown") for item in dispatches)),
+    }
+
+
+def _internal_call(mode: str, root: Path) -> dict[str, Any]:
+    if mode == "prepare-read":
+        return _prepare_fixture(root, supervised=False)
+    if mode == "prepare-active":
+        return _prepare_fixture(root, supervised=True)
+    if mode == "approve":
+        return _approve_fixture(root)
+    return _verify_fixture(root)
+
+
+def _call_internal(mode: str, root: Path) -> dict[str, Any]:
+    result = _run(
+        [sys.executable, str(Path(__file__).resolve()), "--internal", mode, "--root", str(root)],
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        timeout=120,
+    )
+    if result.returncode != 0:
+        raise Phase3DRunnerError(f"fixture {mode} failed: {result.stderr.strip()[-1000:]}")
+    try:
+        value = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise Phase3DRunnerError(f"fixture {mode} returned invalid JSON") from exc
+    if not isinstance(value, dict):
+        raise Phase3DRunnerError(f"fixture {mode} did not return an object")
+    return value
+
+
+def _schema(case: str) -> dict[str, Any]:
+    common = {
+        "case": {"type": "string", "const": case},
+        "outcomeKind": {"type": "string"},
+    }
+    if case == "read":
+        properties = {
+            **common,
+            "targetCount": {"type": "integer"},
+            "endpointCount": {"type": "integer"},
+        }
+    elif case == "approval":
+        properties = {
+            **common,
+            "operationHandle": {"type": "string", "minLength": 1},
+            "dispatch": {"type": "string"},
+            "traceId": {"type": "string"},
+        }
+    else:
+        properties = {
+            **common,
+            "responseStatus": {"type": ["integer", "null"]},
+            "trafficDisabled": {"type": "boolean"},
+            "traceId": {"type": "string"},
+        }
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": properties,
+        "required": list(properties),
+        "additionalProperties": False,
+    }
+
+
+def _prompt(case: str, operation_handle: str = "") -> str:
+    prefix = (
+        "This is the authorized fictional Phase 3D no-network fixture. Use only the Synapse MCP "
+        "server named synapse. Do not use shell, web, or any other tool. "
+    )
+    if case == "read":
+        return prefix + (
+            "Call engagement.inspect exactly once with workspaceId=benchmark, includeInventory=false. "
+            "From structured content return outcomeKind, targetCount, and result.entityTotals.endpoints "
+            "as endpointCount. Finish with only the required JSON object."
+        )
+    if case == "approval":
+        arguments = json.dumps(ACTIVE_ARGUMENTS, separators=(",", ":"))
+        return prefix + (
+            "Call actions.run_active exactly once with actionId=cors.execute_test, arguments="
+            f"{arguments}, and idempotencyKey=phase3d-codex-resume. The expected result is "
+            "approval_required. Do not attempt to grant authority or resume it. Return outcomeKind, "
+            "operationHandle, diagnostics.dispatch as dispatch, and traceId from structured content. "
+            "Finish with only the required JSON object."
+        )
+    return prefix + (
+        "The trusted local operator service has approved the exact pending request outside MCP. "
+        "Call tasks.control exactly once with operation=resume and operationHandle="
+        f"{operation_handle}. Return outcomeKind, result.responseStatus, whether the result confirms "
+        "traffic was disabled as trafficDisabled, and traceId. Finish with only the required JSON object."
+    )
+
+
+def _codex_command(
+    root: Path,
+    *,
+    model: str,
+    schema_path: Path,
+    result_path: Path,
+    prompt: str,
+) -> list[str]:
+    private = root / "DATA" / "modern-adapter"
+    server_args = [
+        "-m",
+        "synapse_mcp.transport.modern",
+        "--surface",
+        "modern-compact",
+        "--transport",
+        "stdio",
+        "--server-name",
+        "synapse-phase3d-codex",
+        "--audience",
+        "synapse-phase3d-codex",
+        "--identity-bindings",
+        str(private / "identity-bindings.json"),
+        "--stdio-principal",
+        MCP_PRINCIPAL,
+        "--request-state-keyring",
+        str(private / "request-state-keyring.json"),
+        "--state-dir",
+        str(private / "state"),
+        "--observability",
+        "disabled",
+    ]
+    server_env = (
+        "{SYNAPSE_ROOT="
+        + _json_text(str(root))
+        + ",SYNAPSE_DATA_DIR="
+        + _json_text(str(root / "DATA"))
+        + ",PYTHONPATH="
+        + _json_text(str(PACKAGE_DIR))
+        + "}"
+    )
+    overrides = (
+        f"mcp_servers.synapse.command={_json_text(str(ROOT_DIR / '.venv' / 'bin' / 'python'))}",
+        f"mcp_servers.synapse.args={json.dumps(server_args, separators=(',', ':'))}",
+        f"mcp_servers.synapse.env={server_env}",
+        f"mcp_servers.synapse.cwd={_json_text(str(ROOT_DIR))}",
+        "mcp_servers.synapse.required=true",
+        'mcp_servers.synapse.default_tools_approval_mode="approve"',
+        "mcp_servers.synapse.startup_timeout_sec=20",
+        "mcp_servers.synapse.tool_timeout_sec=120",
+        "features.mcp_2026_07_28=false",
+    )
+    command = [
+        "codex",
+        "exec",
+        "--ignore-user-config",
+        "--strict-config",
+        "--ephemeral",
+        "--json",
+        "--sandbox",
+        "read-only",
+        "--model",
+        model,
+        "--cd",
+        str(ROOT_DIR),
+        "--output-schema",
+        str(schema_path),
+        "--output-last-message",
+        str(result_path),
+    ]
+    for override in overrides:
+        command.extend(("--config", override))
+    command.append(prompt)
+    return command
+
+
+def _tool_events(stdout: str) -> dict[str, Any]:
+    names: list[str] = []
+    input_tokens = 0
+    output_tokens = 0
+
+    def visit_usage(value: Any) -> None:
+        nonlocal input_tokens, output_tokens
+        if isinstance(value, dict):
+            for key, child in value.items():
+                normalized = key.replace("_", "").lower()
+                if normalized == "inputtokens" and isinstance(child, int):
+                    input_tokens = max(input_tokens, child)
+                elif normalized == "outputtokens" and isinstance(child, int):
+                    output_tokens = max(output_tokens, child)
+                visit_usage(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit_usage(child)
+
+    for line in stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        item = event.get("item") if event.get("type") == "item.completed" else None
+        if isinstance(item, dict) and item.get("type") == "mcp_tool_call":
+            name = item.get("tool") or item.get("name")
+            if isinstance(name, str):
+                names.append(name)
+        visit_usage(event)
+    return {
+        "toolCalls": len(names),
+        "toolNames": names,
+        "inputTokens": input_tokens or None,
+        "outputTokens": output_tokens or None,
+    }
+
+
+def _run_codex_case(
+    root: Path,
+    output: Path,
+    *,
+    repetition: int,
+    case: str,
+    model: str,
+    operation_handle: str = "",
+) -> dict[str, Any]:
+    case_dir = output / "raw" / f"run-{repetition:02d}"
+    case_dir.mkdir(parents=True, exist_ok=True)
+    schema_path = case_dir / f"{case}-schema.json"
+    result_path = case_dir / f"{case}-result.json"
+    event_path = case_dir / f"{case}-events.jsonl"
+    schema_path.write_text(json.dumps(_schema(case), indent=2) + "\n", encoding="utf-8")
+    started = time.perf_counter()
+    result = _run(
+        _codex_command(
+            root,
+            model=model,
+            schema_path=schema_path,
+            result_path=result_path,
+            prompt=_prompt(case, operation_handle),
+        )
+    )
+    elapsed = time.perf_counter() - started
+    event_path.write_text(result.stdout, encoding="utf-8")
+    if result.returncode != 0:
+        diagnostic = (result.stderr + "\n" + result.stdout).strip()[-2400:]
+        raise Phase3DRunnerError(
+            f"Codex {case} run failed with exit {result.returncode}: {diagnostic}"
+        )
+    try:
+        final = json.loads(result_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise Phase3DRunnerError(f"Codex {case} final output was not valid JSON") from exc
+    if not isinstance(final, dict):
+        raise Phase3DRunnerError(f"Codex {case} final output was not an object")
+    return {
+        "case": case,
+        "success": True,
+        "wallClockSeconds": round(elapsed, 3),
+        "final": final,
+        **_tool_events(result.stdout),
+    }
+
+
+def _assert_run(read: dict[str, Any], approval: dict[str, Any], resume: dict[str, Any], verification: dict[str, Any]) -> None:
+    expected_tools = {
+        "read": "engagement.inspect",
+        "approval": "actions.run_active",
+        "resume": "tasks.control",
+    }
+    for result in (read, approval, resume):
+        expected = expected_tools[result["case"]]
+        if result.get("toolCalls") != 1 or result.get("toolNames") != [expected]:
+            raise Phase3DRunnerError(
+                f"Codex {result['case']} tool-call acceptance failed: "
+                f"{result.get('toolNames')}"
+            )
+    read_final = read["final"]
+    if (
+        read_final.get("outcomeKind") != "success"
+        or read_final.get("targetCount") != 1
+        or int(read_final.get("endpointCount") or 0) < 1
+    ):
+        raise Phase3DRunnerError(f"Codex read result failed acceptance: {read_final}")
+    approval_final = approval["final"]
+    if (
+        approval_final.get("outcomeKind") != "approval_required"
+        or approval_final.get("dispatch") != "not_started"
+        or not str(approval_final.get("operationHandle") or "").startswith("operation-")
+    ):
+        raise Phase3DRunnerError(f"Codex approval result failed acceptance: {approval_final}")
+    resume_final = resume["final"]
+    if (
+        resume_final.get("outcomeKind") != "success"
+        or resume_final.get("responseStatus") is not None
+        or resume_final.get("trafficDisabled") is not True
+    ):
+        raise Phase3DRunnerError(f"Codex resume result failed acceptance: {resume_final}")
+    if approval_final.get("traceId") != resume_final.get("traceId"):
+        raise Phase3DRunnerError("Codex approval/resume trace continuity failed")
+    if (
+        verification.get("requestStateCount") != 1
+        or verification.get("resumedRequestCount") != 1
+        or verification.get("dispatchCount") != 1
+        or verification.get("dispatchStates") != {"succeeded": 1}
+    ):
+        raise Phase3DRunnerError(f"exactly-once verification failed: {verification}")
+
+
+def _live_gate(*, repetitions: int, model: str, output: Path) -> dict[str, Any]:
+    output.mkdir(parents=True, exist_ok=True)
+    preflight = _codex_preflight()
+    runs: list[dict[str, Any]] = []
+    for repetition in range(1, repetitions + 1):
+        with TemporaryDirectory(prefix="synapse-phase3d-codex-read-") as read_temporary:
+            read_root = Path(read_temporary)
+            read_fixture = _call_internal("prepare-read", read_root)
+            read = _run_codex_case(
+                read_root,
+                output,
+                repetition=repetition,
+                case="read",
+                model=model,
+            )
+        with TemporaryDirectory(prefix="synapse-phase3d-codex-active-") as active_temporary:
+            active_root = Path(active_temporary)
+            active_fixture = _call_internal("prepare-active", active_root)
+            approval = _run_codex_case(
+                active_root,
+                output,
+                repetition=repetition,
+                case="approval",
+                model=model,
+            )
+            handle = str(approval["final"].get("operationHandle") or "")
+            operator = _call_internal("approve", active_root)
+            resume = _run_codex_case(
+                active_root,
+                output,
+                repetition=repetition,
+                case="resume",
+                model=model,
+                operation_handle=handle,
+            )
+            verification = _call_internal("verify", active_root)
+            _assert_run(read, approval, resume, verification)
+            runs.append(
+                {
+                    "repetition": repetition,
+                    "fixtures": {"read": read_fixture, "active": active_fixture},
+                    "cases": [read, approval, resume],
+                    "operator": operator,
+                    "verification": verification,
+                }
+            )
+    document = {
+        "schemaVersion": 1,
+        "capturedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "client": "Codex",
+        "model": model,
+        "surface": "modern-compact",
+        "transport": "stdio",
+        "repetitions": repetitions,
+        "preflight": preflight,
+        "experimentalFeaturesEnabled": False,
+        "externalTargetTraffic": "disabled",
+        "authority": "trusted fixture operator exact step-up",
+        "runs": runs,
+        "overall": "pass",
+    }
+    aggregate = output / "codex-closure-results.json"
+    aggregate.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return document
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--preflight", action="store_true", help="Print stable Codex capability evidence only")
+    parser.add_argument("--run", action="store_true", help="Run the live read and supervised-resume gate")
+    parser.add_argument("--repetitions", type=int, default=3)
+    parser.add_argument("--model", default=DEFAULT_MODEL)
+    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument(
+        "--internal",
+        choices=("prepare-read", "prepare-active", "approve", "verify"),
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument("--root", type=Path, help=argparse.SUPPRESS)
+    args = parser.parse_args()
+    if args.internal:
+        if args.root is None:
+            parser.error("--internal requires --root")
+        print(json.dumps(_internal_call(args.internal, args.root.resolve()), sort_keys=True))
+        return 0
+    if args.repetitions < 1:
+        parser.error("--repetitions must be positive")
+    if args.run:
+        document = _live_gate(
+            repetitions=args.repetitions,
+            model=args.model,
+            output=args.output.expanduser().resolve(),
+        )
+        print(json.dumps(document, indent=2, sort_keys=True))
+        return 0
+    if args.preflight:
+        print(json.dumps(_codex_preflight(), indent=2, sort_keys=True))
+        return 0
+    parser.error("select --preflight or --run")
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

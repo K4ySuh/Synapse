@@ -1,0 +1,206 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-08-23",
+  "baselineCommit": "c356b95412528e3a84c208b759225dd338d7bfd4",
+  "fixture": {
+    "workspaceId": "benchmark",
+    "target": "app.acme-demo.test",
+    "externalTraffic": "disabled",
+    "targetCount": 1,
+    "endpointCount": 2,
+    "parameterCount": 1
+  },
+  "implementations": {
+    "synapse": "0.6.0b0",
+    "python": "3.14.6",
+    "mcpPythonSdk": "2.0.0",
+    "normativeMcpSpecification": "2026-07-28",
+    "codexCli": "0.149.0",
+    "codexModel": "gpt-5.6-sol",
+    "claudeCode": "2.1.220",
+    "mcpInspector": "2.3.0",
+    "mcpConformanceStable": "0.1.16",
+    "mcpConformance20260728": "0.2.0-alpha.11"
+  },
+  "scope": "historical_2026-08-23_preflight_and_read_slice",
+  "clients": {
+    "codex": {
+      "actualNegotiation": {
+        "transport": "loopback_streamable_http",
+        "clientInfo": {
+          "name": "codex-mcp-client",
+          "title": "Codex",
+          "version": "0.149.0"
+        },
+        "requestedProtocol": "2025-06-18",
+        "negotiatedProtocol": "2025-06-18"
+      },
+      "surfaces": [
+        {
+          "surface": "legacy",
+          "transport": "stdio",
+          "hostApprovalMode": "never",
+          "repetitions": 3,
+          "successful": 0,
+          "toolCallsPerRun": [0, 0, 0],
+          "result": "blocked_by_host_approval_policy",
+          "detail": "Legacy tools have no read-only annotations, so Codex refused calls under its default never-approve benchmark policy."
+        },
+        {
+          "surface": "legacy",
+          "transport": "stdio",
+          "hostApprovalMode": "approve",
+          "repetitions": 3,
+          "successful": 3,
+          "selectedTool": "workspace.summary",
+          "toolCallsPerRun": [1, 1, 1],
+          "inputTokensPerRun": [79030, 79284, 60759],
+          "medianInputTokens": 79030
+        },
+        {
+          "surface": "modern-compact",
+          "transport": "stdio",
+          "hostApprovalMode": "never",
+          "repetitions": 3,
+          "successful": 3,
+          "selectedTool": "engagement.inspect",
+          "toolCallsPerRun": [1, 1, 1],
+          "inputTokensPerRun": [63062, 63076, 63052],
+          "medianInputTokens": 63062
+        },
+        {
+          "surface": "modern-compact",
+          "transport": "loopback_streamable_http",
+          "hostApprovalMode": "never",
+          "repetitions": 3,
+          "successful": 3,
+          "selectedTool": "engagement.inspect",
+          "toolCallsPerRun": [1, 1, 1],
+          "inputTokensPerRun": [63373, 63386, 62808],
+          "medianInputTokens": 63373
+        },
+        {
+          "surface": "modern-direct",
+          "transport": "stdio",
+          "hostApprovalMode": "never",
+          "repetitions": 3,
+          "successful": 3,
+          "selectedTool": "workspace.summary",
+          "toolCallsPerRun": [1, 1, 2],
+          "inputTokensPerRun": [77520, 77164, 106286],
+          "medianInputTokens": 77520,
+          "duplicateReadCalls": 1
+        },
+        {
+          "surface": "modern-direct",
+          "transport": "loopback_streamable_http",
+          "hostApprovalMode": "never",
+          "repetitions": 3,
+          "successful": 3,
+          "selectedTool": "workspace.summary",
+          "toolCallsPerRun": [1, 2, 2],
+          "inputTokensPerRun": [77211, 106006, 106030],
+          "medianInputTokens": 106006,
+          "duplicateReadCalls": 2
+        }
+      ],
+      "supervisedResume": {
+        "surface": "modern-compact",
+        "transport": "stdio",
+        "defaultClientResult": "blocked",
+        "applicationOutcome": "approval_required",
+        "dispatch": "not_started",
+        "protocolRequestStateObserved": false,
+        "reason": "The production Codex client negotiated 2025-06-18; Synapse deliberately emits InputRequiredResult only on 2026-07-28.",
+        "underDevelopmentProbe": {
+          "feature": "mcp_2026_07_28",
+          "clientWarning": "under-development and may behave unpredictably",
+          "acceptedForDefaultDecision": false
+        }
+      },
+      "fullCorpusCompleted": false
+    },
+    "claudeCode": {
+      "binaryAvailable": true,
+      "version": "2.1.220",
+      "authenticationPreflight": "failed",
+      "errorClass": "oauth_access_token_expired",
+      "httpStatus": 401,
+      "mcpNegotiationReached": false,
+      "surfacesTested": 0,
+      "fullCorpusCompleted": false,
+      "result": "blocker"
+    },
+    "mcpInspector": {
+      "version": "2.3.0",
+      "actualNegotiation": {
+        "transport": "loopback_streamable_http",
+        "clientInfo": {
+          "name": "inspector-cli",
+          "version": "2.3.0"
+        },
+        "requestedProtocol": "2025-11-25",
+        "negotiatedProtocol": "2025-11-25"
+      },
+      "surfaces": [
+        {
+          "surface": "legacy",
+          "transport": "stdio",
+          "exitCode": 0,
+          "toolCount": 174,
+          "inputSchemaCount": 174,
+          "outputSchemaCount": 0,
+          "annotationCount": 0
+        },
+        {
+          "surface": "modern-compact",
+          "transport": "stdio",
+          "exitCode": 0,
+          "toolCount": 11,
+          "inputSchemaCount": 11,
+          "outputSchemaCount": 11,
+          "annotationCount": 11
+        },
+        {
+          "surface": "modern-compact",
+          "transport": "loopback_streamable_http",
+          "exitCode": 0,
+          "toolCount": 11,
+          "inputSchemaCount": 11,
+          "outputSchemaCount": 11,
+          "annotationCount": 11
+        },
+        {
+          "surface": "modern-direct",
+          "transport": "stdio",
+          "exitCode": 0,
+          "toolCount": 174,
+          "inputSchemaCount": 174,
+          "outputSchemaCount": 174,
+          "annotationCount": 174
+        },
+        {
+          "surface": "modern-direct",
+          "transport": "loopback_streamable_http",
+          "exitCode": 0,
+          "toolCount": 174,
+          "inputSchemaCount": 174,
+          "outputSchemaCount": 174,
+          "annotationCount": 174
+        }
+      ]
+    }
+  },
+  "historicalBlockers": [
+    "Claude Code could not authenticate, so no required Claude transport/surface run reached MCP negotiation.",
+    "Default Codex cannot complete the required protocol-level supervised resume because it negotiates 2025-06-18.",
+    "The complete fixed workflow corpus and latency/evidence matrix was not run after the two mandatory client gates failed."
+  ],
+  "closureAmendment": {
+    "capturedAt": "2026-08-24",
+    "claudeRequired": false,
+    "stableCodexApplicationResumeAccepted": true,
+    "evidence": "codex-closure-results.json",
+    "selectedDefault": "modern-compact"
+  }
+}

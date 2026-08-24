@@ -12,9 +12,11 @@ For setup and workflow steps, see [Operations](../../docs/Operations.md).
 
 ## Execution Profiles And Authority
 
-The default stdio server remains the frozen `legacy` profile: its active tools
-retain their exact `confirm=true` behavior. Migrated actions can also run under
-server-owned `observe`, `supervised`, or `full_delegated` contexts. Those
+The default Codex configuration uses the `modern-compact` stdio profile. The
+frozen `legacy` server remains independently available as rollback/bootstrap;
+its active tools retain their exact `confirm=true` behavior. Migrated actions
+run under server-owned `observe`, `supervised`, or `full_delegated` contexts.
+Those
 profiles evaluate a sealed Registry plan against durable workspace-local
 Authority Grants and atomically reserve a dispatch before the executor runs.
 Caller input cannot select or enlarge the profile, grant, step-up, request
@@ -39,8 +41,8 @@ Phase 3C projects either surface through `synapse-mcp-modern` using the pinned
 official SDK. It supports stdio and authenticated Streamable HTTP, persists
 operation and artifact reference records for restart/multi-worker use, and
 seals resume state with an operator rotation keyring bound to the authenticated
-principal and stable server audience. The legacy `synapse-mcp` launcher remains
-the default; the old spike entry point is a deprecated forwarding alias.
+principal and stable server audience. Phase 3D adopts compact stdio for Codex;
+the old spike entry point is a deprecated forwarding alias.
 
 Authority state lives at
 `DATA/workspaces/<workspace>/authority/state.json`. Manage it with the local
@@ -49,7 +51,9 @@ Authority state lives at
 Covered full-delegated work does not require caller confirmation. Uncovered
 work returns approval-required (`-32001`) without dispatch; scope denial remains
 `-32002`. Supervised modern calls resume through the official SDK
-`request_state` carrier; mutable environment state is not a resume channel.
+`request_state` carrier when negotiated. Compatible older revisions return a
+typed application result with an opaque handle and resume through
+`tasks.control`; mutable environment state is not a resume channel.
 The SDK's sealed client token uses persistent rotation keys in production;
 explicit ephemeral keys are limited to local single-process development. The
 distinct raw authority request remains durable in the workspace repository.

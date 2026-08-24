@@ -24,6 +24,22 @@ durable dispatch and continuation truth.
 
 ### Added
 
+- **Phase 3D stable-Codex closure and compact default.** Added exact checked
+  payload fixtures, reproducible surface measurement, and sanitized client,
+  Inspector, conformance, and adversarial evidence. After preserving the
+  blocked historical two-client attempt, amended closure to the operator's
+  supported client and verified stable Codex 3/3 through passive read,
+  supervised interruption, trusted exact step-up, MCP restart, opaque-handle
+  resume, trace continuity, and exactly-once dispatch without experimental
+  protocol flags or external target traffic. `modern-compact` stdio is now the
+  generated Codex default; legacy remains rollback/bootstrap and direct
+  remains diagnostic. ADR-0004 is Accepted.
+- **Stable application-level approval resume.** Older negotiated MCP revisions
+  retain a typed `approval_required` result with an opaque operation handle;
+  `tasks.control(operation=resume)` restores the sealed request after operator
+  step-up. Server instructions now distinguish this path from protocol-native
+  `input_required`, and a restart/replay regression proves one dispatch.
+
 - **Phase 3C production modern MCP adapter.** Replaced the three-action spike
   with the exact eleven-tool compact and generated 174-tool direct projections
   over the pinned official Python SDK 2.0.0, stdio, and authenticated
@@ -31,9 +47,9 @@ durable dispatch and continuation truth.
   opaque resource links, persistent principal/workspace-bound operation and
   artifact records, server-held authority bindings, rotating principal/audience-
   bound request-state keys, strict remote/TLS/proxy/host/origin startup policy,
-  private HTTP caching, trace continuity, and real subprocess coverage. The
-  legacy launcher remains unchanged and default; the spike command is a
-  deprecated forwarding alias.
+  private HTTP caching, trace continuity, and real subprocess coverage. At the
+  Phase 3C boundary the legacy launcher remained unchanged and default; the
+  spike command is a deprecated forwarding alias.
 
 - **Phase 3B compact and direct application services.** Added an exact
   eleven-operation compact facade plus a deterministic 174-operation direct

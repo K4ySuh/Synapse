@@ -60,8 +60,9 @@ working directory.
 
 `bin/check-setup` validates required Synapse prerequisites, confirms the
 Synapse MCP starts, reports optional Burp MCP readiness as warnings, and prints
-client config. `bin/print-mcp-config` prints config without running the checks;
-it emits an enabled Burp block only when the optional launcher is present.
+client config. `bin/print-mcp-config` prints modern compact Codex config without
+running the checks; `--legacy` selects rollback, and an enabled Burp block is
+emitted only when the optional launcher is present.
 
 ## Data Layout
 

@@ -95,7 +95,15 @@ prior assessment knowledge available through MCP tools and resources.
 ## Modernization Status
 
 Phase 3C completes the production official-SDK adapter over the
-protocol-independent modern application surfaces. `synapse-mcp-modern` serves
+protocol-independent modern application surfaces. Phase 3D is complete under
+the operator-approved stable-Codex contract. Codex can use protocol-native
+request state when negotiated or the typed `approval_required` plus opaque
+`tasks.control` resume path on older revisions; both remain bound to trusted
+server-held authority and exactly-once dispatch. No Anthropic account or
+under-development Codex protocol feature is required. `modern-compact` stdio is
+the Codex default and ADR-0004 is Accepted.
+
+`synapse-mcp-modern` serves
 either the eleven-operation `modern-compact` projection or the generated
 174-operation `modern-direct` projection over stdio or authenticated
 Streamable HTTP. The adapter pins official Python MCP SDK 2.0.0, negotiates MCP
@@ -103,7 +111,12 @@ Streamable HTTP. The adapter pins official Python MCP SDK 2.0.0, negotiates MCP
 artifact records, and uses rotating principal/audience-bound request-state
 keys. Remote HTTP is disabled by default and fails startup without explicit
 host/origin, authentication, persistent keyring, and TLS trust configuration.
-The frozen legacy stdio launcher remains the default pending Phase 3D.
+The exact Phase 3D payloads are 99,337 bytes for legacy, 21,648 bytes for
+compact, and 578,249 bytes for direct. See the
+[Phase 3 handoff](docs/modernization/phase-3-handoff.md) for client evidence and
+the reproducible three-run closure gate. The frozen legacy launcher remains an
+independent rollback/bootstrap profile; modern direct remains explicit
+diagnostic compatibility.
 
 Phase 3B completed the protocol-independent modern application surfaces. The
 eleven-operation compact facade provides engagement, context, catalog,
@@ -120,7 +133,7 @@ authorization intents, and expose one generated inventory for aliases,
 availability, implementation identity, serializer ownership, and parity. Six
 actions use native pack executors; the other 168 use a protocol-free bridge to
 the retained implementation adapter, preserving per-action rollback. The
-legacy 174-tool stdio surface remains the default compatibility surface and
+legacy 174-tool stdio surface remains the frozen compatibility rollback and
 still uses its existing `confirm=true` gates.
 
 Authority-aware execution now persists workspace-local grants, revisions,
@@ -339,7 +352,7 @@ Recommended optional tooling:
    python3 -m venv .venv
    . .venv/bin/activate
    python -m pip install -U pip
-   python -m pip install -e '.[browser]'
+   python -m pip install -e '.[browser,modern]'
    python -m playwright install chromium
    ```
 
@@ -365,11 +378,13 @@ Recommended optional tooling:
    bin/print-mcp-config
    ```
 
-MCP clients should launch `MCPS/Synapse-MCP/bin/synapse-mcp` rather than a
-system `python3`, so browser-auth dependencies come from the repository venv.
-Both launchers source local configuration from `config/synapse.env`; runtime
-data stays under `SYNAPSE_ROOT/DATA` by default. Shodan API keys are never
-stored in config — set them only at runtime with `shodan.session_key.set`.
+Codex should use the modern compact command emitted by
+`bin/print-mcp-config`; use `bin/print-mcp-config --legacy` only for rollback or
+bootstrap compatibility. Both profiles use the repository venv rather than a
+system Python so browser-auth and pinned MCP dependencies stay consistent.
+Runtime data stays under `SYNAPSE_ROOT/DATA` by default. Shodan API keys are
+never stored in config — set them only at runtime with
+`shodan.session_key.set`.
 
 Optional Burp MCP support is not required for Synapse MCP, offline dump
 analysis, workspace memory, passive triage, or reports. Install it only when

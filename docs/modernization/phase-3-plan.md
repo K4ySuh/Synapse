@@ -1,12 +1,14 @@
 # Phase 3 execution plan
 
-Status: active; Phase 3C complete
+Status: complete; `modern-compact` is the Codex default
 Started: 2026-08-19
 Baseline: `6f46dae128520e06056dce50632e750023aedc80` on `Beta`
 
 This plan implements the operator-provided Phase 3 execution pack as four
-strictly sequential sessions. Sessions 3A, 3B, and 3C are complete.
-Interoperability/default work remains isolated to Session 3D.
+strictly sequential sessions. Sessions 3A through 3D are complete. The original
+2026-08-23 two-client gate remains historical evidence; the operator-approved
+2026-08-24 amendment closes against stable Codex without Claude or an
+experimental protocol flag.
 
 ## Session sequence
 
@@ -15,7 +17,29 @@ Interoperability/default work remains isolated to Session 3D.
 | 3A | Canonical descriptors, implementations, inventory, and frozen legacy parity for all 174 actions | `PHASE_3A_PASS` |
 | 3B | Protocol-independent compact and direct services | `PHASE_3B_PASS` |
 | 3C | Official-SDK modern MCP adapter, identity, and durable request-state security | `PHASE_3C_PASS` |
-| 3D | Fixed-corpus interoperability, default decision, conformance, and formal closure | Separate Codex session after 3C passes |
+| 3D | Fixed-corpus interoperability, default decision, conformance, and formal closure | `PHASE_3_PASS` |
+
+## Session 3D outcome
+
+- The exact payload gate passes: legacy remains 174 tools / 99,337 bytes,
+  compact is 11 / 21,648 bytes, and direct is 174 / 578,249 bytes.
+- The original two-client attempt is preserved but superseded. Claude is no
+  longer a required client, and stable Codex may use Synapse's application-
+  level approval handle when its negotiated revision cannot carry protocol
+  request state.
+- `bin/run-phase3d-codex` explicitly leaves the under-development
+  `mcp_2026_07_28` feature disabled and runs the fictional no-network fixture
+  three times through real `codex exec` sessions.
+- All three repetitions passed passive inspection, one approval interruption,
+  exact trusted step-up, MCP process restart, opaque-handle resume, trace
+  continuity, and exactly one successful dispatch. Each of the nine stages
+  made exactly one expected MCP tool call with no duplicate calls.
+- Inspector and automated suites retain discovery, Streamable HTTP, protocol,
+  resource, job, denial, cross-binding, and frozen-legacy coverage.
+
+`modern-compact` stdio is adopted as the Codex default. `legacy` remains a
+frozen rollback/bootstrap profile; `modern-direct` remains explicit and
+diagnostic. ADR-0004 is Accepted, with no legacy removal date.
 
 ## Phase 3A gates
 

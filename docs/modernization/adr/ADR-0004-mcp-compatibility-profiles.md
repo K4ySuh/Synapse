@@ -1,7 +1,7 @@
 # ADR-0004: Legacy and modern MCP compatibility profiles
 
-- Status: Proposed
-- Date: 2026-07-28
+- Status: Accepted
+- Date: 2026-08-24
 - Owners: Synapse architectural lead
 - Applies from: Phase 3 after acceptance
 - Supersedes: None
@@ -15,7 +15,7 @@ Python MCP SDK is not a core dependency. Phase 0 fixtures now preserve
 initialization, tools, resources, prompts, errors, and representative results,
 while P0-3 provides a behavioral corpus for volatile workflows.
 
-Rechecked on 2026-08-20, the normative MCP revision remains `2026-07-28` and
+Rechecked on 2026-08-23, the normative MCP revision remains `2026-07-28` and
 the official Python SDK stable release remains 2.0.0. Phase 3C pins
 `mcp==2.0.0` in the isolated `modern` optional extra. Sources: the
 [official specification](https://modelcontextprotocol.io/specification/2026-07-28),
@@ -67,8 +67,25 @@ server-held workspace/authority sessions, and uses a rotating keyring whose
 first key seals while every configured key may unseal. Sealed request state is
 bound to the principal and stable audience. Loopback remains the HTTP default;
 remote startup requires explicit enablement, authentication, allowed hosts and
-origins, a persistent keyring, and direct-TLS or trusted-proxy policy. This does
-not change the Phase 3D default decision: `synapse-mcp` remains the default.
+origins, a persistent keyring, and direct-TLS or trusted-proxy policy. This did
+not preselect the Phase 3D default decision.
+
+The original 2026-08-23 Phase 3D attempt did not meet its two-client rule:
+Claude Code could not authenticate and stable Codex negotiated an older wire
+revision. On 2026-08-24 the operator removed Claude as a required client and
+approved a Codex-only closure amendment. The amendment treats protocol-native
+`input_required` and Synapse's typed application-level approval handle as
+equivalent safe carriers, provided restart, binding, replay, and exactly-once
+tests pass. It forbids under-development Codex protocol flags.
+
+Codex CLI `0.149.0` then passed three independent modern-compact stdio runs.
+Each run performed one passive read, one supervised interruption with no
+dispatch, one exact trusted step-up, a fresh MCP process, one opaque-handle
+resume, trace continuity, and exactly one successful dispatch. Inspector and
+automated suites retain both-transport, protocol, conformance-classification,
+security, workflow, and legacy-contract coverage. `modern-compact` stdio is
+therefore the Codex default. `legacy` remains the frozen rollback/bootstrap
+path and `modern-direct` remains explicit diagnostic compatibility.
 
 ## Invariants
 
@@ -95,7 +112,9 @@ not change the Phase 3D default decision: `synapse-mcp` remains the default.
 - Request-state keys, authority bindings, and bearer-token digests are private
   operator files. Remote HTTP fails closed without persistent rotation and an
   explicit transport trust policy.
-- Modern adoption is additive until both target clients pass the fixed benchmark corpus.
+- Modern adoption is additive and must retain a passing stable-Codex live gate,
+  deterministic payloads, server-side workflow/security suites, and the frozen
+  legacy rollback contract.
 
 ## Alternatives considered
 
@@ -135,8 +154,9 @@ not change the Phase 3D default decision: `synapse-mcp` remains the default.
 - Security: Display metadata remains informational; policy uses server-held
   scope and authority. Compact operation and resource handles contain no grant
   secret or authority session and cannot be replayed across bindings.
-- Compatibility: No legacy removal date is implied, and target clients must
-  pass the same workflow corpus before modern adoption.
+- Compatibility: No legacy removal date is implied. Additional clients are
+  compatibility targets, not adoption blockers, unless the operator explicitly
+  adds them to a future acceptance contract.
 
 ## Migration and rollback
 
@@ -152,17 +172,18 @@ The current rollback is to stop `synapse-mcp-modern` and use the unchanged
 required.
 
 The legacy launcher, canonical Registry, and retained implementation bridge do
-not depend on `app/facade/` or `transport/modern/`. The production modern
-adapter remains additive until Phase 3D completes fixed-corpus client and
-conformance evaluation.
+not depend on `app/facade/` or `transport/modern/`. The 2026-08-23 blocked run
+and the 2026-08-24 Codex closure amendment are both recorded in the Phase 3
+handoff and machine-readable evidence. Rollback remains a configuration choice,
+not a data migration.
 
 ## Verification
 
 - Run every Tier-1 and Tier-2 contract under the legacy profile.
 - Compare modern responses as exact, semantically equivalent, or intentionally
   changed with a recorded decision.
-- Run the seven-workflow corpus through both target clients against identical
-  scope, authority, and workspace data.
+- Run the stable-Codex live read/approval/restart/resume gate three times
+  against the fictional disabled-traffic fixture.
 - Test protocol negotiation and refusal of unsupported revisions.
 - Cross-product test wire revision, selected surface, and authority profile so
   no dimension silently selects either of the others.

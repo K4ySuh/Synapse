@@ -99,6 +99,18 @@ check_python_module_optional() {
     fi
 }
 
+check_python_module_required() {
+    label="$1"
+    module="$2"
+    if "$SYNAPSE_PYTHON" -c "import $module" >/dev/null 2>&1; then
+        printf 'OK   required Python module %s: importable with %s\n' "$label" "$SYNAPSE_PYTHON"
+    else
+        printf 'MISS required Python module %s: not importable with %s\n' "$label" "$SYNAPSE_PYTHON"
+        printf '     The virtual environment may be incomplete or stale after a Python upgrade; rebuild it and reinstall Synapse.\n'
+        ok=1
+    fi
+}
+
 check_file() {
     label="$1"
     path="$2"
@@ -156,11 +168,22 @@ else
     ok=1
 fi
 printf 'OK   Shodan API key: runtime-only via shodan.session_key.set\n'
+check_python_module_required "httpx" "httpx"
+check_python_module_required "pydantic" "pydantic"
+check_python_module_required "mcp 2.0 modern runtime" "mcp"
 check_python_module_optional "playwright" "playwright.sync_api"
 check_python_module_optional "selenium" "selenium"
 check_file "env file" "$ENV_FILE"
 check_file "agent instructions" "$ROOT_DIR/AGENTS.md"
 check_file "Synapse MCP launcher" "$ROOT_DIR/MCPS/Synapse-MCP/bin/synapse-mcp"
+check_file_optional \
+    "modern identity binding" \
+    "$ROOT_DIR/DATA/modern-adapter/identity-bindings.json" \
+    "Provision this private 0600 operator file before enabling the generated modern Codex profile."
+check_file_optional \
+    "modern request-state keyring" \
+    "$ROOT_DIR/DATA/modern-adapter/request-state-keyring.json" \
+    "Provision this private 0600 operator file before enabling restart-safe approval resume."
 
 printf '\nRecommended optional Burp MCP checks:\n'
 check_cmd_optional "java" "Java is needed only when launching the optional PortSwigger Burp MCP proxy jar."
@@ -170,35 +193,45 @@ printf '\nSynapse MCP check:\n'
 if [ -x "$ROOT_DIR/MCPS/Synapse-MCP/bin/synapse-mcp" ]; then
     response=$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' |
         PYTHONDONTWRITEBYTECODE=1 \
-        "$ROOT_DIR/MCPS/Synapse-MCP/bin/synapse-mcp" 2>/dev/null)
-    missing_tools=""
-    for tool in \
-        "shodan.session_key.set" \
-        "nmap.run_profile" \
-        "nuclei.run_profile" \
-        "ffuf.run_profile" \
-        "sitemap.from_dump" \
-        "crawler.crawl" \
-        "credentials.set_browser_auth_profile" \
-        "credentials.browser_auth_check_setup" \
-        "credentials.browser_authenticate" \
-        "credentials.validate_session" \
-        "xss.analyze_dump" \
-        "documentation.build_report_context" \
-        "project.start" \
-        "fingerprint.from_dump" \
-        "fingerprint.read_host" \
-        "evidence.host_context"; do
-        case "$response" in
-            *"\"$tool\""*) ;;
-            *) missing_tools="$missing_tools $tool" ;;
-        esac
-    done
-    if [ -z "$missing_tools" ]; then
-        printf 'OK   Synapse MCP starts and exposes expected adapter tools\n'
-    else
-        printf 'MISS Synapse MCP started but missing expected tools:%s\n' "$missing_tools"
+        "$ROOT_DIR/MCPS/Synapse-MCP/bin/synapse-mcp" 2>&1)
+    startup_status=$?
+    if [ "$startup_status" -ne 0 ]; then
+        printf 'MISS Synapse MCP failed to start (exit %s)\n' "$startup_status"
+        printf '%s\n' "$response" | sed 's/^/     /'
         ok=1
+    elif [ -z "$response" ]; then
+        printf 'MISS Synapse MCP exited without returning a tools/list response\n'
+        ok=1
+    else
+        missing_tools=""
+        for tool in \
+            "shodan.session_key.set" \
+            "nmap.run_profile" \
+            "nuclei.run_profile" \
+            "ffuf.run_profile" \
+            "sitemap.from_dump" \
+            "crawler.crawl" \
+            "credentials.set_browser_auth_profile" \
+            "credentials.browser_auth_check_setup" \
+            "credentials.browser_authenticate" \
+            "credentials.validate_session" \
+            "xss.analyze_dump" \
+            "documentation.build_report_context" \
+            "project.start" \
+            "fingerprint.from_dump" \
+            "fingerprint.read_host" \
+            "evidence.host_context"; do
+            case "$response" in
+                *"\"$tool\""*) ;;
+                *) missing_tools="$missing_tools $tool" ;;
+            esac
+        done
+        if [ -z "$missing_tools" ]; then
+            printf 'OK   Synapse MCP starts and exposes expected adapter tools\n'
+        else
+            printf 'MISS Synapse MCP started but missing expected tools:%s\n' "$missing_tools"
+            ok=1
+        fi
     fi
 else
     printf 'MISS Synapse MCP launcher is not executable\n'

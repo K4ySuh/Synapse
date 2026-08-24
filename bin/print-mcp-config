@@ -4,24 +4,82 @@ set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 ROOT_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 BURP_LAUNCHER="$ROOT_DIR/MCPS/Burp-Mcp/bin/portswigger-burp-mcp"
+PROFILE=modern-compact
+INCLUDE_CLAUDE=0
+
+usage() {
+    cat <<'EOF'
+Usage: bin/print-mcp-config [--modern-compact | --legacy] [--include-claude]
+
+Print the recommended Codex MCP configuration. modern-compact is the default;
+legacy prints the frozen rollback profile. Claude JSON is optional and omitted
+unless --include-claude is supplied.
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --modern-compact) PROFILE=modern-compact ;;
+        --legacy) PROFILE=legacy ;;
+        --include-claude) INCLUDE_CLAUDE=1 ;;
+        --help|-h) usage; exit 0 ;;
+        *) printf 'Unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
+    esac
+    shift
+done
 
 cat <<EOF
 # Add this to your Codex MCP config.
-# - synapse: scope, evidence, dumps, analysis, ffuf, nmap, Shodan, reporting
-# - burp: optional but recommended live Burp Suite connectivity through
-#   PortSwigger's MCP proxy
+# - synapse: scope, evidence, analysis, controlled execution, and reporting
+# - burp: optional live Burp Suite connectivity
 #
-# The synapse launcher is venv-aware. It uses SYNAPSE_PYTHON when set,
-# otherwise the active VIRTUAL_ENV, then $ROOT_DIR/.venv/bin/python if present.
+# Shodan keys are runtime-only. Never put SHODAN_API_KEY in this file.
+EOF
+
+if [ "$PROFILE" = modern-compact ]; then
+    cat <<EOF
 #
-# Shodan keys are runtime-only. Do not put SHODAN_API_KEY here; set it during a
-# session with the Synapse MCP tool shodan.session_key.set.
+# Phase 3D default: the eleven-operation modern-compact stdio surface.
+# Provision the private 0600 identity binding and request-state keyring before
+# starting this server. Authority Grants remain server-held; Codex approval of
+# an MCP invocation does not grant Synapse execution authority.
+
+[mcp_servers.synapse]
+command = "$ROOT_DIR/.venv/bin/python"
+args = [
+  "-m", "synapse_mcp.transport.modern",
+  "--surface", "modern-compact",
+  "--transport", "stdio",
+  "--server-name", "synapse",
+  "--audience", "synapse",
+  "--identity-bindings", "$ROOT_DIR/DATA/modern-adapter/identity-bindings.json",
+  "--stdio-principal", "local-operator",
+  "--request-state-keyring", "$ROOT_DIR/DATA/modern-adapter/request-state-keyring.json",
+  "--state-dir", "$ROOT_DIR/DATA/modern-adapter/state"
+]
+required = true
+default_tools_approval_mode = "approve"
+startup_timeout_sec = 20
+tool_timeout_sec = 120
+
+[mcp_servers.synapse.env]
+SYNAPSE_ROOT = "$ROOT_DIR"
+SYNAPSE_DATA_DIR = "$ROOT_DIR/DATA"
+PYTHONPATH = "$ROOT_DIR/MCPS/Synapse-MCP"
+EOF
+else
+    cat <<EOF
+#
+# Frozen Phase 0-compatible rollback profile.
+# The launcher is venv-aware: SYNAPSE_PYTHON, active VIRTUAL_ENV, repository
+# .venv, then python3.
 
 [mcp_servers.synapse]
 command = "$ROOT_DIR/MCPS/Synapse-MCP/bin/synapse-mcp"
 args = []
 startup_timeout_sec = 10
 EOF
+fi
 
 if [ -x "$BURP_LAUNCHER" ]; then
     cat <<EOF
@@ -34,8 +92,7 @@ EOF
 else
     cat <<EOF
 
-# Optional Burp MCP entry. Uncomment after installing the Burp MCP proxy
-# launcher at $BURP_LAUNCHER.
+# Optional Burp MCP entry. Uncomment after installing the launcher.
 #
 # [mcp_servers.burp]
 # command = "$BURP_LAUNCHER"
@@ -44,33 +101,41 @@ else
 EOF
 fi
 
+if [ "$INCLUDE_CLAUDE" -eq 0 ]; then
+    exit 0
+fi
+
+if [ "$PROFILE" = modern-compact ]; then
+    CLAUDE_COMMAND="$ROOT_DIR/.venv/bin/python"
+    CLAUDE_ARGS=$(cat <<EOF
+        "-m", "synapse_mcp.transport.modern",
+        "--surface", "modern-compact",
+        "--transport", "stdio",
+        "--server-name", "synapse",
+        "--audience", "synapse",
+        "--identity-bindings", "$ROOT_DIR/DATA/modern-adapter/identity-bindings.json",
+        "--stdio-principal", "local-operator",
+        "--request-state-keyring", "$ROOT_DIR/DATA/modern-adapter/request-state-keyring.json",
+        "--state-dir", "$ROOT_DIR/DATA/modern-adapter/state"
+EOF
+)
+else
+    CLAUDE_COMMAND="$ROOT_DIR/MCPS/Synapse-MCP/bin/synapse-mcp"
+    CLAUDE_ARGS=""
+fi
+
 cat <<EOF
 
-# Add this to your local .mcp.json for Claude Code, or merge the "synapse"
-# entry into your existing mcpServers. Do not commit local MCP configuration
-# files because they often contain absolute paths.
-
+# Optional Claude Code configuration. This block is never printed unless
+# --include-claude is explicitly requested.
 {
   "mcpServers": {
     "synapse": {
-      "command": "$ROOT_DIR/MCPS/Synapse-MCP/bin/synapse-mcp",
-      "args": []
-EOF
-
-if [ -x "$BURP_LAUNCHER" ]; then
-    cat <<EOF
-    },
-    "burp": {
-      "command": "$BURP_LAUNCHER",
-      "args": []
+      "command": "$CLAUDE_COMMAND",
+      "args": [
+$CLAUDE_ARGS
+      ]
     }
   }
 }
 EOF
-else
-    cat <<EOF
-    }
-  }
-}
-EOF
-fi

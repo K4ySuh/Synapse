@@ -1,9 +1,9 @@
 # Phase 3 running status
 
-Updated: 2026-08-20
-Current session: Phase 3C — production modern MCP adapter
+Updated: 2026-08-24
+Current session: Phase 3D — complete
 Baseline: `6f46dae128520e06056dce50632e750023aedc80` on `Beta`
-State: Sessions 3A, 3B, and 3C complete; Session 3D not started
+State: Sessions 3A through 3D complete; modern compact adopted for Codex
 
 ## Preflight
 
@@ -355,3 +355,150 @@ wire negotiation did not select a surface or authority profile.
   or a public deployment opinion.
 
 PHASE_3C_PASS
+
+## Session 3D preflight and fixed method
+
+- Phase 3C was revalidated and committed as
+  `c356b95412528e3a84c208b759225dd338d7bfd4`. The reviewed
+  `6f46dae128520e06056dce50632e750023aedc80` baseline remains an ancestor.
+  Unrelated operator setup-repair changes in `bin/check-setup` and the first
+  setup section of `docs/Operations.md` remained outside that commit.
+- All three predecessor tokens were present. Fresh predecessor gates passed:
+  596 core tests, 2 adapter-template tests, 12 production modern adapter tests,
+  38 focused facade/Registry/adapter tests, compileall, the 174-action generated
+  inventory, and diff hygiene.
+- The benchmark method, exact fixture, three-repetition rule, comparison
+  tolerances, no-network policy, and error/security ceilings were frozen before
+  client results. The named implementations were Synapse `0.6.0b0`, Python
+  `3.14.6`, MCP SDK `2.0.0`, normative MCP `2026-07-28`, Codex CLI `0.149.0`
+  with `gpt-5.6-sol`, Claude Code `2.1.220`, Inspector `2.3.0`, stable
+  conformance `0.1.16`, and `2026-07-28` conformance alpha
+  `0.2.0-alpha.11`.
+
+## Payload and live-client evidence
+
+- The exact frozen serializer reproduced legacy at 174 tools / 99,337 bytes.
+  Compact is 11 / 21,648 bytes (21.793% of legacy, below 24,834) and direct is
+  174 / 578,249 bytes. Repeated generation and checked SHA-256 fixtures are
+  deterministic.
+- Codex completed the fixed workspace read slice 3/3 over compact stdio, 3/3
+  over compact HTTP, 3/3 over direct stdio, and 3/3 over direct HTTP. Compact
+  made one read call in every run. Direct repeated the same read in 1/3 stdio
+  and 2/3 HTTP runs. Legacy completed 3/3 only after the server's default tool
+  approval mode was explicitly set to approve; under the default never-approve
+  benchmark policy, all three legacy reads were host-blocked because the frozen
+  tools have no read-only annotations.
+- Median Codex input tokens were 79,030 for configured legacy stdio, 63,062 for
+  compact stdio, 63,373 for compact HTTP, 77,520 for direct stdio, and 106,006
+  for direct HTTP. No latency conclusion is claimed because exploratory slice
+  wall-clock records were not retained.
+- A captured production Codex initialize exchange requested and negotiated MCP
+  `2025-06-18`. An uncovered active call correctly returned
+  approval-required with no dispatch, but no protocol request state was
+  available to the client. Forcing only the protocol environment did not
+  change that. Codex's `mcp_2026_07_28` feature emitted an explicit
+  under-development/unpredictable warning and is not accepted as a production
+  interoperability result.
+- Claude Code's binary was installed, but its first live request returned HTTP
+  401 because the OAuth access token had expired. No Claude MCP negotiation or
+  surface run occurred. The task brief makes this a blocker, not an exception.
+  The complete two-client corpus therefore stopped before active/resume cases.
+
+## Inspector, conformance, and adversarial evidence
+
+- Inspector `2.3.0` passed discovery over compact stdio/HTTP and direct
+  stdio/HTTP with all modern input/output schemas and annotations. Legacy stdio
+  retained its exact 174 input-only tool contracts. Inspector requested and
+  negotiated `2025-11-25` over HTTP.
+- Stable conformance `0.1.16` does not recognize `2026-07-28` and cannot inject
+  the required bearer header. Alpha `0.2.0-alpha.11`, run through a local
+  auth-injection proxy, passed tools-list 3/3 and caching 7/7. Its stateless
+  scenario passed 23/28 with five failures and two warnings in missing client-
+  capability diagnostics and subscription-stream behavior. Its JSON Schema
+  and custom-header cases require runner-specific fixture tools/annotations.
+  One standard-header case passed 13/14 but is inconclusive because the proxy,
+  not Synapse, rejected deliberately padded header whitespace. Proxy-mediated
+  runs do not count for Host or DNS-rebinding claims.
+- Fresh automated evidence passed 12/12 production adapter tests and 125/125
+  focused payload/facade/architecture/legacy/authority/job/workflow tests.
+  These cover structured output, typed input, identity spoofing, authority-
+  argument injection, cross-binding resource/resume attacks, key rotation,
+  restart, expiry, tamper, exactly-once behavior, transport headers, remote
+  startup, cancellation/finalization races, trace continuity, and frozen
+  legacy parity.
+
+## Historical 2026-08-23 blockers
+
+1. Reauthenticate Claude Code through its first-party operator flow, record its
+   exact successful model and negotiated revision, and run every retained
+   surface/transport/corpus repetition.
+2. Re-run against a stable Codex release whose production MCP client negotiates
+   `2026-07-28` and exposes protocol request state; do not use the warned
+   under-development feature as release evidence.
+3. Resolve or explicitly accept the five applicable `2026-07-28` stateless/
+   subscription conformance failures, and use an official runner with bearer
+   header support so raw Host/header cases reach Synapse directly.
+4. Complete the fixed latency, evidence, resource, background-task, malformed,
+   denial, cross-binding, restart, and supervised-resume matrix for both
+   required clients. Only then reconsider compact as default and ADR-0004.
+
+At the end of the 2026-08-23 attempt, the default remained the frozen
+`synapse-mcp` legacy launcher. Modern compact and direct remained explicit
+opt-in evaluation surfaces; no legacy path was removed and ADR-0004 remained
+Proposed.
+
+PHASE_3_BLOCKED_HISTORICAL
+
+## Session 3D Codex-only closure amendment
+
+- On 2026-08-24 the operator removed Claude Code as a required client. The
+  original results above remain immutable historical evidence; they are not
+  represented as a completed two-client run.
+- The revised contract accepts the modern adapter's application-level carrier
+  on older negotiated revisions: typed `approval_required`, a random opaque
+  `operationHandle`, trusted exact step-up outside MCP, then
+  `tasks.control(operation=resume)`. Protocol-native `input_required` remains
+  available whenever the negotiated revision supports it.
+- `SERVER_INSTRUCTIONS` now tells compatible clients which carrier to use.
+  The resume service restores the original action, arguments, workspace,
+  principal, session, grant, trace/correlation, and idempotency binding; caller
+  input still cannot assert authority.
+- Added a production-legacy-protocol modern adapter regression that restarts
+  the runtime, resumes the compact handle, rejects replay, and observes exactly
+  one HTTP request.
+- Added `bin/run-phase3d-codex`. Its preflight records Codex version/feature
+  maturity and refuses to rely on the under-development MCP feature. The live
+  fixture is fictional, uses separate observe and supervised grants, stores
+  temporary private files as `0600`, disables target traffic, records Codex
+  JSONL, and fails on any unexpected or duplicate MCP tool call.
+- The accepted Codex CLI `0.149.0` / `gpt-5.6-sol` batch passed 3/3. Every run
+  made one `engagement.inspect`, one `actions.run_active`, and one
+  `tasks.control` call. Approval dispatch was `not_started`; a trusted exact
+  step-up followed; resume ran in a new MCP process with trace continuity; the
+  durable repository recorded one resumed request and one succeeded dispatch.
+  Across nine stages there were nine expected calls and zero duplicates.
+- Median wall times were 11.689 seconds for read, 16.445 seconds for approval,
+  and 15.169 seconds for resume. Median input tokens were 61,383, 40,318, and
+  68,787 respectively. No external target traffic or credential material was
+  used.
+- `bin/print-mcp-config` now emits `modern-compact` stdio for Codex by default.
+  It emits no Claude configuration unless explicitly requested. `--legacy`
+  prints the unchanged frozen rollback launcher.
+- Final verification passed 13/13 production modern tests, 598/598 core tests,
+  2/2 adapter-template tests, the exact Phase 3 payload fixture gate,
+  compileall, generated 174-action inventory, setup/config checks, JSON/TOML
+  parsing, secret/opaque-ID scan, and diff hygiene.
+
+The payload, Inspector, official-SDK, conformance-classification, adversarial,
+legacy-contract, workflow, and full-suite evidence above remains supporting
+evidence. The alpha runner's subscription and fixture-specific failures are
+accepted as non-blocking because those capabilities/tools are not advertised
+by the production Synapse surface; repository transport tests remain the
+direct security evidence. Streamable HTTP stays supported but is not the local
+Codex default.
+
+The selected default is `modern-compact` stdio for Codex. The legacy launcher
+is retained as an independent rollback/bootstrap path, `modern-direct` remains
+explicit diagnostic compatibility, and no legacy removal date is implied.
+
+PHASE_3_PASS

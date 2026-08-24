@@ -1,0 +1,151 @@
+#!/usr/bin/env python3
+# Copyright 2026 Javier Roldán Ortiz
+# SPDX-License-Identifier: Apache-2.0
+
+"""Generate or verify the Phase 3 MCP surface payload fixtures."""
+
+from __future__ import annotations
+
+import argparse
+from hashlib import sha256
+import json
+from pathlib import Path
+import sys
+from typing import Any
+
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+PACKAGE_DIR = ROOT_DIR / "MCPS" / "Synapse-MCP"
+FIXTURE_DIR = PACKAGE_DIR / "tests" / "fixtures" / "phase3d"
+MANIFEST_PATH = FIXTURE_DIR / "payload-manifest.json"
+if str(PACKAGE_DIR) not in sys.path:
+    sys.path.insert(0, str(PACKAGE_DIR))
+
+
+def _surface_values() -> tuple[tuple[str, list[dict[str, Any]]], ...]:
+    from synapse_mcp.app.facade import CompactProjection, DirectProjection
+    from synapse_mcp.transport.stdio_server import TOOL_SCHEMAS
+
+    return (
+        ("legacy", list(TOOL_SCHEMAS)),
+        (
+            "modern-compact",
+            [
+                operation.model_dump(mode="json", by_alias=True)
+                for operation in CompactProjection().operations()
+            ],
+        ),
+        (
+            "modern-direct",
+            [
+                operation.model_dump(mode="json", by_alias=True)
+                for operation in DirectProjection().operations()
+            ],
+        ),
+    )
+
+
+def _serialize(value: list[dict[str, Any]]) -> bytes:
+    # This is the frozen Phase 0/3 payload boundary. Keep json.dumps defaults:
+    # ensure_ascii=True accounts for the six-byte legacy baseline delta.
+    return json.dumps(value, separators=(",", ":")).encode("utf-8")
+
+
+def _document() -> tuple[dict[str, Any], dict[str, bytes]]:
+    payloads: dict[str, bytes] = {}
+    measurements: dict[str, dict[str, Any]] = {}
+    for name, value in _surface_values():
+        payload = _serialize(value)
+        payloads[name] = payload
+        measurements[name] = {
+            "toolCount": len(value),
+            "compactUtf8Bytes": len(payload),
+            "sha256": sha256(payload).hexdigest(),
+            "fixture": f"{name}-tools.json",
+        }
+    legacy_bytes = measurements["legacy"]["compactUtf8Bytes"]
+    compact_bytes = measurements["modern-compact"]["compactUtf8Bytes"]
+    return (
+        {
+            "schemaVersion": 1,
+            "serialization": "json.dumps(value, separators=(',', ':')).encode('utf-8')",
+            "legacyBaselineBytes": 99_337,
+            "compactMaximumBytes": 24_834,
+            "compactStrictlyBelowLegacyQuarter": compact_bytes * 4 < legacy_bytes,
+            "surfaces": measurements,
+        },
+        payloads,
+    )
+
+
+def _write() -> int:
+    document, payloads = _document()
+    FIXTURE_DIR.mkdir(parents=True, exist_ok=True)
+    for name, payload in payloads.items():
+        (FIXTURE_DIR / f"{name}-tools.json").write_bytes(payload + b"\n")
+    MANIFEST_PATH.write_text(
+        json.dumps(document, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    print(f"wrote Phase 3 surface fixtures: {FIXTURE_DIR}")
+    return 0
+
+
+def _check() -> int:
+    document, payloads = _document()
+    failures: list[str] = []
+    if not MANIFEST_PATH.is_file():
+        failures.append(f"missing {MANIFEST_PATH}")
+    else:
+        try:
+            actual_manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            failures.append(f"invalid {MANIFEST_PATH}: {exc}")
+        else:
+            if actual_manifest != document:
+                failures.append(f"stale {MANIFEST_PATH}")
+    for name, payload in payloads.items():
+        path = FIXTURE_DIR / f"{name}-tools.json"
+        if not path.is_file():
+            failures.append(f"missing {path}")
+            continue
+        if path.read_bytes() != payload + b"\n":
+            failures.append(f"stale {path}")
+    legacy = document["surfaces"]["legacy"]
+    compact = document["surfaces"]["modern-compact"]
+    if legacy["toolCount"] != 174 or legacy["compactUtf8Bytes"] != 99_337:
+        failures.append("legacy payload boundary changed")
+    if compact["toolCount"] != 11 or compact["compactUtf8Bytes"] > 24_834:
+        failures.append("modern-compact payload gate failed")
+    if not document["compactStrictlyBelowLegacyQuarter"]:
+        failures.append("modern-compact is not strictly below 25% of legacy")
+    if failures:
+        for failure in failures:
+            print(f"FAIL {failure}", file=sys.stderr)
+        return 1
+    print(
+        "Phase 3 surface fixtures are current: "
+        f"legacy={legacy['compactUtf8Bytes']} bytes, "
+        f"compact={compact['compactUtf8Bytes']} bytes"
+    )
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--write", action="store_true")
+    mode.add_argument("--check", action="store_true")
+    mode.add_argument("--json", action="store_true")
+    args = parser.parse_args()
+    if args.write:
+        return _write()
+    if args.check:
+        return _check()
+    document, _ = _document()
+    print(json.dumps(document, indent=2, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

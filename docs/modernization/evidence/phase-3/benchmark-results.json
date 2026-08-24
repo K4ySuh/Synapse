@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-08-23",
+  "method": "../../phase-3-benchmark-method.md",
+  "status": "historical_original_method_superseded_by_codex_closure_amendment",
+  "payloads": {
+    "serialization": "json.dumps(value, separators=(',', ':')).encode('utf-8')",
+    "deterministicRepeatedGeneration": true,
+    "legacy": {
+      "tools": 174,
+      "bytes": 99337,
+      "sha256": "5f61dc5bcb5821b4d67fca12eaa2b0b1a369c4b4294fbcd43cb9b1fcaee18bb4"
+    },
+    "modernCompact": {
+      "tools": 11,
+      "bytes": 21648,
+      "sha256": "c4e513b657d21bb1b0729b90b7f90990cb3b4af2b6242690be80e82b56050956",
+      "legacyPercent": 21.793,
+      "gateBytes": 24834,
+      "gatePassed": true
+    },
+    "modernDirect": {
+      "tools": 174,
+      "bytes": 578249,
+      "sha256": "0cb146b5eb47dc763da76522f100c3ac8734c05d0680ebb87b80285e8f75c20c"
+    }
+  },
+  "codexReadSlice": {
+    "workflow": "inspect the fixed workspace and report target/endpoint counts",
+    "repetitionsPerSurfaceTransport": 3,
+    "taskSuccess": {
+      "legacyStdioConfiguredApproval": "3/3",
+      "modernCompactStdio": "3/3",
+      "modernCompactHttp": "3/3",
+      "modernDirectStdio": "3/3",
+      "modernDirectHttp": "3/3"
+    },
+    "medianInputTokens": {
+      "legacyStdioConfiguredApproval": 79030,
+      "modernCompactStdio": 63062,
+      "modernCompactHttp": 63373,
+      "modernDirectStdio": 77520,
+      "modernDirectHttp": 106006
+    },
+    "duplicateReadCalls": {
+      "legacyStdioConfiguredApproval": "0/3",
+      "modernCompactStdio": "0/3",
+      "modernCompactHttp": "0/3",
+      "modernDirectStdio": "1/3",
+      "modernDirectHttp": "2/3"
+    },
+    "latency": null,
+    "latencyReason": "Raw wall-clock records were not retained for the exploratory read slice; no latency verdict is claimed.",
+    "selectionErrors": 0,
+    "schemaRetries": 0,
+    "externalTraffic": 0
+  },
+  "fixedCorpus": {
+    "requiredWorkflowCount": 7,
+    "phase3dAdditionalCases": 10,
+    "completedAcrossBothRequiredClients": false,
+    "aggregateVerdict": "not_evaluated_after_mandatory_client_blockers"
+  },
+  "defaultDecision": {
+    "selectedDefaultUnderOriginalMethod": "legacy",
+    "modernCompactEligibleUnderOriginalMethod": false,
+    "modernDirectDisposition": "opt_in_diagnostic_only",
+    "reason": "The compact payload/read slice was favorable, but the original mandatory cross-client and protocol-native supervised-resume gates did not pass.",
+    "supersededBy": "codex-closure-results.json",
+    "adoptedDefaultAfterOperatorAmendment": "modern-compact"
+  }
+}

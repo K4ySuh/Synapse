@@ -63,3 +63,19 @@ Use small coherent pack commits when commits are authorized. Preserve
 bisectability with a green inventory/parity gate at every boundary. A fixture
 change is not a migration fix: record and approve it separately in
 `contract-changes.md`.
+
+## Phase 3D adoption state
+
+The complete Registry migration did not by itself authorize a surface switch.
+Phase 3D separately adopted `modern-compact` stdio as the stable-Codex default
+after the live approval/restart/resume gate passed 3/3. The frozen
+`synapse-mcp` legacy launcher remains the rollback/bootstrap profile and
+`modern-direct` remains explicit diagnostic compatibility. All surfaces must
+continue using the same descriptors, schemas, execution, and policy path.
+
+Future compatibility changes must regenerate the exact payload fixtures with
+`bin/measure-phase3-surfaces --check` and pass
+`bin/run-phase3d-codex --run --repetitions 3`. An under-development client
+protocol feature cannot substitute for the stable gate. Additional model
+clients become adoption requirements only through an explicit operator
+amendment.

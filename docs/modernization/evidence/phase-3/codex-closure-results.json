@@ -1,0 +1,183 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-08-24T10:14:24.412491Z",
+  "method": "../../phase-3-benchmark-method.md#2026-08-24-closure-amendment",
+  "client": "Codex",
+  "codexCli": "0.149.0",
+  "model": "gpt-5.6-sol",
+  "surface": "modern-compact",
+  "transport": "stdio",
+  "repetitions": 3,
+  "experimentalFeaturesEnabled": false,
+  "preflight": {
+    "mcp20260728": {
+      "maturity": "under development",
+      "enabled": false
+    },
+    "acceptedCarrier": "approval_required envelope plus tasks.control resume"
+  },
+  "fixture": {
+    "workspaceId": "benchmark",
+    "target": "app.acme-demo.test",
+    "externalTargetTraffic": "disabled",
+    "targetCount": 1,
+    "endpointCount": 2,
+    "readExecutionProfile": "observe",
+    "activeExecutionProfile": "supervised"
+  },
+  "runs": [
+    {
+      "repetition": 1,
+      "cases": [
+        {
+          "case": "read",
+          "toolNames": ["engagement.inspect"],
+          "toolCalls": 1,
+          "wallClockSeconds": 11.689,
+          "inputTokens": 61383,
+          "outputTokens": 219,
+          "outcomeKind": "success"
+        },
+        {
+          "case": "approval",
+          "toolNames": ["actions.run_active"],
+          "toolCalls": 1,
+          "wallClockSeconds": 19.971,
+          "inputTokens": 64138,
+          "outputTokens": 535,
+          "outcomeKind": "approval_required",
+          "dispatch": "not_started",
+          "opaqueOperationHandlePresent": true
+        },
+        {
+          "case": "resume",
+          "toolNames": ["tasks.control"],
+          "toolCalls": 1,
+          "wallClockSeconds": 19.831,
+          "inputTokens": 68968,
+          "outputTokens": 288,
+          "outcomeKind": "success",
+          "trafficDisabled": true,
+          "traceContinuity": true
+        }
+      ],
+      "exactStepUpIssued": true,
+      "serverRestartedBeforeResume": true,
+      "requestStateCount": 1,
+      "resumedRequestCount": 1,
+      "dispatchCount": 1,
+      "dispatchStates": {"succeeded": 1}
+    },
+    {
+      "repetition": 2,
+      "cases": [
+        {
+          "case": "read",
+          "toolNames": ["engagement.inspect"],
+          "toolCalls": 1,
+          "wallClockSeconds": 11.736,
+          "inputTokens": 61406,
+          "outputTokens": 221,
+          "outcomeKind": "success"
+        },
+        {
+          "case": "approval",
+          "toolNames": ["actions.run_active"],
+          "toolCalls": 1,
+          "wallClockSeconds": 14.206,
+          "inputTokens": 40318,
+          "outputTokens": 414,
+          "outcomeKind": "approval_required",
+          "dispatch": "not_started",
+          "opaqueOperationHandlePresent": true
+        },
+        {
+          "case": "resume",
+          "toolNames": ["tasks.control"],
+          "toolCalls": 1,
+          "wallClockSeconds": 14.907,
+          "inputTokens": 62009,
+          "outputTokens": 274,
+          "outcomeKind": "success",
+          "trafficDisabled": true,
+          "traceContinuity": true
+        }
+      ],
+      "exactStepUpIssued": true,
+      "serverRestartedBeforeResume": true,
+      "requestStateCount": 1,
+      "resumedRequestCount": 1,
+      "dispatchCount": 1,
+      "dispatchStates": {"succeeded": 1}
+    },
+    {
+      "repetition": 3,
+      "cases": [
+        {
+          "case": "read",
+          "toolNames": ["engagement.inspect"],
+          "toolCalls": 1,
+          "wallClockSeconds": 11.283,
+          "inputTokens": 60877,
+          "outputTokens": 179,
+          "outcomeKind": "success"
+        },
+        {
+          "case": "approval",
+          "toolNames": ["actions.run_active"],
+          "toolCalls": 1,
+          "wallClockSeconds": 16.445,
+          "inputTokens": 40124,
+          "outputTokens": 408,
+          "outcomeKind": "approval_required",
+          "dispatch": "not_started",
+          "opaqueOperationHandlePresent": true
+        },
+        {
+          "case": "resume",
+          "toolNames": ["tasks.control"],
+          "toolCalls": 1,
+          "wallClockSeconds": 15.169,
+          "inputTokens": 68787,
+          "outputTokens": 291,
+          "outcomeKind": "success",
+          "trafficDisabled": true,
+          "traceContinuity": true
+        }
+      ],
+      "exactStepUpIssued": true,
+      "serverRestartedBeforeResume": true,
+      "requestStateCount": 1,
+      "resumedRequestCount": 1,
+      "dispatchCount": 1,
+      "dispatchStates": {"succeeded": 1}
+    }
+  ],
+  "aggregate": {
+    "expectedToolCalls": 9,
+    "observedToolCalls": 9,
+    "duplicateToolCalls": 0,
+    "schemaRetries": 0,
+    "approvalInterruptions": 3,
+    "successfulResumes": 3,
+    "successfulDispatches": 3,
+    "medianSeconds": {
+      "read": 11.689,
+      "approval": 16.445,
+      "resume": 15.169
+    },
+    "medianInputTokens": {
+      "read": 61383,
+      "approval": 40318,
+      "resume": 68787
+    }
+  },
+  "secretHygiene": {
+    "rawOperationHandlesCommitted": false,
+    "rawTraceIdsCommitted": false,
+    "identityBindingCommitted": false,
+    "requestStateKeyCommitted": false,
+    "credentialValuesCommitted": false
+  },
+  "overall": "pass"
+}

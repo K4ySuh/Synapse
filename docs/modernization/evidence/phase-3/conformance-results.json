@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-08-23",
+  "inspector": {
+    "version": "2.3.0",
+    "stdio": "pass",
+    "loopbackStreamableHttp": "pass",
+    "surfaces": ["legacy", "modern-compact", "modern-direct"],
+    "modernSchemasAndAnnotationsComplete": true
+  },
+  "stableConformance": {
+    "version": "0.1.16",
+    "requestedSpecification": "2026-07-28",
+    "result": "unsupported_specification",
+    "supportedSpecifications": ["2025-03-26", "2025-06-18", "2025-11-25", "draft", "extension"],
+    "headerInjectionSupported": false
+  },
+  "alphaConformance": {
+    "version": "0.2.0-alpha.11",
+    "specification": "2026-07-28",
+    "transport": "loopback_streamable_http_through_test_auth_proxy",
+    "scenarios": [
+      {
+        "name": "tools-list",
+        "exitCode": 0,
+        "passed": 3,
+        "failed": 0,
+        "warnings": 0
+      },
+      {
+        "name": "caching",
+        "exitCode": 0,
+        "passed": 7,
+        "failed": 0,
+        "warnings": 0,
+        "skipped": ["resources/read caching hint because no fixture resource was available"]
+      },
+      {
+        "name": "server-stateless",
+        "exitCode": 1,
+        "passed": 23,
+        "failed": 5,
+        "warnings": 2,
+        "failedChecks": [
+          "missing required client-capability rejection diagnostic",
+          "HTTP status for missing capability was not testable without the runner diagnostic tool",
+          "subscription acknowledgement stream",
+          "subscription ID tagging",
+          "subscription notification filtering"
+        ]
+      },
+      {
+        "name": "http-header-validation",
+        "exitCode": 1,
+        "passed": 13,
+        "failed": 1,
+        "warnings": 0,
+        "classification": "inconclusive_proxy_limitation",
+        "detail": "The test-only auth proxy's HTTP library rejected a deliberately whitespace-padded header before it reached Synapse."
+      },
+      {
+        "name": "json-schema-2020-12",
+        "exitCode": 1,
+        "classification": "runner_fixture_not_exposed",
+        "detail": "The scenario requires a tool named json_schema_2020_12_tool, which is not a Synapse production capability."
+      },
+      {
+        "name": "http-custom-header-server-validation",
+        "exitCode": 1,
+        "classification": "not_testable",
+        "detail": "No production Synapse tool declares runner-specific x-mcp-header annotations."
+      }
+    ],
+    "securityLimitation": "The runner has no bearer-header option. The local proxy injected authentication and therefore cannot establish Host/DNS-rebinding or raw-header compliance; repository transport tests remain the evidence for those gates.",
+    "overall": "partial_fail"
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-08-24",
+  "historicalSuiteCapturedAt": "2026-08-23",
+  "externalTraffic": "disabled",
+  "suites": [
+    {
+      "command": "SYNAPSE_PYTHON=.venv/bin/python bin/test-modern",
+      "passed": 12,
+      "failed": 0,
+      "seconds": 11.191,
+      "covers": [
+        "exact SDK pin and remote startup fail-closed matrix",
+        "deterministic surfaces across five SDK-supported revisions",
+        "structured outputs and typed unavailability",
+        "clientInfo and model authority injection",
+        "request-state expiry, rotation, restart, tamper, retirement, principal and audience binding",
+        "cross-principal resource access",
+        "exactly-once supervised resume",
+        "duplicate authentication and forwarded-header rejection",
+        "Host, Origin, protocol and body-header validation",
+        "stdio and loopback HTTP for compact and direct surfaces"
+      ]
+    },
+    {
+      "command": "python -m unittest <Phase 3D/facade/inventory/architecture/legacy/authority/job/workflow modules>",
+      "passed": 125,
+      "failed": 0,
+      "seconds": 27.428,
+      "covers": [
+        "deterministic payload fixtures",
+        "malformed nested input and output validation",
+        "passive effect denial before dispatch",
+        "authority and legacy confirmation argument injection",
+        "scope, credential, provider, output and risk denial",
+        "cross-workspace and changed-request denial",
+        "grant expiry, revocation and evaluator failure",
+        "idempotency, concurrent reservation and exactly-once resume",
+        "job cancellation, finalization and restart races",
+        "resource traversal, tamper, stale-version and cross-binding denial",
+        "frozen legacy discovery, errors, results and workflow corpus"
+      ]
+    }
+  ],
+  "liveCodexApprovalProbe": {
+    "surface": "modern-compact",
+    "result": "approval_required",
+    "dispatch": "not_started",
+    "activeTrafficSent": false,
+    "protocolResumeAvailableOnDefaultClient": false,
+    "applicationResumeVerifiedLater": "3/3; see codex-closure-results.json"
+  },
+  "closureVerification": {
+    "modernSuite": {
+      "command": "SYNAPSE_PYTHON=.venv/bin/python bin/test-modern",
+      "passed": 13,
+      "failed": 0,
+      "seconds": 10.204,
+      "addedCoverage": "legacy negotiated protocol, compact opaque-handle restart resume, replay denial, and exactly one dispatch"
+    },
+    "fullHarness": {
+      "command": "bin/test",
+      "corePassed": 598,
+      "templatePassed": 2,
+      "failed": 0,
+      "seconds": 44.461
+    }
+  },
+  "traceAndSecretHygiene": {
+    "rawBearerTokensCommitted": false,
+    "credentialValuesCommitted": false,
+    "rawOperationHandlesCommitted": false,
+    "personalClientIdentityCommitted": false
+  },
+  "overall": "automated_server_gates_pass; codex_closure_amendment_passes"
+}

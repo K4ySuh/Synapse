@@ -1,4 +1,22 @@
 [mcp_servers.synapse]
-command = "/path/to/Synapse/MCPS/Synapse-MCP/bin/synapse-mcp"
-args = []
-startup_timeout_sec = 10
+command = "/path/to/Synapse/.venv/bin/python"
+args = [
+  "-m", "synapse_mcp.transport.modern",
+  "--surface", "modern-compact",
+  "--transport", "stdio",
+  "--server-name", "synapse",
+  "--audience", "synapse",
+  "--identity-bindings", "/path/to/Synapse/DATA/modern-adapter/identity-bindings.json",
+  "--stdio-principal", "local-operator",
+  "--request-state-keyring", "/path/to/Synapse/DATA/modern-adapter/request-state-keyring.json",
+  "--state-dir", "/path/to/Synapse/DATA/modern-adapter/state"
+]
+required = true
+default_tools_approval_mode = "approve"
+startup_timeout_sec = 20
+tool_timeout_sec = 120
+
+[mcp_servers.synapse.env]
+SYNAPSE_ROOT = "/path/to/Synapse"
+SYNAPSE_DATA_DIR = "/path/to/Synapse/DATA"
+PYTHONPATH = "/path/to/Synapse/MCPS/Synapse-MCP"
