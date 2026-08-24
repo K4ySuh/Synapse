@@ -11,9 +11,9 @@ below for auditability.
 ## 2026-08-24 adversarial corrective Codex method
 
 The operator-approved corrective gate tests stable Codex through its normal
-client flow. Independent agent clients are outside the current Phase 3 scope
-and must not be added to project acceptance unless the operator explicitly
-reintroduces them. Historical cross-client attempts remain below only as audit
+client flow. Independent agent clients are outside the current Phase 3 release
+gate, while provider-neutral support and later cross-agent acceptance remain
+project objectives. Historical cross-client attempts remain below only as audit
 facts. Client display metadata, negotiated revision, and model input never
 select a Synapse surface or create authority.
 

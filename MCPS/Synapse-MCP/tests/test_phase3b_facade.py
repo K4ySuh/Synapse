@@ -657,6 +657,58 @@ class Phase3BResourceTests(unittest.TestCase):
             bounded.resolve(reference.reference, context=self.context)
         self.assertEqual(oversized.exception.reason_code, "resource_too_large")
 
+    def test_directory_reference_limits_fail_before_content_hashing(self) -> None:
+        cases = (
+            (
+                "file_count",
+                {"max_directory_files": 1},
+                (("one", b""), ("two", b"")),
+                "resource_directory_file_count_limit",
+            ),
+            (
+                "total_bytes",
+                {"max_directory_total_bytes": 3},
+                (("one", b"aa"), ("two", b"bb")),
+                "resource_directory_total_bytes_limit",
+            ),
+            (
+                "per_file_bytes",
+                {"max_directory_file_bytes": 1},
+                (("large", b"aa"),),
+                "resource_directory_file_bytes_limit",
+            ),
+            (
+                "path_bytes",
+                {"max_directory_path_bytes": 4},
+                (("long-name", b""),),
+                "resource_directory_path_limit",
+            ),
+            (
+                "depth",
+                {"max_directory_depth": 1},
+                (("nested/file", b""),),
+                "resource_directory_depth_limit",
+            ),
+        )
+        for name, limits, files, reason_code in cases:
+            with self.subTest(name=name):
+                dump = self.root / "burp-dumps" / name
+                dump.mkdir(parents=True)
+                for relative, content in files:
+                    destination = dump / relative
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    destination.write_bytes(content)
+                bounded = ResourceReferenceService(allowed_roots=(self.root,), **limits)
+                with patch.object(Path, "open", side_effect=AssertionError("content hashing began")):
+                    with self.assertRaises(ResourceAccessError) as rejected:
+                        bounded.issue(
+                            dump,
+                            workspace_id="resource-workspace",
+                            context=self.context,
+                            artifact_type="dump",
+                        )
+                self.assertEqual(rejected.exception.reason_code, reason_code)
+
 
 class Phase3BResumeTests(unittest.TestCase):
     def test_supervised_facade_resume_is_exactly_once(self) -> None:

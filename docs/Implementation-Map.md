@@ -31,7 +31,8 @@ live Burp Suite operations are not needed.
 Both launchers set `SYNAPSE_ROOT`, source `config/synapse.env`, then start their
 server process. The Synapse MCP launcher uses `SYNAPSE_PYTHON` when set,
 otherwise it prefers the active console `VIRTUAL_ENV`, then
-`$SYNAPSE_ROOT/.venv/bin/python`, and falls back to `python3`.
+`$SYNAPSE_ROOT/.venv/bin/python`. Resolution fails closed when none is
+runnable. Dependency-bearing repository generators use the same resolver.
 
 ```text
 config/synapse.env
@@ -63,6 +64,10 @@ Synapse MCP starts, reports optional Burp MCP readiness as warnings, and prints
 client config. `bin/print-mcp-config` prints modern compact Codex config without
 running the checks; `--legacy` selects rollback, and an enabled Burp block is
 emitted only when the optional launcher is present.
+`bin/check-state-v2-readiness` reports the actual stdlib and maintained-fallback
+SQLite runtimes through the transport-independent `synapse_mcp/state/readiness.py`
+contract and fails below SQLite 3.51.3. It is an entry probe only; it does not
+migrate or select a workspace store.
 
 ## Data Layout
 
@@ -340,7 +345,8 @@ The Phase 3B application surfaces are under `synapse_mcp/app/facade/`:
   supervised operation handles exactly once;
 - `resources.py` binds opaque file references to principal, authority session,
   workspace, allowed root, artifact type, and immutable content version, with
-  reauthorization on every read;
+  reauthorization on every read. Directory traversal bounds file count,
+  total/per-file bytes, relative-path bytes, and depth before/during hashing;
 - `projections.py` fixes the eleven-operation compact order and generates the
   174-operation direct surface plus static annotations from descriptor truth.
 

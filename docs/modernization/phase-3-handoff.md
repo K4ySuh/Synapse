@@ -86,8 +86,9 @@ machine evidence is committed as
 
 `bin/print-mcp-config` now prints the modern compact Codex profile by default
 and has no alternate-agent output mode. Use `--legacy` for the frozen rollback
-profile. Independent agent clients are outside the project acceptance contract
-unless the operator explicitly reintroduces them.
+profile. Independent agent clients are outside the Phase 3 named-client gate;
+provider-neutral support remains a project objective and later cross-agent
+acceptance work must use explicit, client-labeled evidence.
 
 Before using the modern profile, create the private `0600` identity binding and
 request-state keyring described in `docs/Operations.md`, then create/select
@@ -112,11 +113,11 @@ PHASE_3_PASS
 
 ## Phase 3R corrective handoff
 
-Decision: complete under the operator-amended Codex-only acceptance contract.
-Independent agent clients are not a current project requirement and must not be
-introduced without a new operator instruction. The earlier blocked cross-client
-attempt remains historical evidence only; no universal cross-agent result is
-claimed.
+Decision: complete under the operator-amended Codex-only Phase 3 acceptance
+contract. Independent clients were not required to close Phase 3, but remain a
+continuing provider-neutral product and later integration target. The earlier
+blocked cross-client attempt remains historical evidence only; no universal
+cross-agent result is claimed.
 
 The corrective implementation is cumulative:
 

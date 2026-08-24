@@ -36,6 +36,11 @@ browser = [
 modern = [
     "mcp==2.0.0",
 ]
+state-v2 = [
+    # Maintained SQLite binding for Python runtimes whose stdlib sqlite3 is
+    # linked below the State Store v2 WAL safety floor.
+    "apsw==3.53.4.0",
+]
 modern-spike = [
     # Deprecated compatibility alias; use the production `modern` extra.
     "mcp==2.0.0",

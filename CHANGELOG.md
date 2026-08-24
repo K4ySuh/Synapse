@@ -24,6 +24,12 @@ durable dispatch and continuation truth.
 
 ### Added
 
+- **Phase 4 entry readiness.** Added a transport-independent State Store v2
+  runtime probe with a hard SQLite 3.51.3 floor, actual linked-version evidence,
+  and a maintained APSW fallback across the Python 3.10–3.13 CI matrix.
+  ADR-0005/0006 now fix per-workspace database/artifact isolation,
+  credential-secret exclusion, rollback boundaries, conservative context
+  counting, protected envelopes, and revision semantics before migration work.
 - **Phase 3 adversarial corrective gates.** Added a Codex-only objective-driven
   seven-workflow benchmark whose prompt supplies no MCP tool names, action IDs,
   exact arguments, or call counts, plus an exact transport/safety smoke for
@@ -134,10 +140,10 @@ durable dispatch and continuation truth.
 ### Changed
 
 - **Codex-only Phase 3 acceptance.** Stable Codex is the sole active named-agent
-  gate. Independent agent clients and universal cross-agent claims are outside
-  project scope unless the operator explicitly reintroduces them. Generated
-  client configuration now emits only Codex profiles and frozen legacy
-  rollback.
+  gate for Phase 3. Independent client evidence is outside that release gate,
+  so no universal cross-agent claim is made; provider-neutral contracts and
+  later cross-agent acceptance remain project objectives. Generated client
+  configuration now emits only Codex profiles and frozen legacy rollback.
 - **Candidate precision.** Command injection, XSS, access control, open redirect,
   CORS, and CSRF now require semantic or workflow-specific corroboration instead
   of relying on broad name/path heuristics. Active validation preserves the
@@ -161,6 +167,13 @@ durable dispatch and continuation truth.
 
 ### Fixed
 
+- **Phase 4 entry residuals.** Existing Phase 3 benchmark evidence now validates
+  offline without rewriting historic client metadata, missing live clients fail
+  cleanly, runtime-resolution tests are checkout-independent, and the retained
+  output generator follows the shared interpreter policy. Background benchmark
+  postflight waits on terminal-and-finalized truth, while opaque directory
+  resources reject bounded file-count, total/per-file byte, relative-path, and
+  depth overruns before or during hashing.
 - **Phase 3 contract and authority truth.** Replaced inferred authorization
   effects with audited explicit declarations for all 174 actions and an
   observed-effect no-network harness; removed model authority over external

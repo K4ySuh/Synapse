@@ -116,7 +116,10 @@ def _modern_python() -> str:
 
 
 def _safe_version(command: list[str]) -> str:
-    result = _run(command, timeout=30)
+    try:
+        result = _run(command, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return "unavailable"
     if result.returncode != 0:
         return "unavailable"
     return result.stdout.strip().splitlines()[0][:200]
@@ -359,13 +362,55 @@ def _prepare_fixture(root: Path) -> dict[str, Any]:
     }
 
 
+def _wait_for_terminal_and_finalized_jobs(
+    jobs_api: Any,
+    *,
+    timeout_seconds: float = 60,
+    clock: Any = time.monotonic,
+    pause: Any = time.sleep,
+) -> list[dict[str, Any]]:
+    """Wait on the persisted terminal predicate without rerunning the workflow."""
+
+    deadline = clock() + timeout_seconds
+    latest: list[dict[str, Any]] = []
+    while True:
+        listed = jobs_api.list_jobs(limit=100)
+        records = listed.get("jobs", []) if isinstance(listed, dict) else listed
+        latest = []
+        for record in records:
+            if not isinstance(record, dict):
+                continue
+            job_id = str(record.get("jobId") or "")
+            latest.append(
+                jobs_api.status(job_id, include_result=True) if job_id else record
+            )
+        if latest and all(
+            str(record.get("status")) in {"completed", "failed", "canceled", "timed_out"}
+            and record.get("finalized") is True
+            for record in latest
+        ):
+            return latest
+        if clock() >= deadline:
+            states = [
+                {
+                    "jobId": str(record.get("jobId") or ""),
+                    "status": str(record.get("status") or ""),
+                    "finalized": bool(record.get("finalized")),
+                }
+                for record in latest
+            ]
+            raise BenchmarkError(
+                f"background lifecycle did not become terminal and finalized before the deadline: {states}"
+            )
+        pause(0.05)
+
+
 def _post_fixture(root: Path) -> dict[str, Any]:
     _configure_root(root)
     from synapse_mcp.core import background_jobs, evidence, workspace
     from synapse_mcp.policy.repository import WorkspaceAuthorityRepository
 
-    job_result = background_jobs.list_jobs(limit=100)
-    jobs = job_result.get("jobs", []) if isinstance(job_result, dict) else job_result
+    jobs = _wait_for_terminal_and_finalized_jobs(background_jobs)
     snapshot = WorkspaceAuthorityRepository(WORKSPACE_ID).snapshot()
     dispatches = list(snapshot.get("dispatches", {}).values())
     attempts = root / "network-attempts.jsonl"
@@ -995,8 +1040,6 @@ def _validated_existing_batch(path: Path) -> dict[str, Any]:
         )
     ):
         raise BenchmarkError("existing objective evidence does not match the current 3/3 Codex gate")
-    document["classification"] = "objective_driven_codex_benchmark"
-    document["preflight"] = _preflight()
     return document
 
 
@@ -1117,4 +1160,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except BenchmarkError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        raise SystemExit(1) from None

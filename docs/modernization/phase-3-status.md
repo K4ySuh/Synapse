@@ -434,9 +434,10 @@ These were stop conditions for the superseded two-client method, not current
 project work items. That method lacked an authenticated independent-client run,
 stable Codex protocol request state, direct bearer-capable HTTP conformance,
 and the complete two-client case matrix. The historical evidence remains for
-auditability; the operator explicitly replaced that acceptance contract with
-the Codex-only method below. Independent agent work must not be reopened unless
-the operator requests it.
+auditability; the operator explicitly replaced that Phase 3 acceptance contract
+with the Codex-only method below. Independent clients remain outside this gate,
+while provider-neutral architecture and later cross-agent validation continue
+as product objectives.
 
 At the end of the 2026-08-23 attempt, the default remained the frozen
 `synapse-mcp` legacy launcher. Modern compact and direct remained explicit
@@ -555,10 +556,11 @@ PHASE_3R1_PASS
 
 ### Phase 3R-3 operator-amended Codex closure
 
-- The operator made stable Codex the sole named-agent acceptance client and
-  removed alternate-agent work from the project unless explicitly
-  reintroduced. Both live runners and `bin/print-mcp-config` are Codex-only;
-  historical cross-client facts above remain audit records, not current work.
+- The operator made stable Codex the sole named-agent acceptance client for
+  Phase 3 and removed alternate-agent branches from this release gate. Both
+  live runners and `bin/print-mcp-config` are Codex-only; historical
+  cross-client facts above remain audit records while provider-neutral and
+  later cross-agent validation remain project objectives.
 - The former exact-tool choreography is now
   `bin/run-phase3-transport-smoke`. Its fresh Codex CLI `0.149.0` /
   `gpt-5.6-sol` batch passed 3/3 over `modern-compact` stdio at negotiated MCP
@@ -606,8 +608,8 @@ Machine evidence:
 - `evidence/phase-3/conformance-results.json`
 - `evidence/phase-3/security-results.json`
 
-No independent-agent or universal cross-agent pass is asserted; that scope is
-not part of the current project plan.
+No independent-agent or universal cross-agent pass is asserted. That evidence
+is not part of the Phase 3 gate and remains a later product acceptance track.
 
 PHASE_3_CODEX_PASS
 

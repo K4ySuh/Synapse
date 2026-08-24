@@ -1,0 +1,10 @@
+#!/usr/bin/env sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+ROOT_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+SYNAPSE_PYTHON=$("$ROOT_DIR/bin/resolve-synapse-python")
+
+PYTHONDONTWRITEBYTECODE=1 \
+PYTHONPATH="$ROOT_DIR/MCPS/Synapse-MCP" \
+exec "$SYNAPSE_PYTHON" -m synapse_mcp.state.readiness "$@"

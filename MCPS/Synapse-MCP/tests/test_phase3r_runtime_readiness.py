@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
@@ -16,6 +17,7 @@ from synapse_mcp.transport.modern.readiness import check_modern_readiness
 ROOT = Path(__file__).resolve().parents[3]
 RESOLVER = ROOT / "bin" / "resolve-synapse-python"
 CONFIG_PRINTER = ROOT / "bin" / "print-mcp-config"
+OUTPUT_CONTRACT_GENERATOR = ROOT / "bin" / "generate-action-output-contracts"
 LEGACY_LAUNCHER = ROOT / "MCPS" / "Synapse-MCP" / "bin" / "synapse-mcp"
 LEGACY_TOOLS_FIXTURE = (
     ROOT / "MCPS" / "Synapse-MCP" / "tests" / "fixtures" / "legacy_contracts" / "tools_list.json"
@@ -30,50 +32,101 @@ def _clean_environment() -> dict[str, str]:
     return environment
 
 
-class Phase3RRuntimeReadinessTests(unittest.TestCase):
-    def test_interpreter_resolution_priority_and_invalid_explicit_override(self) -> None:
-        default = subprocess.run(
-            [str(RESOLVER)],
-            cwd=ROOT,
-            env=_clean_environment(),
-            text=True,
-            capture_output=True,
-            check=True,
-        )
-        self.assertEqual(Path(default.stdout.strip()).resolve(), (ROOT / ".venv/bin/python").resolve())
+def _copy_resolver(root: Path) -> Path:
+    destination = root / "bin" / "resolve-synapse-python"
+    destination.parent.mkdir(parents=True)
+    shutil.copyfile(RESOLVER, destination)
+    destination.chmod(0o700)
+    return destination
 
+
+class Phase3RRuntimeReadinessTests(unittest.TestCase):
+    def test_interpreter_resolution_priority_in_an_isolated_repository(self) -> None:
         with TemporaryDirectory() as temporary:
+            isolated_root = Path(temporary) / "repository"
+            resolver = _copy_resolver(isolated_root)
+            external_python = Path(temporary) / "external-python"
+            external_python.symlink_to(Path(sys.executable).resolve())
+
+            environment = _clean_environment()
+            environment["SYNAPSE_PYTHON"] = str(external_python)
+            explicit = subprocess.run(
+                [str(resolver)],
+                cwd=isolated_root,
+                env=environment,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertTrue(Path(explicit.stdout.strip()).samefile(external_python))
+
             virtual_environment = Path(temporary) / "active"
             (virtual_environment / "bin").mkdir(parents=True)
             (virtual_environment / "bin" / "python").symlink_to(Path(sys.executable).resolve())
             environment = _clean_environment()
             environment["VIRTUAL_ENV"] = str(virtual_environment)
             active = subprocess.run(
-                [str(RESOLVER)], cwd=ROOT, env=environment, text=True, capture_output=True, check=True
+                [str(resolver)],
+                cwd=isolated_root,
+                env=environment,
+                text=True,
+                capture_output=True,
+                check=True,
             )
-            self.assertEqual(
-                Path(active.stdout.strip()).resolve(),
-                (virtual_environment / "bin" / "python").resolve(),
+            self.assertTrue(
+                Path(active.stdout.strip()).samefile(virtual_environment / "bin" / "python")
             )
 
-        environment = _clean_environment()
-        environment["SYNAPSE_PYTHON"] = "/definitely/missing/synapse-python"
-        invalid = subprocess.run(
-            [str(RESOLVER)], cwd=ROOT, env=environment, text=True, capture_output=True, check=False
-        )
-        self.assertEqual(invalid.returncode, 127)
-        self.assertIn("SYNAPSE_PYTHON is not executable", invalid.stderr)
+            repository_environment = isolated_root / ".venv" / "bin"
+            repository_environment.mkdir(parents=True)
+            (repository_environment / "python").symlink_to(Path(sys.executable).resolve())
+            repository = subprocess.run(
+                [str(resolver)],
+                cwd=isolated_root,
+                env=_clean_environment(),
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertTrue(
+                Path(repository.stdout.strip()).samefile(repository_environment / "python")
+            )
+
+            invalid_environment = _clean_environment()
+            invalid_environment["SYNAPSE_PYTHON"] = "/definitely/missing/synapse-python"
+            invalid = subprocess.run(
+                [str(resolver)],
+                cwd=isolated_root,
+                env=invalid_environment,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(invalid.returncode, 127)
+            self.assertIn("SYNAPSE_PYTHON is not executable", invalid.stderr)
+
+    def test_symlinked_repository_virtual_environment_resolves_semantically(self) -> None:
+        with TemporaryDirectory() as temporary:
+            temporary_root = Path(temporary)
+            isolated_root = temporary_root / "repository"
+            resolver = _copy_resolver(isolated_root)
+            environment_target = temporary_root / "environment"
+            (environment_target / "bin").mkdir(parents=True)
+            (environment_target / "bin" / "python").symlink_to(Path(sys.executable).resolve())
+            (isolated_root / ".venv").symlink_to(environment_target, target_is_directory=True)
+            selected = subprocess.run(
+                [str(resolver)],
+                cwd=isolated_root,
+                env=_clean_environment(),
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            self.assertTrue(
+                Path(selected.stdout.strip()).samefile(isolated_root / ".venv" / "bin" / "python")
+            )
 
     def test_config_printer_uses_the_resolved_runnable_interpreter(self) -> None:
-        default = subprocess.run(
-            [str(CONFIG_PRINTER), "--modern-compact"],
-            cwd=ROOT,
-            env=_clean_environment(),
-            text=True,
-            capture_output=True,
-            check=True,
-        ).stdout
-        self.assertIn(f'command = "{ROOT / ".venv/bin/python"}"', default)
         with TemporaryDirectory() as temporary:
             wrapper = Path(temporary) / "synapse-python"
             wrapper.write_text(f"#!/usr/bin/env sh\nexec '{sys.executable}' \"$@\"\n", encoding="utf-8")
@@ -110,6 +163,19 @@ class Phase3RRuntimeReadinessTests(unittest.TestCase):
                 check=True,
             ).stdout
             self.assertIn(f'command = "{active_wrapper}"', active)
+
+    def test_dependency_bearing_generator_uses_explicit_runtime_policy(self) -> None:
+        environment = _clean_environment()
+        environment["SYNAPSE_PYTHON"] = sys.executable
+        generated = subprocess.run(
+            [str(OUTPUT_CONTRACT_GENERATOR), "--check"],
+            cwd=ROOT,
+            env=environment,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        self.assertIn("168 retained actions", generated.stdout)
 
     def test_modern_readiness_requires_private_material_state_and_binding(self) -> None:
         (ROOT / "DATA").mkdir(exist_ok=True)

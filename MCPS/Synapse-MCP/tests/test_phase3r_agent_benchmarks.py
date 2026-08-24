@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import runpy
+from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -151,6 +154,77 @@ class Phase3RAgentBenchmarkTests(unittest.TestCase):
         )
         self.assertNotIn("traceId", record)
         self.assertTrue(record["tracePresent"])
+
+    def test_missing_client_version_is_an_unavailable_preflight_record(self) -> None:
+        missing = self.objective["_safe_version"](
+            ["/definitely/missing/synapse-phase3-client", "--version"]
+        )
+        self.assertEqual(missing, "unavailable")
+
+    def test_existing_evidence_validation_is_offline_and_preserves_preflight(self) -> None:
+        source = ROOT / "docs/modernization/evidence/phase-3/agent-benchmark-results.json"
+        expected = json.loads(source.read_text(encoding="utf-8"))
+        with patch.dict(
+            self.objective["_validated_existing_batch"].__globals__,
+            {"_preflight": lambda: self.fail("offline validation called live preflight")},
+        ):
+            validated = self.objective["_validated_existing_batch"](source)
+        self.assertEqual(validated["preflight"], expected["preflight"])
+        self.assertEqual(validated["clients"], expected["clients"])
+
+        with TemporaryDirectory() as temporary:
+            output = Path(temporary) / "evidence.json"
+            output.write_text(
+                json.dumps(self.objective["_committable_evidence"](validated)),
+                encoding="utf-8",
+            )
+            emitted = json.loads(output.read_text(encoding="utf-8"))
+        self.assertEqual(emitted["preflight"], expected["preflight"])
+
+    def test_live_gate_refuses_an_unavailable_codex_without_starting_work(self) -> None:
+        globals_ = self.objective["_live_gate"].__globals__
+        unavailable = {
+            "modernRuntime": {"available": True},
+            "codex": {"available": False, "version": "unavailable"},
+        }
+        with TemporaryDirectory() as temporary, patch.dict(
+            globals_,
+            {"_preflight": lambda: unavailable},
+        ):
+            with self.assertRaises(self.objective["BenchmarkError"]):
+                self.objective["_live_gate"](
+                    repetitions=1,
+                    output=Path(temporary),
+                    codex_model="fixture-model",
+                )
+
+    def test_background_postflight_waits_for_terminal_and_finalized_truth(self) -> None:
+        class Jobs:
+            def __init__(self) -> None:
+                self.observations = [
+                    {"jobId": "job-1", "status": "running", "finalized": False},
+                    {"jobId": "job-1", "status": "completed", "finalized": False},
+                    {"jobId": "job-1", "status": "completed", "finalized": True},
+                ]
+
+            def list_jobs(self, *, limit: int) -> dict[str, object]:
+                self.assert_limit = limit
+                return {"jobs": [{"jobId": "job-1"}], "count": 1}
+
+            def status(self, job_id: str, *, include_result: bool) -> dict[str, object]:
+                self.assert_job_id = job_id
+                self.assert_include_result = include_result
+                return self.observations.pop(0)
+
+        jobs = Jobs()
+        observed = self.objective["_wait_for_terminal_and_finalized_jobs"](
+            jobs,
+            timeout_seconds=1,
+            pause=lambda _: None,
+        )
+        self.assertEqual(observed[0]["status"], "completed")
+        self.assertTrue(observed[0]["finalized"])
+        self.assertEqual(jobs.observations, [])
 
     def test_transport_smoke_is_classified_and_omits_raw_resume_material(self) -> None:
         result = {

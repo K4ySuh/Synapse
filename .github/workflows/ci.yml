@@ -36,11 +36,17 @@ jobs:
       - name: Install package
         run: |
           python -m pip install --upgrade pip
-          pip install -e .
+          pip install -e '.[modern,state-v2]'
 
       - name: Select matrix Python explicitly
         shell: bash
         run: echo "SYNAPSE_PYTHON=$(command -v python)" >> "$GITHUB_ENV"
+
+      - name: Report Python and linked SQLite runtimes
+        run: |
+          python --version
+          python -c 'import sqlite3; print("sqlite3.sqlite_version:", sqlite3.sqlite_version)'
+          bin/check-state-v2-readiness
 
       - name: Run full test suite
         run: bin/test
@@ -72,7 +78,17 @@ jobs:
       - name: Install isolated modern adapter extra
         run: |
           python -m pip install --upgrade pip
-          pip install -e '.[modern]'
+          pip install -e '.[modern,state-v2]'
+
+      - name: Select modern Python explicitly
+        shell: bash
+        run: echo "SYNAPSE_PYTHON=$(command -v python)" >> "$GITHUB_ENV"
+
+      - name: Report Python and linked SQLite runtimes
+        run: |
+          python --version
+          python -c 'import sqlite3; print("sqlite3.sqlite_version:", sqlite3.sqlite_version)'
+          bin/check-state-v2-readiness
 
       - name: Run official-SDK adapter suite
         run: bin/test-modern

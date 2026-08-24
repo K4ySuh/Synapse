@@ -77,6 +77,7 @@ MCP client
                    |   `-- facade/ (compact/direct services, catalog, resources)
                    |-- transport/modern/ (official-SDK stdio/HTTP adapter,
                    |                     identity, keyring, HTTP security)
+                   |-- state/ (Phase 4 SQLite runtime/readiness boundary)
                    |-- core/
                    |   |-- paths.py
                    |   |-- errors.py
@@ -213,11 +214,21 @@ Phase 2 request state exactly once.
 Local files are removed from model-facing results and represented by random
 resource references. The server-held record binds the principal, authority
 session, workspace, artifact type, and content version; every read repeats the
-binding, allowed-root, and version checks. Raw filesystem paths are not part of
-the public reference. The transport-neutral service remains in-memory by
-default; the Phase 3C adapter supplies locked, crash-atomic private persistence
-under `DATA/modern-adapter/` so bound operation and resource records survive
-restart and can be shared by workers.
+binding, allowed-root, and version checks. Directory issuance and resolution
+also bound file count, total/per-file bytes, relative-path bytes, and depth
+before/during hashing. Raw filesystem paths are not part of the public
+reference. The transport-neutral service remains in-memory by default; the
+Phase 3C adapter supplies locked, crash-atomic private persistence under
+`DATA/modern-adapter/` so bound operation and resource records survive restart
+and can be shared by workers.
+
+Phase 4 entry readiness is transport-independent under `state/readiness.py`.
+It records the actual stdlib and reviewed fallback SQLite runtimes and refuses
+State Store v2 WAL/multi-connection use below SQLite 3.51.3. ADR-0005 fixes one
+database and artifact namespace per workspace, with credential secrets kept
+outside SQLite and protocol rollback separated from state-engine rollback.
+This entry boundary does not yet migrate or activate workspaces; JSON v1
+remains authoritative until explicit verified cutover.
 
 The modern HTTP boundary authenticates one high-entropy bearer token by
 server-held digest, then resolves principal/workspace to a server-held authority

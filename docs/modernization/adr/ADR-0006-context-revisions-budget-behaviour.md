@@ -1,7 +1,7 @@
 # ADR-0006: Context revisions and budget behaviour
 
-- Status: Proposed
-- Date: 2026-07-28
+- Status: Accepted
+- Date: 2026-08-24
 - Owners: Synapse architectural lead
 - Applies from: Phase 4 after acceptance
 - Supersedes: Fixed `workspace.prepare_target_context` view in the modern application path
@@ -21,7 +21,30 @@ transactional revision cursor for deterministic deltas.
 
 ## Decision
 
-Replace the fixed `prepare_target_context` view with a revision-aware, budgeted `context.query` service returning typed sections, and make the token budget an enforced contract with explicit machine-readable omission records.
+Add a transport-independent, revision-aware, budgeted `context.query`
+application service with closed input and output models. Modern compact and
+direct surfaces use the new service. Frozen legacy
+`workspace.prepare_target_context` retains its existing schema and advisory
+behavior.
+
+The modern input is `workspaceId`, `intent`, `targets[]`, optional
+`entityTypes[]`, optional `sinceRevision`, `maxTokens`, and
+`includeEvidenceSummaries`. During transition, compact `target` and `purpose`
+are deprecated aliases normalized before the service boundary.
+
+The provider-neutral default counter is `utf8_bytes_v1`: one measured unit per
+byte of the canonical UTF-8 serialized context payload inside the standard
+facade envelope. This intentionally conservative upper bound is deterministic
+and does not claim parity with a provider tokenizer. Results report requested
+and used units, counter identity, and status. A future injected precise counter
+may replace only accounting, not retrieval or packing semantics.
+
+Packing order is fixed: protected scope/authority/contradiction/revision
+warnings, confirmed facts, coverage gaps, active tasks and recent actions,
+candidates, non-mandatory recommendations, then optional evidence summaries.
+Stable identities, priority scores, and lexical tie-breakers make the same
+query at the same revision byte-repeatable. Every excluded section or item has
+a typed omission reason, count, and safe continuation or resource link.
 
 ## Invariants
 
@@ -31,6 +54,21 @@ Replace the fixed `prepare_target_context` view with a revision-aware, budgeted 
 - Confirmed facts, candidates, contradictions, gaps, and recommendations are separate fields; recommendations never invoke actions.
 - `sinceRevision` is monotonic per workspace and committed transactionally with the change it describes.
 - Exact relational retrieval precedes semantic retrieval.
+- One consistent repository snapshot supplies the current revision and every
+  returned section. The budget applies to the final canonical facade payload,
+  including its fixed-point budget metadata and omission records.
+- If the protected envelope cannot fit, return a closed `budget_too_small`
+  result with the measured required minimum; never drop a warning, truncate a
+  JSON string, or substitute a generic omission.
+- `sinceRevision=N` returns changes in `(N, currentRevision]`. A future cursor
+  is invalid. A cursor older than retained change-log coverage sets
+  `fullRefreshRequired=true` rather than fabricating a partial delta.
+- Context-visible domain state, relations, its monotonic revision, change-log
+  rows, and audit event commit in one transaction. A rollback exposes none of
+  them.
+- Large evidence is represented by workspace-bound opaque resource links, not
+  embedded artifact bodies.
+- Phase 4 adds neither embeddings nor semantic/vector storage.
 
 ## Alternatives considered
 
@@ -76,16 +114,18 @@ Replace the fixed `prepare_target_context` view with a revision-aware, budgeted 
 - Security: Scope, authority, and contradiction warnings receive protected
   budget treatment and cannot disappear silently.
 - Compatibility: The legacy fixed view remains available through the legacy
-  profile while the modern service establishes its contract.
+  action contract while the modern service enforces the new contract. Protocol
+  selection does not change repository revisions or store authority.
 
 ## Migration and rollback
 
-Introduce `context.query` beside the legacy view. Define typed sections,
-priority rules, token accounting, omission records, and transactional workspace
-revisions before switching modern clients. Re-run the populated P0-3 benchmark
-at every stage. Rollback returns modern callers to the legacy fixed view while
-preserving revision data already committed; it must not claim budget compliance
-for legacy responses.
+Introduce `context.query` beside the legacy view after State Store v2 is
+authoritative under concurrency and crash tests. Define closed sections,
+priority rules, counter accounting, omission records, protected-envelope
+behavior, and transactional workspace revisions before switching modern
+clients. Re-run the populated P0-3 benchmark at every stage. A modern facade
+rollback may temporarily map callers to the legacy fixed view while preserving
+committed revisions, but that view must never claim budget or delta compliance.
 
 ## Verification
 
@@ -97,3 +137,8 @@ for legacy responses.
   exact-before-semantic retrieval.
 - Measure the Phase 4 exit criterion as 100% budget adherence with omissions
   reported.
+- Exercise exact-fit, one-unit-under, empty/huge workspaces, Unicode, large
+  evidence, many contradictions, future cursors, pruned cursors, process
+  restart, and rolled-back writes.
+- Validate every modern result against its published closed schema and keep the
+  compact official-SDK wire payload below 24,834 bytes.

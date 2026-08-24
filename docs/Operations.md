@@ -13,14 +13,14 @@ cd /path/to/Synapse
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install -U pip
-python -m pip install -e '.[browser,modern]'
+python -m pip install -e '.[browser,modern,state-v2]'
 python -m playwright install chromium
 ```
 
-The Synapse launcher reads `SYNAPSE_PYTHON` from `config/synapse.env`; by
-default it uses the active console `VIRTUAL_ENV`, then
-`$SYNAPSE_ROOT/.venv/bin/python` when present, and falls back to `python3` only
-when no venv is available. MCP clients should launch:
+The Synapse launcher reads `SYNAPSE_PYTHON` from `config/synapse.env`; otherwise
+it uses the active console `VIRTUAL_ENV`, then
+`$SYNAPSE_ROOT/.venv/bin/python` when present. It fails closed when none is
+runnable. MCP clients should launch:
 
 ```text
 MCPS/Synapse-MCP/bin/synapse-mcp
@@ -217,6 +217,28 @@ Install the isolated modern runtime with:
 ```bash
 pip install -e '.[modern]'
 ```
+
+## State Store v2 Entry Readiness
+
+Phase 4 requires the SQLite library linked to the selected binding to be
+3.51.3 or later for WAL/multi-connection operation. The Python version does not
+prove that SQLite floor. `sqlite3` is used when its actual runtime is safe;
+otherwise the `state-v2` extra supplies the maintained, pinned
+`apsw==3.53.4.0` binding across Python 3.10–3.13.
+
+```bash
+python -m pip install -e '.[state-v2]'
+bin/check-state-v2-readiness
+```
+
+The probe prints Python, the actual `sqlite3.sqlite_version`, APSW and its
+linked SQLite version when installed, and the selected State Store binding. A
+non-zero result is a hard State Store v2 readiness failure; do not weaken the
+SQLite floor. This entry probe does not migrate or activate a workspace.
+Existing workspaces remain JSON v1 until the later explicit migration,
+verification, and activation workflow. Protocol selection (`legacy`,
+`modern-compact`, or `modern-direct`) is independent of that future workspace
+store selector.
 
 Production startup requires private (`0600`) operator files. The identity
 binding maps authenticated principals to server-held workspace and authority
@@ -1703,8 +1725,9 @@ The isolated modern SDK profile is installed and tested separately so the
 stable installation has no MCP SDK dependency:
 
 ```bash
-pip install -e '.[modern]'
+pip install -e '.[modern,state-v2]'
 bin/test-modern
+bin/check-state-v2-readiness
 ```
 
 The production suite covers both compact/direct surfaces and both official-SDK
@@ -1714,9 +1737,10 @@ security checks, durable resource isolation, rotating request state, restart
 resume exactly once, and real subprocess startup. Use `synapse-mcp` to roll
 back immediately to the stable legacy profile. The deprecated `modern-spike`
 extra and `synapse-mcp-modern-spike` command only forward to the production
-runtime. CI runs the full suite and contract subset on Python 3.10–3.13, then
-runs the optional modern extra in a separate Python 3.13 job; every job asserts
-that tests leave the checkout clean.
+runtime. CI runs the full suite and contract subset on Python 3.10–3.13, prints
+Python plus stdlib/selected SQLite runtime evidence for every matrix entry,
+then runs the optional modern extra in a separate Python 3.13 job; every job
+asserts that tests leave the checkout clean.
 
 The helper sets `PYTHONDONTWRITEBYTECODE=1` and the correct `PYTHONPATH` values
 for the core MCP suite and the custom adapter template tests. The current suite

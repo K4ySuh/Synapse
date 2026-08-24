@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from hashlib import sha256
 import json
 import mimetypes
+import os
 from pathlib import Path
 import secrets
 from typing import Any
@@ -35,38 +36,129 @@ class _ResourceRecord:
     authority_session_id: str
 
 
-def _directory_files(path: Path) -> tuple[Path, ...]:
-    files: list[Path] = []
-    for item in path.rglob("*"):
-        if item.is_symlink():
+@dataclass(frozen=True, slots=True)
+class _DirectoryLimits:
+    file_count: int
+    total_bytes: int
+    per_file_bytes: int
+    relative_path_bytes: int
+    depth: int
+
+
+@dataclass(frozen=True, slots=True)
+class _DirectoryFile:
+    path: Path
+    relative: str
+    size: int
+
+
+def _directory_files(path: Path, limits: _DirectoryLimits) -> tuple[_DirectoryFile, ...]:
+    """Stream a bounded tree inventory before any file content is hashed."""
+
+    files: list[_DirectoryFile] = []
+    total_bytes = 0
+    directories = [path]
+    while directories:
+        current = directories.pop()
+        try:
+            entries = os.scandir(current)
+        except OSError as exc:
             raise ResourceAccessError(
-                "resource_symlink_forbidden",
-                "Directory resource trees cannot contain symbolic links",
-            )
-        if item.is_file():
-            files.append(item)
-    return tuple(sorted(files))
+                "resource_directory_unreadable",
+                "Directory resource tree could not be enumerated",
+            ) from exc
+        with entries:
+            for entry in entries:
+                item = Path(entry.path)
+                relative_path = item.relative_to(path)
+                relative = relative_path.as_posix()
+                path_bytes = len(relative.encode("utf-8", errors="surrogateescape"))
+                if path_bytes > limits.relative_path_bytes:
+                    raise ResourceAccessError(
+                        "resource_directory_path_limit",
+                        "Directory resource relative path exceeds the configured byte limit",
+                    )
+                if len(relative_path.parts) > limits.depth:
+                    raise ResourceAccessError(
+                        "resource_directory_depth_limit",
+                        "Directory resource exceeds the configured depth limit",
+                    )
+                if entry.is_symlink():
+                    raise ResourceAccessError(
+                        "resource_symlink_forbidden",
+                        "Directory resource trees cannot contain symbolic links",
+                    )
+                try:
+                    if entry.is_dir(follow_symlinks=False):
+                        directories.append(item)
+                        continue
+                    if not entry.is_file(follow_symlinks=False):
+                        raise ResourceAccessError(
+                            "resource_non_regular_file",
+                            "Directory resource trees may contain only directories and regular files",
+                        )
+                    size = entry.stat(follow_symlinks=False).st_size
+                except OSError as exc:
+                    raise ResourceAccessError(
+                        "resource_directory_unreadable",
+                        "Directory resource entry could not be inspected",
+                    ) from exc
+                if size > limits.per_file_bytes:
+                    raise ResourceAccessError(
+                        "resource_directory_file_bytes_limit",
+                        "Directory resource file exceeds the configured byte limit",
+                    )
+                if len(files) >= limits.file_count:
+                    raise ResourceAccessError(
+                        "resource_directory_file_count_limit",
+                        "Directory resource exceeds the configured file-count limit",
+                    )
+                total_bytes += size
+                if total_bytes > limits.total_bytes:
+                    raise ResourceAccessError(
+                        "resource_directory_total_bytes_limit",
+                        "Directory resource exceeds the configured total-byte limit",
+                    )
+                files.append(_DirectoryFile(path=item, relative=relative, size=size))
+    return tuple(sorted(files, key=lambda item: item.relative))
 
 
-def _path_version(path: Path) -> tuple[str, int]:
+def _path_version(path: Path, directory_limits: _DirectoryLimits) -> tuple[str, int]:
     digest = sha256()
     size = 0
-    files = (path,) if path.is_file() else _directory_files(path)
+    files = (
+        (_DirectoryFile(path=path, relative=path.name, size=path.stat().st_size),)
+        if path.is_file()
+        else _directory_files(path, directory_limits)
+    )
     for item in files:
-        relative = item.name if path.is_file() else item.relative_to(path).as_posix()
+        relative = item.relative
         digest.update(relative.encode("utf-8", errors="surrogateescape"))
         digest.update(b"\0")
-        with item.open("rb") as handle:
+        file_size = 0
+        with item.path.open("rb") as handle:
             while chunk := handle.read(1024 * 1024):
+                file_size += len(chunk)
+                if file_size > directory_limits.per_file_bytes and path.is_dir():
+                    raise ResourceAccessError(
+                        "resource_directory_file_bytes_limit",
+                        "Directory resource file grew beyond the configured byte limit while hashing",
+                    )
+                if size + len(chunk) > directory_limits.total_bytes and path.is_dir():
+                    raise ResourceAccessError(
+                        "resource_directory_total_bytes_limit",
+                        "Directory resource grew beyond the configured total-byte limit while hashing",
+                    )
                 digest.update(chunk)
                 size += len(chunk)
     return digest.hexdigest(), size
 
 
-def _directory_manifest(path: Path) -> str:
-    files = []
-    for item in _directory_files(path):
-        files.append({"name": item.relative_to(path).as_posix(), "bytes": item.stat().st_size})
+def _directory_manifest(path: Path, directory_limits: _DirectoryLimits) -> str:
+    files = [
+        {"name": item.relative, "bytes": item.size}
+        for item in _directory_files(path, directory_limits)
+    ]
     return json.dumps({"type": "directory", "files": files}, separators=(",", ":"))
 
 
@@ -83,6 +175,11 @@ class ResourceReferenceService:
         *,
         allowed_roots: tuple[Path, ...] | None = None,
         max_read_bytes: int = 16 * 1024 * 1024,
+        max_directory_files: int = 10_000,
+        max_directory_total_bytes: int = 2 * 1024 * 1024 * 1024,
+        max_directory_file_bytes: int = 512 * 1024 * 1024,
+        max_directory_path_bytes: int = 4096,
+        max_directory_depth: int = 64,
         state_path: Path | None = None,
     ) -> None:
         configured = allowed_roots or (
@@ -94,6 +191,16 @@ class ResourceReferenceService:
         )
         self._allowed_roots = tuple(root.resolve() for root in configured)
         self._max_read_bytes = max_read_bytes
+        limit_values = (
+            max_directory_files,
+            max_directory_total_bytes,
+            max_directory_file_bytes,
+            max_directory_path_bytes,
+            max_directory_depth,
+        )
+        if any(int(value) < 1 for value in limit_values):
+            raise ValueError("Directory resource limits must be positive integers")
+        self._directory_limits = _DirectoryLimits(*(int(value) for value in limit_values))
         self._state_path = Path(state_path).resolve() if state_path is not None else None
         self._records: dict[str, _ResourceRecord] = {}
 
@@ -107,7 +214,7 @@ class ResourceReferenceService:
         media_type: str | None = None,
     ) -> ResourceReference:
         resolved = self._validated_path(Path(path))
-        version, size = _path_version(resolved)
+        version, size = _path_version(resolved, self._directory_limits)
         token = f"resource-{secrets.token_urlsafe(24)}"
         reference = ResourceReference(
             reference=token,
@@ -155,11 +262,11 @@ class ResourceReferenceService:
         if not trusted_workspace or not secrets.compare_digest(record.workspace_id, trusted_workspace):
             raise ResourceAccessError("resource_workspace_mismatch", "Resource workspace binding does not match")
         resolved = self._validated_path(record.path)
-        version, size = _path_version(resolved)
+        version, size = _path_version(resolved, self._directory_limits)
         if not secrets.compare_digest(version, record.reference.version) or size != record.reference.size:
             raise ResourceAccessError("resource_version_stale", "Resource changed after the reference was issued")
         content = (
-            _directory_manifest(resolved).encode("utf-8")
+            _directory_manifest(resolved, self._directory_limits).encode("utf-8")
             if resolved.is_dir()
             else resolved.read_bytes()
         )
@@ -187,7 +294,7 @@ class ResourceReferenceService:
         if not trusted_workspace or not secrets.compare_digest(record.workspace_id, trusted_workspace):
             raise ResourceAccessError("resource_workspace_mismatch", "Resource workspace binding does not match")
         resolved = self._validated_path(record.path)
-        version, size = _path_version(resolved)
+        version, size = _path_version(resolved, self._directory_limits)
         if not secrets.compare_digest(version, record.reference.version) or size != record.reference.size:
             raise ResourceAccessError("resource_version_stale", "Resource changed after the reference was issued")
         return resolved

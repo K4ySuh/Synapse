@@ -11,7 +11,9 @@ import ast
 from collections import defaultdict
 import inspect
 import json
+import os
 from pathlib import Path
+import subprocess
 import sys
 import textwrap
 from typing import Any
@@ -22,6 +24,20 @@ PACKAGE_DIR = ROOT_DIR / "MCPS" / "Synapse-MCP"
 INVENTORY_PATH = PACKAGE_DIR / "synapse_mcp" / "app" / "actions" / "action_inventory.json"
 OUTPUT_PATH = PACKAGE_DIR / "synapse_mcp" / "app" / "actions" / "output_contracts.json"
 FIXTURE_DIR = PACKAGE_DIR / "tests" / "fixtures" / "legacy_contracts" / "results"
+if os.environ.get("SYNAPSE_OUTPUT_CONTRACT_RUNTIME_RESOLVED") != "1":
+    resolved = subprocess.run(
+        [str(ROOT_DIR / "bin" / "resolve-synapse-python")],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if resolved.returncode != 0:
+        print(resolved.stderr.strip() or resolved.stdout.strip(), file=sys.stderr)
+        raise SystemExit(resolved.returncode)
+    selected = resolved.stdout.strip()
+    environment = dict(os.environ)
+    environment["SYNAPSE_OUTPUT_CONTRACT_RUNTIME_RESOLVED"] = "1"
+    os.execve(selected, [selected, str(Path(__file__).resolve()), *sys.argv[1:]], environment)
 if str(PACKAGE_DIR) not in sys.path:
     sys.path.insert(0, str(PACKAGE_DIR))
 

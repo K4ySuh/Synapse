@@ -352,7 +352,7 @@ Recommended optional tooling:
    python3 -m venv .venv
    . .venv/bin/activate
    python -m pip install -U pip
-   python -m pip install -e '.[browser,modern]'
+   python -m pip install -e '.[browser,modern,state-v2]'
    python -m playwright install chromium
    ```
 
@@ -361,6 +361,7 @@ Recommended optional tooling:
 
    ```bash
    bin/check-setup
+   bin/check-state-v2-readiness
    ```
 
    Missing external scanner binaries are warnings by default because passive,
@@ -368,6 +369,9 @@ Recommended optional tooling:
    Modern readiness fails until private identity bindings, a request-state
    keyring, a writable state directory, and a resolvable binding are present.
    Use `bin/check-setup --legacy` when validating only the frozen rollback.
+   The separate State Store v2 probe prints the actual linked SQLite versions
+   and requires SQLite 3.51.3 or later. It does not migrate or activate an
+   existing workspace.
 
 3. For a full active-adapter workstation, require scanner binaries too:
 
@@ -564,7 +568,8 @@ Useful focused modes:
 bin/test --core
 bin/test --template
 bin/test --core -k access_control
-bin/test-modern # after: pip install -e '.[modern]'
+bin/test-modern # after: pip install -e '.[modern,state-v2]'
+bin/check-state-v2-readiness
 ```
 
 The suite covers adapter analysis, credential safety, evidence redaction,
