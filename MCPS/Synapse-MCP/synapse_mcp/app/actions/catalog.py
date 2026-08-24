@@ -24,6 +24,7 @@ from synapse_mcp.core.execution import (
 
 from .contracts import InputContractDocument, make_input_model, make_json_object_output_model
 from .descriptor import ActionDescriptor, ActionRequest
+from .effect_declarations import EFFECT_DECLARATIONS
 from .identity import ActionId
 from .inventory import action_inventory
 from .legacy_bridge import RetainedLegacyExecutor, retained_legacy_implementation_bound
@@ -46,83 +47,20 @@ from .policies import (
 from .registry import REGISTRY
 
 
-def _maximum_effects(entry: dict[str, Any]) -> ActionEffects:
-    side_effect = str(entry["sideEffectClass"])
-    replay = Idempotency(str(entry["idempotency"]["behaviour"]))
-    input_properties = entry.get("inputSchema", {}).get("properties", {})
-    input_fields = set(input_properties) if isinstance(input_properties, dict) else set()
-    traffic: set[TrafficDestination] = set()
-    writes: set[LocalWriteDomain] = set()
-    local_change = False
-    local_destruction = False
-    remote_state_change = False
+def _maximum_effects(action_id: str) -> ActionEffects:
+    """Resolve descriptor-owned audited truth; never infer authority from labels."""
 
-    if side_effect == "active_probe":
-        traffic.add(TrafficDestination.AUTHORIZED_TARGET)
-        writes.update({LocalWriteDomain.WORKSPACE, LocalWriteDomain.EVIDENCE})
-        local_change = True
-        remote_state_change = True
-    elif side_effect == "third_party_read":
-        traffic.add(TrafficDestination.THIRD_PARTY)
-        writes.add(LocalWriteDomain.EVIDENCE)
-        if "workspaceId" in input_fields or "ingest" in input_fields:
-            writes.add(LocalWriteDomain.WORKSPACE)
-        local_change = True
-        replay = Idempotency.NON_IDEMPOTENT
-    elif side_effect == "passive_analysis":
-        if bool(entry["passiveRecordable"]) or "ingest" in input_fields:
-            writes.update({LocalWriteDomain.WORKSPACE, LocalWriteDomain.EVIDENCE})
-            local_change = True
-            replay = Idempotency.NON_IDEMPOTENT
-    elif side_effect == "workspace_write":
-        writes.update({LocalWriteDomain.WORKSPACE, LocalWriteDomain.EVIDENCE})
-        local_change = True
-    elif side_effect == "report_build" and replay is not Idempotency.PURE_READ:
-        writes.add(LocalWriteDomain.REPORTS_ARTIFACTS)
-        local_change = True
-    elif side_effect == "credential_write":
-        writes.update({LocalWriteDomain.CREDENTIALS, LocalWriteDomain.EVIDENCE})
-        local_change = True
-    elif side_effect == "local_destructive":
-        writes.update(
-            {
-                LocalWriteDomain.WORKSPACE,
-                LocalWriteDomain.EVIDENCE,
-                LocalWriteDomain.REPORTS_ARTIFACTS,
-            }
-        )
-        local_change = True
-        local_destruction = True
-    elif side_effect == "runtime_config_write":
-        writes.add(LocalWriteDomain.RUNTIME_CONFIG)
-        local_change = True
-    elif side_effect == "job_control":
-        writes.add(LocalWriteDomain.JOBS)
-        local_change = True
-        local_destruction = True
-    elif side_effect == "authorization_config_write":
-        writes.update({LocalWriteDomain.RUNTIME_CONFIG, LocalWriteDomain.WORKSPACE})
-        local_change = True
-
-    if entry["taskMode"] == "background_capable":
-        writes.update({LocalWriteDomain.JOBS, LocalWriteDomain.REPORTS_ARTIFACTS})
-        local_change = True
-        local_destruction = True
-        replay = Idempotency.NON_IDEMPOTENT
-    if entry["scopeRequirement"] == "required":
-        traffic.add(TrafficDestination.AUTHORIZED_TARGET)
-        remote_state_change = True
-    credential_access = str(entry["credentialAccess"])
-    uses_credentials = credential_access in {"credential_use", "secret_state_write"}
+    declaration = EFFECT_DECLARATIONS[action_id]
     return ActionEffects(
-        traffic=frozenset(traffic),
-        local_writes=frozenset(writes),
-        local_change=local_change,
-        local_destruction=local_destruction,
-        remote_state_change=remote_state_change,
-        credential_use=uses_credentials,
-        secret_use=uses_credentials,
-        replay_safety=replay,
+        traffic=frozenset(TrafficDestination(value) for value in declaration["traffic"]),
+        local_writes=frozenset(LocalWriteDomain(value) for value in declaration["localWrites"]),
+        local_change=bool(declaration["localChange"]),
+        local_destruction=bool(declaration["localDestruction"]),
+        remote_state_change=bool(declaration["remoteStateChange"]),
+        credential_use=bool(declaration["credentialUse"]),
+        secret_use=bool(declaration["secretUse"]),
+        replay_safety=Idempotency(str(declaration["replaySafety"])),
+        resolution_notes=(f"audit_group={declaration['auditGroup']}",),
     )
 
 
@@ -285,7 +223,7 @@ def _register_generated_descriptors() -> None:
         )
         input_model = make_input_model(str(entry["inputModel"]), document)
         output_model = make_json_object_output_model(str(entry["outputModel"]))
-        maximum = _maximum_effects(entry)
+        maximum = _maximum_effects(action_id)
         idempotency = dict(entry["idempotency"])
         descriptor = ActionDescriptor(
             id=ActionId.parse(action_id),

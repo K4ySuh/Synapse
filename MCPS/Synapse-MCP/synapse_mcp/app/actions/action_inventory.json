@@ -47,6 +47,18 @@
         "behaviour": "pure_read",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "transport",
@@ -94,6 +106,23 @@
         "behaviour": "pure_read",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence",
+          "jobs",
+          "reports_artifacts"
+        ],
+        "localChange": true,
+        "localDestruction": true,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "job_status_refresh",
+        "auditNote": "A status read may finalize a worker, ingest its result, update workspace/evidence/job state, and remove process sidecars; finalized sidecar-free jobs resolve to an effective pure read."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "transport",
@@ -137,6 +166,20 @@
         "behaviour": "idempotent_control",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "jobs"
+        ],
+        "localChange": true,
+        "localDestruction": true,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "idempotent_control",
+        "auditGroup": "job_control",
+        "auditNote": "Cancellation mutates durable job state and may terminate a local worker process."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "transport",
@@ -172,6 +215,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -216,6 +271,18 @@
         "behaviour": "pure_read",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "transport",
@@ -256,6 +323,18 @@
         "behaviour": "pure_read",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "transport",
@@ -291,6 +370,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -342,6 +433,21 @@
         "behaviour": "pure_read",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "refreshable_workspace_analysis",
+        "auditNote": "Maximum includes optional/default normalization, reconciliation, refresh, and evidence-event branches; no network route is reachable."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "transport",
@@ -391,6 +497,21 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "refreshable_workspace_analysis",
+        "auditNote": "Maximum includes optional/default normalization, reconciliation, refresh, and evidence-event branches; no network route is reachable."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -455,6 +576,22 @@
       "idempotency": {
         "behaviour": "idempotent_write",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence",
+          "reports_artifacts"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "idempotent_write",
+        "auditGroup": "report_artifact_write",
+        "auditNote": "Renderer may refresh workspace-owned layer caches, writes operator-owned report artifacts and an evidence event, and modern callers cannot authorize external destinations."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -536,6 +673,18 @@
         "behaviour": "pure_read",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "transport",
@@ -612,6 +761,21 @@
         "behaviour": "pure_read",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "refreshable_workspace_analysis",
+        "auditNote": "Maximum includes optional/default normalization, reconciliation, refresh, and evidence-event branches; no network route is reachable."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "transport",
@@ -686,6 +850,21 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "refreshable_workspace_analysis",
+        "auditNote": "Maximum includes optional/default normalization, reconciliation, refresh, and evidence-event branches; no network route is reachable."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -775,6 +954,21 @@
         "behaviour": "pure_read",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "reports_artifacts"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "idempotent_write",
+        "auditGroup": "workspace_plan_cache_write",
+        "auditNote": "The planner persists a deterministic workspace-owned manifest or resumable queue snapshot."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "transport",
@@ -841,6 +1035,21 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "reports_artifacts"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "idempotent_write",
+        "auditGroup": "workspace_plan_cache_write",
+        "auditNote": "The planner persists a deterministic workspace-owned manifest or resumable queue snapshot."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -949,6 +1158,22 @@
         "behaviour": "idempotent_write",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence",
+          "reports_artifacts"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "batched_report_artifact_write",
+        "auditNote": "The bounded report run creates run/part manifests, rendered artifacts, and an evidence event."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "transport",
@@ -1037,6 +1262,18 @@
         "behaviour": "pure_read",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "pure_read",
+        "auditGroup": "sensitive_local_read",
+        "auditNote": "The optional detailed branch resolves protected credential/evidence material but does not write or send traffic."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "transport",
@@ -1104,6 +1341,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -1192,6 +1441,18 @@
         "behaviour": "pure_read",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "pure_read",
+        "auditGroup": "sensitive_local_read",
+        "auditNote": "The optional detailed branch resolves protected credential/evidence material but does not write or send traffic."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "transport",
@@ -1250,6 +1511,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -1330,6 +1603,22 @@
       "idempotency": {
         "behaviour": "idempotent_write",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence",
+          "reports_artifacts"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "idempotent_write",
+        "auditGroup": "report_artifact_write",
+        "auditNote": "Renderer may refresh workspace-owned layer caches, writes operator-owned report artifacts and an evidence event, and modern callers cannot authorize external destinations."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -1426,6 +1715,22 @@
         "behaviour": "idempotent_write",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence",
+          "reports_artifacts"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "idempotent_write",
+        "auditGroup": "report_artifact_write",
+        "auditNote": "Renderer may refresh workspace-owned layer caches, writes operator-owned report artifacts and an evidence event, and modern callers cannot authorize external destinations."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "transport",
@@ -1520,6 +1825,22 @@
         "behaviour": "idempotent_write",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence",
+          "reports_artifacts"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "idempotent_write",
+        "auditGroup": "report_artifact_write",
+        "auditNote": "Renderer may refresh workspace-owned layer caches, writes operator-owned report artifacts and an evidence event, and modern callers cannot authorize external destinations."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "transport",
@@ -1610,6 +1931,22 @@
         "behaviour": "idempotent_write",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence",
+          "reports_artifacts"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "idempotent_write",
+        "auditGroup": "report_artifact_write",
+        "auditNote": "Renderer may refresh workspace-owned layer caches, writes operator-owned report artifacts and an evidence event, and modern callers cannot authorize external destinations."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "transport",
@@ -1686,6 +2023,22 @@
       "idempotency": {
         "behaviour": "idempotent_write",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence",
+          "reports_artifacts"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "idempotent_write",
+        "auditGroup": "report_artifact_write",
+        "auditNote": "Renderer may refresh workspace-owned layer caches, writes operator-owned report artifacts and an evidence event, and modern callers cannot authorize external destinations."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -1766,6 +2119,21 @@
       "idempotency": {
         "behaviour": "conditional",
         "condition": "when workspaceId is supplied"
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "runtime_config"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "conditional",
+        "auditGroup": "scope_configuration_write",
+        "auditNote": "Persists global scope and, when workspaceId is supplied, the workspace-local authorization snapshot."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -1860,6 +2228,23 @@
         "behaviour": "non_idempotent",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence",
+          "runtime_config",
+          "reports_artifacts"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "project_bootstrap_write",
+        "auditNote": "Project bootstrap persists scope, workspace/evidence directories, and optional offline fingerprint artifacts."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "transport",
@@ -1915,6 +2300,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -1983,6 +2380,21 @@
         "behaviour": "idempotent_write",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "idempotent_write",
+        "auditGroup": "workspace_idempotent_write",
+        "auditNote": "Writes bounded workspace state and related evidence metadata; repeating the same logical update converges."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "transport",
@@ -2036,6 +2448,21 @@
       "idempotency": {
         "behaviour": "idempotent_write",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "idempotent_write",
+        "auditGroup": "workspace_idempotent_write",
+        "auditNote": "Writes bounded workspace state and related evidence metadata; repeating the same logical update converges."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -2103,6 +2530,21 @@
         "behaviour": "non_idempotent",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "workspace_non_idempotent_write",
+        "auditNote": "Creates, appends, promotes, reconciles, or curates workspace/evidence records."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "transport",
@@ -2158,6 +2600,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -2215,6 +2669,18 @@
         "behaviour": "pure_read",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "transport",
@@ -2261,6 +2727,22 @@
       "idempotency": {
         "behaviour": "non_idempotent",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence",
+          "reports_artifacts"
+        ],
+        "localChange": true,
+        "localDestruction": true,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "local_destructive_workspace_operation",
+        "auditNote": "Explicitly deletes workspace, dump, evidence, or generated artifact records after operator review."
       },
       "confirmDeclared": true,
       "passiveRecordable": false,
@@ -2356,6 +2838,21 @@
         "behaviour": "non_idempotent",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "workspace_non_idempotent_write",
+        "auditNote": "Creates, appends, promotes, reconciles, or curates workspace/evidence records."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "transport",
@@ -2411,6 +2908,21 @@
       "idempotency": {
         "behaviour": "idempotent_write",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "idempotent_write",
+        "auditGroup": "workspace_idempotent_write",
+        "auditNote": "Writes bounded workspace state and related evidence metadata; repeating the same logical update converges."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -2486,6 +2998,21 @@
         "behaviour": "non_idempotent",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "workspace_non_idempotent_write",
+        "auditNote": "Creates, appends, promotes, reconciles, or curates workspace/evidence records."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "transport",
@@ -2543,6 +3070,21 @@
       "idempotency": {
         "behaviour": "idempotent_write",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "idempotent_write",
+        "auditGroup": "workspace_idempotent_write",
+        "auditNote": "Writes bounded workspace state and related evidence metadata; repeating the same logical update converges."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -2606,6 +3148,21 @@
         "behaviour": "idempotent_write",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "idempotent_write",
+        "auditGroup": "workspace_idempotent_write",
+        "auditNote": "Writes bounded workspace state and related evidence metadata; repeating the same logical update converges."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "transport",
@@ -2660,6 +3217,21 @@
       "idempotency": {
         "behaviour": "idempotent_write",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "idempotent_write",
+        "auditGroup": "workspace_idempotent_write",
+        "auditNote": "Writes bounded workspace state and related evidence metadata; repeating the same logical update converges."
       },
       "confirmDeclared": true,
       "passiveRecordable": false,
@@ -2722,6 +3294,21 @@
       "idempotency": {
         "behaviour": "idempotent_write",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "idempotent_write",
+        "auditGroup": "workspace_idempotent_write",
+        "auditNote": "Writes bounded workspace state and related evidence metadata; repeating the same logical update converges."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -2800,6 +3387,21 @@
       "idempotency": {
         "behaviour": "non_idempotent",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "workspace_non_idempotent_write",
+        "auditNote": "Creates, appends, promotes, reconciles, or curates workspace/evidence records."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -2882,6 +3484,21 @@
         "behaviour": "non_idempotent",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "workspace_non_idempotent_write",
+        "auditNote": "Creates, appends, promotes, reconciles, or curates workspace/evidence records."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "transport",
@@ -2956,6 +3573,21 @@
         "behaviour": "non_idempotent",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "workspace_non_idempotent_write",
+        "auditNote": "Creates, appends, promotes, reconciles, or curates workspace/evidence records."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "transport",
@@ -3006,6 +3638,21 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "reports_artifacts"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "idempotent_write",
+        "auditGroup": "workspace_finding_export",
+        "auditNote": "Reading the finding also refreshes its workspace-owned Markdown document."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -3085,6 +3732,21 @@
         "behaviour": "non_idempotent",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "credentials",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "credential_state_write",
+        "auditNote": "Creates, replaces, or removes private credential/profile material and records only sanitized evidence metadata."
+      },
       "confirmDeclared": true,
       "passiveRecordable": false,
       "serializer": "transport",
@@ -3120,6 +3782,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -3242,6 +3916,21 @@
       "idempotency": {
         "behaviour": "non_idempotent",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "credentials",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "credential_state_write",
+        "auditNote": "Creates, replaces, or removes private credential/profile material and records only sanitized evidence metadata."
       },
       "confirmDeclared": true,
       "passiveRecordable": false,
@@ -3437,6 +4126,21 @@
         "behaviour": "non_idempotent",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "credentials",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "credential_state_write",
+        "auditNote": "Creates, replaces, or removes private credential/profile material and records only sanitized evidence metadata."
+      },
       "confirmDeclared": true,
       "passiveRecordable": false,
       "serializer": "transport",
@@ -3524,6 +4228,23 @@
         "behaviour": "non_idempotent",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [
+          "authorized_target"
+        ],
+        "localWrites": [
+          "credentials",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": true,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "credential_refresh_traffic",
+        "auditNote": "Authenticates or validates against an authorized target and may replace stored session material; login methods may change remote session state."
+      },
       "confirmDeclared": true,
       "passiveRecordable": false,
       "serializer": "transport",
@@ -3580,6 +4301,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -3722,6 +4455,25 @@
         "behaviour": "non_idempotent",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [
+          "authorized_target"
+        ],
+        "localWrites": [
+          "credentials",
+          "evidence",
+          "jobs",
+          "reports_artifacts"
+        ],
+        "localChange": true,
+        "localDestruction": true,
+        "remoteStateChange": true,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "browser_credential_refresh_job",
+        "auditNote": "Browser authentication starts bounded job/process state, sends login traffic, refreshes secrets, and may clean or replace local browser/job artifacts."
+      },
       "confirmDeclared": true,
       "passiveRecordable": false,
       "serializer": "transport",
@@ -3825,6 +4577,23 @@
         "behaviour": "non_idempotent",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [
+          "authorized_target"
+        ],
+        "localWrites": [
+          "credentials",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": true,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "credential_refresh_traffic",
+        "auditNote": "Authenticates or validates against an authorized target and may replace stored session material; login methods may change remote session state."
+      },
       "confirmDeclared": true,
       "passiveRecordable": false,
       "serializer": "transport",
@@ -3867,6 +4636,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -3915,6 +4696,21 @@
         "behaviour": "non_idempotent",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "credentials",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": true,
+        "remoteStateChange": false,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "credential_state_delete",
+        "auditNote": "Deletes private credential/profile material and records only sanitized evidence metadata; the removed secret is never returned."
+      },
       "confirmDeclared": true,
       "passiveRecordable": false,
       "serializer": "transport",
@@ -3951,6 +4747,18 @@
         "behaviour": "pure_read",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "transport",
@@ -3986,6 +4794,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -4030,6 +4850,22 @@
         "behaviour": "non_idempotent",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence",
+          "reports_artifacts"
+        ],
+        "localChange": true,
+        "localDestruction": true,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "local_destructive_workspace_operation",
+        "auditNote": "Explicitly deletes workspace, dump, evidence, or generated artifact records after operator review."
+      },
       "confirmDeclared": true,
       "passiveRecordable": false,
       "serializer": "transport",
@@ -4071,6 +4907,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -4119,6 +4967,22 @@
       "idempotency": {
         "behaviour": "non_idempotent",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence",
+          "reports_artifacts"
+        ],
+        "localChange": true,
+        "localDestruction": true,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "local_destructive_workspace_operation",
+        "auditNote": "Explicitly deletes workspace, dump, evidence, or generated artifact records after operator review."
       },
       "confirmDeclared": true,
       "passiveRecordable": false,
@@ -4181,6 +5045,21 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "refreshable_workspace_analysis",
+        "auditNote": "Maximum includes optional/default normalization, reconciliation, refresh, and evidence-event branches; no network route is reachable."
       },
       "confirmDeclared": false,
       "passiveRecordable": true,
@@ -4260,6 +5139,21 @@
         "behaviour": "pure_read",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "refreshable_workspace_analysis",
+        "auditNote": "Maximum includes optional/default normalization, reconciliation, refresh, and evidence-event branches; no network route is reachable."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -4336,6 +5230,21 @@
         "behaviour": "pure_read",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "sqlmap_plan_promotion_write",
+        "auditNote": "The workspace-aware branch marks selected SQLi candidates under testing and logs the lifecycle update; the generic branch remains read-only."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -4397,6 +5306,21 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "refreshable_workspace_analysis",
+        "auditNote": "Maximum includes optional/default normalization, reconciliation, refresh, and evidence-event branches; no network route is reachable."
       },
       "confirmDeclared": false,
       "passiveRecordable": true,
@@ -4464,6 +5388,21 @@
         "behaviour": "pure_read",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "refreshable_workspace_analysis",
+        "auditNote": "Maximum includes optional/default normalization, reconciliation, refresh, and evidence-event branches; no network route is reachable."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -4526,6 +5465,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -4665,6 +5616,23 @@
         "behaviour": "non_idempotent",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [
+          "authorized_target"
+        ],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": true,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "active_target_probe_with_credentials",
+        "auditNote": "Maximum covers optional authenticated target traffic, evidence/normalization writes, and methods whose endpoint semantics may mutate remote state."
+      },
       "confirmDeclared": true,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -4700,6 +5668,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -4737,6 +5717,18 @@
         "behaviour": "pure_read",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -4773,6 +5765,18 @@
         "behaviour": "pure_read",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -4808,6 +5812,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -4908,6 +5924,21 @@
         "behaviour": "pure_read",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "refreshable_workspace_analysis",
+        "auditNote": "Maximum includes optional/default normalization, reconciliation, refresh, and evidence-event branches; no network route is reachable."
+      },
       "confirmDeclared": false,
       "passiveRecordable": true,
       "serializer": "executor",
@@ -4967,6 +5998,18 @@
         "behaviour": "pure_read",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -5002,6 +6045,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -5059,6 +6114,21 @@
         "behaviour": "pure_read",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "refreshable_workspace_analysis",
+        "auditNote": "Maximum includes optional/default normalization, reconciliation, refresh, and evidence-event branches; no network route is reachable."
+      },
       "confirmDeclared": false,
       "passiveRecordable": true,
       "serializer": "executor",
@@ -5114,6 +6184,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -5227,6 +6309,23 @@
         "behaviour": "non_idempotent",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [
+          "authorized_target"
+        ],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": true,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "active_target_probe_with_credentials",
+        "auditNote": "Maximum covers optional authenticated target traffic, evidence/normalization writes, and methods whose endpoint semantics may mutate remote state."
+      },
       "confirmDeclared": true,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -5262,6 +6361,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -5319,6 +6430,21 @@
         "behaviour": "pure_read",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "refreshable_workspace_analysis",
+        "auditNote": "Maximum includes optional/default normalization, reconciliation, refresh, and evidence-event branches; no network route is reachable."
+      },
       "confirmDeclared": false,
       "passiveRecordable": true,
       "serializer": "executor",
@@ -5354,6 +6480,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -5411,6 +6549,21 @@
         "behaviour": "pure_read",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "refreshable_workspace_analysis",
+        "auditNote": "Maximum includes optional/default normalization, reconciliation, refresh, and evidence-event branches; no network route is reachable."
+      },
       "confirmDeclared": false,
       "passiveRecordable": true,
       "serializer": "executor",
@@ -5463,6 +6616,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -5579,6 +6744,23 @@
         "behaviour": "non_idempotent",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [
+          "authorized_target"
+        ],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": true,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "active_target_probe_with_credentials",
+        "auditNote": "Maximum covers optional authenticated target traffic, evidence/normalization writes, and methods whose endpoint semantics may mutate remote state."
+      },
       "confirmDeclared": true,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -5614,6 +6796,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -5671,6 +6865,21 @@
         "behaviour": "pure_read",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "refreshable_workspace_analysis",
+        "auditNote": "Maximum includes optional/default normalization, reconciliation, refresh, and evidence-event branches; no network route is reachable."
+      },
       "confirmDeclared": false,
       "passiveRecordable": true,
       "serializer": "executor",
@@ -5723,6 +6932,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -5829,6 +7050,23 @@
         "behaviour": "non_idempotent",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [
+          "authorized_target"
+        ],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": true,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "active_target_probe_with_credentials",
+        "auditNote": "Maximum covers optional authenticated target traffic, evidence/normalization writes, and methods whose endpoint semantics may mutate remote state."
+      },
       "confirmDeclared": true,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -5864,6 +7102,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -5921,6 +7171,21 @@
         "behaviour": "pure_read",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "refreshable_workspace_analysis",
+        "auditNote": "Maximum includes optional/default normalization, reconciliation, refresh, and evidence-event branches; no network route is reachable."
+      },
       "confirmDeclared": false,
       "passiveRecordable": true,
       "serializer": "executor",
@@ -5975,6 +7240,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": true,
+        "replaySafety": "pure_read",
+        "auditGroup": "supplied_secret_local_analysis",
+        "auditNote": "The implementation analyzes caller-supplied token/secret material in memory and neither persists it nor sends traffic."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -6039,6 +7316,21 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "refreshable_workspace_analysis",
+        "auditNote": "Maximum includes optional/default normalization, reconciliation, refresh, and evidence-event branches; no network route is reachable."
       },
       "confirmDeclared": false,
       "passiveRecordable": true,
@@ -6105,6 +7397,21 @@
         "behaviour": "non_idempotent",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "workspace_non_idempotent_write",
+        "auditNote": "Creates, appends, promotes, reconciles, or curates workspace/evidence records."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -6166,6 +7473,21 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "refreshable_workspace_analysis",
+        "auditNote": "Maximum includes optional/default normalization, reconciliation, refresh, and evidence-event branches; no network route is reachable."
       },
       "confirmDeclared": false,
       "passiveRecordable": true,
@@ -6234,6 +7556,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -6358,6 +7692,23 @@
         "behaviour": "non_idempotent",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [
+          "authorized_target"
+        ],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": true,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "active_target_probe_with_credentials",
+        "auditNote": "Maximum covers optional authenticated target traffic, evidence/normalization writes, and methods whose endpoint semantics may mutate remote state."
+      },
       "confirmDeclared": true,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -6419,6 +7770,21 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "refreshable_workspace_analysis",
+        "auditNote": "Maximum includes optional/default normalization, reconciliation, refresh, and evidence-event branches; no network route is reachable."
       },
       "confirmDeclared": false,
       "passiveRecordable": true,
@@ -6487,6 +7853,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -6609,6 +7987,23 @@
         "behaviour": "non_idempotent",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [
+          "authorized_target"
+        ],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": true,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "active_target_probe_with_credentials",
+        "auditNote": "Maximum covers optional authenticated target traffic, evidence/normalization writes, and methods whose endpoint semantics may mutate remote state."
+      },
       "confirmDeclared": true,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -6674,6 +8069,21 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "refreshable_workspace_analysis",
+        "auditNote": "Maximum includes optional/default normalization, reconciliation, refresh, and evidence-event branches; no network route is reachable."
       },
       "confirmDeclared": false,
       "passiveRecordable": true,
@@ -6743,6 +8153,18 @@
         "behaviour": "pure_read",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -6809,6 +8231,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -6935,6 +8369,23 @@
         "behaviour": "non_idempotent",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [
+          "authorized_target"
+        ],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": true,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "active_target_probe_with_credentials",
+        "auditNote": "Maximum covers optional authenticated target traffic, evidence/normalization writes, and methods whose endpoint semantics may mutate remote state."
+      },
       "confirmDeclared": true,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -6970,6 +8421,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -7021,6 +8484,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -7080,6 +8555,20 @@
         "behaviour": "idempotent_write",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "runtime_config"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "idempotent_write",
+        "auditGroup": "runtime_endpoint_configuration_write",
+        "auditNote": "Changes an in-process provider endpoint override only; it does not contact that endpoint."
+      },
       "confirmDeclared": true,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -7133,6 +8622,20 @@
       "idempotency": {
         "behaviour": "idempotent_write",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "runtime_config"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "idempotent_write",
+        "auditGroup": "runtime_endpoint_configuration_write",
+        "auditNote": "Changes an in-process provider endpoint override only; it does not contact that endpoint."
       },
       "confirmDeclared": true,
       "passiveRecordable": false,
@@ -7189,6 +8692,20 @@
         "behaviour": "idempotent_write",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "credentials"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "idempotent_write",
+        "auditGroup": "runtime_secret_state_write",
+        "auditNote": "Sets process-local provider secret state without persistence or traffic."
+      },
       "confirmDeclared": true,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -7240,6 +8757,20 @@
         "behaviour": "idempotent_write",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "credentials"
+        ],
+        "localChange": true,
+        "localDestruction": true,
+        "remoteStateChange": false,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "idempotent_control",
+        "auditGroup": "runtime_secret_state_clear",
+        "auditNote": "Clears process-local provider secret state without persistence or traffic."
+      },
       "confirmDeclared": true,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -7275,6 +8806,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -7434,6 +8977,23 @@
         "behaviour": "pure_read",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [
+          "third_party"
+        ],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "third_party_cve_correlation",
+        "auditNote": "Queries configured public intelligence providers, optionally uses runtime provider keys, and reconciles candidate/evidence state; it sends no target identity or traffic."
+      },
       "confirmDeclared": true,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -7509,6 +9069,18 @@
         "behaviour": "pure_read",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -7583,6 +9155,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -7721,6 +9305,23 @@
         "behaviour": "non_idempotent",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [
+          "authorized_target"
+        ],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": true,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "active_target_probe_with_credentials",
+        "auditNote": "Maximum covers optional authenticated target traffic, evidence/normalization writes, and methods whose endpoint semantics may mutate remote state."
+      },
       "confirmDeclared": true,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -7756,6 +9357,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -7817,6 +9430,21 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "refreshable_workspace_analysis",
+        "auditNote": "Maximum includes optional/default normalization, reconciliation, refresh, and evidence-event branches; no network route is reachable."
       },
       "confirmDeclared": false,
       "passiveRecordable": true,
@@ -7880,6 +9508,18 @@
         "behaviour": "pure_read",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -7938,6 +9578,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -8060,6 +9712,23 @@
         "behaviour": "non_idempotent",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [
+          "authorized_target"
+        ],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": true,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "active_target_probe_with_credentials",
+        "auditNote": "Maximum covers optional authenticated target traffic, evidence/normalization writes, and methods whose endpoint semantics may mutate remote state."
+      },
       "confirmDeclared": true,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -8095,6 +9764,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -8157,6 +9838,21 @@
         "behaviour": "pure_read",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "refreshable_workspace_analysis",
+        "auditNote": "Maximum includes optional/default normalization, reconciliation, refresh, and evidence-event branches; no network route is reachable."
+      },
       "confirmDeclared": false,
       "passiveRecordable": true,
       "serializer": "executor",
@@ -8218,6 +9914,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -8340,6 +10048,23 @@
         "behaviour": "non_idempotent",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [
+          "authorized_target"
+        ],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": true,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "active_target_probe_with_credentials",
+        "auditNote": "Maximum covers optional authenticated target traffic, evidence/normalization writes, and methods whose endpoint semantics may mutate remote state."
+      },
       "confirmDeclared": true,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -8375,6 +10100,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -8436,6 +10173,21 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "refreshable_workspace_analysis",
+        "auditNote": "Maximum includes optional/default normalization, reconciliation, refresh, and evidence-event branches; no network route is reachable."
       },
       "confirmDeclared": false,
       "passiveRecordable": true,
@@ -8499,6 +10251,18 @@
         "behaviour": "pure_read",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -8557,6 +10321,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -8679,6 +10455,23 @@
         "behaviour": "non_idempotent",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [
+          "authorized_target"
+        ],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": true,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "active_target_probe_with_credentials",
+        "auditNote": "Maximum covers optional authenticated target traffic, evidence/normalization writes, and methods whose endpoint semantics may mutate remote state."
+      },
       "confirmDeclared": true,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -8714,6 +10507,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -8775,6 +10580,21 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "refreshable_workspace_analysis",
+        "auditNote": "Maximum includes optional/default normalization, reconciliation, refresh, and evidence-event branches; no network route is reachable."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -8860,6 +10680,21 @@
         "behaviour": "idempotent_write",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "idempotent_write",
+        "auditGroup": "workspace_idempotent_write",
+        "auditNote": "Writes bounded workspace state and related evidence metadata; repeating the same logical update converges."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -8926,6 +10761,21 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "refreshable_workspace_analysis",
+        "auditNote": "Maximum includes optional/default normalization, reconciliation, refresh, and evidence-event branches; no network route is reachable."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -9000,6 +10850,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -9143,6 +11005,23 @@
         "behaviour": "non_idempotent",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [
+          "authorized_target"
+        ],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": true,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "active_target_probe_with_credentials",
+        "auditNote": "Maximum covers optional authenticated target traffic, evidence/normalization writes, and methods whose endpoint semantics may mutate remote state."
+      },
       "confirmDeclared": true,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -9178,6 +11057,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -9234,6 +11125,22 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence",
+          "reports_artifacts"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "local_javascript_artifact_write",
+        "auditNote": "Builds deterministic JavaScript manifests/models and logs evidence; application JavaScript is never executed and no network route is used."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -9371,6 +11278,24 @@
         "behaviour": "non_idempotent",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [
+          "authorized_target"
+        ],
+        "localWrites": [
+          "workspace",
+          "evidence",
+          "reports_artifacts"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "javascript_asset_fetch",
+        "auditNote": "Fetches bounded GET-only assets, stores workspace artifacts/evidence, and may resolve an optional scoped credential; it does not execute JavaScript."
+      },
       "confirmDeclared": true,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -9462,6 +11387,23 @@
         "behaviour": "conditional",
         "condition": "when background=true"
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence",
+          "jobs",
+          "reports_artifacts"
+        ],
+        "localChange": true,
+        "localDestruction": true,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "background_javascript_analysis",
+        "auditNote": "The maximum covers foreground artifacts plus optional worker/job state, replacement, timeout, and finalization cleanup."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -9533,6 +11475,23 @@
         "behaviour": "conditional",
         "condition": "when background=true"
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence",
+          "jobs",
+          "reports_artifacts"
+        ],
+        "localChange": true,
+        "localDestruction": true,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "background_javascript_analysis",
+        "auditNote": "The maximum covers foreground artifacts plus optional worker/job state, replacement, timeout, and finalization cleanup."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -9592,6 +11551,22 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence",
+          "reports_artifacts"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "local_javascript_artifact_write",
+        "auditNote": "Builds deterministic JavaScript manifests/models and logs evidence; application JavaScript is never executed and no network route is used."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -9658,6 +11633,22 @@
         "behaviour": "idempotent_write",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence",
+          "reports_artifacts"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "local_javascript_artifact_write",
+        "auditNote": "Builds deterministic JavaScript manifests/models and logs evidence; application JavaScript is never executed and no network route is used."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -9721,6 +11712,22 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence",
+          "reports_artifacts"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "offline_sitemap_artifacts",
+        "auditNote": "Always writes the sitemap plus Mermaid/SVG artifacts under trusted local roots; the evidence dimension is retained as a safe maximum for legacy recordable execution. Modern input cannot authorize an external output."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -9873,6 +11880,25 @@
       "idempotency": {
         "behaviour": "non_idempotent",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [
+          "authorized_target"
+        ],
+        "localWrites": [
+          "workspace",
+          "evidence",
+          "jobs",
+          "reports_artifacts"
+        ],
+        "localChange": true,
+        "localDestruction": true,
+        "remoteStateChange": true,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "background_active_scan_with_credentials",
+        "auditNote": "Maximum covers scanner/crawler target traffic, optional credentials, workspace/evidence ingestion, artifacts, worker state, overwrite/prune, cancellation, and state-changing crawl methods."
       },
       "confirmDeclared": true,
       "passiveRecordable": false,
@@ -10033,6 +12059,25 @@
         "behaviour": "non_idempotent",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [
+          "authorized_target"
+        ],
+        "localWrites": [
+          "workspace",
+          "evidence",
+          "jobs",
+          "reports_artifacts"
+        ],
+        "localChange": true,
+        "localDestruction": true,
+        "remoteStateChange": true,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "background_active_scan_with_credentials",
+        "auditNote": "Maximum covers scanner/crawler target traffic, optional credentials, workspace/evidence ingestion, artifacts, worker state, overwrite/prune, cancellation, and state-changing crawl methods."
+      },
       "confirmDeclared": true,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -10068,6 +12113,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -10162,6 +12219,20 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "reports_artifacts"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "idempotent_write",
+        "auditGroup": "command_builder_with_secret",
+        "auditNote": "Builds but does not launch a command; optional credentials are resolved only to construct the protected execution command, and workspace-owned target/output files or directories may be created."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -10278,6 +12349,25 @@
         "behaviour": "non_idempotent",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [
+          "authorized_target"
+        ],
+        "localWrites": [
+          "workspace",
+          "evidence",
+          "jobs",
+          "reports_artifacts"
+        ],
+        "localChange": true,
+        "localDestruction": true,
+        "remoteStateChange": true,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "background_active_scan_with_credentials",
+        "auditNote": "Maximum covers scanner/crawler target traffic, optional credentials, workspace/evidence ingestion, artifacts, worker state, overwrite/prune, cancellation, and state-changing crawl methods."
+      },
       "confirmDeclared": true,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -10315,6 +12405,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -10445,6 +12547,20 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "reports_artifacts"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "idempotent_write",
+        "auditGroup": "command_builder_with_secret",
+        "auditNote": "Builds but does not launch a command; optional credentials are resolved only to construct the protected execution command, and workspace-owned target/output files or directories may be created."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -10593,6 +12709,25 @@
         "behaviour": "non_idempotent",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [
+          "authorized_target"
+        ],
+        "localWrites": [
+          "workspace",
+          "evidence",
+          "jobs",
+          "reports_artifacts"
+        ],
+        "localChange": true,
+        "localDestruction": true,
+        "remoteStateChange": true,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "background_active_scan_with_credentials",
+        "auditNote": "Maximum covers scanner/crawler target traffic, optional credentials, workspace/evidence ingestion, artifacts, worker state, overwrite/prune, cancellation, and state-changing crawl methods."
+      },
       "confirmDeclared": true,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -10630,6 +12765,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -10694,6 +12841,20 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "reports_artifacts"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "idempotent_write",
+        "auditGroup": "command_builder_without_secret",
+        "auditNote": "Builds but does not launch a command; resolving the default workspace output may create an operator-owned directory."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -10780,6 +12941,25 @@
         "behaviour": "non_idempotent",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [
+          "authorized_target"
+        ],
+        "localWrites": [
+          "workspace",
+          "evidence",
+          "jobs",
+          "reports_artifacts"
+        ],
+        "localChange": true,
+        "localDestruction": true,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "background_active_scan_without_credentials",
+        "auditNote": "Nmap launches a bounded local scanner, writes job/output/evidence state, and sends target traffic without a credential or application-state mutation contract."
+      },
       "confirmDeclared": true,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -10829,6 +13009,20 @@
         "behaviour": "idempotent_write",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "credentials"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "idempotent_write",
+        "auditGroup": "runtime_secret_state_write",
+        "auditNote": "Sets process-local provider secret state without persistence or traffic."
+      },
       "confirmDeclared": true,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -10872,6 +13066,20 @@
         "behaviour": "idempotent_write",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "credentials"
+        ],
+        "localChange": true,
+        "localDestruction": true,
+        "remoteStateChange": false,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "idempotent_control",
+        "auditGroup": "runtime_secret_state_clear",
+        "auditNote": "Clears process-local provider secret state without persistence or traffic."
+      },
       "confirmDeclared": true,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -10907,6 +13115,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -10977,6 +13197,23 @@
         "behaviour": "pure_read",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [
+          "third_party"
+        ],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "third_party_shodan_api_read",
+        "auditNote": "Calls the Shodan API with the process-local key, records a sanitized evidence event, and may normalize results into workspace state."
+      },
       "confirmDeclared": true,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -11037,6 +13274,23 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [
+          "third_party"
+        ],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "third_party_keyless_intelligence_read",
+        "auditNote": "Calls the keyless InternetDB provider, records evidence, and may ingest normalized host intelligence."
       },
       "confirmDeclared": true,
       "passiveRecordable": false,
@@ -11111,6 +13365,23 @@
         "behaviour": "pure_read",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [
+          "third_party"
+        ],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "third_party_shodan_api_read",
+        "auditNote": "Calls the Shodan API with the process-local key, records a sanitized evidence event, and may normalize results into workspace state."
+      },
       "confirmDeclared": true,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -11171,6 +13442,23 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [
+          "third_party"
+        ],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "third_party_shodan_api_read",
+        "auditNote": "Calls the Shodan API with the process-local key, records a sanitized evidence event, and may normalize results into workspace state."
       },
       "confirmDeclared": true,
       "passiveRecordable": false,
@@ -11233,6 +13521,23 @@
         "behaviour": "pure_read",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [
+          "third_party"
+        ],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "third_party_shodan_api_read",
+        "auditNote": "Calls the Shodan API with the process-local key, records a sanitized evidence event, and may normalize results into workspace state."
+      },
       "confirmDeclared": true,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -11287,6 +13592,23 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [
+          "third_party"
+        ],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "third_party_shodan_api_read",
+        "auditNote": "Calls the Shodan API with the process-local key, records a sanitized evidence event, and may normalize results into workspace state."
       },
       "confirmDeclared": true,
       "passiveRecordable": false,
@@ -11367,6 +13689,23 @@
         "behaviour": "pure_read",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [
+          "third_party"
+        ],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "third_party_shodan_api_read",
+        "auditNote": "Calls the Shodan API with the process-local key, records a sanitized evidence event, and may normalize results into workspace state."
+      },
       "confirmDeclared": true,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -11414,6 +13753,23 @@
         "behaviour": "pure_read",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [
+          "third_party"
+        ],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "third_party_shodan_api_read",
+        "auditNote": "Calls the Shodan API with the process-local key, records a sanitized evidence event, and may normalize results into workspace state."
+      },
       "confirmDeclared": true,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -11460,6 +13816,23 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [
+          "third_party"
+        ],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "third_party_shodan_api_read",
+        "auditNote": "Calls the Shodan API with the process-local key, records a sanitized evidence event, and may normalize results into workspace state."
       },
       "confirmDeclared": true,
       "passiveRecordable": false,
@@ -11566,6 +13939,23 @@
         "behaviour": "pure_read",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [
+          "third_party"
+        ],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": true,
+        "secretUse": true,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "third_party_shodan_api_read",
+        "auditNote": "Calls the Shodan API with the process-local key, records a sanitized evidence event, and may normalize results into workspace state."
+      },
       "confirmDeclared": true,
       "passiveRecordable": false,
       "serializer": "executor",
@@ -11614,6 +14004,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -11675,6 +14077,21 @@
         "behaviour": "non_idempotent",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "workspace_non_idempotent_write",
+        "auditNote": "Creates, appends, promotes, reconciles, or curates workspace/evidence records."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "transport",
@@ -11716,6 +14133,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -11765,6 +14194,21 @@
       "idempotency": {
         "behaviour": "idempotent_write",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "idempotent_write",
+        "auditGroup": "workspace_idempotent_write",
+        "auditNote": "Writes bounded workspace state and related evidence metadata; repeating the same logical update converges."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -11816,6 +14260,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -11872,6 +14328,21 @@
         "behaviour": "pure_read",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "evidence",
+          "reports_artifacts"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "idempotent_write",
+        "auditGroup": "offline_fingerprint_artifacts",
+        "auditNote": "Writes organization/host fingerprint JSON, a summary artifact, and a sanitized evidence event from an offline dump."
+      },
       "confirmDeclared": false,
       "passiveRecordable": false,
       "serializer": "transport",
@@ -11925,6 +14396,21 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "refreshable_workspace_analysis",
+        "auditNote": "Maximum includes optional/default normalization, reconciliation, refresh, and evidence-event branches; no network route is reachable."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,
@@ -12028,6 +14514,23 @@
         "behaviour": "non_idempotent",
         "condition": null
       },
+      "maximumEffects": {
+        "traffic": [
+          "authorized_target"
+        ],
+        "localWrites": [
+          "workspace",
+          "evidence"
+        ],
+        "localChange": true,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "non_idempotent",
+        "auditGroup": "version_get_probe",
+        "auditNote": "Sends bounded benign GET requests and records/enriches local evidence; the implementation has no credential or state-changing method branch."
+      },
       "confirmDeclared": true,
       "passiveRecordable": false,
       "serializer": "transport",
@@ -12074,6 +14577,18 @@
       "idempotency": {
         "behaviour": "pure_read",
         "condition": null
+      },
+      "maximumEffects": {
+        "traffic": [],
+        "localWrites": [],
+        "localChange": false,
+        "localDestruction": false,
+        "remoteStateChange": false,
+        "credentialUse": false,
+        "secretUse": false,
+        "replaySafety": "pure_read",
+        "auditGroup": "pure_local_read",
+        "auditNote": "Implementation reads local/public metadata only and has no write, provider, credential, or job-control branch."
       },
       "confirmDeclared": false,
       "passiveRecordable": false,

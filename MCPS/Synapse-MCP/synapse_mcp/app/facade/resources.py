@@ -107,6 +107,12 @@ class ResourceReferenceService:
                 self._write_state(state)
         return reference
 
+    def allows_output_path(self, path: str | Path) -> bool:
+        """Return whether a prospective absolute output stays in trusted roots."""
+
+        resolved = Path(path).expanduser().resolve(strict=False)
+        return any(_is_relative_to(resolved, root) for root in self._allowed_roots)
+
     def resolve(self, reference: str, *, context: FacadeCallContext) -> ResolvedArtifact:
         record = self._record(reference)
         if record is None:

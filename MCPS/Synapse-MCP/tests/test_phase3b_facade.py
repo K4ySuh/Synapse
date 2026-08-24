@@ -386,26 +386,56 @@ class Phase3BExecutionTests(unittest.TestCase):
             )
         )
 
-    def test_model_authority_and_legacy_confirmation_fields_are_rejected(self) -> None:
-        attempts = (
-            {"authorityProfile": "full_delegated"},
-            {"grantId": "fabricated"},
-            {"principal": "fabricated"},
-            {"requestStateId": "fabricated"},
-            {"metadata": {"profile": "full_delegated"}},
+    def test_control_plane_authority_is_top_level_and_nested_security_data_is_preserved(self) -> None:
+        denied = self.service.invoke(
+            "actions.run_active",
+            {
+                "actionId": "workspace.summary",
+                "arguments": {"workspaceId": "facade"},
+                "grantId": "fabricated",
+            },
+            context=self.context,
         )
-        for extra in attempts:
-            with self.subTest(extra=extra):
-                denied = self.service.invoke(
-                    "actions.run_active",
-                    {
-                        "actionId": "workspace.summary",
-                        "arguments": {"workspaceId": "facade", **extra},
+        self.assertEqual(denied.outcome_kind, "validation_failure")
+
+        nested_metadata = {
+            "profile": "nginx",
+            "principal": "target-user",
+            "grant": "oauth-authorization-grant",
+            "authorization": "Bearer redacted-fixture",
+        }
+        observed_requests = []
+
+        def observe_dispatch(_action_id, request):
+            observed_requests.append(request)
+            return Success(payload={"accepted": True})
+
+        with patch.object(REGISTRY, "execute", side_effect=observe_dispatch):
+            accepted = self.service.invoke(
+                "actions.run_active",
+                {
+                    "actionId": "workspace.ingest_data",
+                    "arguments": {
+                        "workspaceId": "facade",
+                        "target": "example.test",
+                        "source": "operator_note",
+                        "dataType": "note",
+                        "format": "json",
+                        "rawData": "{}",
+                        "metadata": nested_metadata,
                     },
-                    context=self.context,
-                )
-                self.assertEqual(denied.outcome_kind, "validation_failure")
-                self.assertEqual(denied.diagnostics["reasonCode"], "model_authority_field_forbidden")
+                },
+                context=self.context,
+            )
+        self.assertEqual(accepted.outcome_kind, "success")
+        self.assertEqual(len(observed_requests), 1)
+        request = observed_requests[0]
+        self.assertEqual(request.input.metadata.model_dump(), nested_metadata)
+        self.assertEqual(request.context.execution_profile, self.context.execution_profile)
+        self.assertEqual(request.context.authority_session_id, self.context.authority_session_id)
+        self.assertEqual(request.context.selected_grant_id, self.context.selected_grant_id)
+        self.assertEqual(self.context.principal_id, "operator:test")
+
         confirmation = self.service.invoke(
             "actions.run_active",
             {
@@ -415,6 +445,28 @@ class Phase3BExecutionTests(unittest.TestCase):
             context=self.context,
         )
         self.assertEqual(confirmation.diagnostics["reasonCode"], "legacy_confirmation_forbidden")
+
+    def test_passive_external_output_boolean_cannot_authorize_arbitrary_overwrite(self) -> None:
+        outside = Path(self.tmp.name).parent / "phase3r-external-output.txt"
+        outside.write_text("operator-owned", encoding="utf-8")
+        self.addCleanup(outside.unlink, missing_ok=True)
+        with patch.object(REGISTRY, "execute") as dispatch:
+            denied = self.service.invoke(
+                "actions.run_passive",
+                {
+                    "actionId": "sitemap.from_dump",
+                    "arguments": {
+                        "dumpPath": str(Path(self.tmp.name) / "dump"),
+                        "output": str(outside),
+                        "allowExternalOutput": True,
+                    },
+                },
+                context=self.context,
+            )
+        self.assertEqual(denied.outcome_kind, "validation_failure")
+        self.assertEqual(denied.diagnostics["reasonCode"], "external_output_authority_forbidden")
+        self.assertEqual(outside.read_text(encoding="utf-8"), "operator-owned")
+        dispatch.assert_not_called()
 
     def test_typed_unavailability_and_compact_input_errors(self) -> None:
         context = _call_context(profile="observe", session="facade-session")

@@ -63,28 +63,6 @@ REVIEW_ACTIONS = {
     "pretext_approval": "social.approve_pretext_candidate",
 }
 
-_AUTHORITY_FIELDS = frozenset(
-    {
-        "authority",
-        "authoritygrant",
-        "authoritygrantid",
-        "authorityprofile",
-        "authoritysession",
-        "authoritysessionid",
-        "executionprofile",
-        "grant",
-        "grantid",
-        "grantsecret",
-        "principal",
-        "principalid",
-        "requeststate",
-        "requeststateid",
-        "selectedgrantid",
-        "sessionselection",
-    }
-)
-
-
 def passive_gate_reasons(effects: ActionEffects) -> tuple[str, ...]:
     """Return the fail-closed dimensions forbidden to the passive invoker."""
 
@@ -102,29 +80,7 @@ def passive_gate_reasons(effects: ActionEffects) -> tuple[str, ...]:
     return tuple(reasons)
 
 
-def _normalized_key(value: str) -> str:
-    return "".join(character for character in value.lower() if character.isalnum())
-
-
-def _authority_field(value: Any, *, declared_top_level: frozenset[str], depth: int = 0) -> str:
-    if isinstance(value, dict):
-        for key, child in value.items():
-            if not isinstance(key, str):
-                continue
-            normalized = _normalized_key(key)
-            if normalized in _AUTHORITY_FIELDS:
-                return key
-            if normalized == "profile" and (depth > 0 or key not in declared_top_level):
-                return key
-            found = _authority_field(child, declared_top_level=declared_top_level, depth=depth + 1)
-            if found:
-                return found
-    elif isinstance(value, list):
-        for child in value:
-            found = _authority_field(child, declared_top_level=declared_top_level, depth=depth + 1)
-            if found:
-                return found
-    return ""
+_OUTPUT_PATH_FIELDS = ("output", "outputPath", "outputBase")
 
 
 def _trace_id(context: FacadeCallContext) -> str:
@@ -413,17 +369,30 @@ class ActionExecutionService:
             )
         properties = descriptor.input_model.contract_document.parsed().get("properties", {})
         declared = frozenset(properties) if isinstance(properties, dict) else frozenset()
-        forbidden = _authority_field(arguments, declared_top_level=declared)
-        if forbidden:
+        if arguments.get("allowExternalOutput") is True:
             return _validation_envelope(
                 operation,
                 context,
-                "Action arguments cannot select authority, grants, principals, profiles, or request state.",
+                "Model-facing actions cannot authorize an external output destination.",
                 action_id=action_id,
-                reason_code="model_authority_field_forbidden",
+                reason_code="external_output_authority_forbidden",
                 trace_id=trace_id,
-                diagnostics={"field": forbidden},
             )
+        for field in _OUTPUT_PATH_FIELDS:
+            requested_output = arguments.get(field)
+            if not isinstance(requested_output, str) or not requested_output.strip():
+                continue
+            path = Path(requested_output).expanduser()
+            if path.is_absolute() and not self.resources.allows_output_path(path):
+                return _validation_envelope(
+                    operation,
+                    context,
+                    "The requested output is outside trusted Synapse artifact roots.",
+                    action_id=action_id,
+                    reason_code="external_output_path_forbidden",
+                    trace_id=trace_id,
+                    diagnostics={"field": field},
+                )
         canonical_arguments = dict(arguments)
         if "confirm" in declared:
             if canonical_arguments.get("confirm") not in {None, False}:

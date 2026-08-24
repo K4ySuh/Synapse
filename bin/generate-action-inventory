@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import re
+import runpy
 import sys
 from typing import Any
 
@@ -17,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TOOLS_FIXTURE = ROOT / "MCPS/Synapse-MCP/tests/fixtures/legacy_contracts/tools_list.json"
 STAGE_A = ROOT / "docs/modernization/phase-1-stage-a.md"
 OUTPUT = ROOT / "MCPS/Synapse-MCP/synapse_mcp/app/actions/action_inventory.json"
+EFFECT_DECLARATIONS = ROOT / "MCPS/Synapse-MCP/synapse_mcp/app/actions/effect_declarations.py"
 EXPECTED_COUNT = 174
 EXPECTED_COMPACT_BYTES = 99_337
 PARITY_TEST = "MCPS/Synapse-MCP/tests/test_phase3_action_inventory.py"
@@ -75,6 +77,7 @@ def build_inventory() -> dict[str, Any]:
     if compact_bytes != EXPECTED_COMPACT_BYTES:
         raise RuntimeError(f"frozen legacy payload changed: {compact_bytes} bytes")
 
+    effect_values = runpy.run_path(str(EFFECT_DECLARATIONS))["build_effect_declarations"]()
     actions: list[dict[str, Any]] = []
     for position, (tool, cells) in enumerate(zip(tools, rows), start=1):
         if int(cells[0]) != position or cells[1] != tool.get("name"):
@@ -120,6 +123,7 @@ def build_inventory() -> dict[str, Any]:
                     "behaviour": cells[10],
                     "condition": CONDITIONS.get(action_id),
                 },
+                "maximumEffects": effect_values[action_id],
                 "confirmDeclared": cells[11] == "Y",
                 "passiveRecordable": cells[12] == "Y",
                 "serializer": cells[13],
@@ -134,6 +138,8 @@ def build_inventory() -> dict[str, Any]:
     aliases = [entry["legacyName"] for entry in actions]
     if len(set(ids)) != EXPECTED_COUNT or len(set(aliases)) != EXPECTED_COUNT:
         raise RuntimeError("duplicate canonical action id or legacy alias")
+    if set(ids) != set(effect_values):
+        raise RuntimeError("effect declarations must exactly cover the 174 canonical action ids")
     return {
         "schemaVersion": 1,
         "sourceBaseline": "6f46dae128520e06056dce50632e750023aedc80",

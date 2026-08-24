@@ -175,9 +175,12 @@ def _public_schema(schema: dict[str, Any]) -> dict[str, Any]:
     properties = value.get("properties")
     if isinstance(properties, dict):
         properties.pop("confirm", None)
+        properties.pop("allowExternalOutput", None)
     required = value.get("required")
     if isinstance(required, list):
-        value["required"] = [name for name in required if name != "confirm"]
+        value["required"] = [
+            name for name in required if name not in {"confirm", "allowExternalOutput"}
+        ]
     return value
 
 
@@ -185,7 +188,7 @@ def _signature(model: type[Any], *, context_type: Any, input_required_type: Any)
     parameters: list[inspect.Parameter] = []
     for name, field in model.model_fields.items():
         public_name = field.alias or name
-        if public_name == "confirm":
+        if public_name in {"confirm", "allowExternalOutput"}:
             continue
         if field.is_required():
             default = inspect.Parameter.empty
@@ -378,6 +381,12 @@ def build_runtime(
         registered = server._tool_manager.get_tool(operation.name)
         if registered is None:  # pragma: no cover - SDK registration invariant
             raise RuntimeError(f"official SDK failed to register {operation.name}")
+        if config.surface is SurfaceMode.MODERN_COMPACT:
+            # The SDK's generated callable model defaults to ignoring unknown
+            # kwargs. Compact kwargs are control-plane positions, so fail them
+            # closed before the facade can be invoked.
+            registered.fn_metadata.arg_model.model_config["extra"] = "forbid"
+            registered.fn_metadata.arg_model.model_rebuild(force=True)
         registered.parameters = _public_schema(operation.input_schema)
         registered.fn_metadata.output_schema = operation.output_schema
 

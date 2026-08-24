@@ -286,23 +286,42 @@ class ModernDiscoveryTests(ModernAdapterFixture, unittest.IsolatedAsyncioTestCas
             self.assertIn("tasks.control", [tool.name for tool in discovered.tools])
             self.assertFalse(getattr(client.server_capabilities, "extensions", None))
 
-    async def test_client_info_and_model_arguments_cannot_select_authority(self) -> None:
+    async def test_client_info_and_nested_action_data_cannot_select_authority(self) -> None:
+        workspace.create_workspace("modern", hosts=["example.test"])
         runtime = build_runtime(self.config())
         spoofed = Implementation(name="operator:other", version="full_delegated")
         async with Client(runtime.server, client_info=spoofed) as client:
             success = await client.call_tool("capabilities.search", {})
             self.assertFalse(success.is_error)
             self.assertEqual(success.structured_content["outcomeKind"], "success")
-            with self.assertRaises(MCPError) as raised:
-                await client.call_tool(
-                    "actions.run_active",
-                    {
-                        "actionId": "workspace.summary",
-                        "arguments": {"workspaceId": "modern", "grantId": "fabricated"},
+            nested = await client.session.call_tool(
+                "actions.run_active",
+                {
+                    "actionId": "workspace.summary",
+                    "arguments": {
+                        "workspaceId": "modern",
+                        "metadata": {
+                            "profile": "nginx",
+                            "principal": "target-user",
+                            "grant": "oauth-fixture",
+                        },
                     },
-                )
-            self.assertEqual(raised.exception.error.code, -32602)
-            self.assertEqual(raised.exception.error.data["reason"], "model_authority_field_forbidden")
+                },
+                allow_input_required=True,
+            )
+            self.assertIsInstance(nested, InputRequiredResult)
+            self.assertNotIn("operator:other", nested.model_dump_json(by_alias=True))
+            self.assertNotIn("full_delegated", nested.model_dump_json(by_alias=True))
+            outer = await client.call_tool(
+                "actions.run_active",
+                {
+                    "actionId": "workspace.summary",
+                    "arguments": {"workspaceId": "modern"},
+                    "grantId": "fabricated",
+                },
+            )
+            self.assertTrue(outer.is_error)
+            self.assertNotIn("operationHandle", outer.model_dump_json(by_alias=True))
 
     async def test_typed_unavailable_failure_has_schema_conformant_structured_content(self) -> None:
         runtime = build_runtime(self.config())

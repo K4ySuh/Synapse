@@ -114,7 +114,6 @@ class ReportsRenderInput(FacadeModel):
         "safe",
     ] = "internal"
     output_path: str | None = None
-    allow_external_output: bool = False
     return_content: bool = False
     idempotency_key: str | None = Field(default=None, min_length=1, max_length=256)
 

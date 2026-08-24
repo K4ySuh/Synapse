@@ -12,15 +12,15 @@
       "toolCount": 174
     },
     "modern-compact": {
-      "compactUtf8Bytes": 21648,
+      "compactUtf8Bytes": 21591,
       "fixture": "modern-compact-tools.json",
-      "sha256": "c4e513b657d21bb1b0729b90b7f90990cb3b4af2b6242690be80e82b56050956",
+      "sha256": "9582fe216967e7f22c92632de5fc46214458fcda458ecd349437cbd1ae55258a",
       "toolCount": 11
     },
     "modern-direct": {
-      "compactUtf8Bytes": 578249,
+      "compactUtf8Bytes": 578256,
       "fixture": "modern-direct-tools.json",
-      "sha256": "0cb146b5eb47dc763da76522f100c3ac8734c05d0680ebb87b80285e8f75c20c",
+      "sha256": "14cb828a632b1a2e01591ab9c5235e112ace504c12ffd15667792a1192070b15",
       "toolCount": 174
     }
   }

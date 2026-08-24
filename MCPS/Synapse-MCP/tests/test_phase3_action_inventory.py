@@ -18,9 +18,12 @@ from synapse_mcp.app.actions import (
     CredentialAccess,
     CredentialRequirement,
     ExecutionContext,
+    Idempotency,
+    LocalWriteDomain,
     REGISTRY,
     RiskClass,
     ScopeRequirement,
+    TrafficDestination,
     UnavailableCapability,
 )
 from synapse_mcp.app.actions.inventory import action_inventory, action_inventory_document
@@ -98,6 +101,26 @@ class Phase3ActionInventoryTests(unittest.TestCase):
                     descriptor.credential_policy.access,
                     CredentialAccess(entry["credentialAccess"]),
                 )
+                declared = entry["maximumEffects"]
+                self.assertEqual(
+                    descriptor.effects.traffic,
+                    frozenset(TrafficDestination(value) for value in declared["traffic"]),
+                )
+                self.assertEqual(
+                    descriptor.effects.local_writes,
+                    frozenset(LocalWriteDomain(value) for value in declared["localWrites"]),
+                )
+                self.assertEqual(descriptor.effects.local_change, declared["localChange"])
+                self.assertEqual(descriptor.effects.local_destruction, declared["localDestruction"])
+                self.assertEqual(descriptor.effects.remote_state_change, declared["remoteStateChange"])
+                self.assertEqual(descriptor.effects.credential_use, declared["credentialUse"])
+                self.assertEqual(descriptor.effects.secret_use, declared["secretUse"])
+                self.assertEqual(
+                    descriptor.effects.replay_safety,
+                    Idempotency(declared["replaySafety"]),
+                )
+                self.assertTrue(declared["auditGroup"])
+                self.assertTrue(declared["auditNote"])
                 self.assertTrue(
                     descriptor.effects.permits(
                         ActionEffects(
