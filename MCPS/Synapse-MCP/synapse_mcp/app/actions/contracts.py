@@ -11,7 +11,7 @@ from pathlib import Path
 import re
 from typing import Any, ClassVar, Literal, Union
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, create_model, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, RootModel, create_model, model_validator
 
 
 SUPPORTED_INPUT_SCHEMA_KEYWORDS = frozenset(
@@ -75,7 +75,11 @@ _OUTPUT_CONTRACTS_PATH = Path(__file__).with_name("output_contracts.json")
 def _load_output_contracts() -> dict[str, dict[str, Any]]:
     document = json.loads(_OUTPUT_CONTRACTS_PATH.read_text(encoding="utf-8"))
     contracts = document.get("contracts")
-    if document.get("schemaVersion") != 1 or document.get("actionCount") != 168 or not isinstance(contracts, dict):
+    if (
+        document.get("schemaVersion") != 2
+        or document.get("actionCount") != 168
+        or not isinstance(contracts, dict)
+    ):
         raise RuntimeError("retained action output contracts are invalid or incomplete")
     return contracts
 
@@ -101,6 +105,17 @@ def make_json_object_output_model(name: str, action_id: str) -> type[ActionOutpu
     """Create an action-specific model from audited serializer/fixture evidence."""
 
     declaration = OUTPUT_CONTRACTS[action_id]
+    schema_extra = {
+        "x-synapse-action-id": action_id,
+        "x-synapse-contract-sources": declaration["sources"],
+        "x-synapse-dynamic-boundary": declaration["dynamicBoundary"],
+    }
+    if declaration.get("rootType") == "array":
+        return type(
+            name,
+            (RootModel[list[JsonValue]], ActionOutput),
+            {"model_config": ConfigDict(strict=True, json_schema_extra=schema_extra)},
+        )
     fixture_types = declaration.get("fixtureTypes", {})
     fields: dict[str, tuple[Any, Any]] = {}
     for index, public_name in enumerate(declaration["fields"]):
@@ -118,11 +133,7 @@ def make_json_object_output_model(name: str, action_id: str) -> type[ActionOutpu
                 strict=True,
                 extra="allow",
                 populate_by_name=True,
-                json_schema_extra={
-                    "x-synapse-action-id": action_id,
-                    "x-synapse-contract-sources": declaration["sources"],
-                    "x-synapse-dynamic-boundary": declaration["dynamicBoundary"],
-                },
+                json_schema_extra=schema_extra,
             )
         },
     )

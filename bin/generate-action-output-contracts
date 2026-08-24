@@ -48,6 +48,7 @@ SENSITIVE_FIELDS = {
     "token",
 }
 NESTED_HTTP_FIELDS = {"accept", "content-type", "user-agent", "body", "headers"}
+TRANSPORT_ARRAY_ROOTS = frozenset({"dumps.list", "evidence.tail"})
 
 
 def _json_type(value: Any) -> str:
@@ -113,6 +114,17 @@ def _fixture_observations() -> dict[str, dict[str, set[str]]]:
     return observed
 
 
+def _root_type(action_id: str, function: Any) -> str:
+    """Return the canonical Python serializer's decoded JSON container kind."""
+
+    if action_id in TRANSPORT_ARRAY_ROOTS:
+        return "array"
+    # Most retained adapters return serialized JSON text. Their decoded root is
+    # established by source keys and frozen fixtures below, so ``str`` is not a
+    # JSON-string contract here.
+    return "object"
+
+
 def _fallback_fields(action_id: str) -> set[str]:
     pack, local = action_id.split(".", 1)
     exact = {
@@ -173,6 +185,7 @@ def _document() -> dict[str, Any]:
         observed = fixtures.get(action_id, {})
         fields = (source_fields | set(observed) | _fallback_fields(action_id)) - COMMON_FIELDS
         contracts[action_id] = {
+            "rootType": _root_type(action_id, function),
             "fields": sorted(fields),
             "fixtureTypes": {
                 key: sorted(types)
@@ -194,7 +207,7 @@ def _document() -> dict[str, Any]:
             ),
         }
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "actionCount": len(contracts),
         "derivation": "canonical implementation serializer source plus frozen representative success/background fixtures",
         "contracts": contracts,

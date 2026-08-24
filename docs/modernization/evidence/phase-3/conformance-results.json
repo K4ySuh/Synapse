@@ -1,31 +1,65 @@
 {
-  "schemaVersion": 1,
-  "capturedAt": "2026-08-23",
+  "schemaVersion": 2,
+  "capturedAt": "2026-08-24",
+  "overall": "partial_fail",
+  "verdictSeparation": {
+    "repositorySecurityAndTransportTests": "pass",
+    "genericMcpConformance": "partial_fail",
+    "namedAgentAdoption": "reported_separately"
+  },
   "inspector": {
     "version": "2.3.0",
-    "stdio": "pass",
-    "loopbackStreamableHttp": "pass",
-    "surfaces": ["legacy", "modern-compact", "modern-direct"],
-    "modernSchemasAndAnnotationsComplete": true
+    "freshCorrectiveRun": {
+      "surface": "modern-compact",
+      "transport": "stdio",
+      "exitCode": 0,
+      "result": "pass",
+      "toolCount": 11,
+      "inputSchemaCount": 11,
+      "outputSchemaCount": 11,
+      "annotationCount": 11
+    },
+    "historicalCoverageRetained": {
+      "capturedAt": "2026-08-23",
+      "stdio": "pass",
+      "loopbackStreamableHttp": "pass",
+      "surfaces": [
+        "legacy",
+        "modern-compact",
+        "modern-direct"
+      ]
+    }
   },
   "stableConformance": {
     "version": "0.1.16",
     "requestedSpecification": "2026-07-28",
     "result": "unsupported_specification",
-    "supportedSpecifications": ["2025-03-26", "2025-06-18", "2025-11-25", "draft", "extension"],
-    "headerInjectionSupported": false
+    "supportedSpecifications": [
+      "2025-03-26",
+      "2025-06-18",
+      "2025-11-25",
+      "draft",
+      "extension"
+    ],
+    "bearerHeaderInjectionSupported": false,
+    "correctiveRerun": "not_run",
+    "correctiveRerunReason": "The current runner still exposes no bearer/header injection option. The corrective contract forbids treating proxy-mediated header behavior as direct Synapse conformance evidence."
   },
   "alphaConformance": {
     "version": "0.2.0-alpha.11",
     "specification": "2026-07-28",
-    "transport": "loopback_streamable_http_through_test_auth_proxy",
-    "scenarios": [
+    "bearerHeaderInjectionSupported": false,
+    "historicalTransport": "loopback_streamable_http_through_test_auth_proxy",
+    "correctiveRerun": "not_run",
+    "correctiveRerunReason": "The alpha runner also exposes no bearer/header injection option.",
+    "historicalScenarios": [
       {
         "name": "tools-list",
         "exitCode": 0,
         "passed": 3,
         "failed": 0,
-        "warnings": 0
+        "warnings": 0,
+        "result": "pass"
       },
       {
         "name": "caching",
@@ -33,7 +67,10 @@
         "passed": 7,
         "failed": 0,
         "warnings": 0,
-        "skipped": ["resources/read caching hint because no fixture resource was available"]
+        "result": "pass",
+        "skipped": [
+          "resources/read caching hint because no fixture resource was available"
+        ]
       },
       {
         "name": "server-stateless",
@@ -41,12 +78,28 @@
         "passed": 23,
         "failed": 5,
         "warnings": 2,
-        "failedChecks": [
-          "missing required client-capability rejection diagnostic",
-          "HTTP status for missing capability was not testable without the runner diagnostic tool",
-          "subscription acknowledgement stream",
-          "subscription ID tagging",
-          "subscription notification filtering"
+        "result": "partial_fail",
+        "nonPasses": [
+          {
+            "check": "missing required client-capability rejection diagnostic",
+            "classification": "applicable_failure"
+          },
+          {
+            "check": "HTTP status for missing capability was not testable without the runner diagnostic tool",
+            "classification": "runner_fixture_mismatch"
+          },
+          {
+            "check": "subscription acknowledgement stream",
+            "classification": "non_advertised_capability"
+          },
+          {
+            "check": "subscription ID tagging",
+            "classification": "non_advertised_capability"
+          },
+          {
+            "check": "subscription notification filtering",
+            "classification": "non_advertised_capability"
+          }
         ]
       },
       {
@@ -55,23 +108,38 @@
         "passed": 13,
         "failed": 1,
         "warnings": 0,
-        "classification": "inconclusive_proxy_limitation",
-        "detail": "The test-only auth proxy's HTTP library rejected a deliberately whitespace-padded header before it reached Synapse."
+        "result": "partial_fail",
+        "nonPasses": [
+          {
+            "check": "whitespace-padded header rejected by test proxy before reaching Synapse",
+            "classification": "transport_limitation"
+          }
+        ]
       },
       {
         "name": "json-schema-2020-12",
         "exitCode": 1,
-        "classification": "runner_fixture_not_exposed",
-        "detail": "The scenario requires a tool named json_schema_2020_12_tool, which is not a Synapse production capability."
+        "result": "partial_fail",
+        "nonPasses": [
+          {
+            "check": "runner requires json_schema_2020_12_tool, which is not a Synapse production tool",
+            "classification": "runner_fixture_mismatch"
+          }
+        ]
       },
       {
         "name": "http-custom-header-server-validation",
         "exitCode": 1,
-        "classification": "not_testable",
-        "detail": "No production Synapse tool declares runner-specific x-mcp-header annotations."
+        "result": "partial_fail",
+        "nonPasses": [
+          {
+            "check": "runner-specific x-mcp-header annotation is not advertised by Synapse",
+            "classification": "non_advertised_capability"
+          }
+        ]
       }
     ],
-    "securityLimitation": "The runner has no bearer-header option. The local proxy injected authentication and therefore cannot establish Host/DNS-rebinding or raw-header compliance; repository transport tests remain the evidence for those gates.",
     "overall": "partial_fail"
-  }
+  },
+  "securityLimitation": "Without direct bearer injection, generic HTTP conformance cannot establish Synapse Host/DNS-rebinding or raw-header behavior. Repository modern transport tests remain the direct evidence for those security gates; they do not convert generic conformance into a pass."
 }

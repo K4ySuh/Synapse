@@ -81,6 +81,9 @@ def passive_gate_reasons(effects: ActionEffects) -> tuple[str, ...]:
 
 
 _OUTPUT_PATH_FIELDS = ("output", "outputPath", "outputBase")
+_OPAQUE_SOURCE_PATH_FIELDS = frozenset(
+    {"dumpPath", "inputPath", "manifestPath", "requestFile", "specPath"}
+)
 
 
 def _trace_id(context: FacadeCallContext) -> str:
@@ -369,6 +372,31 @@ class ActionExecutionService:
             )
         properties = descriptor.input_model.contract_document.parsed().get("properties", {})
         declared = frozenset(properties) if isinstance(properties, dict) else frozenset()
+        canonical_arguments = dict(arguments)
+        for field in _OPAQUE_SOURCE_PATH_FIELDS.intersection(declared):
+            supplied = canonical_arguments.get(field)
+            reference = ""
+            if isinstance(supplied, dict):
+                reference = str(supplied.get("resourceRef") or "")
+            elif isinstance(supplied, str):
+                reference = supplied.removeprefix("synapse://artifact/") if supplied.startswith(
+                    "synapse://artifact/"
+                ) else (supplied if supplied.startswith("resource-") else "")
+            if not reference:
+                continue
+            try:
+                canonical_arguments[field] = str(
+                    self.resources.resolve_path(reference, context=context)
+                )
+            except ResourceAccessError as exc:
+                return FacadeEnvelope(
+                    operation=operation,
+                    action_id=action_id,
+                    outcome_kind="policy_denial",
+                    summary=str(exc),
+                    diagnostics={"reasonCode": exc.reason_code, "field": field},
+                    trace_id=trace_id,
+                )
         if arguments.get("allowExternalOutput") is True:
             return _validation_envelope(
                 operation,
@@ -393,7 +421,6 @@ class ActionExecutionService:
                     trace_id=trace_id,
                     diagnostics={"field": field},
                 )
-        canonical_arguments = dict(arguments)
         if "confirm" in declared:
             if canonical_arguments.get("confirm") not in {None, False}:
                 return _validation_envelope(
@@ -514,6 +541,16 @@ class ActionExecutionService:
             correlation_id=operation.correlation_id,
             binding=binding,
         )
+        if envelope.outcome_kind == "approval_required" and not envelope.operation_handle:
+            reason = str(envelope.diagnostics.get("reasonCode") or "operation_resume_failed")
+            return _validation_envelope(
+                response_operation,
+                context,
+                envelope.summary,
+                action_id=operation.action_id,
+                reason_code=reason,
+                trace_id=trace_id,
+            )
         if envelope.outcome_kind != "approval_required":
             self.operations.mark_terminal(handle, envelope.outcome_kind)
         return envelope

@@ -42,6 +42,17 @@ class Phase3ROutputContractTests(unittest.TestCase):
             shapes.add(json.dumps(public_shape, sort_keys=True))
         self.assertGreaterEqual(len(shapes), 130)
 
+    def test_retained_array_roots_remain_valid_and_truthful(self) -> None:
+        expected = {"dumps.list", "evidence.tail"}
+        declared = {
+            action_id
+            for action_id, contract in OUTPUT_CONTRACTS.items()
+            if contract["rootType"] == "array"
+        }
+        self.assertEqual(declared, expected)
+        for action_id in expected:
+            self.assertEqual(REGISTRY.get(action_id).output_model.model_json_schema()["type"], "array")
+
     def test_every_direct_standard_envelope_is_action_bound_and_unique(self) -> None:
         operations = DirectProjection().operations()
         self.assertEqual(len(operations), 174)

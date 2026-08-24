@@ -87,6 +87,17 @@ security, workflow, and legacy-contract coverage. `modern-compact` stdio is
 therefore the Codex default. `legacy` remains the frozen rollback/bootstrap
 path and `modern-direct` remains explicit diagnostic compatibility.
 
+The 2026-08-24 adversarial corrective retained that Codex-only product scope.
+It reclassified the exact-tool choreography as a transport/safety smoke and
+added an objective-driven seven-workflow gate with no supplied tool names,
+canonical action IDs, exact arguments, or call counts. Codex passed both 3/3
+with zero schema retries for deterministic cases, zero duplicate side effects
+or dispatches, and zero external target traffic. Independent agent clients and
+universal cross-agent claims are outside this ADR's acceptance contract unless
+the operator explicitly reopens that scope. Generic Inspector/conformance
+evidence remains a separate verdict and does not depend on a named model
+client.
+
 ## Invariants
 
 - Tier-1 and Tier-2 contract fixtures remain green; every delta is classified exact, semantically equivalent, or intentionally changed with a recorded decision.

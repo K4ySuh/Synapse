@@ -51,7 +51,9 @@ SERVER_INSTRUCTIONS = (
     "contains operationHandle and tasks.control is available, resume with tasks.control using "
     "operation=resume and that handle. Protocol input_required results are retried with the same "
     "tool and arguments using their request state. Artifact links are opaque and reauthorized on "
-    "every read. Never place secrets in arguments, notes, logs, or reports."
+    "every read. Opaque resourceRef objects returned for local source files or dump directories may "
+    "be passed back in matching source-path fields; Synapse resolves them only after rebinding checks. "
+    "Never place secrets in arguments, notes, logs, or reports."
 )
 
 
@@ -206,11 +208,19 @@ def _signature(model: type[Any], *, context_type: Any, input_required_type: Any)
     return inspect.Signature(parameters, return_annotation=FacadeEnvelope | input_required_type)
 
 
-def _protocol_error(envelope: FacadeEnvelope, sdk: dict[str, Any]) -> Exception:
+def _protocol_error(
+    envelope: FacadeEnvelope,
+    sdk: dict[str, Any],
+    *,
+    protocol_version: str,
+    surface: str,
+) -> Exception:
     diagnostics = envelope.diagnostics or {}
     data: dict[str, Any] = {
         "reason": str(diagnostics.get("reasonCode") or "validation_failure")[:128],
         "traceId": envelope.trace_id[:128],
+        "protocolVersion": protocol_version,
+        "surface": surface,
     }
     errors = diagnostics.get("errors")
     if isinstance(errors, list):
@@ -218,15 +228,31 @@ def _protocol_error(envelope: FacadeEnvelope, sdk: dict[str, Any]) -> Exception:
     return sdk["MCPError"](sdk["INVALID_PARAMS"], envelope.summary[:1000], data)
 
 
-def _tool_result(envelope: FacadeEnvelope, sdk_context: Any, sdk: dict[str, Any]) -> Any:
+def _tool_result(
+    envelope: FacadeEnvelope,
+    sdk_context: Any,
+    sdk: dict[str, Any],
+    *,
+    surface: str,
+) -> Any:
+    compatibility_meta = {
+        "synapse/protocolVersion": str(sdk_context.protocol_version),
+        "synapse/surface": surface,
+    }
     if envelope.outcome_kind == "validation_failure":
-        raise _protocol_error(envelope, sdk)
+        raise _protocol_error(
+            envelope,
+            sdk,
+            protocol_version=str(sdk_context.protocol_version),
+            surface=surface,
+        )
     if envelope.outcome_kind == "approval_required" and sdk_context.protocol_version == MODERN_PROTOCOL_REVISION:
         handle = envelope.operation_handle
         if not handle:
             raise sdk["MCPError"](-32603, "Approval state could not be persisted")
         return sdk["InputRequiredResult"](
             meta={
+                **compatibility_meta,
                 "synapse/status": "approval_required",
                 "synapse/operationHandle": handle,
                 "synapse/requestedInput": envelope.requested_input or {"review": "operator_authority"},
@@ -250,7 +276,12 @@ def _tool_result(envelope: FacadeEnvelope, sdk_context: Any, sdk: dict[str, Any]
                 size=reference.size,
             )
         )
-    return sdk["CallToolResult"](content=content, structuredContent=structured, isError=is_error)
+    return sdk["CallToolResult"](
+        content=content,
+        structuredContent=structured,
+        isError=is_error,
+        meta=compatibility_meta,
+    )
 
 
 def _input_model(runtime: ModernAdapterRuntime, operation: ApplicationOperation) -> type[Any]:
@@ -277,8 +308,21 @@ def _projected_callable(runtime: ModernAdapterRuntime, operation: ApplicationOpe
                 envelope = runtime.projection.invoke(operation.name, payload, context=context)
         except (PermissionError, ResourceAccessError) as exc:
             reason = getattr(exc, "reason_code", "principal_binding_denied")
-            raise sdk["MCPError"](-32002, str(exc), {"reason": reason}) from exc
-        return _tool_result(envelope, sdk_context, sdk)
+            raise sdk["MCPError"](
+                -32002,
+                str(exc),
+                {
+                    "reason": reason,
+                    "protocolVersion": str(sdk_context.protocol_version),
+                    "surface": runtime.config.surface.value,
+                },
+            ) from exc
+        return _tool_result(
+            envelope,
+            sdk_context,
+            sdk,
+            surface=runtime.config.surface.value,
+        )
 
     dispatch.__name__ = operation.name.replace(".", "_")
     dispatch.__doc__ = operation.description
@@ -300,6 +344,14 @@ def build_runtime(
     bindings: AuthorityBindingResolver | None = None,
     tokens: TokenPrincipalResolver | None = None,
 ) -> ModernAdapterRuntime:
+    # Retained descriptors are canonical application actions, not a legacy-only
+    # surface. Bind their frozen implementation adapter in standalone modern
+    # processes as well as in the hand-written transport process.
+    from synapse_mcp.app.actions.legacy_bridge import retained_legacy_implementation_bound
+
+    if not retained_legacy_implementation_bound():
+        from synapse_mcp.transport import stdio_server as _retained_transport  # noqa: F401
+
     sdk = _require_sdk()
     state_dir = config.state_dir
     resources = ResourceReferenceService(state_path=state_dir / "resources.json")

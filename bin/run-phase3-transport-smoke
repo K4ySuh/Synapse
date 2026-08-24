@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+# Copyright 2026 Javier Roldán Ortiz
+# SPDX-License-Identifier: Apache-2.0
+
+set -eu
+
+ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+exec "$ROOT_DIR/bin/run-phase3d-codex" "$@"

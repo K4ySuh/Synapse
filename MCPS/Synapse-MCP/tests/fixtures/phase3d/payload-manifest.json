@@ -15,9 +15,9 @@
         "toolCount": 11
       },
       "modern-direct": {
-        "compactUtf8Bytes": 1513976,
+        "compactUtf8Bytes": 1504261,
         "fixture": "modern-direct-tools.json",
-        "sha256": "0f2465c02e168daa98440d44bf22ab762e09f3fc8f7fc1690a822a0a5718bbb8",
+        "sha256": "d1ba8a6aec82039d109e2fae7bd26bcd88582dc2b8f395d2d9d98ec28dc71355",
         "toolCount": 174
       }
     }
@@ -67,33 +67,33 @@
       "modern-direct": {
         "revisions": {
           "2024-11-05": {
-            "compactUtf8Bytes": 1530736,
+            "compactUtf8Bytes": 1525315,
             "fixture": "sdk-modern-direct-2024-11-05-tools.json",
-            "sha256": "60b52a79892fa630d88dc674630ba1a85f5dc2bb11e7acb76cf4142fbd7ae6ac",
+            "sha256": "cd75cbc7a2da84b6ffe4f375ef9684679bb7f1d634393747d212bce5a08f5d9c",
             "toolCount": 174
           },
           "2025-03-26": {
-            "compactUtf8Bytes": 1530736,
+            "compactUtf8Bytes": 1525315,
             "fixture": "sdk-modern-direct-2024-11-05-tools.json",
-            "sha256": "60b52a79892fa630d88dc674630ba1a85f5dc2bb11e7acb76cf4142fbd7ae6ac",
+            "sha256": "cd75cbc7a2da84b6ffe4f375ef9684679bb7f1d634393747d212bce5a08f5d9c",
             "toolCount": 174
           },
           "2025-06-18": {
-            "compactUtf8Bytes": 1530736,
+            "compactUtf8Bytes": 1525315,
             "fixture": "sdk-modern-direct-2024-11-05-tools.json",
-            "sha256": "60b52a79892fa630d88dc674630ba1a85f5dc2bb11e7acb76cf4142fbd7ae6ac",
+            "sha256": "cd75cbc7a2da84b6ffe4f375ef9684679bb7f1d634393747d212bce5a08f5d9c",
             "toolCount": 174
           },
           "2025-11-25": {
-            "compactUtf8Bytes": 1530736,
+            "compactUtf8Bytes": 1525315,
             "fixture": "sdk-modern-direct-2024-11-05-tools.json",
-            "sha256": "60b52a79892fa630d88dc674630ba1a85f5dc2bb11e7acb76cf4142fbd7ae6ac",
+            "sha256": "cd75cbc7a2da84b6ffe4f375ef9684679bb7f1d634393747d212bce5a08f5d9c",
             "toolCount": 174
           },
           "2026-07-28": {
-            "compactUtf8Bytes": 1530736,
+            "compactUtf8Bytes": 1525315,
             "fixture": "sdk-modern-direct-2026-07-28-tools.json",
-            "sha256": "8477c9ad2acde2d33cebbbfe38ee5f94d624e91e0280ab2b95bd1da835d41107",
+            "sha256": "d666c26bc13fe850416aeb2a1c1895bafaee3ab55b04745556d850c6a4a6c5a9",
             "toolCount": 174
           }
         }

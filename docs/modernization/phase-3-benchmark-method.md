@@ -1,12 +1,77 @@
 # Phase 3 interoperability benchmark method
 
-Status: historical two-client method; amended for Codex-only closure
+Status: corrective Codex method complete; historical methods retained below
 Frozen: 2026-08-23
 Baseline commit: `c356b95412528e3a84c208b759225dd338d7bfd4`
 
 This document fixes the Phase 3D comparison method before client results are
 used to decide the default. The original method and its blocked result remain
 below for auditability.
+
+## 2026-08-24 adversarial corrective Codex method
+
+The operator-approved corrective gate tests stable Codex through its normal
+client flow. Independent agent clients are outside the current Phase 3 scope
+and must not be added to project acceptance unless the operator explicitly
+reintroduces them. Historical cross-client attempts remain below only as audit
+facts. Client display metadata, negotiated revision, and model input never
+select a Synapse surface or create authority.
+
+The live evidence is split deliberately:
+
+- `bin/run-phase3-transport-smoke` retains the earlier exact-tool choreography
+  as an exact transport and safety smoke. It runs malformed input, unavailable
+  capability, denied effect/scope/credential, cross-principal/session/
+  workspace/resource binding, approval-without-dispatch, restart/resume, and
+  replay cases three times with stable Codex.
+- `bin/run-phase3-agent-benchmark` states assessment objectives and safety
+  constraints without supplying MCP tool names, canonical action IDs, exact
+  argument objects, or call counts. It runs the seven fixed workflows three
+  times with stable Codex and accepts catalog-selected semantic equivalents
+  only when their observable result and integrity checks match.
+
+The seven objective workflows are workspace summary, bounded target context,
+passive stored header/cookie analysis, offline dump/sitemap/fingerprint,
+disabled-traffic CORS planning and validation, background submit/cancel/
+inspect/finalization without resubmission, and evidence/report/opaque-resource
+integrity. The exact smoke supplies the ten Phase 3D safety and authority cases;
+exhaustive expiry, revocation, concurrent resume, job race, transport-header,
+and supported-revision cross-products remain deterministic repository gates.
+
+Each workflow/case records the negotiated revision and advertised
+capabilities, trusted startup surface, transport, selection result, schema
+retries, duplicate behavior, available latency/token telemetry, declared
+effects, network-attempt count, result, trace presence, dispatch count, and
+resource/evidence integrity. Raw client streams and opaque material remain in
+ignored `DATA/`; committed evidence contains no raw handle, request state,
+trace ID, credential, binding, or local path.
+
+Carrier selection is capability-based. Clients negotiating the normative
+request-state capability use protocol-native input-required; compatible older
+clients use typed `approval_required` plus an opaque application handle after
+trusted exact step-up. Deterministic tests exercise three repetitions of the
+native disabled-traffic carrier and both carriers under sequential and
+concurrent resume, requiring one successful dispatch and a typed replay denial.
+
+Inspector discovery is a separate generic gate. Stable conformance `0.1.16`
+and alpha `0.2.0-alpha.11` still expose no bearer/header injection option, so
+the proxy run is not repeated as direct security evidence. The aggregate
+remains `partial_fail`; every non-pass is classified as an applicable failure,
+non-advertised capability, runner fixture mismatch, or transport limitation.
+Repository security tests and named-agent adoption do not convert that generic
+verdict into a pass.
+
+The live commands are:
+
+```bash
+bin/run-phase3-transport-smoke --run --repetitions 3
+bin/run-phase3-agent-benchmark --run --repetitions 3
+```
+
+Stable Codex CLI `0.149.0` with `gpt-5.6-sol` has passed both corrective live
+gates 3/3 at negotiated revision `2025-06-18`, with no experimental feature.
+No independent-agent result or universal cross-agent claim is part of this
+closure.
 
 ## 2026-08-24 closure amendment
 

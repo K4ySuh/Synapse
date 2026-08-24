@@ -1,0 +1,1120 @@
+#!/usr/bin/env python3
+# Copyright 2026 Javier Roldán Ortiz
+# SPDX-License-Identifier: Apache-2.0
+
+"""Run the objective-driven Phase 3 Codex benchmark.
+
+The prompt states engagement goals and safety constraints but deliberately
+contains no MCP tool name, canonical action ID, JSON argument object, or call
+count. Raw client streams stay under DATA; the aggregate contains only
+sanitized compatibility and acceptance measurements.
+"""
+
+from __future__ import annotations
+
+import argparse
+import base64
+from collections import Counter
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
+from hashlib import sha256
+import json
+import os
+from pathlib import Path
+import re
+import secrets
+import subprocess
+import sys
+from tempfile import TemporaryDirectory
+import time
+from typing import Any
+
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+PACKAGE_DIR = ROOT_DIR / "MCPS" / "Synapse-MCP"
+TEST_DIR = PACKAGE_DIR / "tests"
+DEFAULT_OUTPUT = ROOT_DIR / "DATA" / "phase3-agent-benchmark"
+WORKSPACE_ID = "benchmark"
+TARGET = "app.acme-demo.test"
+MCP_PRINCIPAL = "phase3-agent"
+AUTHORITY_SESSION = "phase3-agent-session"
+GRANT_ID = "phase3-agent-delegated"
+DEFAULT_CODEX_MODEL = "gpt-5.6-sol"
+COMPACT_OPERATIONS = (
+    "engagement.open",
+    "engagement.inspect",
+    "context.query",
+    "capabilities.search",
+    "actions.describe",
+    "actions.run_passive",
+    "actions.run_active",
+    "reviews.apply",
+    "artifacts.inspect",
+    "reports.render",
+    "tasks.control",
+)
+WORKFLOWS = (
+    "workspace_summary",
+    "bounded_target_context",
+    "passive_headers_cookies",
+    "offline_dump_sitemap_fingerprint",
+    "disabled_traffic_cors",
+    "background_task_lifecycle",
+    "evidence_report_resource",
+)
+
+
+OBJECTIVE_PROMPT = """You are assessing an authorized fictional local fixture through the Synapse MCP server. Do not use shell, web, browser, or any non-Synapse capability. The engagement workspace is named benchmark and its only target is app.acme-demo.test. External target traffic must remain disabled, credentials and external providers must not be used, and generated files must stay in the workspace-owned defaults.
+
+Work from the assessment objective rather than a prescribed procedure. Discover the available capability catalog and inspect relevant contracts before dynamic execution. Then establish and retain evidence for all of these outcomes:
+
+- verify the populated workspace summary;
+- prepare bounded target context suitable for next-step planning;
+- passively assess stored response headers and cookie flags;
+- locate the offline recorded HTTP dump and derive both a sitemap and a host fingerprint from it;
+- plan and validate CORS behavior with traffic disabled;
+- exercise the smallest permitted disabled-traffic background crawl, recover its persisted task state without resubmitting it, request cancellation once through the task lifecycle even if the task has already reached a terminal state, and inspect its finalization;
+- record and retrieve a concise evidence milestone, render a workspace-local report, and inspect an opaque returned artifact or resource.
+
+Fail closed if authority or scope is absent. Do not repeat an operation with identical inputs, invent results, expose local paths, or promote candidates. When the objectives are complete, return only the requested JSON assessment summary."""
+
+
+class BenchmarkError(RuntimeError):
+    """A benchmark prerequisite or acceptance invariant failed."""
+
+
+def _run(
+    command: list[str],
+    *,
+    env: dict[str, str] | None = None,
+    timeout: float = 1200,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        command,
+        cwd=ROOT_DIR,
+        env=env,
+        text=True,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=timeout,
+        check=False,
+    )
+
+
+def _modern_python() -> str:
+    result = _run(
+        [str(ROOT_DIR / "bin" / "resolve-synapse-python"), "--require-modern"],
+        timeout=30,
+    )
+    if result.returncode != 0:
+        raise BenchmarkError(result.stderr.strip() or "modern Python resolution failed")
+    selected = result.stdout.strip()
+    if not selected:
+        raise BenchmarkError("modern Python resolution returned an empty path")
+    return selected
+
+
+def _safe_version(command: list[str]) -> str:
+    result = _run(command, timeout=30)
+    if result.returncode != 0:
+        return "unavailable"
+    return result.stdout.strip().splitlines()[0][:200]
+
+
+def _preflight() -> dict[str, Any]:
+    modern_python = _modern_python()
+    codex_version = _safe_version(["codex", "--version"])
+    return {
+        "modernRuntime": {
+            "available": True,
+            "pythonVersion": _safe_version([modern_python, "--version"]),
+            "mcpPythonSdk": "2.0.0",
+        },
+        "codex": {
+            "version": codex_version,
+            "available": codex_version != "unavailable",
+            "experimentalProtocolEnabled": False,
+        },
+    }
+
+
+def _private_json(path: Path, value: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    path.chmod(0o600)
+
+
+def _configure_root(root: Path) -> None:
+    os.environ["SYNAPSE_ROOT"] = str(root)
+    os.environ["SYNAPSE_DATA_DIR"] = str(root / "DATA")
+    sys.path.insert(0, str(PACKAGE_DIR))
+    sys.path.insert(0, str(TEST_DIR))
+
+
+def _seed_dump(root: Path) -> Path:
+    from synapse_mcp.core import workspace
+
+    dump = (
+        workspace.target_path(WORKSPACE_ID, TARGET)
+        / "evidence"
+        / "burp-dumps"
+        / "fixture"
+    )
+    requests = dump / "requests"
+    responses = dump / "responses"
+    requests.mkdir(parents=True, exist_ok=True)
+    responses.mkdir(parents=True, exist_ok=True)
+    request = requests / "1.http"
+    response = responses / "1.http"
+    request.write_text(
+        "GET /app?view=summary HTTP/1.1\r\nHost: app.acme-demo.test\r\n\r\n",
+        encoding="utf-8",
+    )
+    response.write_text(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nSet-Cookie: sessionid=fixture\r\n\r\n"
+        '<a href="/api/items">Items</a>',
+        encoding="utf-8",
+    )
+    (dump / "history.jsonl").write_text(
+        json.dumps(
+            {
+                "id": 1,
+                "host": TARGET,
+                "requestFile": str(request),
+                "responseFile": str(response),
+            },
+            separators=(",", ":"),
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return dump
+
+
+def _crawler_output_allowlist() -> tuple[Any, ...]:
+    from synapse_mcp.core import workspace
+    from synapse_mcp.core.execution import LocalOutputDestination
+
+    target_outputs = workspace.target_path(WORKSPACE_ID, TARGET) / "outputs"
+    sitemap_root = target_outputs / workspace.slug("sitemap")
+    jobs_root = target_outputs / "jobs"
+    destinations: list[LocalOutputDestination] = []
+    now = int(time.time())
+    # The agent is instructed to use the workspace-owned default. This bounded
+    # window lets the trusted grant name each possible timestamped destination
+    # without giving the model a wildcard path policy.
+    for epoch in range(now - 30, now + 601):
+        stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime(epoch))
+        primary = sitemap_root / f"{stamp}-{TARGET}-crawler-crawl-sitemap.json"
+        for path, purpose in (
+            (primary, "crawler.sitemap"),
+            (primary.with_name(f"{primary.stem}.flow.mmd"), "crawler.flow_mermaid"),
+            (primary.with_name(f"{primary.stem}.flow.svg"), "crawler.flow_svg"),
+        ):
+            destinations.append(LocalOutputDestination(str(path), purpose, True, "create", True))
+        for suffix, purpose, may_prune in (
+            ("crawler-crawl-args.json", "crawler.worker_args", True),
+            ("crawler-crawl-result.json", "crawler.worker_result", False),
+            ("crawler-crawl-state.json", "crawler.worker_state", True),
+            ("crawler-crawl-plan.json", "crawler.worker_plan", True),
+        ):
+            destinations.append(
+                LocalOutputDestination(
+                    str(jobs_root / f"{stamp}-{suffix}"),
+                    purpose,
+                    True,
+                    "create",
+                    may_prune,
+                )
+            )
+    return tuple(destinations)
+
+
+def _prepare_fixture(root: Path) -> dict[str, Any]:
+    _configure_root(root)
+    from benchmark_support import seed_benchmark_workspace
+    from synapse_mcp.app.actions import RiskClass
+    from synapse_mcp.core import workspace
+    from synapse_mcp.core.execution import EffectEnvelope, ProviderRoute, RedirectPolicy, ScopeSnapshot, TargetEnvelope
+    from synapse_mcp.policy import (
+        AuthorityGrant,
+        AuthorityMode,
+        AuthorityOperatorService,
+        BudgetLimits,
+        OperatorPrincipal,
+        StateChangePolicy,
+    )
+
+    seed = seed_benchmark_workspace()
+    workspace.create_workspace(
+        WORKSPACE_ID,
+        organization="Acme Demo",
+        notes="Fictional offline benchmark; use workspace-owned default artifact destinations.",
+        hosts=[TARGET],
+    )
+    dump = _seed_dump(root)
+    snapshot = ScopeSnapshot.for_workspace(WORKSPACE_ID)
+    envelope = TargetEnvelope(
+        workspace_id=WORKSPACE_ID,
+        scope_digest=snapshot.digest,
+        scope_snapshot=snapshot,
+        exact_targets=(),
+        seeds=(),
+        entire_workspace_scope=True,
+        redirect_policy=RedirectPolicy(True, 10),
+        expansion_reasons=("operator_bounded_fixture_scope",),
+    )
+    now = datetime.now(timezone.utc)
+    grant = AuthorityGrant(
+        grant_id=GRANT_ID,
+        workspace_id=WORKSPACE_ID,
+        revision=1,
+        mode=AuthorityMode.FULL_DELEGATED,
+        scope_digest=snapshot.digest,
+        target_envelope=envelope,
+        allowed_action_patterns=("*",),
+        allowed_methods=("DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"),
+        allowed_effects=EffectEnvelope(
+            traffic=("authorized_target", "third_party"),
+            local_writes=("credentials", "evidence", "jobs", "reports_artifacts", "runtime_config", "workspace"),
+            local_change=True,
+            local_destruction=True,
+            remote_state_change=True,
+            credential_use=True,
+            secret_use=True,
+            replay_safety="non_idempotent",
+        ),
+        risk_ceiling=RiskClass.HIGH,
+        credential_refs=(),
+        provider_routes=(ProviderRoute.from_values("disabled", None),),
+        third_party_providers=(),
+        local_outputs=_crawler_output_allowlist(),
+        budgets=BudgetLimits(100, 100, 3600, 25),
+        state_change_policy=StateChangePolicy.ALLOW,
+        created_at=now - timedelta(minutes=1),
+        expires_at=now + timedelta(hours=1),
+        approved_by=OperatorPrincipal.current_local().principal_id,
+    )
+    AuthorityOperatorService(
+        WORKSPACE_ID,
+        OperatorPrincipal.current_local(),
+    ).create_grant(grant)
+
+    private = root / "DATA" / "modern-adapter"
+    _private_json(
+        private / "identity-bindings.json",
+        {
+            "version": 1,
+            "principals": {
+                MCP_PRINCIPAL: {
+                    "defaultWorkspace": WORKSPACE_ID,
+                    "default": {
+                        "executionProfile": "full_delegated",
+                        "authoritySessionId": AUTHORITY_SESSION,
+                        "selectedGrantId": GRANT_ID,
+                    },
+                    "workspaces": {
+                        WORKSPACE_ID: {
+                            "executionProfile": "full_delegated",
+                            "authoritySessionId": AUTHORITY_SESSION,
+                            "selectedGrantId": GRANT_ID,
+                        }
+                    },
+                }
+            },
+        },
+    )
+    _private_json(
+        private / "request-state-keyring.json",
+        {
+            "version": 1,
+            "keys": ["base64:" + base64.b64encode(secrets.token_bytes(32)).decode("ascii")],
+        },
+    )
+    guard = root / "network-guard"
+    guard.mkdir()
+    (guard / "sitecustomize.py").write_text(
+        "import json, os, socket\n"
+        "_original_connect = socket.socket.connect\n"
+        "def _blocked_connect(self, address):\n"
+        "    if self.family in (socket.AF_INET, socket.AF_INET6):\n"
+        "        path = os.environ.get('SYNAPSE_NETWORK_ATTEMPT_LOG', '')\n"
+        "        if path:\n"
+        "            with open(path, 'a', encoding='utf-8') as handle:\n"
+        "                handle.write(json.dumps({'family': int(self.family), 'address': repr(address)[:200]}) + '\\n')\n"
+        "        raise OSError('Phase 3 benchmark blocks external target traffic')\n"
+        "    return _original_connect(self, address)\n"
+        "socket.socket.connect = _blocked_connect\n",
+        encoding="utf-8",
+    )
+    return {
+        "workspaceId": WORKSPACE_ID,
+        "target": TARGET,
+        "targetCount": seed["summary"].get("targetCount"),
+        "dumpEntryCount": 1,
+        "dumpInsideWorkspace": dump.is_relative_to(workspace.workspace_path(WORKSPACE_ID)),
+        "executionProfile": "full_delegated",
+        "externalTrafficPolicy": "process_guarded_disabled",
+    }
+
+
+def _post_fixture(root: Path) -> dict[str, Any]:
+    _configure_root(root)
+    from synapse_mcp.core import background_jobs, evidence, workspace
+    from synapse_mcp.policy.repository import WorkspaceAuthorityRepository
+
+    job_result = background_jobs.list_jobs(limit=100)
+    jobs = job_result.get("jobs", []) if isinstance(job_result, dict) else job_result
+    snapshot = WorkspaceAuthorityRepository(WORKSPACE_ID).snapshot()
+    dispatches = list(snapshot.get("dispatches", {}).values())
+    attempts = root / "network-attempts.jsonl"
+    reports = [
+        path
+        for path in (root / "DATA").rglob("*")
+        if path.is_file()
+        and path.suffix.lower() in {".html", ".md", ".json"}
+        and ("report" in path.name.lower() or "reports" in path.parts)
+    ]
+    return {
+        "workspaceSummary": workspace.workspace_summary(WORKSPACE_ID),
+        "evidenceEventCount": len(evidence.tail_events(500)),
+        "jobs": {
+            "count": len(jobs),
+            "terminal": sum(
+                str(item.get("status")) in {"completed", "failed", "canceled", "timed_out"}
+                for item in jobs
+            ),
+            "finalized": sum(bool(item.get("finalized")) for item in jobs),
+        },
+        "dispatchCount": len(dispatches),
+        "dispatchStates": dict(Counter(str(item.get("state") or "unknown") for item in dispatches)),
+        "reportArtifactCount": len(reports),
+        "externalTrafficCount": (
+            len([line for line in attempts.read_text(encoding="utf-8").splitlines() if line.strip()])
+            if attempts.is_file()
+            else 0
+        ),
+    }
+
+
+def _internal(mode: str, root: Path) -> dict[str, Any]:
+    return _prepare_fixture(root) if mode == "prepare" else _post_fixture(root)
+
+
+def _call_internal(mode: str, root: Path) -> dict[str, Any]:
+    result = _run(
+        [_modern_python(), str(Path(__file__).resolve()), "--internal", mode, "--root", str(root)],
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        timeout=180,
+    )
+    if result.returncode != 0:
+        raise BenchmarkError(f"fixture {mode} failed: {result.stderr.strip()[-2400:]}")
+    try:
+        value = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise BenchmarkError(f"fixture {mode} returned invalid JSON") from exc
+    if not isinstance(value, dict):
+        raise BenchmarkError(f"fixture {mode} did not return an object")
+    return value
+
+
+def _result_schema() -> dict[str, Any]:
+    item = {
+        "type": "object",
+        "properties": {
+            "id": {"type": "string", "enum": list(WORKFLOWS)},
+            "complete": {"type": "boolean"},
+            "evidence": {"type": "string"},
+        },
+        "required": ["id", "complete", "evidence"],
+        "additionalProperties": False,
+    }
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+            "status": {"type": "string", "enum": ["complete", "incomplete"]},
+            "workflows": {"type": "array", "items": item},
+            "gaps": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["status", "workflows", "gaps"],
+        "additionalProperties": False,
+    }
+
+
+def _assert_prompt_is_objective_driven() -> None:
+    lowered = OBJECTIVE_PROMPT.lower()
+    forbidden = [name for name in COMPACT_OPERATIONS if name.lower() in lowered]
+    try:
+        sys.path.insert(0, str(PACKAGE_DIR))
+        from synapse_mcp.app.actions import REGISTRY
+
+        forbidden.extend(str(item.id) for item in REGISTRY.descriptors() if str(item.id).lower() in lowered)
+    finally:
+        if sys.path and sys.path[0] == str(PACKAGE_DIR):
+            sys.path.pop(0)
+    if forbidden:
+        raise BenchmarkError(f"objective prompt contains implementation identifiers: {sorted(set(forbidden))}")
+    if re.search(r"\b(call|invoke|use)\b.{0,30}\b(exactly|times?)\b", lowered):
+        raise BenchmarkError("objective prompt prescribes a call count")
+    if "actionid" in lowered or "workspaceid" in lowered or "operationhandle" in lowered:
+        raise BenchmarkError("objective prompt contains exact argument vocabulary")
+
+
+def _server_arguments(root: Path) -> list[str]:
+    private = root / "DATA" / "modern-adapter"
+    return [
+        "-m",
+        "synapse_mcp.transport.modern",
+        "--surface",
+        "modern-compact",
+        "--transport",
+        "stdio",
+        "--server-name",
+        "synapse-phase3-agent",
+        "--audience",
+        "synapse-phase3-agent",
+        "--identity-bindings",
+        str(private / "identity-bindings.json"),
+        "--stdio-principal",
+        MCP_PRINCIPAL,
+        "--request-state-keyring",
+        str(private / "request-state-keyring.json"),
+        "--state-dir",
+        str(private / "state"),
+        "--observability",
+        "disabled",
+    ]
+
+
+def _server_environment(root: Path) -> dict[str, str]:
+    guard = root / "network-guard"
+    return {
+        "SYNAPSE_ROOT": str(root),
+        "SYNAPSE_DATA_DIR": str(root / "DATA"),
+        "PYTHONPATH": os.pathsep.join((str(guard), str(PACKAGE_DIR))),
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "SYNAPSE_NETWORK_ATTEMPT_LOG": str(root / "network-attempts.jsonl"),
+    }
+
+
+def _codex_command(root: Path, schema: Path, final: Path, model: str) -> list[str]:
+    server_env = "{" + ",".join(
+        f"{key}={json.dumps(value)}" for key, value in _server_environment(root).items()
+    ) + "}"
+    overrides = (
+        f"mcp_servers.synapse.command={json.dumps(_modern_python())}",
+        f"mcp_servers.synapse.args={json.dumps(_server_arguments(root), separators=(',', ':'))}",
+        f"mcp_servers.synapse.env={server_env}",
+        f"mcp_servers.synapse.cwd={json.dumps(str(ROOT_DIR))}",
+        "mcp_servers.synapse.required=true",
+        'mcp_servers.synapse.default_tools_approval_mode="approve"',
+        "mcp_servers.synapse.startup_timeout_sec=30",
+        "mcp_servers.synapse.tool_timeout_sec=180",
+        "features.mcp_2026_07_28=false",
+    )
+    command = [
+        "codex",
+        "exec",
+        "--ignore-user-config",
+        "--strict-config",
+        "--ephemeral",
+        "--json",
+        "--sandbox",
+        "read-only",
+        "--model",
+        model,
+        "--cd",
+        str(ROOT_DIR),
+        "--output-schema",
+        str(schema),
+        "--output-last-message",
+        str(final),
+    ]
+    for override in overrides:
+        command.extend(("--config", override))
+    command.append(OBJECTIVE_PROMPT)
+    return command
+
+
+def _canonical_tool(name: str) -> str:
+    if name.startswith("mcp__synapse__"):
+        name = name.removeprefix("mcp__synapse__")
+    for operation in COMPACT_OPERATIONS:
+        if name in {operation, operation.replace(".", "_"), operation.replace(".", "__")}:
+            return operation
+    return name
+
+
+def _json_payload(value: Any) -> Any:
+    if isinstance(value, dict):
+        return value.get("structured_content") or value.get("structuredContent") or value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return None
+        return _json_payload(parsed)
+    if isinstance(value, list):
+        for item in value:
+            parsed = _json_payload(item)
+            if isinstance(parsed, dict) and ("outcomeKind" in parsed or "structured_content" in parsed):
+                return parsed
+    return None
+
+
+def _codex_records(stdout: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    calls: list[dict[str, Any]] = []
+    usage: dict[str, Any] = {"inputTokens": None, "outputTokens": None}
+    for line in stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if event.get("type") == "item.completed" and isinstance(event.get("item"), dict):
+            item = event["item"]
+            if item.get("type") == "mcp_tool_call":
+                arguments = item.get("arguments") if isinstance(item.get("arguments"), dict) else {}
+                result = item.get("result") if isinstance(item.get("result"), dict) else {}
+                calls.append(_call_record(str(item.get("tool") or ""), arguments, result, item.get("error")))
+        if event.get("type") == "turn.completed" and isinstance(event.get("usage"), dict):
+            tokens = event["usage"]
+            usage = {
+                "inputTokens": tokens.get("input_tokens"),
+                "outputTokens": tokens.get("output_tokens"),
+            }
+    return calls, usage
+
+
+def _call_record(name: str, arguments: dict[str, Any], result: Any, error: Any) -> dict[str, Any]:
+    payload = _json_payload(result)
+    meta = result.get("_meta") if isinstance(result, dict) and isinstance(result.get("_meta"), dict) else {}
+    action_id = str(arguments.get("actionId") or "")
+    fingerprint = sha256(
+        json.dumps([_canonical_tool(name), arguments], sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    return {
+        "tool": _canonical_tool(name),
+        "actionId": action_id or None,
+        "taskOperation": (
+            str(arguments.get("operation"))
+            if _canonical_tool(name) == "tasks.control" and arguments.get("operation")
+            else None
+        ),
+        "argumentFingerprint": fingerprint,
+        "outcomeKind": payload.get("outcomeKind") if isinstance(payload, dict) else None,
+        "tracePresent": bool(payload.get("traceId")) if isinstance(payload, dict) else False,
+        "protocolRevision": meta.get("synapse/protocolVersion"),
+        "surface": meta.get("synapse/surface"),
+        "resourceReferenceCount": (
+            len(payload.get("resourceReferences", []))
+            if isinstance(payload, dict) and isinstance(payload.get("resourceReferences"), list)
+            else 0
+        ),
+        "effects": (
+            payload.get("diagnostics", {}).get("effects")
+            if isinstance(payload, dict) and isinstance(payload.get("diagnostics"), dict)
+            else None
+        ),
+        "error": bool(error),
+    }
+
+
+def _final_output(final_path: Path) -> dict[str, Any]:
+    try:
+        value = json.loads(final_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise BenchmarkError("Codex final output was not valid JSON") from exc
+    return value
+
+
+def _workflow_acceptance(calls: list[dict[str, Any]], post: dict[str, Any]) -> dict[str, bool]:
+    successful = {
+        (str(call.get("tool")), str(call.get("actionId") or ""))
+        for call in calls
+        if call.get("outcomeKind") == "success" and not call.get("error")
+    }
+    actions = {
+        action
+        for tool, action in successful
+        if action and tool in {"actions.run_passive", "actions.run_active"}
+    }
+    tools = {tool for tool, _ in successful}
+    task_operations = {
+        str(call.get("taskOperation") or "")
+        for call in calls
+        if call.get("tool") == "tasks.control"
+        and call.get("outcomeKind") == "success"
+        and not call.get("error")
+    }
+    return {
+        "workspace_summary": (
+            "engagement.inspect" in tools or "workspace.summary" in actions
+        ),
+        "bounded_target_context": (
+            "context.query" in tools
+            or "workspace.prepare_target_context" in actions
+        ),
+        "passive_headers_cookies": "headers_cookies.analyze_workspace" in actions,
+        "offline_dump_sitemap_fingerprint": {
+            "dumps.list",
+            "sitemap.from_dump",
+            "fingerprint.from_dump",
+        }.issubset(actions),
+        "disabled_traffic_cors": {
+            "cors.generate_test_plan",
+            "cors.execute_test",
+        }.issubset(actions),
+        "background_task_lifecycle": (
+            "crawler.crawl" in actions
+            and {"cancel", "inspect"}.issubset(task_operations)
+            and int(post["jobs"]["finalized"]) >= 1
+        ),
+        "evidence_report_resource": (
+            {"evidence.log_event", "evidence.tail"}.issubset(actions)
+            and (
+                "reports.render" in tools
+                or bool(
+                    {
+                        "documentation.render_workspace_report",
+                        "documentation.render_assessment_summary",
+                    }
+                    & actions
+                )
+            )
+            and "artifacts.inspect" in tools
+        ),
+    }
+
+
+def _workflow_results(
+    acceptance: dict[str, bool],
+    calls: list[dict[str, Any]],
+    post: dict[str, Any],
+    *,
+    wall_clock_seconds: float,
+    input_tokens: int | None,
+    output_tokens: int | None,
+    protocol_revisions: list[str],
+) -> list[dict[str, Any]]:
+    action_groups = {
+        "workspace_summary": {"workspace.summary"},
+        "bounded_target_context": {"workspace.prepare_target_context"},
+        "passive_headers_cookies": {"headers_cookies.analyze_workspace"},
+        "offline_dump_sitemap_fingerprint": {
+            "dumps.list",
+            "sitemap.from_dump",
+            "fingerprint.from_dump",
+        },
+        "disabled_traffic_cors": {"cors.generate_test_plan", "cors.execute_test"},
+        "background_task_lifecycle": {"crawler.crawl"},
+        "evidence_report_resource": {
+            "evidence.log_event",
+            "evidence.tail",
+            "documentation.render_workspace_report",
+            "documentation.render_assessment_summary",
+        },
+    }
+    tool_groups = {
+        "workspace_summary": {"engagement.inspect"},
+        "bounded_target_context": {"context.query"},
+        "background_task_lifecycle": {"tasks.control"},
+        "evidence_report_resource": {"reports.render", "artifacts.inspect"},
+    }
+    results: list[dict[str, Any]] = []
+    for workflow in WORKFLOWS:
+        selected = [
+            call
+            for call in calls
+            if str(call.get("actionId") or "") in action_groups.get(workflow, set())
+            or str(call.get("tool") or "") in tool_groups.get(workflow, set())
+        ]
+        selected_fingerprints = Counter(
+            str(call.get("argumentFingerprint") or "") for call in selected
+        )
+        results.append(
+            {
+                "case": workflow,
+                "outcome": "pass" if acceptance[workflow] else "fail",
+                "negotiatedRevisions": protocol_revisions,
+                "advertisedCapabilities": {
+                    "tools": True,
+                    "resources": True,
+                    "resourceTemplates": True,
+                    "standardTasks": False,
+                },
+                "surface": "modern-compact",
+                "transport": "stdio",
+                "toolSelectionSuccess": acceptance[workflow],
+                "selectedCallCount": len(selected),
+                "schemaRetries": sum(
+                    call.get("outcomeKind") == "validation_failure" or call.get("error")
+                    for call in selected
+                ),
+                "duplicateCalls": sum(
+                    count - 1 for count in selected_fingerprints.values() if count > 1
+                ),
+                "latencySeconds": None,
+                "latencyReason": "client exposed only grouped session wall-clock latency",
+                "sessionWallClockSeconds": wall_clock_seconds,
+                "inputTokens": None,
+                "outputTokens": None,
+                "sessionInputTokens": input_tokens,
+                "sessionOutputTokens": output_tokens,
+                "observedEffects": [call["effects"] for call in selected if call.get("effects")],
+                "externalTrafficCount": post["externalTrafficCount"],
+                "dispatchCount": sum(
+                    isinstance(call.get("effects"), dict) for call in selected
+                ),
+                "tracePresent": all(call.get("tracePresent") for call in selected),
+                "resourceIntegrity": (
+                    acceptance["evidence_report_resource"]
+                    if workflow == "evidence_report_resource"
+                    else None
+                ),
+                "evidenceIntegrity": post["evidenceEventCount"] > 0,
+            }
+        )
+    return results
+
+
+def _run_case(
+    root: Path,
+    output: Path,
+    *,
+    repetition: int,
+    model: str,
+) -> dict[str, Any]:
+    case_dir = output / "raw" / "codex" / f"run-{repetition:02d}"
+    case_dir.mkdir(parents=True, exist_ok=True)
+    schema = case_dir / "schema.json"
+    final_path = case_dir / "final.json"
+    events = case_dir / "events.jsonl"
+    stderr_path = case_dir / "stderr.txt"
+    schema.write_text(json.dumps(_result_schema(), indent=2) + "\n", encoding="utf-8")
+    command = _codex_command(root, schema, final_path, model)
+    started = time.perf_counter()
+    result = _run(command)
+    elapsed = time.perf_counter() - started
+    events.write_text(result.stdout, encoding="utf-8")
+    stderr_path.write_text(result.stderr, encoding="utf-8")
+    if result.returncode != 0:
+        diagnostic = (result.stderr + "\n" + result.stdout).strip()[-2400:]
+        raise BenchmarkError(
+            f"Codex objective run failed with exit {result.returncode}: {diagnostic}"
+        )
+    calls, usage = _codex_records(result.stdout)
+    final = _final_output(final_path)
+    post = _call_internal("post", root)
+    acceptance = _workflow_acceptance(calls, post)
+    fingerprints = Counter(str(call["argumentFingerprint"]) for call in calls)
+    duplicate_calls = sum(count - 1 for count in fingerprints.values() if count > 1)
+    effectful_fingerprints = Counter(
+        str(call["argumentFingerprint"])
+        for call in calls
+        if isinstance(call.get("effects"), dict)
+        and (
+            call["effects"].get("traffic")
+            or call["effects"].get("localWrites")
+            or call["effects"].get("localChange")
+            or call["effects"].get("localDestruction")
+            or call["effects"].get("remoteStateChange")
+            or call["effects"].get("credentialUse")
+            or call["effects"].get("secretUse")
+        )
+    )
+    duplicate_side_effect_calls = sum(
+        count - 1 for count in effectful_fingerprints.values() if count > 1
+    )
+    schema_retries = sum(
+        call.get("outcomeKind") == "validation_failure" or call.get("error")
+        for call in calls
+    )
+    protocol_revisions = sorted(
+        {str(call["protocolRevision"]) for call in calls if call.get("protocolRevision")}
+    )
+    final_workflows = {
+        str(item.get("id")): bool(item.get("complete"))
+        for item in final.get("workflows", [])
+        if isinstance(item, dict)
+    }
+    final_accepted = (
+        final.get("status") == "complete"
+        and all(final_workflows.get(workflow, False) for workflow in WORKFLOWS)
+    )
+    workflow_results = _workflow_results(
+        acceptance,
+        calls,
+        post,
+        wall_clock_seconds=round(elapsed, 3),
+        input_tokens=usage.get("inputTokens"),
+        output_tokens=usage.get("outputTokens"),
+        protocol_revisions=protocol_revisions,
+    )
+    return {
+        "client": "codex",
+        "model": model,
+        "repetition": repetition,
+        "surface": "modern-compact",
+        "transport": "stdio",
+        "advertisedCapabilities": {
+            "tools": True,
+            "resources": True,
+            "resourceTemplates": True,
+            "standardTasks": False,
+        },
+        "negotiatedRevisions": protocol_revisions,
+        "wallClockSeconds": round(elapsed, 3),
+        **usage,
+        "toolSelectionSuccess": all(acceptance.values()),
+        "schemaRetries": schema_retries,
+        "duplicateCalls": duplicate_calls,
+        "duplicateSideEffectCalls": duplicate_side_effect_calls,
+        "toolCallCount": len(calls),
+        "calls": calls,
+        "workflowAcceptance": acceptance,
+        "workflowResults": workflow_results,
+        "observedEffects": [call["effects"] for call in calls if call.get("effects")],
+        "externalTrafficCount": post["externalTrafficCount"],
+        "dispatchCount": post["dispatchCount"],
+        "dispatchStates": post["dispatchStates"],
+        "resourceIntegrity": (
+            acceptance["evidence_report_resource"]
+        ),
+        "backgroundIntegrity": post["jobs"],
+        "finalStatus": final.get("status"),
+        "finalSummaryAccepted": final_accepted,
+        "agentReportedGaps": final.get("gaps", []),
+        "overall": (
+            "pass"
+            if all(acceptance.values())
+            and final_accepted
+            and schema_retries == 0
+            and duplicate_side_effect_calls == 0
+            and post["externalTrafficCount"] == 0
+            else "fail"
+        ),
+    }
+
+
+def _committable_evidence(document: dict[str, Any]) -> dict[str, Any]:
+    """Reduce local client telemetry to path/handle-free review evidence."""
+
+    runs = []
+    for run in document["runs"]:
+        runs.append(
+            {
+                key: run.get(key)
+                for key in (
+                    "client",
+                    "model",
+                    "repetition",
+                    "surface",
+                    "transport",
+                    "advertisedCapabilities",
+                    "negotiatedRevisions",
+                    "wallClockSeconds",
+                    "inputTokens",
+                    "outputTokens",
+                    "toolSelectionSuccess",
+                    "schemaRetries",
+                    "duplicateCalls",
+                    "duplicateSideEffectCalls",
+                    "toolCallCount",
+                    "externalTrafficCount",
+                    "dispatchCount",
+                    "dispatchStates",
+                    "resourceIntegrity",
+                    "backgroundIntegrity",
+                    "finalStatus",
+                    "finalSummaryAccepted",
+                    "agentReportedGaps",
+                    "overall",
+                    "workflowResults",
+                )
+            }
+        )
+    return {
+        "schemaVersion": 1,
+        "classification": document["classification"],
+        "capturedAt": document["capturedAt"],
+        "method": "../../phase-3-benchmark-method.md#2026-08-24-adversarial-corrective-codex-method",
+        "promptSha256": document["promptSha256"],
+        "promptContainsToolNames": document["promptContainsToolNames"],
+        "promptContainsActionIds": document["promptContainsActionIds"],
+        "promptContainsExactArgumentObjects": document["promptContainsExactArgumentObjects"],
+        "promptPrescribesCallCounts": document["promptPrescribesCallCounts"],
+        "clients": document["clients"],
+        "repetitionsPerClient": document["repetitionsPerClient"],
+        "preflight": {
+            key: document["preflight"][key]
+            for key in ("modernRuntime", "codex")
+            if key in document["preflight"]
+        },
+        "surface": document["surface"],
+        "transport": document["transport"],
+        "experimentalFeaturesEnabled": document["experimentalFeaturesEnabled"],
+        "runs": runs,
+        "secretHygiene": {
+            "rawArgumentsCommitted": False,
+            "rawOperationHandlesCommitted": False,
+            "rawRequestStateCommitted": False,
+            "rawTraceIdsCommitted": False,
+            "localPathsCommitted": False,
+            "credentialValuesCommitted": False,
+        },
+        "overall": document["overall"],
+    }
+
+
+def _validated_existing_batch(path: Path) -> dict[str, Any]:
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise BenchmarkError("existing objective evidence is unreadable") from exc
+    expected_prompt = sha256(OBJECTIVE_PROMPT.encode()).hexdigest()
+    runs = document.get("runs") if isinstance(document.get("runs"), list) else []
+    if (
+        document.get("promptSha256") != expected_prompt
+        or document.get("clients") != ["codex"]
+        or document.get("repetitionsPerClient") != 3
+        or document.get("overall") != "pass"
+        or len(runs) != 3
+        or any(
+            run.get("overall") != "pass"
+            or run.get("schemaRetries") != 0
+            or run.get("duplicateSideEffectCalls") != 0
+            or run.get("externalTrafficCount") != 0
+            or len(run.get("workflowResults", [])) != len(WORKFLOWS)
+            or any(
+                workflow.get("outcome") != "pass"
+                for workflow in run.get("workflowResults", [])
+            )
+            for run in runs
+        )
+    ):
+        raise BenchmarkError("existing objective evidence does not match the current 3/3 Codex gate")
+    document["classification"] = "objective_driven_codex_benchmark"
+    document["preflight"] = _preflight()
+    return document
+
+
+def _live_gate(
+    *,
+    repetitions: int,
+    output: Path,
+    codex_model: str,
+    evidence_output: Path | None = None,
+) -> dict[str, Any]:
+    _assert_prompt_is_objective_driven()
+    preflight = _preflight()
+    if not preflight["codex"]["available"]:
+        raise BenchmarkError("required Codex client is unavailable")
+    output.mkdir(parents=True, exist_ok=True)
+    runs: list[dict[str, Any]] = []
+    for repetition in range(1, repetitions + 1):
+        with TemporaryDirectory(prefix="synapse-phase3-agent-codex-") as temporary:
+            root = Path(temporary)
+            fixture = _call_internal("prepare", root)
+            run = _run_case(
+                root,
+                output,
+                repetition=repetition,
+                model=codex_model,
+            )
+            run["fixture"] = fixture
+            runs.append(run)
+            if run["overall"] != "pass":
+                raise BenchmarkError(
+                    f"Codex repetition {repetition} failed objective acceptance: "
+                    f"workflows={run['workflowAcceptance']}; "
+                    f"schemaRetries={run['schemaRetries']}; "
+                    f"duplicateCalls={run['duplicateCalls']}; "
+                    f"duplicateSideEffectCalls={run['duplicateSideEffectCalls']}; "
+                    f"externalTraffic={run['externalTrafficCount']}; "
+                    f"finalSummaryAccepted={run['finalSummaryAccepted']}"
+                )
+    document = {
+        "schemaVersion": 1,
+        "classification": "objective_driven_codex_benchmark",
+        "capturedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "promptSha256": sha256(OBJECTIVE_PROMPT.encode()).hexdigest(),
+        "promptContainsToolNames": False,
+        "promptContainsActionIds": False,
+        "promptContainsExactArgumentObjects": False,
+        "promptPrescribesCallCounts": False,
+        "clients": ["codex"],
+        "repetitionsPerClient": repetitions,
+        "preflight": preflight,
+        "surface": "modern-compact",
+        "transport": "stdio",
+        "experimentalFeaturesEnabled": False,
+        "runs": runs,
+        "overall": "pass",
+    }
+    aggregate = output / "agent-benchmark-results.json"
+    aggregate.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    if evidence_output is not None:
+        evidence_output.parent.mkdir(parents=True, exist_ok=True)
+        evidence_output.write_text(
+            json.dumps(_committable_evidence(document), indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+    return document
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--preflight", action="store_true")
+    parser.add_argument("--run", action="store_true")
+    parser.add_argument("--repetitions", type=int, default=3)
+    parser.add_argument("--codex-model", default=DEFAULT_CODEX_MODEL)
+    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--evidence-output", type=Path)
+    parser.add_argument("--evidence-from", type=Path)
+    parser.add_argument("--internal", choices=("prepare", "post"), help=argparse.SUPPRESS)
+    parser.add_argument("--root", type=Path, help=argparse.SUPPRESS)
+    args = parser.parse_args()
+    if args.internal:
+        if args.root is None:
+            parser.error("--internal requires --root")
+        print(json.dumps(_internal(args.internal, args.root.resolve()), sort_keys=True))
+        return 0
+    if args.repetitions < 1:
+        parser.error("--repetitions must be positive")
+    if args.evidence_from is not None:
+        if args.evidence_output is None:
+            parser.error("--evidence-from requires --evidence-output")
+        document = _validated_existing_batch(args.evidence_from.expanduser().resolve())
+        destination = args.evidence_output.expanduser().resolve()
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(
+            json.dumps(_committable_evidence(document), indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        print(json.dumps({"sourceValidated": True, "evidenceOutput": str(destination)}, indent=2))
+        return 0
+    if args.run:
+        document = _live_gate(
+            repetitions=args.repetitions,
+            output=args.output.expanduser().resolve(),
+            codex_model=args.codex_model,
+            evidence_output=(
+                args.evidence_output.expanduser().resolve()
+                if args.evidence_output is not None
+                else None
+            ),
+        )
+        print(json.dumps(document, indent=2, sort_keys=True))
+        return 0
+    if args.preflight:
+        _assert_prompt_is_objective_driven()
+        print(json.dumps(_preflight(), indent=2, sort_keys=True))
+        return 0
+    parser.error("select --preflight or --run")
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

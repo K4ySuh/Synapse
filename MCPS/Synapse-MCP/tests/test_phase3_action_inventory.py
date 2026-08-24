@@ -82,11 +82,18 @@ class Phase3ActionInventoryTests(unittest.TestCase):
                 self.assertTrue(issubclass(descriptor.input_model, ActionInput))
                 self.assertTrue(issubclass(descriptor.output_model, ActionOutput))
                 output_schema = descriptor.output_model.model_json_schema(mode="validation")
-                self.assertEqual(output_schema.get("type"), "object")
-                self.assertTrue(
-                    output_schema.get("properties"),
-                    f"{action_id} has an empty output contract",
-                )
+                root_type = output_schema.get("type")
+                self.assertIn(root_type, {"object", "array"})
+                if root_type == "object":
+                    self.assertTrue(
+                        output_schema.get("properties"),
+                        f"{action_id} has an empty output contract",
+                    )
+                else:
+                    self.assertTrue(
+                        output_schema.get("items"),
+                        f"{action_id} has an untyped array output contract",
+                    )
                 self.assertEqual(descriptor.input_model.contract_document.parsed(), entry["inputSchema"])
                 self.assertEqual(descriptor.risk_class, RiskClass(entry["riskClass"]))
                 self.assertEqual(

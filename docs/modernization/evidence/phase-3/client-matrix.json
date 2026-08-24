@@ -198,9 +198,23 @@
   ],
   "closureAmendment": {
     "capturedAt": "2026-08-24",
-    "claudeRequired": false,
+    "requiredAgentClients": [
+      "codex"
+    ],
+    "independentAgentClients": "outside_current_project_scope",
     "stableCodexApplicationResumeAccepted": true,
     "evidence": "codex-closure-results.json",
-    "selectedDefault": "modern-compact"
+    "selectedDefault": "modern-compact",
+    "correctiveEvidence": {
+      "objectiveDriven": "agent-benchmark-results.json",
+      "exactTransportSafety": "transport-smoke-results.json",
+      "objectiveRepetitions": "3/3",
+      "transportSafetyRepetitions": "3/3",
+      "negotiatedProtocol": "2025-06-18",
+      "externalTrafficCount": 0,
+      "schemaRetries": 0,
+      "duplicateSideEffectCalls": 0,
+      "duplicateDispatches": 0
+    }
   }
 }

@@ -1,0 +1,734 @@
+{
+  "authority": "trusted fixture operator exact step-up",
+  "capturedAt": "2026-08-24T14:24:25.991115Z",
+  "classification": "exact_tool_transport_safety_smoke",
+  "clients": [
+    "codex"
+  ],
+  "experimentalFeaturesEnabled": false,
+  "externalTargetTraffic": "disabled",
+  "method": "../../phase-3-benchmark-method.md#2026-08-24-adversarial-corrective-codex-method",
+  "objectiveDriven": false,
+  "overall": "pass",
+  "preflight": {
+    "codex": {
+      "classification": "exact_tool_transport_safety_smoke",
+      "codexCli": "codex-cli 0.149.0",
+      "experimentalProtocolEnabledForGate": false,
+      "mcp20260728": {
+        "enabled": false,
+        "maturity": "under development"
+      },
+      "stableFallback": "approval_required envelope plus tasks.control resume"
+    }
+  },
+  "repetitions": 3,
+  "runs": [
+    {
+      "cases": [
+        {
+          "advertisedCapabilities": {
+            "resourceTemplates": true,
+            "resources": true,
+            "standardTasks": false,
+            "tools": true
+          },
+          "case": "safety",
+          "credentialDenialOutcome": "approval_required",
+          "duplicateCalls": 0,
+          "effectDenialOutcome": "policy_denial",
+          "inputTokens": 62956,
+          "malformedOutcome": "invalid_request",
+          "negotiatedRevisions": [
+            "2025-06-18"
+          ],
+          "observedModel": null,
+          "outcomeKind": "success",
+          "outputTokens": 784,
+          "schemaRetries": 0,
+          "scopeDenialOutcome": "policy_denial",
+          "serverNames": [
+            "synapse",
+            "synapse",
+            "synapse",
+            "synapse",
+            "synapse"
+          ],
+          "success": true,
+          "surface": "modern-compact",
+          "toolCalls": 5,
+          "toolErrors": 1,
+          "toolNames": [
+            "actions.run_passive",
+            "actions.run_active",
+            "actions.run_passive",
+            "actions.run_active",
+            "actions.run_active"
+          ],
+          "toolSelectionSuccess": true,
+          "transport": "stdio",
+          "unavailableOutcome": "unavailable_capability",
+          "wallClockSeconds": 26.887
+        },
+        {
+          "advertisedCapabilities": {
+            "resourceTemplates": true,
+            "resources": true,
+            "standardTasks": false,
+            "tools": true
+          },
+          "case": "read",
+          "duplicateCalls": 0,
+          "endpointCount": 2,
+          "inputTokens": 60927,
+          "negotiatedRevisions": [
+            "2025-06-18"
+          ],
+          "observedModel": null,
+          "outcomeKind": "success",
+          "outputTokens": 155,
+          "schemaRetries": 0,
+          "serverNames": [
+            "synapse"
+          ],
+          "success": true,
+          "surface": "modern-compact",
+          "targetCount": 1,
+          "toolCalls": 1,
+          "toolErrors": 0,
+          "toolNames": [
+            "engagement.inspect"
+          ],
+          "toolSelectionSuccess": true,
+          "transport": "stdio",
+          "wallClockSeconds": 14.594
+        },
+        {
+          "advertisedCapabilities": {
+            "resourceTemplates": true,
+            "resources": true,
+            "standardTasks": false,
+            "tools": true
+          },
+          "case": "approval",
+          "dispatch": "not_started",
+          "duplicateCalls": 0,
+          "inputTokens": 40154,
+          "negotiatedRevisions": [
+            "2025-06-18"
+          ],
+          "observedModel": null,
+          "opaqueOperationHandlePresent": true,
+          "outcomeKind": "approval_required",
+          "outputTokens": 497,
+          "schemaRetries": 0,
+          "serverNames": [
+            "synapse"
+          ],
+          "success": true,
+          "surface": "modern-compact",
+          "toolCalls": 1,
+          "toolErrors": 0,
+          "toolNames": [
+            "actions.run_active"
+          ],
+          "toolSelectionSuccess": true,
+          "traceContinuity": true,
+          "transport": "stdio",
+          "wallClockSeconds": 16.576
+        },
+        {
+          "advertisedCapabilities": {
+            "resourceTemplates": true,
+            "resources": true,
+            "standardTasks": false,
+            "tools": true
+          },
+          "case": "binding",
+          "duplicateCalls": 0,
+          "inputTokens": 77203,
+          "negotiatedRevisions": [
+            "2025-06-18"
+          ],
+          "observedModel": null,
+          "outcomeKind": "success",
+          "outputTokens": 694,
+          "principalDenied": true,
+          "resourceDenied": true,
+          "schemaRetries": 0,
+          "serverNames": [
+            "synapse_principal",
+            "synapse_session",
+            "synapse",
+            "synapse_principal"
+          ],
+          "sessionDenied": true,
+          "success": true,
+          "surface": "modern-compact",
+          "toolCalls": 4,
+          "toolErrors": 4,
+          "toolNames": [
+            "tasks.control",
+            "tasks.control",
+            "actions.run_passive",
+            "artifacts.inspect"
+          ],
+          "toolSelectionSuccess": true,
+          "transport": "stdio",
+          "wallClockSeconds": 22.866,
+          "workspaceDenied": true
+        },
+        {
+          "advertisedCapabilities": {
+            "resourceTemplates": true,
+            "resources": true,
+            "standardTasks": false,
+            "tools": true
+          },
+          "case": "resume",
+          "duplicateCalls": 0,
+          "inputTokens": 67327,
+          "negotiatedRevisions": [
+            "2025-06-18"
+          ],
+          "observedModel": null,
+          "outcomeKind": "success",
+          "outputTokens": 246,
+          "responseStatus": null,
+          "schemaRetries": 0,
+          "serverNames": [
+            "synapse"
+          ],
+          "success": true,
+          "surface": "modern-compact",
+          "toolCalls": 1,
+          "toolErrors": 0,
+          "toolNames": [
+            "tasks.control"
+          ],
+          "toolSelectionSuccess": true,
+          "traceContinuity": true,
+          "trafficDisabled": true,
+          "transport": "stdio",
+          "wallClockSeconds": 16.201
+        }
+      ],
+      "client": "codex",
+      "externalTrafficCount": 0,
+      "fixtures": {
+        "active": {
+          "endpointCount": 2,
+          "executionProfile": "supervised",
+          "externalTraffic": "disabled",
+          "target": "app.acme-demo.test",
+          "targetCount": 1,
+          "workspaceId": "benchmark"
+        },
+        "read": {
+          "endpointCount": 2,
+          "executionProfile": "observe",
+          "externalTraffic": "disabled",
+          "target": "app.acme-demo.test",
+          "targetCount": 1,
+          "workspaceId": "benchmark"
+        },
+        "safety": {
+          "endpointCount": 2,
+          "executionProfile": "supervised",
+          "externalTraffic": "disabled",
+          "target": "app.acme-demo.test",
+          "targetCount": 1,
+          "workspaceId": "benchmark"
+        }
+      },
+      "model": "gpt-5.6-sol",
+      "operator": {
+        "exactStepUpIssued": true,
+        "pendingBeforeApproval": 1
+      },
+      "repetition": 1,
+      "verification": {
+        "dispatchCount": 1,
+        "dispatchStates": {
+          "succeeded": 1
+        },
+        "requestStateCount": 1,
+        "resumedRequestCount": 1
+      }
+    },
+    {
+      "cases": [
+        {
+          "advertisedCapabilities": {
+            "resourceTemplates": true,
+            "resources": true,
+            "standardTasks": false,
+            "tools": true
+          },
+          "case": "safety",
+          "credentialDenialOutcome": "approval_required",
+          "duplicateCalls": 0,
+          "effectDenialOutcome": "policy_denial",
+          "inputTokens": 63049,
+          "malformedOutcome": "invalid_request",
+          "negotiatedRevisions": [
+            "2025-06-18"
+          ],
+          "observedModel": null,
+          "outcomeKind": "success",
+          "outputTokens": 775,
+          "schemaRetries": 0,
+          "scopeDenialOutcome": "policy_denial",
+          "serverNames": [
+            "synapse",
+            "synapse",
+            "synapse",
+            "synapse",
+            "synapse"
+          ],
+          "success": true,
+          "surface": "modern-compact",
+          "toolCalls": 5,
+          "toolErrors": 1,
+          "toolNames": [
+            "actions.run_passive",
+            "actions.run_active",
+            "actions.run_passive",
+            "actions.run_active",
+            "actions.run_active"
+          ],
+          "toolSelectionSuccess": true,
+          "transport": "stdio",
+          "unavailableOutcome": "unavailable_capability",
+          "wallClockSeconds": 25.902
+        },
+        {
+          "advertisedCapabilities": {
+            "resourceTemplates": true,
+            "resources": true,
+            "standardTasks": false,
+            "tools": true
+          },
+          "case": "read",
+          "duplicateCalls": 0,
+          "endpointCount": 2,
+          "inputTokens": 61037,
+          "negotiatedRevisions": [
+            "2025-06-18"
+          ],
+          "observedModel": null,
+          "outcomeKind": "success",
+          "outputTokens": 194,
+          "schemaRetries": 0,
+          "serverNames": [
+            "synapse"
+          ],
+          "success": true,
+          "surface": "modern-compact",
+          "targetCount": 1,
+          "toolCalls": 1,
+          "toolErrors": 0,
+          "toolNames": [
+            "engagement.inspect"
+          ],
+          "toolSelectionSuccess": true,
+          "transport": "stdio",
+          "wallClockSeconds": 13.353
+        },
+        {
+          "advertisedCapabilities": {
+            "resourceTemplates": true,
+            "resources": true,
+            "standardTasks": false,
+            "tools": true
+          },
+          "case": "approval",
+          "dispatch": "not_started",
+          "duplicateCalls": 0,
+          "inputTokens": 60512,
+          "negotiatedRevisions": [
+            "2025-06-18"
+          ],
+          "observedModel": null,
+          "opaqueOperationHandlePresent": true,
+          "outcomeKind": "approval_required",
+          "outputTokens": 396,
+          "schemaRetries": 0,
+          "serverNames": [
+            "synapse"
+          ],
+          "success": true,
+          "surface": "modern-compact",
+          "toolCalls": 1,
+          "toolErrors": 0,
+          "toolNames": [
+            "actions.run_active"
+          ],
+          "toolSelectionSuccess": true,
+          "traceContinuity": true,
+          "transport": "stdio",
+          "wallClockSeconds": 16.2
+        },
+        {
+          "advertisedCapabilities": {
+            "resourceTemplates": true,
+            "resources": true,
+            "standardTasks": false,
+            "tools": true
+          },
+          "case": "binding",
+          "duplicateCalls": 0,
+          "inputTokens": 91450,
+          "negotiatedRevisions": [
+            "2025-06-18"
+          ],
+          "observedModel": null,
+          "outcomeKind": "success",
+          "outputTokens": 605,
+          "principalDenied": true,
+          "resourceDenied": true,
+          "schemaRetries": 0,
+          "serverNames": [
+            "synapse_principal",
+            "synapse_session",
+            "synapse",
+            "synapse_principal"
+          ],
+          "sessionDenied": true,
+          "success": true,
+          "surface": "modern-compact",
+          "toolCalls": 4,
+          "toolErrors": 4,
+          "toolNames": [
+            "tasks.control",
+            "tasks.control",
+            "actions.run_passive",
+            "artifacts.inspect"
+          ],
+          "toolSelectionSuccess": true,
+          "transport": "stdio",
+          "wallClockSeconds": 30.017,
+          "workspaceDenied": true
+        },
+        {
+          "advertisedCapabilities": {
+            "resourceTemplates": true,
+            "resources": true,
+            "standardTasks": false,
+            "tools": true
+          },
+          "case": "resume",
+          "duplicateCalls": 0,
+          "inputTokens": 67393,
+          "negotiatedRevisions": [
+            "2025-06-18"
+          ],
+          "observedModel": null,
+          "outcomeKind": "success",
+          "outputTokens": 284,
+          "responseStatus": null,
+          "schemaRetries": 0,
+          "serverNames": [
+            "synapse"
+          ],
+          "success": true,
+          "surface": "modern-compact",
+          "toolCalls": 1,
+          "toolErrors": 0,
+          "toolNames": [
+            "tasks.control"
+          ],
+          "toolSelectionSuccess": true,
+          "traceContinuity": true,
+          "trafficDisabled": true,
+          "transport": "stdio",
+          "wallClockSeconds": 19.807
+        }
+      ],
+      "client": "codex",
+      "externalTrafficCount": 0,
+      "fixtures": {
+        "active": {
+          "endpointCount": 2,
+          "executionProfile": "supervised",
+          "externalTraffic": "disabled",
+          "target": "app.acme-demo.test",
+          "targetCount": 1,
+          "workspaceId": "benchmark"
+        },
+        "read": {
+          "endpointCount": 2,
+          "executionProfile": "observe",
+          "externalTraffic": "disabled",
+          "target": "app.acme-demo.test",
+          "targetCount": 1,
+          "workspaceId": "benchmark"
+        },
+        "safety": {
+          "endpointCount": 2,
+          "executionProfile": "supervised",
+          "externalTraffic": "disabled",
+          "target": "app.acme-demo.test",
+          "targetCount": 1,
+          "workspaceId": "benchmark"
+        }
+      },
+      "model": "gpt-5.6-sol",
+      "operator": {
+        "exactStepUpIssued": true,
+        "pendingBeforeApproval": 1
+      },
+      "repetition": 2,
+      "verification": {
+        "dispatchCount": 1,
+        "dispatchStates": {
+          "succeeded": 1
+        },
+        "requestStateCount": 1,
+        "resumedRequestCount": 1
+      }
+    },
+    {
+      "cases": [
+        {
+          "advertisedCapabilities": {
+            "resourceTemplates": true,
+            "resources": true,
+            "standardTasks": false,
+            "tools": true
+          },
+          "case": "safety",
+          "credentialDenialOutcome": "approval_required",
+          "duplicateCalls": 0,
+          "effectDenialOutcome": "policy_denial",
+          "inputTokens": 62727,
+          "malformedOutcome": "malformed_input",
+          "negotiatedRevisions": [
+            "2025-06-18"
+          ],
+          "observedModel": null,
+          "outcomeKind": "success",
+          "outputTokens": 751,
+          "schemaRetries": 0,
+          "scopeDenialOutcome": "policy_denial",
+          "serverNames": [
+            "synapse",
+            "synapse",
+            "synapse",
+            "synapse",
+            "synapse"
+          ],
+          "success": true,
+          "surface": "modern-compact",
+          "toolCalls": 5,
+          "toolErrors": 1,
+          "toolNames": [
+            "actions.run_passive",
+            "actions.run_active",
+            "actions.run_passive",
+            "actions.run_active",
+            "actions.run_active"
+          ],
+          "toolSelectionSuccess": true,
+          "transport": "stdio",
+          "unavailableOutcome": "unavailable_capability",
+          "wallClockSeconds": 42.886
+        },
+        {
+          "advertisedCapabilities": {
+            "resourceTemplates": true,
+            "resources": true,
+            "standardTasks": false,
+            "tools": true
+          },
+          "case": "read",
+          "duplicateCalls": 0,
+          "endpointCount": 2,
+          "inputTokens": 61083,
+          "negotiatedRevisions": [
+            "2025-06-18"
+          ],
+          "observedModel": null,
+          "outcomeKind": "success",
+          "outputTokens": 236,
+          "schemaRetries": 0,
+          "serverNames": [
+            "synapse"
+          ],
+          "success": true,
+          "surface": "modern-compact",
+          "targetCount": 1,
+          "toolCalls": 1,
+          "toolErrors": 0,
+          "toolNames": [
+            "engagement.inspect"
+          ],
+          "toolSelectionSuccess": true,
+          "transport": "stdio",
+          "wallClockSeconds": 14.53
+        },
+        {
+          "advertisedCapabilities": {
+            "resourceTemplates": true,
+            "resources": true,
+            "standardTasks": false,
+            "tools": true
+          },
+          "case": "approval",
+          "dispatch": "not_started",
+          "duplicateCalls": 0,
+          "inputTokens": 66369,
+          "negotiatedRevisions": [
+            "2025-06-18"
+          ],
+          "observedModel": null,
+          "opaqueOperationHandlePresent": true,
+          "outcomeKind": "approval_required",
+          "outputTokens": 351,
+          "schemaRetries": 0,
+          "serverNames": [
+            "synapse"
+          ],
+          "success": true,
+          "surface": "modern-compact",
+          "toolCalls": 1,
+          "toolErrors": 0,
+          "toolNames": [
+            "actions.run_active"
+          ],
+          "toolSelectionSuccess": true,
+          "traceContinuity": true,
+          "transport": "stdio",
+          "wallClockSeconds": 16.521
+        },
+        {
+          "advertisedCapabilities": {
+            "resourceTemplates": true,
+            "resources": true,
+            "standardTasks": false,
+            "tools": true
+          },
+          "case": "binding",
+          "duplicateCalls": 0,
+          "inputTokens": 78088,
+          "negotiatedRevisions": [
+            "2025-06-18"
+          ],
+          "observedModel": null,
+          "outcomeKind": "success",
+          "outputTokens": 515,
+          "principalDenied": true,
+          "resourceDenied": true,
+          "schemaRetries": 0,
+          "serverNames": [
+            "synapse_principal",
+            "synapse_session",
+            "synapse",
+            "synapse_principal"
+          ],
+          "sessionDenied": true,
+          "success": true,
+          "surface": "modern-compact",
+          "toolCalls": 4,
+          "toolErrors": 4,
+          "toolNames": [
+            "tasks.control",
+            "tasks.control",
+            "actions.run_passive",
+            "artifacts.inspect"
+          ],
+          "toolSelectionSuccess": true,
+          "transport": "stdio",
+          "wallClockSeconds": 18.703,
+          "workspaceDenied": true
+        },
+        {
+          "advertisedCapabilities": {
+            "resourceTemplates": true,
+            "resources": true,
+            "standardTasks": false,
+            "tools": true
+          },
+          "case": "resume",
+          "duplicateCalls": 0,
+          "inputTokens": 72393,
+          "negotiatedRevisions": [
+            "2025-06-18"
+          ],
+          "observedModel": null,
+          "outcomeKind": "success",
+          "outputTokens": 296,
+          "responseStatus": null,
+          "schemaRetries": 0,
+          "serverNames": [
+            "synapse"
+          ],
+          "success": true,
+          "surface": "modern-compact",
+          "toolCalls": 1,
+          "toolErrors": 0,
+          "toolNames": [
+            "tasks.control"
+          ],
+          "toolSelectionSuccess": true,
+          "traceContinuity": true,
+          "trafficDisabled": true,
+          "transport": "stdio",
+          "wallClockSeconds": 13.926
+        }
+      ],
+      "client": "codex",
+      "externalTrafficCount": 0,
+      "fixtures": {
+        "active": {
+          "endpointCount": 2,
+          "executionProfile": "supervised",
+          "externalTraffic": "disabled",
+          "target": "app.acme-demo.test",
+          "targetCount": 1,
+          "workspaceId": "benchmark"
+        },
+        "read": {
+          "endpointCount": 2,
+          "executionProfile": "observe",
+          "externalTraffic": "disabled",
+          "target": "app.acme-demo.test",
+          "targetCount": 1,
+          "workspaceId": "benchmark"
+        },
+        "safety": {
+          "endpointCount": 2,
+          "executionProfile": "supervised",
+          "externalTraffic": "disabled",
+          "target": "app.acme-demo.test",
+          "targetCount": 1,
+          "workspaceId": "benchmark"
+        }
+      },
+      "model": "gpt-5.6-sol",
+      "operator": {
+        "exactStepUpIssued": true,
+        "pendingBeforeApproval": 1
+      },
+      "repetition": 3,
+      "verification": {
+        "dispatchCount": 1,
+        "dispatchStates": {
+          "succeeded": 1
+        },
+        "requestStateCount": 1,
+        "resumedRequestCount": 1
+      }
+    }
+  ],
+  "schemaVersion": 2,
+  "secretHygiene": {
+    "credentialValuesCommitted": false,
+    "localPathsCommitted": false,
+    "rawOperationHandlesCommitted": false,
+    "rawRequestStateCommitted": false,
+    "rawTraceIdsCommitted": false
+  },
+  "surface": "modern-compact",
+  "transport": "stdio"
+}

@@ -66,11 +66,52 @@
       "seconds": 44.461
     }
   },
+  "correctiveVerification": {
+    "capturedAt": "2026-08-24",
+    "modernSuite": {
+      "command": "bin/test-modern",
+      "passed": 15,
+      "failed": 0,
+      "seconds": 31.722,
+      "addedCoverage": [
+        "three protocol-native disabled-traffic approval/resume repetitions",
+        "concurrent application and protocol-native resume converges to one dispatch",
+        "typed request-state or operation replay denial under either valid lock ordering",
+        "standalone retained implementation binding"
+      ]
+    },
+    "fullHarness": {
+      "command": "bin/test",
+      "corePassed": 619,
+      "templatePassed": 2,
+      "failed": 0,
+      "seconds": 52.650
+    },
+    "exactTransportSafetySmoke": {
+      "evidence": "transport-smoke-results.json",
+      "repetitions": "3/3",
+      "schemaRetries": 0,
+      "duplicateCalls": 0,
+      "duplicateDispatches": 0,
+      "unauthorizedDispatches": 0,
+      "externalTrafficCount": 0
+    },
+    "objectiveDrivenCodex": {
+      "evidence": "agent-benchmark-results.json",
+      "workflowsPerRun": 7,
+      "repetitions": "3/3",
+      "schemaRetries": 0,
+      "duplicateSideEffectCalls": 0,
+      "duplicatePassiveReadCalls": 2,
+      "externalTrafficCount": 0,
+      "resourceAndEvidenceIntegrity": true
+    }
+  },
   "traceAndSecretHygiene": {
     "rawBearerTokensCommitted": false,
     "credentialValuesCommitted": false,
     "rawOperationHandlesCommitted": false,
     "personalClientIdentityCommitted": false
   },
-  "overall": "automated_server_gates_pass; codex_closure_amendment_passes"
+  "overall": "automated_server_gates_pass; corrective_codex_closure_passes"
 }

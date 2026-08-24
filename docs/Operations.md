@@ -89,9 +89,8 @@ bin/print-mcp-config
 
 `bin/print-mcp-config` prints only the recommended Codex configuration by
 default. Phase 3D selects `modern-compact` stdio. Use `--legacy` to print the
-frozen rollback/bootstrap profile. An optional Claude-compatible JSON block is
-available only with `--include-claude`; Claude is not required for setup,
-operation, or the Phase 3 acceptance gate. Do not commit local MCP
+frozen rollback/bootstrap profile. No other agent client is part of the current
+setup, operation, or Phase 3 acceptance contract. Do not commit local MCP
 configuration files because they contain absolute paths.
 
 ### Codex modern compact profile

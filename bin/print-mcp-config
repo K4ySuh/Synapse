@@ -5,15 +5,13 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 ROOT_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 BURP_LAUNCHER="$ROOT_DIR/MCPS/Burp-Mcp/bin/portswigger-burp-mcp"
 PROFILE=modern-compact
-INCLUDE_CLAUDE=0
 
 usage() {
     cat <<'EOF'
-Usage: bin/print-mcp-config [--modern-compact | --legacy] [--include-claude]
+Usage: bin/print-mcp-config [--modern-compact | --legacy]
 
 Print the recommended Codex MCP configuration. modern-compact is the default;
-legacy prints the frozen rollback profile. Claude JSON is optional and omitted
-unless --include-claude is supplied.
+legacy prints the frozen rollback profile.
 EOF
 }
 
@@ -21,7 +19,6 @@ while [ "$#" -gt 0 ]; do
     case "$1" in
         --modern-compact) PROFILE=modern-compact ;;
         --legacy) PROFILE=legacy ;;
-        --include-claude) INCLUDE_CLAUDE=1 ;;
         --help|-h) usage; exit 0 ;;
         *) printf 'Unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
     esac
@@ -102,42 +99,3 @@ else
 # startup_timeout_sec = 10
 EOF
 fi
-
-if [ "$INCLUDE_CLAUDE" -eq 0 ]; then
-    exit 0
-fi
-
-if [ "$PROFILE" = modern-compact ]; then
-    CLAUDE_COMMAND="$SYNAPSE_RUNTIME"
-    CLAUDE_ARGS=$(cat <<EOF
-        "-m", "synapse_mcp.transport.modern",
-        "--surface", "modern-compact",
-        "--transport", "stdio",
-        "--server-name", "synapse",
-        "--audience", "synapse",
-        "--identity-bindings", "$ROOT_DIR/DATA/modern-adapter/identity-bindings.json",
-        "--stdio-principal", "local-operator",
-        "--request-state-keyring", "$ROOT_DIR/DATA/modern-adapter/request-state-keyring.json",
-        "--state-dir", "$ROOT_DIR/DATA/modern-adapter/state"
-EOF
-)
-else
-    CLAUDE_COMMAND="$ROOT_DIR/MCPS/Synapse-MCP/bin/synapse-mcp"
-    CLAUDE_ARGS=""
-fi
-
-cat <<EOF
-
-# Optional Claude Code configuration. This block is never printed unless
-# --include-claude is explicitly requested.
-{
-  "mcpServers": {
-    "synapse": {
-      "command": "$CLAUDE_COMMAND",
-      "args": [
-$CLAUDE_ARGS
-      ]
-    }
-  }
-}
-EOF

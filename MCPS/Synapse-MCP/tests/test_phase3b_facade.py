@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -39,6 +40,7 @@ from synapse_mcp.app.facade import (
     passive_gate_reasons,
 )
 from synapse_mcp.app.facade.contracts import CapabilitiesSearchInput
+from synapse_mcp.app.facade.catalog import model_facing_action_input_schema
 from synapse_mcp.core import scope, workspace
 from synapse_mcp.core.execution import ExecutionPlan
 from synapse_mcp.policy import (
@@ -211,13 +213,18 @@ class Phase3BCatalogTests(unittest.TestCase):
         with self.assertRaises(Exception):
             CapabilitiesSearchInput(limit=101)
 
-    def test_describe_exposes_exact_schemas_for_every_action(self) -> None:
+    def test_describe_exposes_public_input_and_exact_output_schemas_for_every_action(self) -> None:
         for descriptor in REGISTRY.descriptors():
             action_id = str(descriptor.id)
             with self.subTest(action=action_id):
                 described = self.catalog.describe(action_id)
                 schemas = REGISTRY.contract_schema(action_id)
-                self.assertEqual(described.input_schema, schemas["inputSchema"])
+                self.assertEqual(
+                    described.input_schema,
+                    model_facing_action_input_schema(schemas["inputSchema"]),
+                )
+                self.assertNotIn("confirm", described.input_schema.get("properties", {}))
+                self.assertNotIn("allowExternalOutput", described.input_schema.get("properties", {}))
                 self.assertEqual(described.output_schema, schemas["outputSchema"])
                 self.assertFalse(described.approval["callerAuthorityFieldsAccepted"])
                 self.assertTrue(described.examples)
@@ -446,6 +453,41 @@ class Phase3BExecutionTests(unittest.TestCase):
         )
         self.assertEqual(confirmation.diagnostics["reasonCode"], "legacy_confirmation_forbidden")
 
+    def test_opaque_dump_reference_is_reauthorized_as_server_internal_input(self) -> None:
+        dump = workspace.target_path("facade", "example.test") / "evidence" / "burp-dumps" / "fixture"
+        dump.mkdir(parents=True)
+        (dump / "history.jsonl").write_text("", encoding="utf-8")
+        reference = self.service.resources.issue(
+            dump,
+            workspace_id="facade",
+            context=self.context,
+            artifact_type="burp_dump",
+        )
+        result = self.service.invoke(
+            "actions.run_active",
+            {
+                "actionId": "sitemap.from_dump",
+                "arguments": {
+                    "dumpPath": {"resourceRef": reference.reference},
+                    "workspaceId": "facade",
+                },
+            },
+            context=self.context,
+        )
+        self.assertEqual(result.outcome_kind, "success")
+        self.assertNotIn(str(dump), result.model_dump_json(by_alias=True))
+
+        crossed = self.service.invoke(
+            "actions.run_active",
+            {
+                "actionId": "sitemap.from_dump",
+                "arguments": {"dumpPath": {"resourceRef": reference.reference}},
+            },
+            context=_call_context(workspace_id="facade", principal="other"),
+        )
+        self.assertEqual(crossed.outcome_kind, "policy_denial")
+        self.assertEqual(crossed.diagnostics["reasonCode"], "resource_principal_mismatch")
+
     def test_passive_external_output_boolean_cannot_authorize_arbitrary_overwrite(self) -> None:
         outside = Path(self.tmp.name).parent / "phase3r-external-output.txt"
         outside.write_text("operator-owned", encoding="utf-8")
@@ -561,6 +603,59 @@ class Phase3BResourceTests(unittest.TestCase):
         self.assertEqual(len(references), 1)
         self.assertNotIn(str(self.path), json.dumps(sanitized))
         self.assertEqual(sanitized["reportPath"]["resourceRef"], references[0].reference)
+
+    def test_directory_reference_is_opaque_manifested_and_stale_checked(self) -> None:
+        dump = self.root / "burp-dumps" / "fixture"
+        dump.mkdir(parents=True)
+        history = dump / "history.jsonl"
+        history.write_text("", encoding="utf-8")
+        sanitized, references = self.resources.sanitize_result(
+            {"path": str(dump), "historyJsonl": str(history)},
+            workspace_id="resource-workspace",
+            context=self.context,
+        )
+        self.assertEqual(len(references), 2)
+        self.assertNotIn(str(dump), json.dumps(sanitized))
+        directory_ref = sanitized["path"]["resourceRef"]
+        resolved = self.resources.resolve(directory_ref, context=self.context)
+        self.assertEqual(json.loads(resolved.content), {
+            "type": "directory",
+            "files": [{"name": "history.jsonl", "bytes": 0}],
+        })
+        self.assertEqual(self.resources.resolve_path(directory_ref, context=self.context), dump)
+        history.write_text("{}\n", encoding="utf-8")
+        with self.assertRaises(ResourceAccessError) as stale:
+            self.resources.resolve_path(directory_ref, context=self.context)
+        self.assertEqual(stale.exception.reason_code, "resource_version_stale")
+
+    def test_directory_references_reject_symlinks_and_bound_manifest_size(self) -> None:
+        dump = self.root / "burp-dumps" / "bounded"
+        dump.mkdir(parents=True)
+        outside = Path(self.tmp.name) / "outside.txt"
+        outside.write_text("outside", encoding="utf-8")
+        (dump / "escape").symlink_to(outside)
+        with self.assertRaises(ResourceAccessError) as symlinked:
+            self.resources.issue(
+                dump,
+                workspace_id="resource-workspace",
+                context=self.context,
+                artifact_type="dump",
+            )
+        self.assertEqual(symlinked.exception.reason_code, "resource_symlink_forbidden")
+
+        (dump / "escape").unlink()
+        (dump / "empty-one").write_text("", encoding="utf-8")
+        (dump / "empty-two").write_text("", encoding="utf-8")
+        bounded = ResourceReferenceService(allowed_roots=(self.root,), max_read_bytes=20)
+        reference = bounded.issue(
+            dump,
+            workspace_id="resource-workspace",
+            context=self.context,
+            artifact_type="dump",
+        )
+        with self.assertRaises(ResourceAccessError) as oversized:
+            bounded.resolve(reference.reference, context=self.context)
+        self.assertEqual(oversized.exception.reason_code, "resource_too_large")
 
 
 class Phase3BResumeTests(unittest.TestCase):
@@ -678,16 +773,42 @@ class Phase3BResumeTests(unittest.TestCase):
                 self.assertEqual(len(pending), 1)
                 operator.issue_request_step_up(pending[0]["requestStateId"])
 
-                resumed = facade.invoke(
-                    "tasks.control",
-                    {"operation": "resume", "operationHandle": first.operation_handle},
-                    context=context,
+                resume_payload = {
+                    "operation": "resume",
+                    "operationHandle": first.operation_handle,
+                }
+                with ThreadPoolExecutor(max_workers=2) as pool:
+                    resumed_attempts = list(
+                        pool.map(
+                            lambda _: facade.invoke(
+                                "tasks.control",
+                                resume_payload,
+                                context=context,
+                            ),
+                            range(2),
+                        )
+                    )
+                self.assertEqual(
+                    sorted(item.outcome_kind for item in resumed_attempts),
+                    ["success", "validation_failure"],
                 )
-                self.assertEqual(resumed.outcome_kind, "success")
+                successful = next(
+                    item for item in resumed_attempts if item.outcome_kind == "success"
+                )
+                self.assertEqual(successful.trace_id, first.trace_id)
+                denied = next(
+                    item
+                    for item in resumed_attempts
+                    if item.outcome_kind == "validation_failure"
+                )
+                self.assertIn(
+                    denied.diagnostics["reasonCode"],
+                    {"operation_replayed", "request_state_replayed"},
+                )
                 self.assertEqual(ResumeHandler.requests, 1)
                 replayed = facade.invoke(
                     "tasks.control",
-                    {"operation": "resume", "operationHandle": first.operation_handle},
+                    resume_payload,
                     context=context,
                 )
                 self.assertEqual(replayed.outcome_kind, "validation_failure")

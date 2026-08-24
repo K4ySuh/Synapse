@@ -35,14 +35,39 @@ class _ResourceRecord:
     authority_session_id: str
 
 
-def _file_version(path: Path) -> tuple[str, int]:
+def _directory_files(path: Path) -> tuple[Path, ...]:
+    files: list[Path] = []
+    for item in path.rglob("*"):
+        if item.is_symlink():
+            raise ResourceAccessError(
+                "resource_symlink_forbidden",
+                "Directory resource trees cannot contain symbolic links",
+            )
+        if item.is_file():
+            files.append(item)
+    return tuple(sorted(files))
+
+
+def _path_version(path: Path) -> tuple[str, int]:
     digest = sha256()
     size = 0
-    with path.open("rb") as handle:
-        while chunk := handle.read(1024 * 1024):
-            digest.update(chunk)
-            size += len(chunk)
+    files = (path,) if path.is_file() else _directory_files(path)
+    for item in files:
+        relative = item.name if path.is_file() else item.relative_to(path).as_posix()
+        digest.update(relative.encode("utf-8", errors="surrogateescape"))
+        digest.update(b"\0")
+        with item.open("rb") as handle:
+            while chunk := handle.read(1024 * 1024):
+                digest.update(chunk)
+                size += len(chunk)
     return digest.hexdigest(), size
+
+
+def _directory_manifest(path: Path) -> str:
+    files = []
+    for item in _directory_files(path):
+        files.append({"name": item.relative_to(path).as_posix(), "bytes": item.stat().st_size})
+    return json.dumps({"type": "directory", "files": files}, separators=(",", ":"))
 
 
 class ResourceReferenceService:
@@ -81,13 +106,18 @@ class ResourceReferenceService:
         artifact_type: str,
         media_type: str | None = None,
     ) -> ResourceReference:
-        resolved = self._validated_file(Path(path))
-        version, size = _file_version(resolved)
+        resolved = self._validated_path(Path(path))
+        version, size = _path_version(resolved)
         token = f"resource-{secrets.token_urlsafe(24)}"
         reference = ResourceReference(
             reference=token,
             artifact_type=artifact_type or "artifact",
-            media_type=media_type or mimetypes.guess_type(resolved.name)[0] or "application/octet-stream",
+            media_type=(
+                media_type
+                or ("application/vnd.synapse.directory+json" if resolved.is_dir() else None)
+                or mimetypes.guess_type(resolved.name)[0]
+                or "application/octet-stream"
+            ),
             version=version,
             size=size,
         )
@@ -124,13 +154,17 @@ class ResourceReferenceService:
         trusted_workspace = workspace.normalize_workspace_id(context.workspace_id)
         if not trusted_workspace or not secrets.compare_digest(record.workspace_id, trusted_workspace):
             raise ResourceAccessError("resource_workspace_mismatch", "Resource workspace binding does not match")
-        resolved = self._validated_file(record.path)
-        version, size = _file_version(resolved)
+        resolved = self._validated_path(record.path)
+        version, size = _path_version(resolved)
         if not secrets.compare_digest(version, record.reference.version) or size != record.reference.size:
             raise ResourceAccessError("resource_version_stale", "Resource changed after the reference was issued")
-        if size > self._max_read_bytes:
+        content = (
+            _directory_manifest(resolved).encode("utf-8")
+            if resolved.is_dir()
+            else resolved.read_bytes()
+        )
+        if len(content) > self._max_read_bytes:
             raise ResourceAccessError("resource_too_large", "Resource exceeds the bounded read limit")
-        content = resolved.read_bytes()
         try:
             rendered = content.decode("utf-8")
             encoding = "utf-8"
@@ -138,6 +172,25 @@ class ResourceReferenceService:
             rendered = base64.b64encode(content).decode("ascii")
             encoding = "base64"
         return ResolvedArtifact(reference=record.reference, encoding=encoding, content=rendered)
+
+    def resolve_path(self, reference: str, *, context: FacadeCallContext) -> Path:
+        """Resolve a bound opaque reference for server-internal action input only."""
+
+        record = self._record(reference)
+        if record is None:
+            raise ResourceAccessError("resource_reference_invalid", "Opaque resource reference is unknown")
+        if not secrets.compare_digest(record.principal_id, context.principal_id):
+            raise ResourceAccessError("resource_principal_mismatch", "Resource principal binding does not match")
+        if not secrets.compare_digest(record.authority_session_id, context.authority_session_id):
+            raise ResourceAccessError("resource_authority_mismatch", "Resource authority binding does not match")
+        trusted_workspace = workspace.normalize_workspace_id(context.workspace_id)
+        if not trusted_workspace or not secrets.compare_digest(record.workspace_id, trusted_workspace):
+            raise ResourceAccessError("resource_workspace_mismatch", "Resource workspace binding does not match")
+        resolved = self._validated_path(record.path)
+        version, size = _path_version(resolved)
+        if not secrets.compare_digest(version, record.reference.version) or size != record.reference.size:
+            raise ResourceAccessError("resource_version_stale", "Resource changed after the reference was issued")
+        return resolved
 
     def workspace_hint(self, reference: str, *, principal_id: str) -> str:
         """Return a principal-bound workspace hint for adapter identity resolution."""
@@ -169,7 +222,8 @@ class ResourceReferenceService:
                 item = str(item)
             if isinstance(item, str) and _is_path_key(key) and Path(item).is_absolute():
                 candidate = Path(item)
-                if candidate.is_file():
+                exportable_directory = candidate.is_dir() and "burp-dumps" in candidate.parts
+                if candidate.is_file() or exportable_directory:
                     try:
                         reference = self.issue(
                             candidate,
@@ -186,13 +240,13 @@ class ResourceReferenceService:
 
         return visit(value), references
 
-    def _validated_file(self, candidate: Path) -> Path:
+    def _validated_path(self, candidate: Path) -> Path:
         try:
             resolved = candidate.expanduser().resolve(strict=True)
         except (OSError, RuntimeError) as exc:
             raise ResourceAccessError("resource_not_found", "Resource does not exist") from exc
-        if not resolved.is_file():
-            raise ResourceAccessError("resource_not_file", "Resource references must identify files")
+        if not (resolved.is_file() or resolved.is_dir()):
+            raise ResourceAccessError("resource_not_readable", "Resource references must identify files or directories")
         if not any(_is_relative_to(resolved, root) for root in self._allowed_roots):
             raise ResourceAccessError("resource_outside_allowed_roots", "Resource is outside Synapse artifact roots")
         return resolved
@@ -262,11 +316,19 @@ def _is_relative_to(path: Path, root: Path) -> bool:
 
 def _is_path_key(key: str) -> bool:
     normalized = key.lower().replace("_", "")
-    return normalized == "path" or normalized.endswith("path") or normalized in {
-        "findingsdocument",
-        "reportfile",
-        "artifactfile",
-    }
+    return (
+        normalized == "path"
+        or normalized.endswith("path")
+        or normalized.endswith("paths")
+        or normalized.endswith("dir")
+        or normalized in {
+            "findingsdocument",
+            "reportfile",
+            "artifactfile",
+            "historyjsonl",
+            "manifest",
+        }
+    )
 
 
 def _artifact_type(key: str) -> str:

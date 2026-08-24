@@ -7,8 +7,9 @@ Baseline: `6f46dae128520e06056dce50632e750023aedc80` on `Beta`
 This plan implements the operator-provided Phase 3 execution pack as four
 strictly sequential sessions. Sessions 3A through 3D are complete. The original
 2026-08-23 two-client gate remains historical evidence; the operator-approved
-2026-08-24 amendment closes against stable Codex without Claude or an
-experimental protocol flag.
+2026-08-24 amendment closes against stable Codex without an experimental
+protocol flag. Independent agent clients are outside this plan unless the
+operator explicitly reintroduces them.
 
 ## Session sequence
 
@@ -22,11 +23,13 @@ experimental protocol flag.
 ## Session 3D outcome
 
 - The exact payload gate passes: legacy remains 174 tools / 99,337 bytes,
-  compact is 11 / 21,648 bytes, and direct is 174 / 578,249 bytes.
-- The original two-client attempt is preserved but superseded. Claude is no
-  longer a required client, and stable Codex may use Synapse's application-
-  level approval handle when its negotiated revision cannot carry protocol
-  request state.
+  the compact application projection is 11 / 22,863 bytes, and the direct
+  application projection is 174 / 1,513,976 bytes. Separate official-SDK wire
+  fixtures are hash checked for every supported revision.
+- The original two-client attempt is preserved only as historical evidence.
+  The active acceptance client is stable Codex, which may use Synapse's
+  application-level approval handle when its negotiated revision cannot carry
+  protocol request state.
 - `bin/run-phase3d-codex` explicitly leaves the under-development
   `mcp_2026_07_28` feature disabled and runs the fictional no-network fixture
   three times through real `codex exec` sessions.
@@ -36,6 +39,10 @@ experimental protocol flag.
   made exactly one expected MCP tool call with no duplicate calls.
 - Inspector and automated suites retain discovery, Streamable HTTP, protocol,
   resource, job, denial, cross-binding, and frozen-legacy coverage.
+- The adversarial corrective gate adds exact transport/safety cases and an
+  objective-driven seven-workflow corpus. Codex passed both 3/3 with no
+  experimental feature, no unauthorized/duplicate dispatch, zero schema
+  retries for deterministic calls, and zero external traffic.
 
 `modern-compact` stdio is adopted as the Codex default. `legacy` remains a
 frozen rollback/bootstrap profile; `modern-direct` remains explicit and

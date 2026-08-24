@@ -1,0 +1,1526 @@
+{
+  "capturedAt": "2026-08-24T13:57:30.428077Z",
+  "classification": "objective_driven_codex_benchmark",
+  "clients": [
+    "codex"
+  ],
+  "experimentalFeaturesEnabled": false,
+  "method": "../../phase-3-benchmark-method.md#2026-08-24-adversarial-corrective-codex-method",
+  "overall": "pass",
+  "preflight": {
+    "codex": {
+      "available": true,
+      "experimentalProtocolEnabled": false,
+      "version": "codex-cli 0.149.0"
+    },
+    "modernRuntime": {
+      "available": true,
+      "mcpPythonSdk": "2.0.0",
+      "pythonVersion": "Python 3.14.6"
+    }
+  },
+  "promptContainsActionIds": false,
+  "promptContainsExactArgumentObjects": false,
+  "promptContainsToolNames": false,
+  "promptPrescribesCallCounts": false,
+  "promptSha256": "9b08914e59483c7995a5f779d92516317c1809d0686343a5d5c74b6baed94105",
+  "repetitionsPerClient": 3,
+  "runs": [
+    {
+      "advertisedCapabilities": {
+        "resourceTemplates": true,
+        "resources": true,
+        "standardTasks": false,
+        "tools": true
+      },
+      "agentReportedGaps": [],
+      "backgroundIntegrity": {
+        "count": 1,
+        "finalized": 1,
+        "terminal": 1
+      },
+      "client": "codex",
+      "dispatchCount": 14,
+      "dispatchStates": {
+        "succeeded": 14
+      },
+      "duplicateCalls": 1,
+      "duplicateSideEffectCalls": 0,
+      "externalTrafficCount": 0,
+      "finalStatus": "complete",
+      "finalSummaryAccepted": true,
+      "inputTokens": 828997,
+      "model": "gpt-5.6-sol",
+      "negotiatedRevisions": [
+        "2025-06-18"
+      ],
+      "outputTokens": 2835,
+      "overall": "pass",
+      "repetition": 1,
+      "resourceIntegrity": true,
+      "schemaRetries": 0,
+      "surface": "modern-compact",
+      "toolCallCount": 44,
+      "toolSelectionSuccess": true,
+      "transport": "stdio",
+      "wallClockSeconds": 88.753,
+      "workflowResults": [
+        {
+          "advertisedCapabilities": {
+            "resourceTemplates": true,
+            "resources": true,
+            "standardTasks": false,
+            "tools": true
+          },
+          "case": "workspace_summary",
+          "dispatchCount": 1,
+          "duplicateCalls": 0,
+          "evidenceIntegrity": true,
+          "externalTrafficCount": 0,
+          "inputTokens": null,
+          "latencyReason": "client exposed only grouped session wall-clock latency",
+          "latencySeconds": null,
+          "negotiatedRevisions": [
+            "2025-06-18"
+          ],
+          "observedEffects": [
+            {
+              "credentialUse": false,
+              "localChange": false,
+              "localDestruction": false,
+              "localWrites": [],
+              "remoteStateChange": false,
+              "replaySafety": "pure_read",
+              "resolutionNotes": [],
+              "secretUse": false,
+              "traffic": []
+            }
+          ],
+          "outcome": "pass",
+          "outputTokens": null,
+          "resourceIntegrity": null,
+          "schemaRetries": 0,
+          "selectedCallCount": 2,
+          "sessionInputTokens": 828997,
+          "sessionOutputTokens": 2835,
+          "sessionWallClockSeconds": 88.753,
+          "surface": "modern-compact",
+          "toolSelectionSuccess": true,
+          "tracePresent": true,
+          "transport": "stdio"
+        },
+        {
+          "advertisedCapabilities": {
+            "resourceTemplates": true,
+            "resources": true,
+            "standardTasks": false,
+            "tools": true
+          },
+          "case": "bounded_target_context",
+          "dispatchCount": 1,
+          "duplicateCalls": 0,
+          "evidenceIntegrity": true,
+          "externalTrafficCount": 0,
+          "inputTokens": null,
+          "latencyReason": "client exposed only grouped session wall-clock latency",
+          "latencySeconds": null,
+          "negotiatedRevisions": [
+            "2025-06-18"
+          ],
+          "observedEffects": [
+            {
+              "credentialUse": false,
+              "localChange": false,
+              "localDestruction": false,
+              "localWrites": [],
+              "remoteStateChange": false,
+              "replaySafety": "pure_read",
+              "resolutionNotes": [],
+              "secretUse": false,
+              "traffic": []
+            }
+          ],
+          "outcome": "pass",
+          "outputTokens": null,
+          "resourceIntegrity": null,
+          "schemaRetries": 0,
+          "selectedCallCount": 1,
+          "sessionInputTokens": 828997,
+          "sessionOutputTokens": 2835,
+          "sessionWallClockSeconds": 88.753,
+          "surface": "modern-compact",
+          "toolSelectionSuccess": true,
+          "tracePresent": true,
+          "transport": "stdio"
+        },
+        {
+          "advertisedCapabilities": {
+            "resourceTemplates": true,
+            "resources": true,
+            "standardTasks": false,
+            "tools": true
+          },
+          "case": "passive_headers_cookies",
+          "dispatchCount": 1,
+          "duplicateCalls": 0,
+          "evidenceIntegrity": true,
+          "externalTrafficCount": 0,
+          "inputTokens": null,
+          "latencyReason": "client exposed only grouped session wall-clock latency",
+          "latencySeconds": null,
+          "negotiatedRevisions": [
+            "2025-06-18"
+          ],
+          "observedEffects": [
+            {
+              "credentialUse": false,
+              "localChange": true,
+              "localDestruction": false,
+              "localWrites": [
+                "evidence",
+                "workspace"
+              ],
+              "remoteStateChange": false,
+              "replaySafety": "non_idempotent",
+              "resolutionNotes": [
+                "ingest=True"
+              ],
+              "secretUse": false,
+              "traffic": []
+            }
+          ],
+          "outcome": "pass",
+          "outputTokens": null,
+          "resourceIntegrity": null,
+          "schemaRetries": 0,
+          "selectedCallCount": 2,
+          "sessionInputTokens": 828997,
+          "sessionOutputTokens": 2835,
+          "sessionWallClockSeconds": 88.753,
+          "surface": "modern-compact",
+          "toolSelectionSuccess": true,
+          "tracePresent": true,
+          "transport": "stdio"
+        },
+        {
+          "advertisedCapabilities": {
+            "resourceTemplates": true,
+            "resources": true,
+            "standardTasks": false,
+            "tools": true
+          },
+          "case": "offline_dump_sitemap_fingerprint",
+          "dispatchCount": 3,
+          "duplicateCalls": 0,
+          "evidenceIntegrity": true,
+          "externalTrafficCount": 0,
+          "inputTokens": null,
+          "latencyReason": "client exposed only grouped session wall-clock latency",
+          "latencySeconds": null,
+          "negotiatedRevisions": [
+            "2025-06-18"
+          ],
+          "observedEffects": [
+            {
+              "credentialUse": false,
+              "localChange": false,
+              "localDestruction": false,
+              "localWrites": [],
+              "remoteStateChange": false,
+              "replaySafety": "pure_read",
+              "resolutionNotes": [
+                "traffic_enabled=True"
+              ],
+              "secretUse": false,
+              "traffic": []
+            },
+            {
+              "credentialUse": false,
+              "localChange": true,
+              "localDestruction": false,
+              "localWrites": [
+                "evidence",
+                "reports_artifacts",
+                "workspace"
+              ],
+              "remoteStateChange": false,
+              "replaySafety": "non_idempotent",
+              "resolutionNotes": [
+                "traffic_enabled=True"
+              ],
+              "secretUse": false,
+              "traffic": []
+            },
+            {
+              "credentialUse": false,
+              "localChange": true,
+              "localDestruction": false,
+              "localWrites": [
+                "evidence",
+                "reports_artifacts"
+              ],
+              "remoteStateChange": false,
+              "replaySafety": "idempotent_write",
+              "resolutionNotes": [
+                "traffic_enabled=True"
+              ],
+              "secretUse": false,
+              "traffic": []
+            }
+          ],
+          "outcome": "pass",
+          "outputTokens": null,
+          "resourceIntegrity": null,
+          "schemaRetries": 0,
+          "selectedCallCount": 6,
+          "sessionInputTokens": 828997,
+          "sessionOutputTokens": 2835,
+          "sessionWallClockSeconds": 88.753,
+          "surface": "modern-compact",
+          "toolSelectionSuccess": true,
+          "tracePresent": true,
+          "transport": "stdio"
+        },
+        {
+          "advertisedCapabilities": {
+            "resourceTemplates": true,
+            "resources": true,
+            "standardTasks": false,
+            "tools": true
+          },
+          "case": "disabled_traffic_cors",
+          "dispatchCount": 2,
+          "duplicateCalls": 0,
+          "evidenceIntegrity": true,
+          "externalTrafficCount": 0,
+          "inputTokens": null,
+          "latencyReason": "client exposed only grouped session wall-clock latency",
+          "latencySeconds": null,
+          "negotiatedRevisions": [
+            "2025-06-18"
+          ],
+          "observedEffects": [
+            {
+              "credentialUse": false,
+              "localChange": false,
+              "localDestruction": false,
+              "localWrites": [],
+              "remoteStateChange": false,
+              "replaySafety": "pure_read",
+              "resolutionNotes": [
+                "traffic_enabled=True"
+              ],
+              "secretUse": false,
+              "traffic": []
+            },
+            {
+              "credentialUse": false,
+              "localChange": true,
+              "localDestruction": false,
+              "localWrites": [
+                "evidence",
+                "workspace"
+              ],
+              "remoteStateChange": false,
+              "replaySafety": "non_idempotent",
+              "resolutionNotes": [
+                "traffic_enabled=False",
+                "method=GET"
+              ],
+              "secretUse": false,
+              "traffic": []
+            }
+          ],
+          "outcome": "pass",
+          "outputTokens": null,
+          "resourceIntegrity": null,
+          "schemaRetries": 0,
+          "selectedCallCount": 4,
+          "sessionInputTokens": 828997,
+          "sessionOutputTokens": 2835,
+          "sessionWallClockSeconds": 88.753,
+          "surface": "modern-compact",
+          "toolSelectionSuccess": true,
+          "tracePresent": true,
+          "transport": "stdio"
+        },
+        {
+          "advertisedCapabilities": {
+            "resourceTemplates": true,
+            "resources": true,
+            "standardTasks": false,
+            "tools": true
+          },
+          "case": "background_task_lifecycle",
+          "dispatchCount": 4,
+          "duplicateCalls": 1,
+          "evidenceIntegrity": true,
+          "externalTrafficCount": 0,
+          "inputTokens": null,
+          "latencyReason": "client exposed only grouped session wall-clock latency",
+          "latencySeconds": null,
+          "negotiatedRevisions": [
+            "2025-06-18"
+          ],
+          "observedEffects": [
+            {
+              "credentialUse": false,
+              "localChange": true,
+              "localDestruction": true,
+              "localWrites": [
+                "evidence",
+                "jobs",
+                "reports_artifacts",
+                "workspace"
+              ],
+              "remoteStateChange": false,
+              "replaySafety": "non_idempotent",
+              "resolutionNotes": [
+                "traffic_enabled=False",
+                "background=True",
+                "include_in_scope_hosts=False",
+                "output_may_overwrite_or_prune=True",
+                "continuation_cleanup=True"
+              ],
+              "secretUse": false,
+              "traffic": []
+            },
+            {
+              "credentialUse": false,
+              "localChange": false,
+              "localDestruction": false,
+              "localWrites": [],
+              "remoteStateChange": false,
+              "replaySafety": "pure_read",
+              "resolutionNotes": [
+                "terminal_finalized_snapshot_only"
+              ],
+              "secretUse": false,
+              "traffic": []
+            },
+            {
+              "credentialUse": false,
+              "localChange": true,
+              "localDestruction": true,
+              "localWrites": [
+                "jobs"
+              ],
+              "remoteStateChange": false,
+              "replaySafety": "idempotent_control",
+              "resolutionNotes": [
+                "traffic_enabled=True"
+              ],
+              "secretUse": false,
+              "traffic": []
+            },
+            {
+              "credentialUse": false,
+              "localChange": false,
+              "localDestruction": false,
+              "localWrites": [],
+              "remoteStateChange": false,
+              "replaySafety": "pure_read",
+              "resolutionNotes": [
+                "terminal_finalized_snapshot_only"
+              ],
+              "secretUse": false,
+              "traffic": []
+            }
+          ],
+          "outcome": "pass",
+          "outputTokens": null,
+          "resourceIntegrity": null,
+          "schemaRetries": 0,
+          "selectedCallCount": 5,
+          "sessionInputTokens": 828997,
+          "sessionOutputTokens": 2835,
+          "sessionWallClockSeconds": 88.753,
+          "surface": "modern-compact",
+          "toolSelectionSuccess": true,
+          "tracePresent": true,
+          "transport": "stdio"
+        },
+        {
+          "advertisedCapabilities": {
+            "resourceTemplates": true,
+            "resources": true,
+            "standardTasks": false,
+            "tools": true
+          },
+          "case": "evidence_report_resource",
+          "dispatchCount": 3,
+          "duplicateCalls": 0,
+          "evidenceIntegrity": true,
+          "externalTrafficCount": 0,
+          "inputTokens": null,
+          "latencyReason": "client exposed only grouped session wall-clock latency",
+          "latencySeconds": null,
+          "negotiatedRevisions": [
+            "2025-06-18"
+          ],
+          "observedEffects": [
+            {
+              "credentialUse": false,
+              "localChange": true,
+              "localDestruction": false,
+              "localWrites": [
+                "evidence",
+                "workspace"
+              ],
+              "remoteStateChange": false,
+              "replaySafety": "non_idempotent",
+              "resolutionNotes": [
+                "traffic_enabled=True"
+              ],
+              "secretUse": false,
+              "traffic": []
+            },
+            {
+              "credentialUse": false,
+              "localChange": false,
+              "localDestruction": false,
+              "localWrites": [],
+              "remoteStateChange": false,
+              "replaySafety": "pure_read",
+              "resolutionNotes": [
+                "traffic_enabled=True"
+              ],
+              "secretUse": false,
+              "traffic": []
+            },
+            {
+              "credentialUse": false,
+              "localChange": true,
+              "localDestruction": false,
+              "localWrites": [
+                "evidence",
+                "reports_artifacts",
+                "workspace"
+              ],
+              "remoteStateChange": false,
+              "replaySafety": "idempotent_write",
+              "resolutionNotes": [
+                "traffic_enabled=True"
+              ],
+              "secretUse": false,
+              "traffic": []
+            }
+          ],
+          "outcome": "pass",
+          "outputTokens": null,
+          "resourceIntegrity": true,
+          "schemaRetries": 0,
+          "selectedCallCount": 7,
+          "sessionInputTokens": 828997,
+          "sessionOutputTokens": 2835,
+          "sessionWallClockSeconds": 88.753,
+          "surface": "modern-compact",
+          "toolSelectionSuccess": true,
+          "tracePresent": true,
+          "transport": "stdio"
+        }
+      ]
+    },
+    {
+      "advertisedCapabilities": {
+        "resourceTemplates": true,
+        "resources": true,
+        "standardTasks": false,
+        "tools": true
+      },
+      "agentReportedGaps": [],
+      "backgroundIntegrity": {
+        "count": 1,
+        "finalized": 1,
+        "terminal": 1
+      },
+      "client": "codex",
+      "dispatchCount": 14,
+      "dispatchStates": {
+        "succeeded": 14
+      },
+      "duplicateCalls": 0,
+      "duplicateSideEffectCalls": 0,
+      "externalTrafficCount": 0,
+      "finalStatus": "complete",
+      "finalSummaryAccepted": true,
+      "inputTokens": 928523,
+      "model": "gpt-5.6-sol",
+      "negotiatedRevisions": [
+        "2025-06-18"
+      ],
+      "outputTokens": 2561,
+      "overall": "pass",
+      "repetition": 2,
+      "resourceIntegrity": true,
+      "schemaRetries": 0,
+      "surface": "modern-compact",
+      "toolCallCount": 43,
+      "toolSelectionSuccess": true,
+      "transport": "stdio",
+      "wallClockSeconds": 102.076,
+      "workflowResults": [
+        {
+          "advertisedCapabilities": {
+            "resourceTemplates": true,
+            "resources": true,
+            "standardTasks": false,
+            "tools": true
+          },
+          "case": "workspace_summary",
+          "dispatchCount": 1,
+          "duplicateCalls": 0,
+          "evidenceIntegrity": true,
+          "externalTrafficCount": 0,
+          "inputTokens": null,
+          "latencyReason": "client exposed only grouped session wall-clock latency",
+          "latencySeconds": null,
+          "negotiatedRevisions": [
+            "2025-06-18"
+          ],
+          "observedEffects": [
+            {
+              "credentialUse": false,
+              "localChange": false,
+              "localDestruction": false,
+              "localWrites": [],
+              "remoteStateChange": false,
+              "replaySafety": "pure_read",
+              "resolutionNotes": [],
+              "secretUse": false,
+              "traffic": []
+            }
+          ],
+          "outcome": "pass",
+          "outputTokens": null,
+          "resourceIntegrity": null,
+          "schemaRetries": 0,
+          "selectedCallCount": 2,
+          "sessionInputTokens": 928523,
+          "sessionOutputTokens": 2561,
+          "sessionWallClockSeconds": 102.076,
+          "surface": "modern-compact",
+          "toolSelectionSuccess": true,
+          "tracePresent": true,
+          "transport": "stdio"
+        },
+        {
+          "advertisedCapabilities": {
+            "resourceTemplates": true,
+            "resources": true,
+            "standardTasks": false,
+            "tools": true
+          },
+          "case": "bounded_target_context",
+          "dispatchCount": 1,
+          "duplicateCalls": 0,
+          "evidenceIntegrity": true,
+          "externalTrafficCount": 0,
+          "inputTokens": null,
+          "latencyReason": "client exposed only grouped session wall-clock latency",
+          "latencySeconds": null,
+          "negotiatedRevisions": [
+            "2025-06-18"
+          ],
+          "observedEffects": [
+            {
+              "credentialUse": false,
+              "localChange": false,
+              "localDestruction": false,
+              "localWrites": [],
+              "remoteStateChange": false,
+              "replaySafety": "pure_read",
+              "resolutionNotes": [],
+              "secretUse": false,
+              "traffic": []
+            }
+          ],
+          "outcome": "pass",
+          "outputTokens": null,
+          "resourceIntegrity": null,
+          "schemaRetries": 0,
+          "selectedCallCount": 2,
+          "sessionInputTokens": 928523,
+          "sessionOutputTokens": 2561,
+          "sessionWallClockSeconds": 102.076,
+          "surface": "modern-compact",
+          "toolSelectionSuccess": true,
+          "tracePresent": true,
+          "transport": "stdio"
+        },
+        {
+          "advertisedCapabilities": {
+            "resourceTemplates": true,
+            "resources": true,
+            "standardTasks": false,
+            "tools": true
+          },
+          "case": "passive_headers_cookies",
+          "dispatchCount": 1,
+          "duplicateCalls": 0,
+          "evidenceIntegrity": true,
+          "externalTrafficCount": 0,
+          "inputTokens": null,
+          "latencyReason": "client exposed only grouped session wall-clock latency",
+          "latencySeconds": null,
+          "negotiatedRevisions": [
+            "2025-06-18"
+          ],
+          "observedEffects": [
+            {
+              "credentialUse": false,
+              "localChange": true,
+              "localDestruction": false,
+              "localWrites": [
+                "evidence",
+                "workspace"
+              ],
+              "remoteStateChange": false,
+              "replaySafety": "non_idempotent",
+              "resolutionNotes": [
+                "ingest=True"
+              ],
+              "secretUse": false,
+              "traffic": []
+            }
+          ],
+          "outcome": "pass",
+          "outputTokens": null,
+          "resourceIntegrity": null,
+          "schemaRetries": 0,
+          "selectedCallCount": 2,
+          "sessionInputTokens": 928523,
+          "sessionOutputTokens": 2561,
+          "sessionWallClockSeconds": 102.076,
+          "surface": "modern-compact",
+          "toolSelectionSuccess": true,
+          "tracePresent": true,
+          "transport": "stdio"
+        },
+        {
+          "advertisedCapabilities": {
+            "resourceTemplates": true,
+            "resources": true,
+            "standardTasks": false,
+            "tools": true
+          },
+          "case": "offline_dump_sitemap_fingerprint",
+          "dispatchCount": 3,
+          "duplicateCalls": 0,
+          "evidenceIntegrity": true,
+          "externalTrafficCount": 0,
+          "inputTokens": null,
+          "latencyReason": "client exposed only grouped session wall-clock latency",
+          "latencySeconds": null,
+          "negotiatedRevisions": [
+            "2025-06-18"
+          ],
+          "observedEffects": [
+            {
+              "credentialUse": false,
+              "localChange": false,
+              "localDestruction": false,
+              "localWrites": [],
+              "remoteStateChange": false,
+              "replaySafety": "pure_read",
+              "resolutionNotes": [
+                "traffic_enabled=True"
+              ],
+              "secretUse": false,
+              "traffic": []
+            },
+            {
+              "credentialUse": false,
+              "localChange": true,
+              "localDestruction": false,
+              "localWrites": [
+                "evidence",
+                "reports_artifacts",
+                "workspace"
+              ],
+              "remoteStateChange": false,
+              "replaySafety": "non_idempotent",
+              "resolutionNotes": [
+                "traffic_enabled=True"
+              ],
+              "secretUse": false,
+              "traffic": []
+            },
+            {
+              "credentialUse": false,
+              "localChange": true,
+              "localDestruction": false,
+              "localWrites": [
+                "evidence",
+                "reports_artifacts"
+              ],
+              "remoteStateChange": false,
+              "replaySafety": "idempotent_write",
+              "resolutionNotes": [
+                "traffic_enabled=True"
+              ],
+              "secretUse": false,
+              "traffic": []
+            }
+          ],
+          "outcome": "pass",
+          "outputTokens": null,
+          "resourceIntegrity": null,
+          "schemaRetries": 0,
+          "selectedCallCount": 6,
+          "sessionInputTokens": 928523,
+          "sessionOutputTokens": 2561,
+          "sessionWallClockSeconds": 102.076,
+          "surface": "modern-compact",
+          "toolSelectionSuccess": true,
+          "tracePresent": true,
+          "transport": "stdio"
+        },
+        {
+          "advertisedCapabilities": {
+            "resourceTemplates": true,
+            "resources": true,
+            "standardTasks": false,
+            "tools": true
+          },
+          "case": "disabled_traffic_cors",
+          "dispatchCount": 2,
+          "duplicateCalls": 0,
+          "evidenceIntegrity": true,
+          "externalTrafficCount": 0,
+          "inputTokens": null,
+          "latencyReason": "client exposed only grouped session wall-clock latency",
+          "latencySeconds": null,
+          "negotiatedRevisions": [
+            "2025-06-18"
+          ],
+          "observedEffects": [
+            {
+              "credentialUse": false,
+              "localChange": false,
+              "localDestruction": false,
+              "localWrites": [],
+              "remoteStateChange": false,
+              "replaySafety": "pure_read",
+              "resolutionNotes": [
+                "traffic_enabled=True"
+              ],
+              "secretUse": false,
+              "traffic": []
+            },
+            {
+              "credentialUse": false,
+              "localChange": true,
+              "localDestruction": false,
+              "localWrites": [
+                "evidence",
+                "workspace"
+              ],
+              "remoteStateChange": false,
+              "replaySafety": "non_idempotent",
+              "resolutionNotes": [
+                "traffic_enabled=False",
+                "method=GET"
+              ],
+              "secretUse": false,
+              "traffic": []
+            }
+          ],
+          "outcome": "pass",
+          "outputTokens": null,
+          "resourceIntegrity": null,
+          "schemaRetries": 0,
+          "selectedCallCount": 4,
+          "sessionInputTokens": 928523,
+          "sessionOutputTokens": 2561,
+          "sessionWallClockSeconds": 102.076,
+          "surface": "modern-compact",
+          "toolSelectionSuccess": true,
+          "tracePresent": true,
+          "transport": "stdio"
+        },
+        {
+          "advertisedCapabilities": {
+            "resourceTemplates": true,
+            "resources": true,
+            "standardTasks": false,
+            "tools": true
+          },
+          "case": "background_task_lifecycle",
+          "dispatchCount": 4,
+          "duplicateCalls": 0,
+          "evidenceIntegrity": true,
+          "externalTrafficCount": 0,
+          "inputTokens": null,
+          "latencyReason": "client exposed only grouped session wall-clock latency",
+          "latencySeconds": null,
+          "negotiatedRevisions": [
+            "2025-06-18"
+          ],
+          "observedEffects": [
+            {
+              "credentialUse": false,
+              "localChange": true,
+              "localDestruction": true,
+              "localWrites": [
+                "evidence",
+                "jobs",
+                "reports_artifacts",
+                "workspace"
+              ],
+              "remoteStateChange": false,
+              "replaySafety": "non_idempotent",
+              "resolutionNotes": [
+                "traffic_enabled=False",
+                "background=True",
+                "include_in_scope_hosts=False",
+                "output_may_overwrite_or_prune=True",
+                "continuation_cleanup=True"
+              ],
+              "secretUse": false,
+              "traffic": []
+            },
+            {
+              "credentialUse": false,
+              "localChange": false,
+              "localDestruction": false,
+              "localWrites": [],
+              "remoteStateChange": false,
+              "replaySafety": "pure_read",
+              "resolutionNotes": [
+                "terminal_finalized_snapshot_only"
+              ],
+              "secretUse": false,
+              "traffic": []
+            },
+            {
+              "credentialUse": false,
+              "localChange": true,
+              "localDestruction": true,
+              "localWrites": [
+                "jobs"
+              ],
+              "remoteStateChange": false,
+              "replaySafety": "idempotent_control",
+              "resolutionNotes": [
+                "traffic_enabled=True"
+              ],
+              "secretUse": false,
+              "traffic": []
+            },
+            {
+              "credentialUse": false,
+              "localChange": false,
+              "localDestruction": false,
+              "localWrites": [],
+              "remoteStateChange": false,
+              "replaySafety": "pure_read",
+              "resolutionNotes": [
+                "terminal_finalized_snapshot_only"
+              ],
+              "secretUse": false,
+              "traffic": []
+            }
+          ],
+          "outcome": "pass",
+          "outputTokens": null,
+          "resourceIntegrity": null,
+          "schemaRetries": 0,
+          "selectedCallCount": 5,
+          "sessionInputTokens": 928523,
+          "sessionOutputTokens": 2561,
+          "sessionWallClockSeconds": 102.076,
+          "surface": "modern-compact",
+          "toolSelectionSuccess": true,
+          "tracePresent": true,
+          "transport": "stdio"
+        },
+        {
+          "advertisedCapabilities": {
+            "resourceTemplates": true,
+            "resources": true,
+            "standardTasks": false,
+            "tools": true
+          },
+          "case": "evidence_report_resource",
+          "dispatchCount": 3,
+          "duplicateCalls": 0,
+          "evidenceIntegrity": true,
+          "externalTrafficCount": 0,
+          "inputTokens": null,
+          "latencyReason": "client exposed only grouped session wall-clock latency",
+          "latencySeconds": null,
+          "negotiatedRevisions": [
+            "2025-06-18"
+          ],
+          "observedEffects": [
+            {
+              "credentialUse": false,
+              "localChange": true,
+              "localDestruction": false,
+              "localWrites": [
+                "evidence",
+                "workspace"
+              ],
+              "remoteStateChange": false,
+              "replaySafety": "non_idempotent",
+              "resolutionNotes": [
+                "traffic_enabled=True"
+              ],
+              "secretUse": false,
+              "traffic": []
+            },
+            {
+              "credentialUse": false,
+              "localChange": false,
+              "localDestruction": false,
+              "localWrites": [],
+              "remoteStateChange": false,
+              "replaySafety": "pure_read",
+              "resolutionNotes": [
+                "traffic_enabled=True"
+              ],
+              "secretUse": false,
+              "traffic": []
+            },
+            {
+              "credentialUse": false,
+              "localChange": true,
+              "localDestruction": false,
+              "localWrites": [
+                "evidence",
+                "reports_artifacts",
+                "workspace"
+              ],
+              "remoteStateChange": false,
+              "replaySafety": "idempotent_write",
+              "resolutionNotes": [
+                "traffic_enabled=True"
+              ],
+              "secretUse": false,
+              "traffic": []
+            }
+          ],
+          "outcome": "pass",
+          "outputTokens": null,
+          "resourceIntegrity": true,
+          "schemaRetries": 0,
+          "selectedCallCount": 6,
+          "sessionInputTokens": 928523,
+          "sessionOutputTokens": 2561,
+          "sessionWallClockSeconds": 102.076,
+          "surface": "modern-compact",
+          "toolSelectionSuccess": true,
+          "tracePresent": true,
+          "transport": "stdio"
+        }
+      ]
+    },
+    {
+      "advertisedCapabilities": {
+        "resourceTemplates": true,
+        "resources": true,
+        "standardTasks": false,
+        "tools": true
+      },
+      "agentReportedGaps": [],
+      "backgroundIntegrity": {
+        "count": 1,
+        "finalized": 1,
+        "terminal": 1
+      },
+      "client": "codex",
+      "dispatchCount": 14,
+      "dispatchStates": {
+        "succeeded": 14
+      },
+      "duplicateCalls": 1,
+      "duplicateSideEffectCalls": 0,
+      "externalTrafficCount": 0,
+      "finalStatus": "complete",
+      "finalSummaryAccepted": true,
+      "inputTokens": 491593,
+      "model": "gpt-5.6-sol",
+      "negotiatedRevisions": [
+        "2025-06-18"
+      ],
+      "outputTokens": 3005,
+      "overall": "pass",
+      "repetition": 3,
+      "resourceIntegrity": true,
+      "schemaRetries": 0,
+      "surface": "modern-compact",
+      "toolCallCount": 45,
+      "toolSelectionSuccess": true,
+      "transport": "stdio",
+      "wallClockSeconds": 86.092,
+      "workflowResults": [
+        {
+          "advertisedCapabilities": {
+            "resourceTemplates": true,
+            "resources": true,
+            "standardTasks": false,
+            "tools": true
+          },
+          "case": "workspace_summary",
+          "dispatchCount": 1,
+          "duplicateCalls": 0,
+          "evidenceIntegrity": true,
+          "externalTrafficCount": 0,
+          "inputTokens": null,
+          "latencyReason": "client exposed only grouped session wall-clock latency",
+          "latencySeconds": null,
+          "negotiatedRevisions": [
+            "2025-06-18"
+          ],
+          "observedEffects": [
+            {
+              "credentialUse": false,
+              "localChange": false,
+              "localDestruction": false,
+              "localWrites": [],
+              "remoteStateChange": false,
+              "replaySafety": "pure_read",
+              "resolutionNotes": [],
+              "secretUse": false,
+              "traffic": []
+            }
+          ],
+          "outcome": "pass",
+          "outputTokens": null,
+          "resourceIntegrity": null,
+          "schemaRetries": 0,
+          "selectedCallCount": 2,
+          "sessionInputTokens": 491593,
+          "sessionOutputTokens": 3005,
+          "sessionWallClockSeconds": 86.092,
+          "surface": "modern-compact",
+          "toolSelectionSuccess": true,
+          "tracePresent": true,
+          "transport": "stdio"
+        },
+        {
+          "advertisedCapabilities": {
+            "resourceTemplates": true,
+            "resources": true,
+            "standardTasks": false,
+            "tools": true
+          },
+          "case": "bounded_target_context",
+          "dispatchCount": 1,
+          "duplicateCalls": 0,
+          "evidenceIntegrity": true,
+          "externalTrafficCount": 0,
+          "inputTokens": null,
+          "latencyReason": "client exposed only grouped session wall-clock latency",
+          "latencySeconds": null,
+          "negotiatedRevisions": [
+            "2025-06-18"
+          ],
+          "observedEffects": [
+            {
+              "credentialUse": false,
+              "localChange": false,
+              "localDestruction": false,
+              "localWrites": [],
+              "remoteStateChange": false,
+              "replaySafety": "pure_read",
+              "resolutionNotes": [],
+              "secretUse": false,
+              "traffic": []
+            }
+          ],
+          "outcome": "pass",
+          "outputTokens": null,
+          "resourceIntegrity": null,
+          "schemaRetries": 0,
+          "selectedCallCount": 1,
+          "sessionInputTokens": 491593,
+          "sessionOutputTokens": 3005,
+          "sessionWallClockSeconds": 86.092,
+          "surface": "modern-compact",
+          "toolSelectionSuccess": true,
+          "tracePresent": true,
+          "transport": "stdio"
+        },
+        {
+          "advertisedCapabilities": {
+            "resourceTemplates": true,
+            "resources": true,
+            "standardTasks": false,
+            "tools": true
+          },
+          "case": "passive_headers_cookies",
+          "dispatchCount": 1,
+          "duplicateCalls": 0,
+          "evidenceIntegrity": true,
+          "externalTrafficCount": 0,
+          "inputTokens": null,
+          "latencyReason": "client exposed only grouped session wall-clock latency",
+          "latencySeconds": null,
+          "negotiatedRevisions": [
+            "2025-06-18"
+          ],
+          "observedEffects": [
+            {
+              "credentialUse": false,
+              "localChange": true,
+              "localDestruction": false,
+              "localWrites": [
+                "evidence",
+                "workspace"
+              ],
+              "remoteStateChange": false,
+              "replaySafety": "non_idempotent",
+              "resolutionNotes": [
+                "ingest=True"
+              ],
+              "secretUse": false,
+              "traffic": []
+            }
+          ],
+          "outcome": "pass",
+          "outputTokens": null,
+          "resourceIntegrity": null,
+          "schemaRetries": 0,
+          "selectedCallCount": 2,
+          "sessionInputTokens": 491593,
+          "sessionOutputTokens": 3005,
+          "sessionWallClockSeconds": 86.092,
+          "surface": "modern-compact",
+          "toolSelectionSuccess": true,
+          "tracePresent": true,
+          "transport": "stdio"
+        },
+        {
+          "advertisedCapabilities": {
+            "resourceTemplates": true,
+            "resources": true,
+            "standardTasks": false,
+            "tools": true
+          },
+          "case": "offline_dump_sitemap_fingerprint",
+          "dispatchCount": 3,
+          "duplicateCalls": 0,
+          "evidenceIntegrity": true,
+          "externalTrafficCount": 0,
+          "inputTokens": null,
+          "latencyReason": "client exposed only grouped session wall-clock latency",
+          "latencySeconds": null,
+          "negotiatedRevisions": [
+            "2025-06-18"
+          ],
+          "observedEffects": [
+            {
+              "credentialUse": false,
+              "localChange": false,
+              "localDestruction": false,
+              "localWrites": [],
+              "remoteStateChange": false,
+              "replaySafety": "pure_read",
+              "resolutionNotes": [
+                "traffic_enabled=True"
+              ],
+              "secretUse": false,
+              "traffic": []
+            },
+            {
+              "credentialUse": false,
+              "localChange": true,
+              "localDestruction": false,
+              "localWrites": [
+                "evidence",
+                "reports_artifacts",
+                "workspace"
+              ],
+              "remoteStateChange": false,
+              "replaySafety": "non_idempotent",
+              "resolutionNotes": [
+                "traffic_enabled=True"
+              ],
+              "secretUse": false,
+              "traffic": []
+            },
+            {
+              "credentialUse": false,
+              "localChange": true,
+              "localDestruction": false,
+              "localWrites": [
+                "evidence",
+                "reports_artifacts"
+              ],
+              "remoteStateChange": false,
+              "replaySafety": "idempotent_write",
+              "resolutionNotes": [
+                "traffic_enabled=True"
+              ],
+              "secretUse": false,
+              "traffic": []
+            }
+          ],
+          "outcome": "pass",
+          "outputTokens": null,
+          "resourceIntegrity": null,
+          "schemaRetries": 0,
+          "selectedCallCount": 6,
+          "sessionInputTokens": 491593,
+          "sessionOutputTokens": 3005,
+          "sessionWallClockSeconds": 86.092,
+          "surface": "modern-compact",
+          "toolSelectionSuccess": true,
+          "tracePresent": true,
+          "transport": "stdio"
+        },
+        {
+          "advertisedCapabilities": {
+            "resourceTemplates": true,
+            "resources": true,
+            "standardTasks": false,
+            "tools": true
+          },
+          "case": "disabled_traffic_cors",
+          "dispatchCount": 2,
+          "duplicateCalls": 0,
+          "evidenceIntegrity": true,
+          "externalTrafficCount": 0,
+          "inputTokens": null,
+          "latencyReason": "client exposed only grouped session wall-clock latency",
+          "latencySeconds": null,
+          "negotiatedRevisions": [
+            "2025-06-18"
+          ],
+          "observedEffects": [
+            {
+              "credentialUse": false,
+              "localChange": false,
+              "localDestruction": false,
+              "localWrites": [],
+              "remoteStateChange": false,
+              "replaySafety": "pure_read",
+              "resolutionNotes": [
+                "traffic_enabled=True"
+              ],
+              "secretUse": false,
+              "traffic": []
+            },
+            {
+              "credentialUse": false,
+              "localChange": true,
+              "localDestruction": false,
+              "localWrites": [
+                "evidence",
+                "workspace"
+              ],
+              "remoteStateChange": false,
+              "replaySafety": "non_idempotent",
+              "resolutionNotes": [
+                "traffic_enabled=False",
+                "method=GET"
+              ],
+              "secretUse": false,
+              "traffic": []
+            }
+          ],
+          "outcome": "pass",
+          "outputTokens": null,
+          "resourceIntegrity": null,
+          "schemaRetries": 0,
+          "selectedCallCount": 4,
+          "sessionInputTokens": 491593,
+          "sessionOutputTokens": 3005,
+          "sessionWallClockSeconds": 86.092,
+          "surface": "modern-compact",
+          "toolSelectionSuccess": true,
+          "tracePresent": true,
+          "transport": "stdio"
+        },
+        {
+          "advertisedCapabilities": {
+            "resourceTemplates": true,
+            "resources": true,
+            "standardTasks": false,
+            "tools": true
+          },
+          "case": "background_task_lifecycle",
+          "dispatchCount": 4,
+          "duplicateCalls": 1,
+          "evidenceIntegrity": true,
+          "externalTrafficCount": 0,
+          "inputTokens": null,
+          "latencyReason": "client exposed only grouped session wall-clock latency",
+          "latencySeconds": null,
+          "negotiatedRevisions": [
+            "2025-06-18"
+          ],
+          "observedEffects": [
+            {
+              "credentialUse": false,
+              "localChange": true,
+              "localDestruction": true,
+              "localWrites": [
+                "evidence",
+                "jobs",
+                "reports_artifacts",
+                "workspace"
+              ],
+              "remoteStateChange": false,
+              "replaySafety": "non_idempotent",
+              "resolutionNotes": [
+                "traffic_enabled=False",
+                "background=True",
+                "include_in_scope_hosts=False",
+                "output_may_overwrite_or_prune=True",
+                "continuation_cleanup=True"
+              ],
+              "secretUse": false,
+              "traffic": []
+            },
+            {
+              "credentialUse": false,
+              "localChange": false,
+              "localDestruction": false,
+              "localWrites": [],
+              "remoteStateChange": false,
+              "replaySafety": "pure_read",
+              "resolutionNotes": [
+                "terminal_finalized_snapshot_only"
+              ],
+              "secretUse": false,
+              "traffic": []
+            },
+            {
+              "credentialUse": false,
+              "localChange": true,
+              "localDestruction": true,
+              "localWrites": [
+                "jobs"
+              ],
+              "remoteStateChange": false,
+              "replaySafety": "idempotent_control",
+              "resolutionNotes": [
+                "traffic_enabled=True"
+              ],
+              "secretUse": false,
+              "traffic": []
+            },
+            {
+              "credentialUse": false,
+              "localChange": false,
+              "localDestruction": false,
+              "localWrites": [],
+              "remoteStateChange": false,
+              "replaySafety": "pure_read",
+              "resolutionNotes": [
+                "terminal_finalized_snapshot_only"
+              ],
+              "secretUse": false,
+              "traffic": []
+            }
+          ],
+          "outcome": "pass",
+          "outputTokens": null,
+          "resourceIntegrity": null,
+          "schemaRetries": 0,
+          "selectedCallCount": 5,
+          "sessionInputTokens": 491593,
+          "sessionOutputTokens": 3005,
+          "sessionWallClockSeconds": 86.092,
+          "surface": "modern-compact",
+          "toolSelectionSuccess": true,
+          "tracePresent": true,
+          "transport": "stdio"
+        },
+        {
+          "advertisedCapabilities": {
+            "resourceTemplates": true,
+            "resources": true,
+            "standardTasks": false,
+            "tools": true
+          },
+          "case": "evidence_report_resource",
+          "dispatchCount": 3,
+          "duplicateCalls": 0,
+          "evidenceIntegrity": true,
+          "externalTrafficCount": 0,
+          "inputTokens": null,
+          "latencyReason": "client exposed only grouped session wall-clock latency",
+          "latencySeconds": null,
+          "negotiatedRevisions": [
+            "2025-06-18"
+          ],
+          "observedEffects": [
+            {
+              "credentialUse": false,
+              "localChange": true,
+              "localDestruction": false,
+              "localWrites": [
+                "evidence",
+                "workspace"
+              ],
+              "remoteStateChange": false,
+              "replaySafety": "non_idempotent",
+              "resolutionNotes": [
+                "traffic_enabled=True"
+              ],
+              "secretUse": false,
+              "traffic": []
+            },
+            {
+              "credentialUse": false,
+              "localChange": false,
+              "localDestruction": false,
+              "localWrites": [],
+              "remoteStateChange": false,
+              "replaySafety": "pure_read",
+              "resolutionNotes": [
+                "traffic_enabled=True"
+              ],
+              "secretUse": false,
+              "traffic": []
+            },
+            {
+              "credentialUse": false,
+              "localChange": true,
+              "localDestruction": false,
+              "localWrites": [
+                "evidence",
+                "reports_artifacts",
+                "workspace"
+              ],
+              "remoteStateChange": false,
+              "replaySafety": "idempotent_write",
+              "resolutionNotes": [
+                "traffic_enabled=True"
+              ],
+              "secretUse": false,
+              "traffic": []
+            }
+          ],
+          "outcome": "pass",
+          "outputTokens": null,
+          "resourceIntegrity": true,
+          "schemaRetries": 0,
+          "selectedCallCount": 6,
+          "sessionInputTokens": 491593,
+          "sessionOutputTokens": 3005,
+          "sessionWallClockSeconds": 86.092,
+          "surface": "modern-compact",
+          "toolSelectionSuccess": true,
+          "tracePresent": true,
+          "transport": "stdio"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 1,
+  "secretHygiene": {
+    "credentialValuesCommitted": false,
+    "localPathsCommitted": false,
+    "rawArgumentsCommitted": false,
+    "rawOperationHandlesCommitted": false,
+    "rawRequestStateCommitted": false,
+    "rawTraceIdsCommitted": false
+  },
+  "surface": "modern-compact",
+  "transport": "stdio"
+}

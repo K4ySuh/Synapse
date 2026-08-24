@@ -24,6 +24,18 @@ durable dispatch and continuation truth.
 
 ### Added
 
+- **Phase 3 adversarial corrective gates.** Added a Codex-only objective-driven
+  seven-workflow benchmark whose prompt supplies no MCP tool names, action IDs,
+  exact arguments, or call counts, plus an exact transport/safety smoke for
+  malformed input, unavailable capability, policy/scope/credential denial,
+  cross-binding attacks, restart/resume, and replay. Sanitized per-case
+  evidence records revisions, capabilities, effects, dispatches, latency/token
+  telemetry, duplicate behavior, and resource/evidence integrity while raw
+  handles and client streams stay local.
+- **Opaque retained-source bridge.** Workspace-owned dump directories and
+  source files can be returned and passed back as principal/session/workspace/
+  version-bound resource references. Directory manifests are bounded, reject
+  symbolic links, and never publish server paths.
 - **Phase 3D stable-Codex closure and compact default.** Added exact checked
   payload fixtures, reproducible surface measurement, and sanitized client,
   Inspector, conformance, and adversarial evidence. After preserving the
@@ -121,6 +133,11 @@ durable dispatch and continuation truth.
 
 ### Changed
 
+- **Codex-only Phase 3 acceptance.** Stable Codex is the sole active named-agent
+  gate. Independent agent clients and universal cross-agent claims are outside
+  project scope unless the operator explicitly reintroduces them. Generated
+  client configuration now emits only Codex profiles and frozen legacy
+  rollback.
 - **Candidate precision.** Command injection, XSS, access control, open redirect,
   CORS, and CSRF now require semantic or workflow-specific corroboration instead
   of relying on broad name/path heuristics. Active validation preserves the
@@ -134,6 +151,9 @@ durable dispatch and continuation truth.
 
 ### Removed
 
+- **Alternate-agent Phase 3 paths.** Removed alternate-client preflight,
+  authentication, parsing, model, and MCP configuration branches from both live
+  runners, along with the optional alternate-agent config output.
 - **Closed Phase 2 working documents.** Removed the auxiliary truth/correction
   gate, design checkpoint, execution plan, inventories, status, and handoff
   documents after closure. The original local modernization plan and durable
@@ -141,6 +161,16 @@ durable dispatch and continuation truth.
 
 ### Fixed
 
+- **Phase 3 contract and authority truth.** Replaced inferred authorization
+  effects with audited explicit declarations for all 174 actions and an
+  observed-effect no-network harness; removed model authority over external
+  output and recursive censorship of legitimate nested security data; published
+  action-specific standard output envelopes, including truthful array roots;
+  and kept frozen legacy discovery exact at 174 tools / 99,337 bytes.
+- **Phase 3 resume and modern runtime integrity.** Standalone modern processes
+  now bind retained implementations, standard results/errors identify protocol
+  revision and surface, and sequential/concurrent application and native
+  approval resumes converge on one dispatch with a typed replay denial.
 - **Deterministic baseline isolation.** Provider rate-limit tests use an
   injected coordination clock, and workflow benchmarks wait for background
   runtime handles plus intentionally timed-out tool workers before releasing

@@ -38,6 +38,7 @@ from synapse_mcp.policy import (
     OperatorPrincipal,
     StateChangePolicy,
 )
+from synapse_mcp.policy.repository import WorkspaceAuthorityRepository
 from synapse_mcp.transport.modern.config import ModernAdapterConfig, ModernConfigurationError
 from synapse_mcp.transport.modern.http_security import AuthenticatedHTTPMiddleware
 from synapse_mcp.transport.modern.identity import (
@@ -306,9 +307,61 @@ class ModernDiscoveryTests(ModernAdapterFixture, unittest.IsolatedAsyncioTestCas
             for action_id, schema in schemas.items():
                 self.assertEqual(schema["properties"]["operation"]["const"], action_id)
                 self.assertEqual(schema["properties"]["actionId"]["const"], action_id)
-            result = await client.call_tool("adapters.list", {})
-            self.assertTrue(result.is_error)
-            self.assertEqual(result.structured_content["outcomeKind"], "unavailable_capability")
+            result = await client.session.call_tool(
+                "adapters.list",
+                {},
+                allow_input_required=True,
+            )
+            self.assertIsInstance(result, InputRequiredResult)
+            handle = result.meta["synapse/operationHandle"]
+            direct_runtime.operations.pending(
+                handle,
+                context=FacadeCallContext(
+                    principal_id="operator:test",
+                    workspace_id="modern",
+                    execution_profile="observe",
+                    authority_session_id="session-test",
+                ),
+            )
+            planning = ActionRequest(
+                REGISTRY.get("adapters.list").input_model.model_validate({}),
+                ExecutionContext("modern", "planning", 45.0, None),
+            )
+            plan = REGISTRY.resolve_execution_plan("adapters.list", planning)
+            now = datetime.now(timezone.utc)
+            grant = AuthorityGrant(
+                grant_id="modern-adapters-list",
+                workspace_id="modern",
+                revision=1,
+                mode=AuthorityMode.SUPERVISED,
+                scope_digest=plan.intent.target_envelope.scope_digest,
+                target_envelope=plan.intent.target_envelope,
+                allowed_action_patterns=("adapters.list",),
+                allowed_methods=plan.intent.methods,
+                allowed_effects=plan.effects,
+                risk_ceiling=RiskClass.LOW,
+                credential_refs=(),
+                provider_routes=(),
+                third_party_providers=(),
+                local_outputs=(),
+                budgets=BudgetLimits(4, None, None, 1),
+                state_change_policy=StateChangePolicy.ALLOW,
+                created_at=now - timedelta(minutes=1),
+                expires_at=now + timedelta(hours=1),
+                approved_by="operator:test",
+            )
+            operator = AuthorityOperatorService(
+                "modern",
+                OperatorPrincipal("operator:test", "test_fixture", True),
+            )
+            operator.create_grant(grant)
+            self._write_bindings(selected_grant_id=grant.grant_id)
+            direct_runtime.operations.mark_terminal(handle, "replaced_by_authorized_retry")
+            authorized = build_runtime(self.config(surface=SurfaceMode.MODERN_DIRECT))
+            async with Client(authorized.server) as authorized_client:
+                result = await authorized_client.call_tool("adapters.list", {})
+            self.assertFalse(result.is_error)
+            self.assertEqual(result.structured_content["outcomeKind"], "success")
             Draft202012Validator(schemas["adapters.list"]).validate(result.structured_content)
             validator = Draft202012Validator(schemas["adapters.list"])
             for outcome_kind in (
@@ -488,12 +541,107 @@ class ModernPersistenceAndResourceTests(ModernAdapterFixture, unittest.IsolatedA
             trace_id="trace-test",
         )
         sdk = __import__("synapse_mcp.transport.modern.server", fromlist=["_require_sdk"])._require_sdk()
-        rendered = _tool_result(envelope, type("Context", (), {"protocol_version": MODERN_PROTOCOL_REVISION})(), sdk)
+        rendered = _tool_result(
+            envelope,
+            type("Context", (), {"protocol_version": MODERN_PROTOCOL_REVISION})(),
+            sdk,
+            surface=SurfaceMode.MODERN_COMPACT.value,
+        )
         self.assertTrue(any(isinstance(item, ResourceLink) for item in rendered.content))
         self.assertNotIn(str(artifact), rendered.model_dump_json(by_alias=True))
 
 
 class ModernResumeTests(ModernAdapterFixture, unittest.IsolatedAsyncioTestCase):
+    async def test_protocol_native_disabled_traffic_smoke_passes_three_repetitions(self) -> None:
+        for repetition in range(1, 4):
+            workspace_id = f"native-smoke-{repetition}"
+            workspace.create_workspace(workspace_id, hosts=["app.acme-demo.test"])
+            arguments = {
+                "workspaceId": workspace_id,
+                "url": "https://app.acme-demo.test/api/items",
+                "method": "GET",
+                "probeOrigin": "https://phase3.invalid",
+                "httpBackend": "disabled",
+                "disableTraffic": True,
+                "followRedirects": False,
+            }
+            descriptor = REGISTRY.get(ACTIVE_ACTION_ID)
+            planning = ActionRequest(
+                descriptor.input_model.model_validate({**arguments, "confirm": False}),
+                ExecutionContext(workspace_id, "planning", 45.0, None),
+            )
+            plan = REGISTRY.resolve_execution_plan(ACTIVE_ACTION_ID, planning)
+            now = datetime.now(timezone.utc)
+            grant = AuthorityGrant(
+                grant_id=f"native-smoke-{repetition}",
+                workspace_id=workspace_id,
+                revision=1,
+                mode=AuthorityMode.SUPERVISED,
+                scope_digest=plan.intent.target_envelope.scope_digest,
+                target_envelope=plan.intent.target_envelope,
+                allowed_action_patterns=(ACTIVE_ACTION_ID,),
+                allowed_methods=plan.intent.methods,
+                allowed_effects=plan.effects,
+                risk_ceiling=RiskClass.HIGH,
+                credential_refs=(),
+                provider_routes=plan.intent.providers,
+                third_party_providers=(),
+                local_outputs=plan.intent.local_outputs,
+                budgets=BudgetLimits(4, None, None, 1),
+                state_change_policy=StateChangePolicy.REQUIRE_STEP_UP,
+                created_at=now - timedelta(minutes=1),
+                expires_at=now + timedelta(hours=1),
+                approved_by="operator:test",
+            )
+            operator = AuthorityOperatorService(
+                workspace_id,
+                OperatorPrincipal("operator:test", "test_fixture", True),
+            )
+            operator.create_grant(grant)
+            self._write_bindings(selected_grant_id=grant.grant_id)
+            payload = {
+                "actionId": ACTIVE_ACTION_ID,
+                "arguments": arguments,
+                "idempotencyKey": f"native-smoke-{repetition}",
+            }
+            initial = build_runtime(self.config())
+            async with Client(initial.server) as client:
+                first = await client.session.call_tool(
+                    "actions.run_active",
+                    payload,
+                    allow_input_required=True,
+                )
+            self.assertIsInstance(first, InputRequiredResult)
+            self.assertEqual(first.meta["synapse/protocolVersion"], MODERN_PROTOCOL_REVISION)
+            self.assertEqual(first.meta["synapse/dispatch"], "not_started")
+            pending = operator.list_required_authority()
+            self.assertEqual(len(pending), 1)
+            operator.issue_request_step_up(pending[0]["requestStateId"])
+            restarted = build_runtime(self.config())
+            async with Client(restarted.server) as client:
+                resumed = await client.session.call_tool(
+                    "actions.run_active",
+                    payload,
+                    request_state=first.request_state,
+                    allow_input_required=True,
+                )
+                self.assertFalse(resumed.is_error)
+                self.assertEqual(resumed.structured_content["outcomeKind"], "success")
+                self.assertIsNone(
+                    resumed.structured_content["result"]["test"]["response"]["status"]
+                )
+                with self.assertRaises(MCPError):
+                    await client.session.call_tool(
+                        "actions.run_active",
+                        payload,
+                        request_state=first.request_state,
+                        allow_input_required=True,
+                    )
+            snapshot = WorkspaceAuthorityRepository(workspace_id).snapshot()
+            dispatches = list(snapshot["dispatches"].values())
+            self.assertEqual(len(dispatches), 1)
+            self.assertEqual(dispatches[0]["state"], "succeeded")
+
     async def test_legacy_protocol_resumes_with_compact_operation_handle_after_restart(self) -> None:
         probe = ThreadingHTTPServer(("127.0.0.1", 0), ProbeHandler)
         thread = threading.Thread(target=probe.serve_forever, daemon=True)
@@ -666,17 +814,38 @@ class ModernResumeTests(ModernAdapterFixture, unittest.IsolatedAsyncioTestCase):
 
             self._write_keyring("22" * 32, "11" * 32)
             operator.issue_request_step_up(raw_request)
-            rotated = build_runtime(self.config())
-            async with Client(rotated.server) as client:
-                resumed = await client.session.call_tool(
-                    "actions.run_active",
-                    payload,
-                    request_state=first.request_state,
-                    allow_input_required=True,
-                )
-                self.assertFalse(resumed.is_error)
-                original_trace = first.meta["synapse/traceId"]
-                self.assertEqual(resumed.structured_content["traceId"], original_trace)
+            async def resume_once() -> CallToolResult | Exception:
+                rotated = build_runtime(self.config())
+                try:
+                    async with Client(rotated.server) as client:
+                        return await client.session.call_tool(
+                            "actions.run_active",
+                            payload,
+                            request_state=first.request_state,
+                            allow_input_required=True,
+                        )
+                except Exception as exc:
+                    return exc
+
+            concurrent = await asyncio.gather(resume_once(), resume_once())
+            successes = [item for item in concurrent if isinstance(item, CallToolResult)]
+            failures = [item for item in concurrent if isinstance(item, Exception)]
+            self.assertEqual(len(successes), 1)
+            self.assertEqual(len(failures), 1)
+            resumed = successes[0]
+            self.assertFalse(resumed.is_error)
+            original_trace = first.meta["synapse/traceId"]
+            self.assertEqual(resumed.structured_content["traceId"], original_trace)
+            replay_failure = repr(failures[0])
+            self.assertTrue(
+                any(
+                    reason in replay_failure
+                    for reason in ("request_state_replayed", "operation_replayed")
+                ),
+                replay_failure,
+            )
+            sequential = build_runtime(self.config())
+            async with Client(sequential.server) as client:
                 with self.assertRaises(MCPError):
                     await client.session.call_tool(
                         "actions.run_active",

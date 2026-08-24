@@ -155,6 +155,22 @@ def _safe_examples(schema: dict[str, Any]) -> list[dict[str, Any]]:
     return [example]
 
 
+def model_facing_action_input_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Remove frozen legacy authority shims from compact model discovery."""
+
+    value = json.loads(json.dumps(schema))
+    properties = value.get("properties")
+    if isinstance(properties, dict):
+        properties.pop("confirm", None)
+        properties.pop("allowExternalOutput", None)
+    required = value.get("required")
+    if isinstance(required, list):
+        value["required"] = [
+            name for name in required if name not in {"confirm", "allowExternalOutput"}
+        ]
+    return value
+
+
 def _filter_fingerprint(value: CapabilitiesSearchInput) -> str:
     payload = value.model_dump(
         mode="json",
@@ -247,6 +263,7 @@ class ActionCatalogService:
         descriptor = self.registry.get(action_id)
         entry = self._inventory[str(descriptor.id)]
         schemas = self.registry.contract_schema(action_id)
+        public_input = model_facing_action_input_schema(schemas["inputSchema"])
         _, availability = _availability(descriptor)
         return ActionDescription(
             action_id=str(descriptor.id),
@@ -254,7 +271,7 @@ class ActionCatalogService:
             description=descriptor.summary,
             pack=descriptor.pack,
             intent=str(entry["useCase"]),
-            input_schema=schemas["inputSchema"],
+            input_schema=public_input,
             output_schema=schemas["outputSchema"],
             effects=effect_summary(descriptor.effects),
             risk=descriptor.risk_class.value,
@@ -274,7 +291,7 @@ class ActionCatalogService:
                 "callerAuthorityFieldsAccepted": False,
             },
             annotations=action_annotations(descriptor),
-            examples=_safe_examples(entry["inputSchema"]),
+            examples=_safe_examples(public_input),
         )
 
     @staticmethod

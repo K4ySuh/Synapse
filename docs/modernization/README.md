@@ -43,7 +43,8 @@ tests, and the shared [changelog](../../CHANGELOG.md).
 - [Interoperability handoff](phase-3-handoff.md) — adopted Codex default,
   reproducible gate, residuals, and rollback
 - [Machine-readable Phase 3 evidence](evidence/phase-3/) — client matrix,
-  payload/read results, conformance, and security gates
+  objective-agent and exact transport/safety results, payload/read results,
+  conformance, and security gates
 - [Canonical action migration guide](action-migration-guide.md) — current
   bounded pack-batch and manifest procedure
 

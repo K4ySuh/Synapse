@@ -32,6 +32,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:access_control.build_test_matrix"
       ]
@@ -44,6 +45,7 @@
         "limitations"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:access_control.capabilities"
       ]
@@ -102,6 +104,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:access_control.execute_matrix_test"
       ]
@@ -129,6 +132,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:access_control.identify_objects"
       ]
@@ -157,6 +161,7 @@
         "testPlan"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:access_control.plan_tests"
       ]
@@ -180,6 +185,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:access_control.record_context"
       ]
@@ -192,6 +198,7 @@
         "limitations"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:adapter_registry.capabilities"
       ]
@@ -204,6 +211,7 @@
         "items"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:adapter_registry.list"
       ]
@@ -222,6 +230,7 @@
         "requiresConfirmation"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:cache.clean_generated_artifacts"
       ]
@@ -241,6 +250,7 @@
         "unknownHostsKept"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:cache.clean_out_of_scope"
       ]
@@ -255,6 +265,7 @@
         "outputRemoveCount"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:cache.inspect_generated_artifacts"
       ]
@@ -289,6 +300,7 @@
           "array"
         ]
       },
+      "rootType": "object",
       "sources": [
         "implementation:cache.inspect_scope_data",
         "fixture:cache_inspect_scope_data.json"
@@ -314,6 +326,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:command_injection_adapter.analyze_workspace"
       ]
@@ -348,6 +361,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:command_injection_adapter.execute_test"
       ]
@@ -369,6 +383,7 @@
         "testPlan"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:command_injection_adapter.generate_test_plan"
       ]
@@ -381,6 +396,7 @@
         "testCode"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:command_injection_adapter.prepare_replay"
       ]
@@ -403,6 +419,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:cors.analyze_workspace"
       ]
@@ -415,6 +432,7 @@
         "limitations"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:cors.capabilities"
       ]
@@ -433,6 +451,7 @@
         "testPlan"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:cors.generate_test_plan"
       ]
@@ -445,6 +464,7 @@
         "message"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:crawler_adapter.crawl_extended"
       ]
@@ -469,6 +489,7 @@
         "type"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:credentials.authenticate"
       ]
@@ -485,6 +506,7 @@
         "remoteUrl"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:credentials.browser_auth_check_setup"
       ]
@@ -506,6 +528,7 @@
         "validation"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:credentials.browser_authenticate"
       ]
@@ -520,6 +543,7 @@
         "path"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:credentials.delete_credential"
       ]
@@ -534,6 +558,7 @@
         "target"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:credentials.get_credential"
       ]
@@ -563,6 +588,7 @@
           "boolean"
         ]
       },
+      "rootType": "object",
       "sources": [
         "implementation:credentials.list_credentials",
         "fixture:credentials_list.json"
@@ -596,6 +622,7 @@
           "boolean"
         ]
       },
+      "rootType": "object",
       "sources": [
         "implementation:credentials.save_credential",
         "fixture:credentials_set_confirmed.json"
@@ -613,6 +640,7 @@
         "scopes"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:credentials.save_auth_profile"
       ]
@@ -631,6 +659,7 @@
         "scopes"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:credentials.save_browser_auth_profile"
       ]
@@ -644,6 +673,7 @@
         "validation"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:credentials.validate_session"
       ]
@@ -670,6 +700,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:csrf.analyze_workspace"
       ]
@@ -682,6 +713,7 @@
         "limitations"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:csrf.capabilities"
       ]
@@ -704,6 +736,7 @@
         "workflowType"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:csrf.generate_test_plan"
       ]
@@ -716,6 +749,7 @@
         "limitations"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:cve_intel.capabilities"
       ]
@@ -754,6 +788,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:cve_intel.correlate"
       ]
@@ -801,6 +836,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:cve_intel.execute_test"
       ]
@@ -840,6 +876,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:cve_intel.plan_tests"
       ]
@@ -852,6 +889,7 @@
         "testCode"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:cve_intel.prepare_replay"
       ]
@@ -868,6 +906,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:cve_intel.reset_source_endpoint"
       ]
@@ -881,6 +920,7 @@
         "sessionCleared"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:cve_intel.clear_session_key"
       ]
@@ -894,6 +934,7 @@
         "source"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:cve_intel.set_session_key"
       ]
@@ -909,6 +950,7 @@
         "source"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:cve_intel.session_key_status"
       ]
@@ -922,6 +964,7 @@
         "url"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:cve_intel.set_source_endpoint"
       ]
@@ -941,6 +984,7 @@
         "url"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:cve_intel.sources"
       ]
@@ -952,6 +996,7 @@
         "evidencePack"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:documentation.build_evidence_pack"
       ]
@@ -963,6 +1008,7 @@
         "findingContext"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:documentation.build_finding_context"
       ]
@@ -986,6 +1032,7 @@
         "title"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:documentation.build_finding_draft"
       ]
@@ -997,6 +1044,7 @@
         "layerReport"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:documentation.build_layer_report_context"
       ]
@@ -1019,6 +1067,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:documentation.build_report_context"
       ]
@@ -1030,6 +1079,7 @@
         "workspaceReport"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:documentation.build_workspace_report_context"
       ]
@@ -1044,6 +1094,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:documentation.export_json"
       ]
@@ -1059,6 +1110,7 @@
         "title"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:documentation.list_layers"
       ]
@@ -1069,6 +1121,7 @@
         "templates"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:documentation.list_templates"
       ]
@@ -1082,6 +1135,7 @@
         "testPlan"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:documentation.plan_scope_groups"
       ]
@@ -1108,6 +1162,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:documentation.prepare_validation_batch"
       ]
@@ -1124,6 +1179,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:documentation.render_assessment_summary"
       ]
@@ -1141,6 +1197,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:documentation.render_layer_report"
       ]
@@ -1156,6 +1213,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:documentation.render_markdown"
       ]
@@ -1173,6 +1231,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:documentation.render_workspace_report"
       ]
@@ -1224,6 +1283,7 @@
         "workspaceReport"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:documentation.render_workspace_report_batches"
       ]
@@ -1240,6 +1300,7 @@
         "tool"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:documentation.summarize_coverage"
       ]
@@ -1256,6 +1317,7 @@
         "path"
       ],
       "fixtureTypes": {},
+      "rootType": "array",
       "sources": [
         "implementation:dumps.list_dumps"
       ]
@@ -1272,6 +1334,7 @@
         "target"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:evidence.host_context"
       ]
@@ -1288,6 +1351,7 @@
         "updatedAt"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:evidence.ensure_project"
       ]
@@ -1305,6 +1369,7 @@
         "type"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:evidence.log_event"
       ]
@@ -1316,6 +1381,7 @@
         "events"
       ],
       "fixtureTypes": {},
+      "rootType": "array",
       "sources": [
         "implementation:evidence.tail_events"
       ]
@@ -1334,6 +1400,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:ffuf_adapter.build_command"
       ]
@@ -1346,6 +1413,7 @@
         "profiles"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:ffuf_adapter.list_profiles"
       ]
@@ -1358,6 +1426,7 @@
         "message"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:ffuf_adapter.run_profile"
       ]
@@ -1406,6 +1475,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:fingerprint.analyze_workspace"
       ]
@@ -1429,6 +1499,7 @@
         "target"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:fingerprint.from_dump"
       ]
@@ -1475,6 +1546,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:fingerprint.probe_versions"
       ]
@@ -1491,6 +1563,7 @@
         "target"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:fingerprint.read_host_fingerprint"
       ]
@@ -1510,6 +1583,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:graphql.analyze_workspace"
       ]
@@ -1522,6 +1596,7 @@
         "limitations"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:graphql.capabilities"
       ]
@@ -1558,6 +1633,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:graphql.execute_test"
       ]
@@ -1576,6 +1652,7 @@
         "testPlan"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:graphql.generate_test_plan"
       ]
@@ -1588,6 +1665,7 @@
         "limitations"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:headers_cookies.capabilities"
       ]
@@ -1608,6 +1686,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:insecure_deser.analyze_workspace"
       ]
@@ -1620,6 +1699,7 @@
         "limitations"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:insecure_deser.capabilities"
       ]
@@ -1633,6 +1713,7 @@
         "shellCommand"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:background_jobs.cancel"
       ]
@@ -1645,6 +1726,7 @@
         "jobs"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:background_jobs.list_jobs"
       ]
@@ -1668,6 +1750,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:js_intel.analyze_static"
       ]
@@ -1700,6 +1783,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:js_intel.build_app_model"
       ]
@@ -1728,6 +1812,7 @@
         "source"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:js_intel.capabilities"
       ]
@@ -1743,6 +1828,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:js_intel.discover_assets"
       ]
@@ -1774,6 +1860,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:js_intel.fetch_assets"
       ]
@@ -1795,6 +1882,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:js_intel.normalize_endpoints"
       ]
@@ -1815,6 +1903,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:js_intel.render_app_map"
       ]
@@ -1841,6 +1930,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:jwt_analysis.analyze"
       ]
@@ -1853,6 +1943,7 @@
         "limitations"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:jwt_analysis.capabilities"
       ]
@@ -1865,6 +1956,7 @@
         "limitations"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:lfi_rfi.capabilities"
       ]
@@ -1898,6 +1990,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:lfi_rfi.execute_test"
       ]
@@ -1917,6 +2010,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:lfi_rfi.passive_analyze"
       ]
@@ -1938,6 +2032,7 @@
         "testPlan"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:lfi_rfi.plan_tests"
       ]
@@ -1955,6 +2050,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:nmap_adapter.build_command"
       ]
@@ -1967,6 +2063,7 @@
         "profiles"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:nmap_adapter.list_profiles"
       ]
@@ -1979,6 +2076,7 @@
         "message"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:nmap_adapter.run_profile"
       ]
@@ -2018,6 +2116,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:nuclei_adapter.build_command"
       ]
@@ -2030,6 +2129,7 @@
         "profiles"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:nuclei_adapter.list_profiles"
       ]
@@ -2042,6 +2142,7 @@
         "message"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:nuclei_adapter.run_profile"
       ]
@@ -2067,6 +2168,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:open_redirect_adapter.analyze_workspace"
       ]
@@ -2098,6 +2200,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:open_redirect_adapter.execute_test"
       ]
@@ -2120,6 +2223,7 @@
         "url"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:open_redirect_adapter.generate_test_plan"
       ]
@@ -2141,6 +2245,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:perimeter.analyze_workspace"
       ]
@@ -2155,6 +2260,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:perimeter.build_summary"
       ]
@@ -2171,6 +2277,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:perimeter.render_report"
       ]
@@ -2184,6 +2291,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:evidence.ensure_project + evidence.log_event + scope.save_scope + workspace.create_workspace + credentials.auth_process_guidance + fingerprint.from_dump"
       ]
@@ -2202,6 +2310,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:gap_analysis.mark_detection_outcome"
       ]
@@ -2216,6 +2325,7 @@
         "target"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:scope.check_target"
       ]
@@ -2230,6 +2340,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:scope.save_scope + workspace.create_workspace"
       ]
@@ -2243,6 +2354,7 @@
         "query"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:shodan_adapter.company_queries"
       ]
@@ -2258,6 +2370,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:shodan_adapter.domain_info"
       ]
@@ -2272,6 +2385,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:shodan_adapter.host_lookup"
       ]
@@ -2316,6 +2430,7 @@
           "array"
         ]
       },
+      "rootType": "object",
       "sources": [
         "implementation:shodan_adapter.internetdb_lookup",
         "fixture:shodan_internetdb.json"
@@ -2327,6 +2442,7 @@
         "hostnames"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:shodan_adapter.resolve"
       ]
@@ -2337,6 +2453,7 @@
         "ips"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:shodan_adapter.reverse"
       ]
@@ -2355,6 +2472,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:shodan_adapter.search"
       ]
@@ -2366,6 +2484,7 @@
         "query"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:shodan_adapter.search_count"
       ]
@@ -2376,6 +2495,7 @@
         "facets"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:shodan_adapter.search_facets"
       ]
@@ -2386,6 +2506,7 @@
         "filters"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:shodan_adapter.search_filters"
       ]
@@ -2397,6 +2518,7 @@
         "sessionCleared"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:shodan_adapter.clear_session_key"
       ]
@@ -2409,6 +2531,7 @@
         "source"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:shodan_adapter.set_session_key"
       ]
@@ -2421,6 +2544,7 @@
         "source"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:shodan_adapter.session_key_status"
       ]
@@ -2441,6 +2565,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:shodan_adapter.target_summary"
       ]
@@ -2465,6 +2590,7 @@
         "urlCount"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:crawler_adapter.sitemap_from_dump"
       ]
@@ -2482,6 +2608,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:pretext_generator.approve_pretext_candidate"
       ]
@@ -2494,6 +2621,7 @@
         "limitations"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:spec_import.capabilities"
       ]
@@ -2513,6 +2641,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:spec_import.import_spec"
       ]
@@ -2535,6 +2664,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:sqlmap_adapter.analyze_dump"
       ]
@@ -2556,6 +2686,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:sqlmap_adapter.analyze_workspace"
       ]
@@ -2579,6 +2710,7 @@
         "url"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:sqlmap_adapter.build_command"
       ]
@@ -2591,6 +2723,7 @@
         "limitations"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:ssi.capabilities"
       ]
@@ -2625,6 +2758,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:ssi.execute_test"
       ]
@@ -2644,6 +2778,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:ssi.passive_analyze"
       ]
@@ -2665,6 +2800,7 @@
         "testPlan"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:ssi.plan_tests"
       ]
@@ -2677,6 +2813,7 @@
         "testCode"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:ssi.prepare_replay"
       ]
@@ -2699,6 +2836,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:ssrf_adapter.analyze_workspace"
       ]
@@ -2732,6 +2870,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:ssrf_adapter.execute_test"
       ]
@@ -2754,6 +2893,7 @@
         "url"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:ssrf_adapter.generate_test_plan"
       ]
@@ -2766,6 +2906,7 @@
         "limitations"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:ssti.capabilities"
       ]
@@ -2801,6 +2942,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:ssti.execute_test"
       ]
@@ -2820,6 +2962,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:ssti.passive_analyze"
       ]
@@ -2841,6 +2984,7 @@
         "testPlan"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:ssti.plan_tests"
       ]
@@ -2853,6 +2997,7 @@
         "testCode"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:ssti.prepare_replay"
       ]
@@ -2876,6 +3021,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:tls_posture.analyze_workspace"
       ]
@@ -2888,6 +3034,7 @@
         "limitations"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:tls_posture.capabilities"
       ]
@@ -2905,6 +3052,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:workspace.add_target"
       ]
@@ -2923,6 +3071,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:workspace.create_workspace"
       ]
@@ -2953,6 +3102,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:workspace.create_finding"
       ]
@@ -2980,6 +3130,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:workspace.curate_candidate"
       ]
@@ -3000,6 +3151,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:workspace.delete_workspace"
       ]
@@ -3014,6 +3166,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:workspace.export_finding_context"
       ]
@@ -3040,6 +3193,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:workspace.ingest_data"
       ]
@@ -3057,6 +3211,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:workspace.link_evidence_to_finding"
       ]
@@ -3071,6 +3226,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:workspace.mark_finding_reviewed"
       ]
@@ -3084,6 +3240,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:workspace.promote_observation_to_finding"
       ]
@@ -3108,6 +3265,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:workspace.record_candidate_validation"
       ]
@@ -3128,6 +3286,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:workspace.set_entity_reportable"
       ]
@@ -3144,6 +3303,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:workspace.update_finding"
       ]
@@ -3164,6 +3324,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:xss_adapter.analyze_dump"
       ]
@@ -3185,6 +3346,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:xss_adapter.analyze_workspace"
       ]
@@ -3225,6 +3387,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:xss_adapter.execute_test"
       ]
@@ -3237,6 +3400,7 @@
         "testCode"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:xss_adapter.generate_test_code"
       ]
@@ -3257,6 +3421,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:xxe.analyze_workspace"
       ]
@@ -3269,6 +3434,7 @@
         "limitations"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:xxe.capabilities"
       ]
@@ -3299,6 +3465,7 @@
         "workspaceId"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:xxe.execute_test"
       ]
@@ -3318,11 +3485,12 @@
         "url"
       ],
       "fixtureTypes": {},
+      "rootType": "object",
       "sources": [
         "implementation:xxe.generate_test_plan"
       ]
     }
   },
   "derivation": "canonical implementation serializer source plus frozen representative success/background fixtures",
-  "schemaVersion": 1
+  "schemaVersion": 2
 }

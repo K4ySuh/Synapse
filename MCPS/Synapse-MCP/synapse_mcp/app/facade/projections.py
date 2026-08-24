@@ -11,7 +11,7 @@ from typing import Any
 from synapse_mcp.app.actions import REGISTRY
 from synapse_mcp.app.actions.registry import ActionRegistry
 
-from .catalog import action_annotations
+from .catalog import action_annotations, model_facing_action_input_schema
 from .contracts import (
     COMPACT_INPUT_MODELS,
     ApplicationOperation,
@@ -209,7 +209,7 @@ class DirectProjection:
                     name=action_id,
                     title=descriptor.title,
                     description=descriptor.summary,
-                    input_schema=schemas["inputSchema"],
+                    input_schema=model_facing_action_input_schema(schemas["inputSchema"]),
                     output_schema=facade_envelope_schema(
                         action_id,
                         schemas["outputSchema"],

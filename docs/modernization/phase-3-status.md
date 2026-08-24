@@ -1,9 +1,10 @@
 # Phase 3 running status
 
 Updated: 2026-08-24
-Current session: Phase 3D — complete
+Current session: Phase 3R corrective closure — complete
 Baseline: `6f46dae128520e06056dce50632e750023aedc80` on `Beta`
-State: Sessions 3A through 3D complete; modern compact adopted for Codex
+State: Sessions 3A through 3D and corrective tasks 3R-1 through 3R-3 complete;
+modern compact adopted for Codex
 
 ## Preflight
 
@@ -429,18 +430,13 @@ PHASE_3C_PASS
 
 ## Historical 2026-08-23 blockers
 
-1. Reauthenticate Claude Code through its first-party operator flow, record its
-   exact successful model and negotiated revision, and run every retained
-   surface/transport/corpus repetition.
-2. Re-run against a stable Codex release whose production MCP client negotiates
-   `2026-07-28` and exposes protocol request state; do not use the warned
-   under-development feature as release evidence.
-3. Resolve or explicitly accept the five applicable `2026-07-28` stateless/
-   subscription conformance failures, and use an official runner with bearer
-   header support so raw Host/header cases reach Synapse directly.
-4. Complete the fixed latency, evidence, resource, background-task, malformed,
-   denial, cross-binding, restart, and supervised-resume matrix for both
-   required clients. Only then reconsider compact as default and ADR-0004.
+These were stop conditions for the superseded two-client method, not current
+project work items. That method lacked an authenticated independent-client run,
+stable Codex protocol request state, direct bearer-capable HTTP conformance,
+and the complete two-client case matrix. The historical evidence remains for
+auditability; the operator explicitly replaced that acceptance contract with
+the Codex-only method below. Independent agent work must not be reopened unless
+the operator requests it.
 
 At the end of the 2026-08-23 attempt, the default remained the frozen
 `synapse-mcp` legacy launcher. Modern compact and direct remained explicit
@@ -482,8 +478,8 @@ PHASE_3_BLOCKED_HISTORICAL
   68,787 respectively. No external target traffic or credential material was
   used.
 - `bin/print-mcp-config` now emits `modern-compact` stdio for Codex by default.
-  It emits no Claude configuration unless explicitly requested. `--legacy`
-  prints the unchanged frozen rollback launcher.
+  It has no alternate-agent output mode. `--legacy` prints the unchanged
+  frozen rollback launcher.
 - Final verification passed 13/13 production modern tests, 598/598 core tests,
   2/2 adapter-template tests, the exact Phase 3 payload fixture gate,
   compileall, generated 174-action inventory, setup/config checks, JSON/TOML
@@ -543,3 +539,78 @@ PHASE_3_PASS
   discovery remains 174 tools / 99,337 bytes.
 
 PHASE_3R2_PASS
+
+## Phase 3R corrective closure
+
+### Phase 3R-1
+
+- Commit `1844261` replaced heuristic authority effects with implementation-
+  audited declarations for all 174 actions and added the no-network observed-
+  effect harness. It corrected sitemap/fingerprint writes and CVE/Shodan plan
+  traffic truth, removed model authority over external destinations, and
+  preserved legitimate nested security data without changing trusted context.
+- The frozen legacy surface remained exactly 174 tools / 99,337 bytes.
+
+PHASE_3R1_PASS
+
+### Phase 3R-3 operator-amended Codex closure
+
+- The operator made stable Codex the sole named-agent acceptance client and
+  removed alternate-agent work from the project unless explicitly
+  reintroduced. Both live runners and `bin/print-mcp-config` are Codex-only;
+  historical cross-client facts above remain audit records, not current work.
+- The former exact-tool choreography is now
+  `bin/run-phase3-transport-smoke`. Its fresh Codex CLI `0.149.0` /
+  `gpt-5.6-sol` batch passed 3/3 over `modern-compact` stdio at negotiated MCP
+  `2025-06-18`. Malformed, unavailable, effect/scope/credential denial,
+  principal/session/workspace/resource binding, approval, restart/resume, and
+  replay cases had zero schema retries, duplicate calls, unauthorized
+  dispatches, duplicate dispatches, or external traffic. Every repetition had
+  one and only one successful post-step-up dispatch.
+- `bin/run-phase3-agent-benchmark` supplied only the fictional assessment
+  objective and constraints. Its prompt hash proves it contained no MCP tool
+  names, canonical action IDs, exact argument objects, or call counts. All
+  seven workflows passed 3/3 with zero schema retries, zero duplicate side
+  effects, 14 canonical dispatches per run, opaque resource/evidence integrity,
+  and zero traffic. Two repeated passive task-state reads were retained as
+  honest client-behavior telemetry and caused no duplicated effect or dispatch.
+- The accepted objective batch was captured before removal of the unused
+  alternate-client branch. The current runner revalidated its exact prompt
+  hash, Codex-only client identity, three passing runs, workflow rows, retries,
+  effects, and traffic before emitting sanitized evidence. A redundant fresh
+  rerun stopped only because the Codex account reached its usage ceiling; no
+  failed Synapse case was substituted or counted.
+- Opaque directory references now support bounded, reauthorized pass-back to
+  retained dump/source inputs, reject symbolic links and oversized manifests,
+  and withhold raw paths. Standalone modern processes bind retained
+  implementations. Standard success and typed error metadata identify the
+  negotiated revision and startup-selected surface.
+- Automated approval evidence covers three protocol-native disabled-traffic
+  repetitions plus sequential/concurrent native and application-handle resume.
+  Either valid replay layer may reject the losing race; both converge to one
+  backend request.
+- Inspector `2.3.0` freshly passed compact stdio discovery. Stable conformance
+  `0.1.16` and alpha `0.2.0-alpha.11` still cannot inject bearer headers, so
+  generic conformance honestly remains `partial_fail` with every non-pass
+  classified. Repository security tests and Codex adoption do not relabel it.
+- Final verification passed 619 core tests, 2 adapter-template tests, 15 modern
+  official-SDK tests, output-contract and 174-action inventory checks, exact
+  99,337-byte legacy and 22,863-byte compact projection gates, compileall,
+  Python/shell syntax, JSON/TOML parsing, secret/opaque/path scanning, and diff
+  hygiene.
+
+Machine evidence:
+
+- `evidence/phase-3/agent-benchmark-results.json`
+- `evidence/phase-3/transport-smoke-results.json`
+- `evidence/phase-3/conformance-results.json`
+- `evidence/phase-3/security-results.json`
+
+No independent-agent or universal cross-agent pass is asserted; that scope is
+not part of the current project plan.
+
+PHASE_3_CODEX_PASS
+
+PHASE_3R3_PASS
+
+PHASE_3_PASS
