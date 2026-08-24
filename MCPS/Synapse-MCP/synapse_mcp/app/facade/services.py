@@ -480,7 +480,13 @@ class ActionExecutionService:
             effects=self.registry.resolve_effects(action_id, request),
         )
 
-    def resume(self, handle: str, *, context: FacadeCallContext) -> FacadeEnvelope:
+    def resume(
+        self,
+        handle: str,
+        *,
+        context: FacadeCallContext,
+        response_operation: str = "tasks.control",
+    ) -> FacadeEnvelope:
         trace_id = _trace_id(context)
         try:
             operation = self.operations.pending(handle, context=context)
@@ -498,7 +504,7 @@ class ActionExecutionService:
                 trace_id=trace_id,
             )
         envelope = self.run(
-            operation="tasks.control",
+            operation=response_operation,
             action_id=operation.action_id,
             arguments=operation.arguments,
             context=context,
@@ -735,7 +741,11 @@ class CompactFacadeService:
 
     def _tasks(self, value: TasksControlInput, *, context: FacadeCallContext) -> FacadeEnvelope:
         if value.operation == "resume":
-            return self.execution.resume(str(value.operation_handle), context=context)
+            return self.execution.resume(
+                str(value.operation_handle),
+                context=context,
+                response_operation="tasks.control",
+            )
         if value.operation == "inspect" and value.operation_handle:
             try:
                 result = self.execution.operations.inspect(value.operation_handle, context=context)

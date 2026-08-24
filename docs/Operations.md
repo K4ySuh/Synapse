@@ -60,16 +60,19 @@ Run:
 bin/check-setup
 ```
 
-The check validates local prerequisites, confirms required runtime imports,
-confirms the venv-aware Synapse MCP starts, checks optional Playwright/Selenium
-imports with the configured `SYNAPSE_PYTHON`, and prints MCP client config. A
-startup failure now includes the underlying interpreter/import error; an
-executable but stale venv after a system Python upgrade is not reported as a
-tool-discovery failure. The Synapse MCP entry is the required operational
-endpoint; the Burp MCP entry is optional but highly recommended when live Burp
-Suite state or UI/session operations are needed.
-Missing modern identity/keyring files are reported as provisioning warnings
-because their workspace, principal, and grant binding is operator-specific.
+The check reports `LEGACY READY` and `MODERN READY` independently. Legacy
+readiness proves the frozen 174-tool server can start with the core dependencies.
+Modern readiness additionally requires the selected interpreter to contain
+exactly `mcp==2.0.0`, private `0600` identity bindings and request-state
+keyring, a writable state directory, and a principal/workspace authority
+binding that resolves. Missing operator material is `MODERN NOT READY` and a
+non-zero modern/default check, never a successful default-readiness result.
+Use `--legacy` or `--modern` to gate one profile explicitly.
+
+Interpreter selection is shared by tests, launchers, measurement, and generated
+configuration: explicit `SYNAPSE_PYTHON`, an active `VIRTUAL_ENV`, then the
+repository `.venv`. Resolution fails with an actionable error if none exists;
+it never advertises a guessed `python3` command as ready.
 External scanner binaries such as `sqlmap`, `ffuf`, `nmap`, and `nuclei` are
 warnings by default because passive workspace, dump, documentation, and static
 analysis workflows can run without them. Use `bin/check-setup --strict-tools`
@@ -408,9 +411,13 @@ keyring, server name, audience, and identity binding. The raw authority request
 remains separately durable and visible through `list-requests` and
 `inspect-request`.
 
-Rollback stops the modern server or selects the stable legacy server. Preserve
-the authority file: authorized, dispatched, unknown, and historical records
-remain necessary for recovery and must not be deleted during rollback.
+Rollback stops the modern adapter or selects the stable legacy launcher. It is
+an adapter rollback with frozen wire compatibility, not an authority or
+application-core bypass: the legacy transport still dispatches through the
+same canonical Registry. It starts without the modern SDK, modern identity
+binding, or request-state keyring. Preserve authority records: authorized,
+dispatched, unknown, and historical records remain necessary for recovery and
+must not be deleted during rollback.
 
 ## Environment
 

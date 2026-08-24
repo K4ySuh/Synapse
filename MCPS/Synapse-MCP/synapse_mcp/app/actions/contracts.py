@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from pathlib import Path
+import re
 from typing import Any, ClassVar, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, create_model, model_validator
@@ -56,7 +58,7 @@ class ActionOutput(BaseModel):
 
 
 class JsonObjectActionOutput(ActionOutput):
-    """Typed common result core for retained actions returning JSON objects."""
+    """Shared outcome fields used by retained JSON-object serializers."""
 
     background: bool | None = None
     job: dict[str, JsonValue] | None = None
@@ -67,10 +69,64 @@ class JsonObjectActionOutput(ActionOutput):
     model_config = ConfigDict(strict=True, extra="allow")
 
 
-def make_json_object_output_model(name: str) -> type[ActionOutput]:
-    """Create a distinct JSON-object output model for one legacy action."""
+_OUTPUT_CONTRACTS_PATH = Path(__file__).with_name("output_contracts.json")
 
-    return create_model(name, __base__=JsonObjectActionOutput)
+
+def _load_output_contracts() -> dict[str, dict[str, Any]]:
+    document = json.loads(_OUTPUT_CONTRACTS_PATH.read_text(encoding="utf-8"))
+    contracts = document.get("contracts")
+    if document.get("schemaVersion") != 1 or document.get("actionCount") != 168 or not isinstance(contracts, dict):
+        raise RuntimeError("retained action output contracts are invalid or incomplete")
+    return contracts
+
+
+OUTPUT_CONTRACTS = _load_output_contracts()
+
+
+def _fixture_annotation(types: list[str]) -> Any:
+    mapping: dict[str, Any] = {
+        "array": list[JsonValue],
+        "boolean": bool,
+        "integer": int,
+        "null": type(None),
+        "number": Union[int, float],
+        "object": dict[str, JsonValue],
+        "string": str,
+    }
+    annotations = [mapping[value] for value in types if value in mapping]
+    return _union_of(annotations) if annotations else JsonValue
+
+
+def make_json_object_output_model(name: str, action_id: str) -> type[ActionOutput]:
+    """Create an action-specific model from audited serializer/fixture evidence."""
+
+    declaration = OUTPUT_CONTRACTS[action_id]
+    fixture_types = declaration.get("fixtureTypes", {})
+    fields: dict[str, tuple[Any, Any]] = {}
+    for index, public_name in enumerate(declaration["fields"]):
+        internal_name = re.sub(r"\W", "_", public_name)
+        if not internal_name.isidentifier() or internal_name in JsonObjectActionOutput.model_fields:
+            internal_name = f"declared_field_{index}"
+        annotation = _fixture_annotation(list(fixture_types.get(public_name, [])))
+        fields[internal_name] = (annotation | None, Field(default=None, alias=public_name))
+
+    configured_base = type(
+        f"{name}ConfiguredBase",
+        (JsonObjectActionOutput,),
+        {
+            "model_config": ConfigDict(
+                strict=True,
+                extra="allow",
+                populate_by_name=True,
+                json_schema_extra={
+                    "x-synapse-action-id": action_id,
+                    "x-synapse-contract-sources": declaration["sources"],
+                    "x-synapse-dynamic-boundary": declaration["dynamicBoundary"],
+                },
+            )
+        },
+    )
+    return create_model(name, __base__=configured_base, **fields)
 
 
 def _union_of(annotations: list[Any]) -> Any:

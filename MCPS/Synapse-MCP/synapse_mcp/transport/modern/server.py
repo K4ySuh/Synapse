@@ -266,7 +266,11 @@ def _projected_callable(runtime: ModernAdapterRuntime, operation: ApplicationOpe
         try:
             context = _call_context(runtime, sdk_context, operation.name, payload)
             if sdk_context.request_state:
-                envelope = runtime.execution.resume(str(sdk_context.request_state), context=context)
+                envelope = runtime.execution.resume(
+                    str(sdk_context.request_state),
+                    context=context,
+                    response_operation=operation.name,
+                )
             elif isinstance(runtime.projection, CompactProjection):
                 envelope = runtime.projection.invoke(operation.name, payload, context=context)
             else:

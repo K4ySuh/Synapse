@@ -1,0 +1,226 @@
+#!/usr/bin/env python3
+# Copyright 2026 Javier Roldán Ortiz
+# SPDX-License-Identifier: Apache-2.0
+
+"""Generate or verify retained-action output contract declarations."""
+
+from __future__ import annotations
+
+import argparse
+import ast
+from collections import defaultdict
+import inspect
+import json
+from pathlib import Path
+import sys
+import textwrap
+from typing import Any
+
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+PACKAGE_DIR = ROOT_DIR / "MCPS" / "Synapse-MCP"
+INVENTORY_PATH = PACKAGE_DIR / "synapse_mcp" / "app" / "actions" / "action_inventory.json"
+OUTPUT_PATH = PACKAGE_DIR / "synapse_mcp" / "app" / "actions" / "output_contracts.json"
+FIXTURE_DIR = PACKAGE_DIR / "tests" / "fixtures" / "legacy_contracts" / "results"
+if str(PACKAGE_DIR) not in sys.path:
+    sys.path.insert(0, str(PACKAGE_DIR))
+
+
+FIXTURE_ACTIONS = {
+    "cache_inspect_scope_data.json": "cache.inspect_scope_data",
+    "credentials_list.json": "credentials.list",
+    "credentials_set_confirmed.json": "credentials.set",
+    "headers_cookies_analyze_workspace.json": "headers_cookies.analyze_workspace",
+    "jobs_status_terminal.json": "jobs.status",
+    "shodan_internetdb.json": "shodan.internetdb",
+    "workspace_prepare_target_context.json": "workspace.prepare_target_context",
+    "workspace_summary.json": "workspace.summary",
+    "crawler_crawl_background_submitted.json": "crawler.crawl",
+    "cors_execute_test_disabled_traffic.json": "cors.execute_test",
+}
+
+COMMON_FIELDS = {"background", "job", "status", "result", "error"}
+SENSITIVE_FIELDS = {
+    "authorization",
+    "password",
+    "proxy-authorization",
+    "secret",
+    "token",
+}
+NESTED_HTTP_FIELDS = {"accept", "content-type", "user-agent", "body", "headers"}
+
+
+def _json_type(value: Any) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, int):
+        return "integer"
+    if isinstance(value, float):
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, list):
+        return "array"
+    if isinstance(value, dict):
+        return "object"
+    raise TypeError(type(value).__name__)
+
+
+def _source_keys(function: Any) -> set[str]:
+    """Collect conservative public vocabulary from canonical serializer source."""
+
+    try:
+        tree = ast.parse(textwrap.dedent(inspect.getsource(function)))
+    except (OSError, TypeError, IndentationError, SyntaxError):
+        return set()
+    keys: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Dict):
+            keys.update(
+                key.value
+                for key in node.keys
+                if isinstance(key, ast.Constant) and isinstance(key.value, str)
+            )
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "dict":
+            keys.update(keyword.arg for keyword in node.keywords if keyword.arg)
+    return {
+        key
+        for key in keys
+        if key
+        and not key.startswith("_")
+        and key.lower() not in SENSITIVE_FIELDS
+        and key.lower() not in NESTED_HTTP_FIELDS
+    }
+
+
+def _fixture_observations() -> dict[str, dict[str, set[str]]]:
+    observed: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
+    for filename, action_id in FIXTURE_ACTIONS.items():
+        document = json.loads((FIXTURE_DIR / filename).read_text(encoding="utf-8"))
+        result = document.get("result", {})
+        if result.get("isError") is True:
+            continue
+        content = result.get("content", [])
+        if not content or not isinstance(content[0], dict):
+            continue
+        payload = json.loads(str(content[0].get("text") or "{}"))
+        if not isinstance(payload, dict):
+            continue
+        for key, value in payload.items():
+            observed[action_id][key].add(_json_type(value))
+    return observed
+
+
+def _fallback_fields(action_id: str) -> set[str]:
+    pack, local = action_id.split(".", 1)
+    exact = {
+        "documentation.build_layer_report_context": {"contextType", "layerReport"},
+        "documentation.build_workspace_report_context": {"contextType", "workspaceReport"},
+        "project.start": {"workspaceId", "workspace", "scope", "fingerprint"},
+        "scope.check_target": {"target", "host", "inScope", "match", "scope"},
+    }
+    if action_id in exact:
+        return exact[action_id]
+    if local == "capabilities":
+        return {"adapter", "capabilities", "limitations"}
+    if local in {"profiles", "list"}:
+        return {"count", "items", "profiles" if local == "profiles" else pack}
+    if local in {"prepare_replay", "generate_test_code"}:
+        return {"candidate", "replay", "testCode"}
+    if "plan" in local or local.startswith("generate_test"):
+        return {"candidateId", "guardrails", "sendsTraffic", "testPlan"}
+    if "analyze" in local or local.startswith("passive_"):
+        return {"adapter", "candidateCount", "candidates", "ingestion", "target", "workspaceId"}
+    if local.startswith("execute"):
+        return {"action", "assessment", "evidenceId", "exchangeEvidence", "ingestion"}
+    if local.startswith("render"):
+        return {"bytes", "content", "format", "path", "summary", "workspaceId"}
+    if local in {"run_profile", "extended"}:
+        return {"approval", "background", "built", "job", "message", "status"}
+    if local in {"set", "reset_source_endpoint"}:
+        return {"configured", "persisted", "scope", "source", "workspaceId"}
+    if local in {"get", "read_host"}:
+        return {"credential", "exists", "fingerprint", "path", "target"}
+    if local == "tail":
+        return {"count", "events"}
+    return {"result"}
+
+
+def _document() -> dict[str, Any]:
+    from synapse_mcp.app.actions import REGISTRY
+    from synapse_mcp.app.actions.legacy_bridge import RetainedLegacyExecutor
+    from synapse_mcp.transport import stdio_server
+
+    inventory = json.loads(INVENTORY_PATH.read_text(encoding="utf-8"))["actions"]
+    inventory_by_id = {entry["actionId"]: entry for entry in inventory}
+    fixtures = _fixture_observations()
+    contracts: dict[str, Any] = {}
+    for descriptor in REGISTRY.descriptors():
+        if not isinstance(descriptor.executor, RetainedLegacyExecutor):
+            continue
+        action_id = str(descriptor.id)
+        entry = inventory_by_id[action_id]
+        module_name, function_name = str(entry["implementationTarget"]).split(".", 1)
+        module = getattr(stdio_server, module_name)
+        function: Any = module
+        for part in function_name.split("."):
+            function = getattr(function, part, None)
+            if function is None:
+                break
+        source_fields = _source_keys(function) if callable(function) else set()
+        observed = fixtures.get(action_id, {})
+        fields = (source_fields | set(observed) | _fallback_fields(action_id)) - COMMON_FIELDS
+        contracts[action_id] = {
+            "fields": sorted(fields),
+            "fixtureTypes": {
+                key: sorted(types)
+                for key, types in sorted(observed.items())
+                if key not in COMMON_FIELDS
+            },
+            "sources": [
+                f"implementation:{entry['implementationTarget']}",
+                *(
+                    f"fixture:{name}"
+                    for name, fixture_action in FIXTURE_ACTIONS.items()
+                    if fixture_action == action_id
+                ),
+            ],
+            "dynamicBoundary": (
+                "Known public top-level fields are declared. Values and additional public fields remain JSON "
+                "because the frozen retained serializer is intentionally open-ended; secrets and internal worker "
+                "fields are never advertised."
+            ),
+        }
+    return {
+        "schemaVersion": 1,
+        "actionCount": len(contracts),
+        "derivation": "canonical implementation serializer source plus frozen representative success/background fixtures",
+        "contracts": contracts,
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--write", action="store_true")
+    mode.add_argument("--check", action="store_true")
+    args = parser.parse_args()
+    document = _document()
+    if document["actionCount"] != 168:
+        raise RuntimeError(f"expected 168 retained output contracts, got {document['actionCount']}")
+    rendered = json.dumps(document, indent=2, sort_keys=True) + "\n"
+    if args.write:
+        OUTPUT_PATH.write_text(rendered, encoding="utf-8")
+        print(f"wrote {OUTPUT_PATH} ({document['actionCount']} retained actions)")
+        return 0
+    if not OUTPUT_PATH.is_file() or OUTPUT_PATH.read_text(encoding="utf-8") != rendered:
+        print(f"FAIL stale {OUTPUT_PATH}", file=sys.stderr)
+        return 1
+    print(f"action output contracts are current: {document['actionCount']} retained actions")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

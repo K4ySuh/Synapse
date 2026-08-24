@@ -37,6 +37,7 @@ cat <<EOF
 EOF
 
 if [ "$PROFILE" = modern-compact ]; then
+    SYNAPSE_RUNTIME=$("$ROOT_DIR/bin/resolve-synapse-python" --require-modern)
     cat <<EOF
 #
 # Phase 3D default: the eleven-operation modern-compact stdio surface.
@@ -45,7 +46,7 @@ if [ "$PROFILE" = modern-compact ]; then
 # an MCP invocation does not grant Synapse execution authority.
 
 [mcp_servers.synapse]
-command = "$ROOT_DIR/.venv/bin/python"
+command = "$SYNAPSE_RUNTIME"
 args = [
   "-m", "synapse_mcp.transport.modern",
   "--surface", "modern-compact",
@@ -72,7 +73,8 @@ else
 #
 # Frozen Phase 0-compatible rollback profile.
 # The launcher is venv-aware: SYNAPSE_PYTHON, active VIRTUAL_ENV, repository
-# .venv, then python3.
+# .venv, then an actionable failure. It still dispatches through the canonical
+# Registry; this is an adapter rollback, not an authority bypass.
 
 [mcp_servers.synapse]
 command = "$ROOT_DIR/MCPS/Synapse-MCP/bin/synapse-mcp"
@@ -106,7 +108,7 @@ if [ "$INCLUDE_CLAUDE" -eq 0 ]; then
 fi
 
 if [ "$PROFILE" = modern-compact ]; then
-    CLAUDE_COMMAND="$ROOT_DIR/.venv/bin/python"
+    CLAUDE_COMMAND="$SYNAPSE_RUNTIME"
     CLAUDE_ARGS=$(cat <<EOF
         "-m", "synapse_mcp.transport.modern",
         "--surface", "modern-compact",

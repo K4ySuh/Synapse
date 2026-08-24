@@ -18,6 +18,7 @@ from unittest.mock import patch
 
 from helpers import isolated_state
 import httpx2
+from jsonschema import Draft202012Validator
 from mcp import Client, StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server.mcpserver import Context
@@ -242,6 +243,15 @@ class ModernConfigurationTests(ModernAdapterFixture, unittest.TestCase):
 class ModernDiscoveryTests(ModernAdapterFixture, unittest.IsolatedAsyncioTestCase):
     async def test_both_surfaces_are_deterministic_on_modern_and_legacy_negotiation(self) -> None:
         expected_versions = set(SUPPORTED_PROTOCOL_VERSIONS)
+        manifest = json.loads(
+            (
+                Path(__file__).resolve().parents[1]
+                / "tests"
+                / "fixtures"
+                / "phase3d"
+                / "payload-manifest.json"
+            ).read_text(encoding="utf-8")
+        )
         for surface, count in (
             (SurfaceMode.MODERN_COMPACT, 11),
             (SurfaceMode.MODERN_DIRECT, 174),
@@ -255,6 +265,20 @@ class ModernDiscoveryTests(ModernAdapterFixture, unittest.IsolatedAsyncioTestCas
                         discovered = await client.list_tools()
                         observed_versions.add(str(client.protocol_version))
                         names = [tool.name for tool in discovered.tools]
+                        wire = [
+                            tool.model_dump(mode="json", by_alias=True, exclude_none=True)
+                            for tool in discovered.tools
+                        ]
+                        wire_payload = json.dumps(wire, separators=(",", ":")).encode("utf-8")
+                        recorded = manifest["officialSdkWire"]["surfaces"][surface.value]["revisions"][
+                            str(client.protocol_version)
+                        ]
+                        fixture = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "phase3d" / recorded[
+                            "fixture"
+                        ]
+                        self.assertEqual(wire_payload + b"\n", fixture.read_bytes())
+                        self.assertEqual(len(wire_payload), recorded["compactUtf8Bytes"])
+                        self.assertEqual(sha256(wire_payload).hexdigest(), recorded["sha256"])
                         self.assertEqual(len(names), count)
                         if not modern_names:
                             modern_names = names
@@ -263,9 +287,75 @@ class ModernDiscoveryTests(ModernAdapterFixture, unittest.IsolatedAsyncioTestCas
                         for tool in discovered.tools:
                             self.assertNotIn("confirm", tool.input_schema.get("properties", {}))
                             self.assertEqual(tool.output_schema["type"], "object")
+                            Draft202012Validator.check_schema(tool.output_schema)
                             self.assertIsNotNone(tool.annotations)
             self.assertEqual(observed_versions, expected_versions)
         self.assertEqual(modern_names, [str(descriptor.id) for descriptor in REGISTRY.descriptors()])
+
+    async def test_standard_wire_schemas_are_action_specific_and_validate_returned_content(self) -> None:
+        workspace.create_workspace("modern", hosts=["example.test"])
+        direct_runtime = build_runtime(self.config(surface=SurfaceMode.MODERN_DIRECT))
+        async with Client(direct_runtime.server) as client:
+            discovered = await client.list_tools()
+            schemas = {tool.name: tool.output_schema for tool in discovered.tools}
+            self.assertEqual(len(schemas), 174)
+            self.assertEqual(
+                len({json.dumps(schema, sort_keys=True) for schema in schemas.values()}),
+                174,
+            )
+            for action_id, schema in schemas.items():
+                self.assertEqual(schema["properties"]["operation"]["const"], action_id)
+                self.assertEqual(schema["properties"]["actionId"]["const"], action_id)
+            result = await client.call_tool("adapters.list", {})
+            self.assertTrue(result.is_error)
+            self.assertEqual(result.structured_content["outcomeKind"], "unavailable_capability")
+            Draft202012Validator(schemas["adapters.list"]).validate(result.structured_content)
+            validator = Draft202012Validator(schemas["adapters.list"])
+            for outcome_kind in (
+                "success",
+                "approval_required",
+                "validation_failure",
+                "unavailable_capability",
+                "policy_denial",
+                "execution_failure",
+                "execution_unknown",
+            ):
+                envelope = FacadeEnvelope(
+                    operation="adapters.list",
+                    action_id="adapters.list",
+                    outcome_kind=outcome_kind,
+                    summary=outcome_kind,
+                    result={} if outcome_kind == "success" else None,
+                    requested_input={"review": "operator_authority"}
+                    if outcome_kind == "approval_required"
+                    else None,
+                    trace_id="wire-schema-variant",
+                    operation_handle="opaque-operation"
+                    if outcome_kind == "approval_required"
+                    else None,
+                )
+                validator.validate(envelope.model_dump(mode="json", by_alias=True))
+
+        compact_runtime = build_runtime(self.config())
+        async with Client(compact_runtime.server) as client:
+            discovered = await client.list_tools()
+            schemas = {tool.name: tool.output_schema for tool in discovered.tools}
+            success = await client.call_tool("capabilities.search", {"query": "workspace"})
+            self.assertFalse(success.is_error)
+            Draft202012Validator(schemas["capabilities.search"]).validate(success.structured_content)
+            with patch("synapse_mcp.app.actions.catalog.shutil.which", return_value=None):
+                unavailable = await client.call_tool(
+                    "actions.run_active",
+                    {
+                        "actionId": "ffuf.run_profile",
+                        "arguments": {
+                            "workspaceId": "modern",
+                            "target": "https://example.test",
+                            "wordlist": "/tmp/not-used",
+                        },
+                    },
+                )
+            Draft202012Validator(schemas["actions.run_active"]).validate(unavailable.structured_content)
 
     async def test_compact_discovery_cache_scope_schema_and_size_gate(self) -> None:
         runtime = build_runtime(self.config())

@@ -502,3 +502,44 @@ is retained as an independent rollback/bootstrap path, `modern-direct` remains
 explicit diagnostic compatibility, and no legacy removal date is implied.
 
 PHASE_3_PASS
+
+## Phase 3R-2 corrective result
+
+- The 168 retained descriptors now use generated action-specific output
+  contracts derived from canonical implementation serializer source and ten
+  frozen representative success/background fixtures. They expose 134 distinct
+  semantic shapes after action identity/source metadata is removed. Known
+  public top-level fields are declared; JSON-valued and additional public
+  fields are retained only at the documented frozen-serializer dynamic
+  boundary. Secrets and internal worker fields are not advertised.
+- All 174 modern-direct tools publish their real facade envelope through the
+  standard MCP `outputSchema`. `operation` and `actionId` are action constants,
+  the success result embeds that descriptor's canonical output schema, and all
+  terminal outcome branches are represented. The 174 standard schemas are
+  unique. `synapse/actionOutputSchema` remains supplemental metadata only.
+- Compact standard schemas enumerate success, approval-required, validation,
+  unavailable, policy-denial, execution-failure, and execution-unknown
+  outcomes. Approval requires typed requested input plus an opaque operation
+  handle. Runtime-selected result boundaries are named explicitly.
+- Payload evidence is split into the transport-independent application
+  projection and actual official-SDK `Tool` objects from `tools/list`. The
+  compact application projection is 22,863 bytes. SDK 2.0.0 wire objects are
+  23,567 bytes at `2026-07-28` and 24,205 bytes at each of `2024-11-05`,
+  `2025-03-26`, `2025-06-18`, and `2025-11-25`; each revision is fixture/hash
+  checked and remains below 24,834 bytes.
+- `SYNAPSE_PYTHON`, active `VIRTUAL_ENV`, and repository `.venv` resolution is
+  shared by tests, measurement, config generation, and launchers, followed by
+  an actionable failure rather than a guessed interpreter. Setup now reports
+  legacy and modern readiness independently; modern ready requires exact SDK,
+  private binding/keyring files, writable state, and a resolvable authority
+  binding.
+- The frozen legacy rollback was executed with an import-blocking fake modern
+  SDK and absent modern operator files. Its 174-tool result remained exact and
+  still entered the canonical Registry. This is adapter rollback, not an
+  authority or retained-dispatch bypass.
+- Corrective verification passed 609 core tests, 2 template tests, 14 modern
+  official-SDK tests, shell syntax, output/inventory generation checks, and
+  both transport-independent and official-wire payload gates. Exact legacy
+  discovery remains 174 tools / 99,337 bytes.
+
+PHASE_3R2_PASS

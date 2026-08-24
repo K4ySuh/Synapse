@@ -9,16 +9,7 @@ export SYNAPSE_ROOT
 if [ -f "$ENV_FILE" ]; then
     . "$ENV_FILE"
 fi
-if [ -z "${SYNAPSE_PYTHON:-}" ]; then
-    if [ -n "${VIRTUAL_ENV:-}" ] && [ -x "$VIRTUAL_ENV/bin/python" ]; then
-        SYNAPSE_PYTHON="$VIRTUAL_ENV/bin/python"
-    else
-        SYNAPSE_PYTHON="$ROOT_DIR/.venv/bin/python"
-    fi
-fi
-if [ ! -x "$SYNAPSE_PYTHON" ]; then
-    SYNAPSE_PYTHON="${SYNAPSE_PYTHON_FALLBACK:-python3}"
-fi
+SYNAPSE_PYTHON=$("$ROOT_DIR/bin/resolve-synapse-python")
 
 usage() {
     cat <<EOF

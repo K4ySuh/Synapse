@@ -10,248 +10,170 @@ if [ -f "$ENV_FILE" ]; then
     # shellcheck disable=SC1090
     . "$ENV_FILE"
 fi
-if [ -z "${SYNAPSE_PYTHON:-}" ]; then
-    if [ -n "${VIRTUAL_ENV:-}" ] && [ -x "$VIRTUAL_ENV/bin/python" ]; then
-        SYNAPSE_PYTHON="$VIRTUAL_ENV/bin/python"
-    else
-        SYNAPSE_PYTHON="$ROOT_DIR/.venv/bin/python"
-    fi
-fi
-if [ ! -x "$SYNAPSE_PYTHON" ]; then
-    SYNAPSE_PYTHON="${SYNAPSE_PYTHON_FALLBACK:-python3}"
-fi
-MCP_SSE_URL="${MCP_SSE_URL:-http://127.0.0.1:9876}"
-BURP_MCP_PROXY_JAR="${BURP_MCP_PROXY_JAR:-$ROOT_DIR/MCPS/Burp-Mcp/mcp-proxy.jar}"
 
-ok=0
+profile=all
 strict_tools=0
+legacy_ready=0
+modern_ready=0
+tooling_ready=0
 
 usage() {
-    cat <<EOF
-Usage: bin/check-setup [--strict-tools]
+    cat <<'EOF'
+Usage: bin/check-setup [--all|--legacy|--modern] [--strict-tools]
 
-By default, missing external adapter binaries are warnings so passive Synapse
-workflows can still validate cleanly. Use --strict-tools for a full active
-tooling environment check.
+Reports legacy and modern readiness independently. The default --all fails if
+either selected runtime is not ready. Modern readiness requires operator-owned
+private identity/keyring material and a writable state directory.
 EOF
 }
 
-case "${1:-}" in
-    --strict-tools)
-        strict_tools=1
-        shift
-        ;;
-    --help|-h)
-        usage
-        exit 0
-        ;;
-    "")
-        ;;
-    *)
-        usage
-        exit 2
-        ;;
-esac
-
-check_cmd() {
-    name="$1"
-    if command -v "$name" >/dev/null 2>&1; then
-        printf 'OK   %s: %s\n' "$name" "$(command -v "$name")"
-    else
-        printf 'MISS %s: not found on PATH\n' "$name"
-        ok=1
-    fi
-}
-
-check_cmd_optional() {
-    name="$1"
-    reason="$2"
-    if command -v "$name" >/dev/null 2>&1; then
-        printf 'OK   optional command %s: %s\n' "$name" "$(command -v "$name")"
-    else
-        printf 'WARN optional command %s: not found on PATH\n' "$name"
-        printf '     %s\n' "$reason"
-    fi
-}
-
-check_external_tool() {
-    name="$1"
-    reason="$2"
-    if command -v "$name" >/dev/null 2>&1; then
-        printf 'OK   external tool %s: %s\n' "$name" "$(command -v "$name")"
-    elif [ "$strict_tools" -eq 1 ]; then
-        printf 'MISS external tool %s: not found on PATH\n' "$name"
-        printf '     %s\n' "$reason"
-        ok=1
-    else
-        printf 'WARN external tool %s: not found on PATH\n' "$name"
-        printf '     %s\n' "$reason"
-    fi
-}
-
-check_python_module_optional() {
-    label="$1"
-    module="$2"
-    if "$SYNAPSE_PYTHON" -c "import $module" >/dev/null 2>&1; then
-        printf 'OK   optional Python module %s: importable with %s\n' "$label" "$SYNAPSE_PYTHON"
-    else
-        printf 'WARN optional Python module %s: not importable with %s\n' "$label" "$SYNAPSE_PYTHON"
-    fi
-}
-
-check_python_module_required() {
-    label="$1"
-    module="$2"
-    if "$SYNAPSE_PYTHON" -c "import $module" >/dev/null 2>&1; then
-        printf 'OK   required Python module %s: importable with %s\n' "$label" "$SYNAPSE_PYTHON"
-    else
-        printf 'MISS required Python module %s: not importable with %s\n' "$label" "$SYNAPSE_PYTHON"
-        printf '     The virtual environment may be incomplete or stale after a Python upgrade; rebuild it and reinstall Synapse.\n'
-        ok=1
-    fi
-}
-
-check_file() {
-    label="$1"
-    path="$2"
-    if [ -f "$path" ]; then
-        printf 'OK   %s: %s\n' "$label" "$path"
-    else
-        printf 'MISS %s: %s\n' "$label" "$path"
-        ok=1
-    fi
-}
-
-check_file_optional() {
-    label="$1"
-    path="$2"
-    reason="$3"
-    if [ -f "$path" ]; then
-        printf 'OK   optional %s: %s\n' "$label" "$path"
-    else
-        printf 'WARN optional %s: %s\n' "$label" "$path"
-        printf '     %s\n' "$reason"
-    fi
-}
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --all) profile=all ;;
+        --legacy) profile=legacy ;;
+        --modern) profile=modern ;;
+        --strict-tools) strict_tools=1 ;;
+        --help|-h) usage; exit 0 ;;
+        *) usage >&2; exit 2 ;;
+    esac
+    shift
+done
 
 provision_version_log() {
     log="$ROOT_DIR/docs/Version-Log.md"
     template="$ROOT_DIR/docs/Version-Log.template.md"
     if [ -f "$log" ]; then
         printf 'OK   local Version-Log present: %s\n' "$log"
-    elif [ -f "$template" ]; then
-        if cp "$template" "$log" 2>/dev/null; then
-            printf 'OK   created local Version-Log from template: %s\n' "$log"
-            printf '     This file is gitignored; keep your own dated dev history here.\n'
-        else
-            printf 'WARN could not create %s from template; copy it manually.\n' "$log"
-        fi
+    elif [ -f "$template" ] && cp "$template" "$log" 2>/dev/null; then
+        printf 'OK   created local gitignored Version-Log: %s\n' "$log"
     else
-        printf 'WARN Version-Log template missing: %s\n' "$template"
+        printf 'WARN local Version-Log is unavailable; copy %s manually\n' "$template"
     fi
 }
 
-printf 'Synapse setup check\n'
-printf 'Repository: %s\n\n' "$ROOT_DIR"
+check_external_tool() {
+    name="$1"
+    if command -v "$name" >/dev/null 2>&1; then
+        printf 'OK   optional adapter executable %s: %s\n' "$name" "$(command -v "$name")"
+    elif [ "$strict_tools" -eq 1 ]; then
+        printf 'MISS optional adapter executable %s (required by --strict-tools)\n' "$name"
+        tooling_ready=1
+    else
+        printf 'WARN optional adapter executable %s is not installed\n' "$name"
+    fi
+}
 
+printf 'Synapse setup check\nRepository: %s\n\n' "$ROOT_DIR"
 provision_version_log
 
-check_cmd python3
-check_external_tool sqlmap "Required only for SQLMap-backed active adapter workflows."
-check_external_tool ffuf "Required only for ffuf content-discovery adapter workflows."
-check_external_tool nmap "Required only for nmap infrastructure adapter workflows."
-check_external_tool nuclei "Required only for Nuclei web scanning adapter workflows."
-if [ -x "$SYNAPSE_PYTHON" ] || command -v "$SYNAPSE_PYTHON" >/dev/null 2>&1; then
-    printf 'OK   Synapse Python: %s\n' "$SYNAPSE_PYTHON"
+if [ ! -f "$ENV_FILE" ]; then
+    printf 'MISS shared environment file: %s\n' "$ENV_FILE"
+    legacy_ready=1
 else
-    printf 'MISS Synapse Python: %s\n' "$SYNAPSE_PYTHON"
-    ok=1
+    printf 'OK   shared environment file: %s\n' "$ENV_FILE"
 fi
-printf 'OK   Shodan API key: runtime-only via shodan.session_key.set\n'
-check_python_module_required "httpx" "httpx"
-check_python_module_required "pydantic" "pydantic"
-check_python_module_required "mcp 2.0 modern runtime" "mcp"
-check_python_module_optional "playwright" "playwright.sync_api"
-check_python_module_optional "selenium" "selenium"
-check_file "env file" "$ENV_FILE"
-check_file "agent instructions" "$ROOT_DIR/AGENTS.md"
-check_file "Synapse MCP launcher" "$ROOT_DIR/MCPS/Synapse-MCP/bin/synapse-mcp"
-check_file_optional \
-    "modern identity binding" \
-    "$ROOT_DIR/DATA/modern-adapter/identity-bindings.json" \
-    "Provision this private 0600 operator file before enabling the generated modern Codex profile."
-check_file_optional \
-    "modern request-state keyring" \
-    "$ROOT_DIR/DATA/modern-adapter/request-state-keyring.json" \
-    "Provision this private 0600 operator file before enabling restart-safe approval resume."
+if [ ! -f "$ROOT_DIR/AGENTS.md" ]; then
+    printf 'MISS agent instructions: %s\n' "$ROOT_DIR/AGENTS.md"
+    legacy_ready=1
+fi
 
-printf '\nRecommended optional Burp MCP checks:\n'
-check_cmd_optional "java" "Java is needed only when launching the optional PortSwigger Burp MCP proxy jar."
-check_file_optional "Burp MCP proxy jar" "$BURP_MCP_PROXY_JAR" "Burp MCP is recommended for live Burp Suite operations; offline dump analysis and Synapse MCP can run without it."
+if SYNAPSE_PYTHON_RESOLVED=$("$ROOT_DIR/bin/resolve-synapse-python" 2>&1); then
+    printf 'OK   selected Python: %s\n' "$SYNAPSE_PYTHON_RESOLVED"
+else
+    printf 'MISS selected Python: %s\n' "$SYNAPSE_PYTHON_RESOLVED"
+    legacy_ready=1
+    modern_ready=1
+    SYNAPSE_PYTHON_RESOLVED=""
+fi
 
-printf '\nSynapse MCP check:\n'
-if [ -x "$ROOT_DIR/MCPS/Synapse-MCP/bin/synapse-mcp" ]; then
-    response=$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' |
-        PYTHONDONTWRITEBYTECODE=1 \
-        "$ROOT_DIR/MCPS/Synapse-MCP/bin/synapse-mcp" 2>&1)
-    startup_status=$?
-    if [ "$startup_status" -ne 0 ]; then
-        printf 'MISS Synapse MCP failed to start (exit %s)\n' "$startup_status"
-        printf '%s\n' "$response" | sed 's/^/     /'
-        ok=1
-    elif [ -z "$response" ]; then
-        printf 'MISS Synapse MCP exited without returning a tools/list response\n'
-        ok=1
-    else
-        missing_tools=""
-        for tool in \
-            "shodan.session_key.set" \
-            "nmap.run_profile" \
-            "nuclei.run_profile" \
-            "ffuf.run_profile" \
-            "sitemap.from_dump" \
-            "crawler.crawl" \
-            "credentials.set_browser_auth_profile" \
-            "credentials.browser_auth_check_setup" \
-            "credentials.browser_authenticate" \
-            "credentials.validate_session" \
-            "xss.analyze_dump" \
-            "documentation.build_report_context" \
-            "project.start" \
-            "fingerprint.from_dump" \
-            "fingerprint.read_host" \
-            "evidence.host_context"; do
-            case "$response" in
-                *"\"$tool\""*) ;;
-                *) missing_tools="$missing_tools $tool" ;;
-            esac
-        done
-        if [ -z "$missing_tools" ]; then
-            printf 'OK   Synapse MCP starts and exposes expected adapter tools\n'
+if [ -n "$SYNAPSE_PYTHON_RESOLVED" ]; then
+    for module in httpx pydantic; do
+        if "$SYNAPSE_PYTHON_RESOLVED" -c "import $module" >/dev/null 2>&1; then
+            printf 'OK   legacy dependency %s\n' "$module"
         else
-            printf 'MISS Synapse MCP started but missing expected tools:%s\n' "$missing_tools"
-            ok=1
+            printf 'MISS legacy dependency %s\n' "$module"
+            legacy_ready=1
         fi
-    fi
-else
-    printf 'MISS Synapse MCP launcher is not executable\n'
-    ok=1
+    done
 fi
 
-printf '\nOptional Burp MCP endpoint check:\n'
-if command -v curl >/dev/null 2>&1; then
-    if curl --max-time 3 --silent --fail "$MCP_SSE_URL" >/dev/null 2>&1 ||
-       curl --max-time 3 --silent --fail "$MCP_SSE_URL/sse" >/dev/null 2>&1; then
-        printf 'OK   Burp MCP endpoint reachable: %s\n' "$MCP_SSE_URL"
+for tool in sqlmap ffuf nmap nuclei; do
+    check_external_tool "$tool"
+done
+
+printf '\nLegacy runtime check:\n'
+LEGACY_LAUNCHER="$ROOT_DIR/MCPS/Synapse-MCP/bin/synapse-mcp"
+if [ ! -x "$LEGACY_LAUNCHER" ]; then
+    printf 'MISS frozen legacy launcher is not executable: %s\n' "$LEGACY_LAUNCHER"
+    legacy_ready=1
+elif response=$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' |
+    PYTHONDONTWRITEBYTECODE=1 "$LEGACY_LAUNCHER" 2>&1); then
+    case "$response" in
+        *'"tools"'*'"jobs.list"'*'"fingerprint.from_dump"'*)
+            printf 'OK   frozen legacy tools/list starts and exposes expected tools\n' ;;
+        *)
+            printf 'MISS frozen legacy tools/list response is incomplete\n'
+            legacy_ready=1 ;;
+    esac
+else
+    printf 'MISS frozen legacy launcher failed to start\n'
+    printf '%s\n' "$response" | sed 's/^/     /'
+    legacy_ready=1
+fi
+
+printf '\nModern runtime check:\n'
+if [ -n "$SYNAPSE_PYTHON_RESOLVED" ]; then
+    if MODERN_PYTHON=$("$ROOT_DIR/bin/resolve-synapse-python" --require-modern 2>&1); then
+        printf 'OK   modern Python: %s\n' "$MODERN_PYTHON"
     else
-        printf 'WARN Burp MCP endpoint not reachable from this shell: %s\n' "$MCP_SSE_URL"
-        printf '     Optional but recommended for live Burp Suite operations. Start Burp, install/enable the PortSwigger MCP extension, and verify host/port when needed.\n'
+        printf 'MISS modern Python: %s\n' "$MODERN_PYTHON"
+        modern_ready=1
+        MODERN_PYTHON=""
     fi
 else
-    printf 'SKIP curl not available; cannot probe optional Burp MCP endpoint.\n'
+    MODERN_PYTHON=""
 fi
 
-printf '\nMCP client config:\n'
-"$ROOT_DIR/bin/print-mcp-config"
+IDENTITY_BINDINGS="${SYNAPSE_MODERN_IDENTITY_BINDINGS:-$ROOT_DIR/DATA/modern-adapter/identity-bindings.json}"
+REQUEST_STATE_KEYRING="${SYNAPSE_MODERN_REQUEST_STATE_KEYRING:-$ROOT_DIR/DATA/modern-adapter/request-state-keyring.json}"
+MODERN_STATE_DIR="${SYNAPSE_MODERN_STATE_DIR:-$ROOT_DIR/DATA/modern-adapter/state}"
+MODERN_PRINCIPAL="${SYNAPSE_MODERN_STDIO_PRINCIPAL:-local-operator}"
+MODERN_WORKSPACE="${SYNAPSE_MODERN_WORKSPACE:-}"
+if [ -n "$MODERN_PYTHON" ]; then
+    set -- --identity-bindings "$IDENTITY_BINDINGS" \
+        --request-state-keyring "$REQUEST_STATE_KEYRING" \
+        --state-dir "$MODERN_STATE_DIR" \
+        --principal "$MODERN_PRINCIPAL"
+    if [ -n "$MODERN_WORKSPACE" ]; then
+        set -- "$@" --workspace "$MODERN_WORKSPACE"
+    fi
+    if readiness=$(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/MCPS/Synapse-MCP" \
+        "$MODERN_PYTHON" -m synapse_mcp.transport.modern.readiness "$@" 2>&1); then
+        printf '%s\n' "$readiness"
+    else
+        printf '%s\n' "$readiness"
+        modern_ready=1
+    fi
+fi
 
-exit "$ok"
+printf '\nReadiness summary:\n'
+if [ "$legacy_ready" -eq 0 ]; then
+    printf 'LEGACY READY — frozen wire adapter using the canonical Registry\n'
+else
+    printf 'LEGACY NOT READY\n'
+fi
+if [ "$modern_ready" -eq 0 ]; then
+    printf 'MODERN READY — official SDK adapter and trusted operator material validated\n'
+else
+    printf 'MODERN NOT READY — provision private 0600 bindings/keyring and a writable state directory\n'
+fi
+
+case "$profile" in
+    legacy) selected_status=$legacy_ready ;;
+    modern) selected_status=$modern_ready ;;
+    all)
+        selected_status=$legacy_ready
+        if [ "$modern_ready" -ne 0 ]; then selected_status=$modern_ready; fi ;;
+esac
+if [ "$tooling_ready" -ne 0 ]; then selected_status=$tooling_ready; fi
+exit "$selected_status"

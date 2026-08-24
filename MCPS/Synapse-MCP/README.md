@@ -37,6 +37,14 @@ destructive effects. Local file results become opaque, versioned references
 reauthorized against principal, authority session, and workspace on every
 read.
 
+Retained action outputs are described by action-specific public field
+contracts derived from canonical serializer source and frozen representative
+results. `modern-direct` publishes each exact facade envelope and canonical
+result contract through the standard MCP `outputSchema`; supplemental Synapse
+metadata is not the primary contract. Compact tools publish all typed outcome
+kinds, including their approval carrier, while documenting the narrow dynamic
+boundary for runtime-selected actions.
+
 Phase 3C projects either surface through `synapse-mcp-modern` using the pinned
 official SDK. It supports stdio and authenticated Streamable HTTP, persists
 operation and artifact reference records for restart/multi-worker use, and
@@ -64,7 +72,8 @@ Dispatch budgets count actions, not outbound HTTP requests.
 Run this MCP through `MCPS/Synapse-MCP/bin/synapse-mcp`. The launcher sources
 `config/synapse.env` and uses `SYNAPSE_PYTHON` when set, otherwise it prefers
 the active console `VIRTUAL_ENV`, then the repository virtual environment at
-`$SYNAPSE_ROOT/.venv/bin/python`. Browser authentication depends on that venv
+`$SYNAPSE_ROOT/.venv/bin/python`; it fails with an actionable diagnostic if no
+candidate exists. Browser authentication depends on that venv
 path so Playwright/Selenium come from the console or project environment
 instead of distro Python packages.
 

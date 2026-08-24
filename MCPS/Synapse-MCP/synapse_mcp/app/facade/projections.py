@@ -15,10 +15,16 @@ from .catalog import action_annotations
 from .contracts import (
     COMPACT_INPUT_MODELS,
     ApplicationOperation,
+    ActionDescription,
+    CatalogPage,
     FacadeCallContext,
     FacadeEnvelope,
     OperationAnnotations,
+    ResolvedArtifact,
     compact_json_schema,
+    concise_json_object_schema,
+    dynamic_json_object_schema,
+    facade_envelope_schema,
     json_schema,
 )
 from .services import ActionExecutionService, COMPACT_OPERATION_NAMES, CompactFacadeService
@@ -126,14 +132,46 @@ class CompactProjection:
         self.service = service or CompactFacadeService()
 
     def operations(self) -> tuple[ApplicationOperation, ...]:
-        envelope_schema = compact_json_schema(FacadeEnvelope)
+        result_schemas = {
+            "engagement.open": concise_json_object_schema(REGISTRY.contract_schema("project.start")["outputSchema"]),
+            "engagement.inspect": concise_json_object_schema(REGISTRY.contract_schema("workspace.summary")["outputSchema"]),
+            "context.query": concise_json_object_schema(
+                REGISTRY.contract_schema("workspace.prepare_target_context")["outputSchema"]
+            ),
+            "capabilities.search": concise_json_object_schema(compact_json_schema(CatalogPage)),
+            "actions.describe": concise_json_object_schema(compact_json_schema(ActionDescription)),
+            "actions.run_passive": dynamic_json_object_schema(
+                boundary="Result is the validated output of the actionId selected at runtime.",
+                properties=("background", "job", "status", "result", "error"),
+            ),
+            "actions.run_active": dynamic_json_object_schema(
+                boundary="Result is the validated output of the actionId selected at runtime.",
+                properties=("background", "job", "status", "result", "error"),
+            ),
+            "reviews.apply": dynamic_json_object_schema(
+                boundary="Result is one of the five canonical review-action outputs selected by review.",
+                properties=("workspaceId", "target", "finding", "observation", "decision"),
+            ),
+            "artifacts.inspect": concise_json_object_schema(compact_json_schema(ResolvedArtifact)),
+            "reports.render": concise_json_object_schema(
+                REGISTRY.contract_schema("documentation.render_workspace_report")["outputSchema"]
+            ),
+            "tasks.control": dynamic_json_object_schema(
+                boundary="Result is a canonical job or opaque-operation state selected by operation.",
+                properties=("jobs", "job", "count", "state", "operationHandle", "status"),
+            ),
+        }
         return tuple(
             ApplicationOperation(
                 name=name,
                 title=_COMPACT_DETAILS[name][0],
                 description=_COMPACT_DETAILS[name][1],
                 input_schema=compact_json_schema(COMPACT_INPUT_MODELS[name]),
-                output_schema=envelope_schema,
+                output_schema=facade_envelope_schema(
+                    name,
+                    result_schemas[name],
+                    compact=True,
+                ),
                 annotations=_COMPACT_DETAILS[name][2],
             )
             for name in COMPACT_OPERATION_NAMES
@@ -162,7 +200,6 @@ class DirectProjection:
         self.execution = execution or ActionExecutionService(registry=registry)
 
     def operations(self) -> tuple[ApplicationOperation, ...]:
-        envelope_schema = json_schema(FacadeEnvelope)
         operations = []
         for descriptor in self.registry.descriptors():
             action_id = str(descriptor.id)
@@ -173,7 +210,11 @@ class DirectProjection:
                     title=descriptor.title,
                     description=descriptor.summary,
                     input_schema=schemas["inputSchema"],
-                    output_schema=envelope_schema,
+                    output_schema=facade_envelope_schema(
+                        action_id,
+                        schemas["outputSchema"],
+                        action_id=action_id,
+                    ),
                     annotations=action_annotations(descriptor),
                     action_id=action_id,
                     action_output_schema=schemas["outputSchema"],

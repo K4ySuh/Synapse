@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
@@ -299,3 +300,152 @@ def compact_json_schema(model: type[BaseModel]) -> dict[str, Any]:
         return value
 
     return strip_titles(json_schema(model))
+
+
+_OUTCOME_KINDS = (
+    "success",
+    "approval_required",
+    "validation_failure",
+    "unavailable_capability",
+    "policy_denial",
+    "execution_failure",
+    "execution_unknown",
+)
+
+
+def dynamic_json_object_schema(*, boundary: str, properties: tuple[str, ...] = ()) -> dict[str, Any]:
+    """Describe one intentional JSON-object boundary without pretending it is static."""
+
+    return {
+        "type": "object",
+        "properties": {name: {} for name in properties},
+        "additionalProperties": {},
+        "description": boundary,
+    }
+
+
+def concise_json_object_schema(schema: dict[str, Any], *, boundary: str = "") -> dict[str, Any]:
+    """Keep an object's canonical top-level contract without expanding nested data."""
+
+    properties = schema.get("properties")
+    names = tuple(properties) if isinstance(properties, dict) else ()
+    value: dict[str, Any] = {
+        "type": "object",
+        "properties": {name: {} for name in names},
+        "required": [name for name in schema.get("required", []) if name in names],
+        "additionalProperties": schema.get("additionalProperties", True) is not False,
+    }
+    if boundary:
+        value["x-synapse-dynamic-boundary"] = boundary
+    return value
+
+
+def _embed_schema(schema: dict[str, Any], *, prefix: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Rebase a Pydantic schema's local definitions into an envelope document."""
+
+    value = json.loads(json.dumps(schema))
+    definitions = value.pop("$defs", {})
+
+    def rewrite(item: Any) -> Any:
+        if isinstance(item, dict):
+            return {
+                key: (
+                    f"#/$defs/{prefix}{child.removeprefix('#/$defs/')}"
+                    if key == "$ref" and isinstance(child, str) and child.startswith("#/$defs/")
+                    else rewrite(child)
+                )
+                for key, child in item.items()
+            }
+        if isinstance(item, list):
+            return [rewrite(child) for child in item]
+        return item
+
+    return rewrite(value), {f"{prefix}{name}": rewrite(child) for name, child in definitions.items()}
+
+
+def facade_envelope_schema(
+    operation: str,
+    result_schema: dict[str, Any],
+    *,
+    action_id: str | None = None,
+    compact: bool = False,
+) -> dict[str, Any]:
+    """Build the exact standard schema for returned structured facade envelopes."""
+
+    result, definitions = _embed_schema(result_schema, prefix="Result")
+    if compact:
+        resource = {
+            "type": "object",
+            "required": ["reference"],
+        }
+    else:
+        resource, resource_definitions = _embed_schema(json_schema(ResourceReference), prefix="Resource")
+        definitions.update(resource_definitions)
+    nullable_string = {"type": ["string", "null"]}
+    properties: dict[str, Any] = {
+        "operation": {"const": operation},
+        "actionId": (
+            {"const": action_id, "type": "string"}
+            if action_id is not None
+            else nullable_string
+        ),
+        "outcomeKind": {"enum": list(_OUTCOME_KINDS)},
+        "summary": {"type": "string"},
+        "result": {"anyOf": [result, {"type": "null"}]},
+        "requestedInput": {
+            "type": ["object", "null"],
+            "additionalProperties": {},
+        },
+        "evidenceReferences": {"type": "array"} if compact else {"items": {"type": "string"}, "type": "array"},
+        "resourceReferences": {"items": resource, "type": "array"},
+        "diagnostics": {"type": "object"} if compact else {"additionalProperties": {}, "type": "object"},
+        "traceId": {"type": "string"},
+        "operationHandle": nullable_string,
+    }
+    if compact:
+        branches = [
+            {
+                "if": {"properties": {"outcomeKind": {"const": "approval_required"}}},
+                "then": {
+                    "properties": {
+                        "requestedInput": {"type": "object"},
+                        "operationHandle": {"type": "string"},
+                    }
+                },
+            },
+        ]
+    else:
+        branches = [
+            {
+                "properties": {"outcomeKind": {"const": "success"}, "result": result},
+                "required": ["result"],
+            },
+            {
+                "properties": {
+                    "outcomeKind": {"const": "approval_required"},
+                    "result": {"type": "null"},
+                    "requestedInput": {"type": "object"},
+                    "operationHandle": {"type": "string"},
+                },
+                "required": ["requestedInput", "operationHandle"],
+            },
+            {
+                "properties": {
+                    "outcomeKind": {"enum": list(_OUTCOME_KINDS[2:])},
+                    "result": {"type": "null"},
+                    "operationHandle": {"type": "null"},
+                }
+            },
+        ]
+    document: dict[str, Any] = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": properties,
+        "required": list(properties),
+        "allOf" if compact else "oneOf": branches,
+    }
+    if definitions:
+        document["$defs"] = definitions
+    if action_id is not None:
+        document["x-synapse-action-output"] = action_id
+    return document

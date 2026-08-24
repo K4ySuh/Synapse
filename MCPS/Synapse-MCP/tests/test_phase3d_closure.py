@@ -40,12 +40,13 @@ class Phase3DPayloadGateTests(unittest.TestCase):
         values = _surface_values()
         self.assertEqual(manifest["legacyBaselineBytes"], 99_337)
         self.assertEqual(manifest["compactMaximumBytes"], 24_834)
+        recorded_surfaces = manifest["applicationProjection"]["surfaces"]
         for name, surface in values.items():
             with self.subTest(surface=name):
                 payload = _serialize(surface)
                 fixture = (FIXTURE_DIR / f"{name}-tools.json").read_bytes()
                 self.assertEqual(fixture, payload + b"\n")
-                recorded = manifest["surfaces"][name]
+                recorded = recorded_surfaces[name]
                 self.assertEqual(recorded["toolCount"], len(surface))
                 self.assertEqual(recorded["compactUtf8Bytes"], len(payload))
                 self.assertEqual(recorded["sha256"], sha256(payload).hexdigest())

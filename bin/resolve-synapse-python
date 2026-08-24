@@ -1,0 +1,48 @@
+#!/usr/bin/env sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+ROOT_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+require_modern=0
+
+case "${1:-}" in
+    --require-modern) require_modern=1 ;;
+    "") ;;
+    *) printf 'Usage: bin/resolve-synapse-python [--require-modern]\n' >&2; exit 2 ;;
+esac
+
+resolve_command() {
+    candidate="$1"
+    if [ -x "$candidate" ]; then
+        CDPATH= cd -- "$(dirname -- "$candidate")" >/dev/null 2>&1
+        printf '%s/%s\n' "$(pwd -P)" "$(basename -- "$candidate")"
+        return 0
+    fi
+    command -v "$candidate" 2>/dev/null || return 1
+}
+
+selected=""
+if [ -n "${SYNAPSE_PYTHON:-}" ]; then
+    selected=$(resolve_command "$SYNAPSE_PYTHON") || {
+        printf 'SYNAPSE_PYTHON is not executable or on PATH: %s\n' "$SYNAPSE_PYTHON" >&2
+        exit 127
+    }
+elif [ -n "${VIRTUAL_ENV:-}" ] && [ -x "$VIRTUAL_ENV/bin/python" ]; then
+    selected=$(resolve_command "$VIRTUAL_ENV/bin/python")
+elif [ -x "$ROOT_DIR/.venv/bin/python" ]; then
+    selected=$(resolve_command "$ROOT_DIR/.venv/bin/python")
+else
+    printf '%s\n' 'No Synapse Python runtime was found.' >&2
+    printf '%s\n' 'Set SYNAPSE_PYTHON, activate VIRTUAL_ENV, or create the repository .venv.' >&2
+    exit 127
+fi
+
+if [ "$require_modern" -eq 1 ]; then
+    if ! "$selected" -c 'from importlib.metadata import version; import sys; actual=version("mcp"); sys.exit(0 if actual == "2.0.0" else f"modern runtime requires mcp==2.0.0, found {actual}")'; then
+        printf 'Selected Python is not modern-ready: %s\n' "$selected" >&2
+        printf '%s\n' "Install the exact modern extra with: $selected -m pip install -e '$ROOT_DIR[modern]'" >&2
+        exit 1
+    fi
+fi
+
+printf '%s\n' "$selected"

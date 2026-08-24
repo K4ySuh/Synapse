@@ -222,7 +222,7 @@ def _register_generated_descriptors() -> None:
             json.dumps(entry["inputSchema"], separators=(",", ":"), ensure_ascii=False)
         )
         input_model = make_input_model(str(entry["inputModel"]), document)
-        output_model = make_json_object_output_model(str(entry["outputModel"]))
+        output_model = make_json_object_output_model(str(entry["outputModel"]), action_id)
         maximum = _maximum_effects(action_id)
         idempotency = dict(entry["idempotency"])
         descriptor = ActionDescriptor(

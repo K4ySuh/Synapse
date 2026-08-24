@@ -1,27 +1,105 @@
 {
+  "applicationProjection": {
+    "description": "Transport-independent ApplicationOperation projection",
+    "surfaces": {
+      "legacy": {
+        "compactUtf8Bytes": 99337,
+        "fixture": "legacy-tools.json",
+        "sha256": "5f61dc5bcb5821b4d67fca12eaa2b0b1a369c4b4294fbcd43cb9b1fcaee18bb4",
+        "toolCount": 174
+      },
+      "modern-compact": {
+        "compactUtf8Bytes": 22863,
+        "fixture": "modern-compact-tools.json",
+        "sha256": "91a096bbadf832179d5a598f409e83ff0edf3924b6744de33afc049d3940c260",
+        "toolCount": 11
+      },
+      "modern-direct": {
+        "compactUtf8Bytes": 1513976,
+        "fixture": "modern-direct-tools.json",
+        "sha256": "0f2465c02e168daa98440d44bf22ab762e09f3fc8f7fc1690a822a0a5718bbb8",
+        "toolCount": 174
+      }
+    }
+  },
   "compactMaximumBytes": 24834,
   "compactStrictlyBelowLegacyQuarter": true,
   "legacyBaselineBytes": 99337,
-  "schemaVersion": 1,
-  "serialization": "json.dumps(value, separators=(',', ':')).encode('utf-8')",
-  "surfaces": {
-    "legacy": {
-      "compactUtf8Bytes": 99337,
-      "fixture": "legacy-tools.json",
-      "sha256": "5f61dc5bcb5821b4d67fca12eaa2b0b1a369c4b4294fbcd43cb9b1fcaee18bb4",
-      "toolCount": 174
-    },
-    "modern-compact": {
-      "compactUtf8Bytes": 21591,
-      "fixture": "modern-compact-tools.json",
-      "sha256": "9582fe216967e7f22c92632de5fc46214458fcda458ecd349437cbd1ae55258a",
-      "toolCount": 11
-    },
-    "modern-direct": {
-      "compactUtf8Bytes": 578256,
-      "fixture": "modern-direct-tools.json",
-      "sha256": "14cb828a632b1a2e01591ab9c5235e112ace504c12ffd15667792a1192070b15",
-      "toolCount": 174
+  "officialSdkWire": {
+    "compactWithinMaximum": true,
+    "description": "Official Python SDK Tool objects returned by MCP tools/list",
+    "sdkVersion": "2.0.0",
+    "surfaces": {
+      "modern-compact": {
+        "revisions": {
+          "2024-11-05": {
+            "compactUtf8Bytes": 24205,
+            "fixture": "sdk-modern-compact-2024-11-05-tools.json",
+            "sha256": "0c6dc6c5b96ee8c4f8b6bce073d392388ab156d60423a5809c47b668a35bd045",
+            "toolCount": 11
+          },
+          "2025-03-26": {
+            "compactUtf8Bytes": 24205,
+            "fixture": "sdk-modern-compact-2024-11-05-tools.json",
+            "sha256": "0c6dc6c5b96ee8c4f8b6bce073d392388ab156d60423a5809c47b668a35bd045",
+            "toolCount": 11
+          },
+          "2025-06-18": {
+            "compactUtf8Bytes": 24205,
+            "fixture": "sdk-modern-compact-2024-11-05-tools.json",
+            "sha256": "0c6dc6c5b96ee8c4f8b6bce073d392388ab156d60423a5809c47b668a35bd045",
+            "toolCount": 11
+          },
+          "2025-11-25": {
+            "compactUtf8Bytes": 24205,
+            "fixture": "sdk-modern-compact-2024-11-05-tools.json",
+            "sha256": "0c6dc6c5b96ee8c4f8b6bce073d392388ab156d60423a5809c47b668a35bd045",
+            "toolCount": 11
+          },
+          "2026-07-28": {
+            "compactUtf8Bytes": 23567,
+            "fixture": "sdk-modern-compact-2026-07-28-tools.json",
+            "sha256": "75a0a0614584add8e11e665975d73878421fc357723f6d21505ce46a35275c4b",
+            "toolCount": 11
+          }
+        }
+      },
+      "modern-direct": {
+        "revisions": {
+          "2024-11-05": {
+            "compactUtf8Bytes": 1530736,
+            "fixture": "sdk-modern-direct-2024-11-05-tools.json",
+            "sha256": "60b52a79892fa630d88dc674630ba1a85f5dc2bb11e7acb76cf4142fbd7ae6ac",
+            "toolCount": 174
+          },
+          "2025-03-26": {
+            "compactUtf8Bytes": 1530736,
+            "fixture": "sdk-modern-direct-2024-11-05-tools.json",
+            "sha256": "60b52a79892fa630d88dc674630ba1a85f5dc2bb11e7acb76cf4142fbd7ae6ac",
+            "toolCount": 174
+          },
+          "2025-06-18": {
+            "compactUtf8Bytes": 1530736,
+            "fixture": "sdk-modern-direct-2024-11-05-tools.json",
+            "sha256": "60b52a79892fa630d88dc674630ba1a85f5dc2bb11e7acb76cf4142fbd7ae6ac",
+            "toolCount": 174
+          },
+          "2025-11-25": {
+            "compactUtf8Bytes": 1530736,
+            "fixture": "sdk-modern-direct-2024-11-05-tools.json",
+            "sha256": "60b52a79892fa630d88dc674630ba1a85f5dc2bb11e7acb76cf4142fbd7ae6ac",
+            "toolCount": 174
+          },
+          "2026-07-28": {
+            "compactUtf8Bytes": 1530736,
+            "fixture": "sdk-modern-direct-2026-07-28-tools.json",
+            "sha256": "8477c9ad2acde2d33cebbbfe38ee5f94d624e91e0280ab2b95bd1da835d41107",
+            "toolCount": 174
+          }
+        }
+      }
     }
-  }
+  },
+  "schemaVersion": 2,
+  "serialization": "json.dumps(value, separators=(',', ':')).encode('utf-8')"
 }

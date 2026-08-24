@@ -21,9 +21,9 @@ typed `approval_required` result, its opaque `operationHandle`, and
 
 | Surface | Tools | Exact payload bytes | Disposition |
 | --- | ---: | ---: | --- |
-| `modern-compact` | 11 | 21,648 | default Codex stdio surface |
+| `modern-compact` | 11 | 22,863 | default Codex stdio surface |
 | `legacy` | 174 | 99,337 | frozen rollback and bootstrap compatibility |
-| `modern-direct` | 174 | 578,249 | explicit diagnostic/compatibility surface |
+| `modern-direct` | 174 | 1,513,976 | explicit diagnostic/compatibility surface |
 
 All three projections enter the same Registry/application path. Surface
 selection does not change scope, identity, or execution authority. The legacy
@@ -68,9 +68,11 @@ machine evidence is committed as
 
 ## Supporting gates and accepted residuals
 
-- Exact payload fixtures remain deterministic: legacy 99,337 bytes, compact
-  21,648 bytes, direct 578,249 bytes. Compact is 21.793% of legacy and below
-  the 24,834-byte ceiling.
+- Transport-independent projection fixtures remain deterministic: legacy
+  99,337 bytes, compact 22,863 bytes, and direct 1,513,976 bytes. The separate
+  official-SDK wire fixtures measure compact at 23,567 bytes for revision
+  `2026-07-28` and 24,205 bytes for revisions `2024-11-05`, `2025-03-26`,
+  `2025-06-18`, and `2025-11-25`; all remain below the 24,834-byte ceiling.
 - Inspector `2.3.0` already discovered complete compact/direct schemas over
   stdio and loopback Streamable HTTP.
 - The modern adapter suites cover both transports, every supported negotiated
@@ -103,7 +105,11 @@ Rollback requires only selecting:
 bin/print-mcp-config --legacy
 ```
 
-No workspace, evidence, scope, grant, or frozen legacy contract migration is
-required.
+This is a modern-adapter rollback with frozen wire compatibility. The legacy
+server still uses the canonical Registry and its existing scope/authority
+policy; it is not a retained-dispatch or authority bypass. The rollback
+launcher is tested without the modern SDK, identity binding, or request-state
+keyring. No workspace, evidence, scope, grant, or frozen legacy contract
+migration is required.
 
 PHASE_3_PASS

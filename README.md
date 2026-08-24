@@ -357,7 +357,7 @@ Recommended optional tooling:
    ```
 
 2. Run the setup check, which validates required Synapse prerequisites and
-   prints MCP client config:
+   reports legacy and modern readiness independently:
 
    ```bash
    bin/check-setup
@@ -365,6 +365,9 @@ Recommended optional tooling:
 
    Missing external scanner binaries are warnings by default because passive,
    offline, reporting, and static-analysis workflows still work without them.
+   Modern readiness fails until private identity bindings, a request-state
+   keyring, a writable state directory, and a resolvable binding are present.
+   Use `bin/check-setup --legacy` when validating only the frozen rollback.
 
 3. For a full active-adapter workstation, require scanner binaries too:
 
@@ -380,8 +383,9 @@ Recommended optional tooling:
 
 Codex should use the modern compact command emitted by
 `bin/print-mcp-config`; use `bin/print-mcp-config --legacy` only for rollback or
-bootstrap compatibility. Both profiles use the repository venv rather than a
-system Python so browser-auth and pinned MCP dependencies stay consistent.
+bootstrap compatibility. Runtime selection consistently honors
+`SYNAPSE_PYTHON`, an active `VIRTUAL_ENV`, then the repository `.venv`, and
+fails instead of printing a nonexistent interpreter.
 Runtime data stays under `SYNAPSE_ROOT/DATA` by default. Shodan API keys are
 never stored in config — set them only at runtime with
 `shodan.session_key.set`.

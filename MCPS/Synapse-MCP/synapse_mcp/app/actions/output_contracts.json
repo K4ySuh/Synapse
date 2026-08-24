@@ -1,0 +1,3328 @@
+{
+  "actionCount": 168,
+  "contracts": {
+    "access_control.build_test_matrix": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "accessControlStore",
+        "adapter",
+        "candidateId",
+        "contextCount",
+        "contexts",
+        "coverageGapCount",
+        "coverageGapStore",
+        "coverageGaps",
+        "gapReconciliation",
+        "high",
+        "ingested",
+        "ingestion",
+        "low",
+        "matrix",
+        "matrixCount",
+        "matrixId",
+        "medium",
+        "missingInformation",
+        "objectCount",
+        "objectType",
+        "observationReconciliation",
+        "requiredContexts",
+        "requiresConfirmation",
+        "target",
+        "testClass",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:access_control.build_test_matrix"
+      ]
+    },
+    "access_control.capabilities": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adapter",
+        "capabilities",
+        "limitations"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:access_control.capabilities"
+      ]
+    },
+    "access_control.execute_matrix_test": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "accessControlStore",
+        "action",
+        "adapter",
+        "approval",
+        "assessment",
+        "assessmentReason",
+        "budgetExceeded",
+        "budgetSeconds",
+        "candidateId",
+        "comparisons",
+        "context",
+        "contextId",
+        "contexts",
+        "credentialId",
+        "endpointPattern",
+        "evidenceId",
+        "exchangeEvidence",
+        "exchangeEvidenceIds",
+        "expectedAccess",
+        "findingDraft",
+        "followRedirects",
+        "host",
+        "ingestion",
+        "label",
+        "matrixId",
+        "method",
+        "missingInformation",
+        "modelHost",
+        "modelTarget",
+        "outcome",
+        "recorded",
+        "replay",
+        "replayFingerprint",
+        "replayId",
+        "replays",
+        "request",
+        "requestFingerprint",
+        "requestHeaders",
+        "requestUrl",
+        "response",
+        "retired",
+        "role",
+        "skippedContexts",
+        "target",
+        "testClass",
+        "tool",
+        "type",
+        "validation",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:access_control.execute_matrix_test"
+      ]
+    },
+    "access_control.identify_objects": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "accessControlStore",
+        "adapter",
+        "classificationCount",
+        "classificationStore",
+        "classifications",
+        "endpointPattern",
+        "identifierName",
+        "identifierValueShape",
+        "ingested",
+        "ingestion",
+        "objectCount",
+        "objectId",
+        "objectType",
+        "objects",
+        "observationReconciliation",
+        "target",
+        "testClass",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:access_control.identify_objects"
+      ]
+    },
+    "access_control.plan_tests": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "blocked",
+        "candidateId",
+        "comparisonHelper",
+        "endpointPattern",
+        "executable",
+        "guardrails",
+        "matrixId",
+        "method",
+        "objectType",
+        "operatorInputsNeeded",
+        "reason",
+        "requiredContexts",
+        "requiresConfirmation",
+        "riskTier",
+        "safeExecutionModel",
+        "sendsTraffic",
+        "testClass",
+        "testIdea",
+        "testPlan"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:access_control.plan_tests"
+      ]
+    },
+    "access_control.record_context": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "accessControlStore",
+        "authState",
+        "context",
+        "contextId",
+        "credentialId",
+        "label",
+        "metadata",
+        "notes",
+        "observedEndpointPatterns",
+        "ownedObjectTypes",
+        "role",
+        "target",
+        "userType",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:access_control.record_context"
+      ]
+    },
+    "adapters.capabilities": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adapter",
+        "capabilities",
+        "limitations"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:adapter_registry.capabilities"
+      ]
+    },
+    "adapters.list": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adapters",
+        "count",
+        "items"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:adapter_registry.list"
+      ]
+    },
+    "cache.clean_generated_artifacts": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "cleaned",
+        "failed",
+        "keep",
+        "message",
+        "path",
+        "prunedEvidence",
+        "removedPathCount",
+        "removedPaths",
+        "requiresConfirmation"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:cache.clean_generated_artifacts"
+      ]
+    },
+    "cache.clean_out_of_scope": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "cleaned",
+        "failed",
+        "message",
+        "mixedScopeKept",
+        "pruneResult",
+        "pruned",
+        "removed",
+        "requiresConfirmation",
+        "scopeHosts",
+        "unknownHostsKept"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:cache.clean_out_of_scope"
+      ]
+    },
+    "cache.inspect_generated_artifacts": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "evidenceCandidates",
+        "evidenceRemoveCount",
+        "keep",
+        "outputCandidates",
+        "outputRemoveCount"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:cache.inspect_generated_artifacts"
+      ]
+    },
+    "cache.inspect_scope_data": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "artifacts",
+        "deleteCandidates",
+        "mixedScopeKept",
+        "pruneCandidates",
+        "scopeHosts",
+        "unknownHostsKept"
+      ],
+      "fixtureTypes": {
+        "artifacts": [
+          "array"
+        ],
+        "deleteCandidates": [
+          "array"
+        ],
+        "mixedScopeKept": [
+          "array"
+        ],
+        "pruneCandidates": [
+          "array"
+        ],
+        "scopeHosts": [
+          "array"
+        ],
+        "unknownHostsKept": [
+          "array"
+        ]
+      },
+      "sources": [
+        "implementation:cache.inspect_scope_data",
+        "fixture:cache_inspect_scope_data.json"
+      ]
+    },
+    "command_injection.analyze_workspace": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adapter",
+        "candidateCount",
+        "candidates",
+        "contextSummary",
+        "discoveryObservationCount",
+        "discoveryObservations",
+        "ingested",
+        "ingestion",
+        "maxCandidates",
+        "minScore",
+        "organization",
+        "osContext",
+        "osFamily",
+        "target",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:command_injection_adapter.analyze_workspace"
+      ]
+    },
+    "command_injection.execute_test": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "action",
+        "adapter",
+        "approval",
+        "assessment",
+        "candidate",
+        "evidenceId",
+        "exchangeEvidence",
+        "exchangeEvidenceId",
+        "host",
+        "ingestion",
+        "location",
+        "marker",
+        "method",
+        "observedMarker",
+        "osFamily",
+        "parameter",
+        "payload",
+        "request",
+        "requestHeaders",
+        "response",
+        "target",
+        "test",
+        "tool",
+        "type",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:command_injection_adapter.execute_test"
+      ]
+    },
+    "command_injection.generate_test_plan": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "candidateId",
+        "expectedSignals",
+        "guardrails",
+        "location",
+        "method",
+        "osFamily",
+        "parameter",
+        "reasons",
+        "safeManualPayloads",
+        "sendsTraffic",
+        "target",
+        "testPlan"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:command_injection_adapter.generate_test_plan"
+      ]
+    },
+    "command_injection.prepare_replay": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "candidate",
+        "replay",
+        "testCode"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:command_injection_adapter.prepare_replay"
+      ]
+    },
+    "cors.analyze_workspace": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "active",
+        "adapter",
+        "candidateCount",
+        "candidates",
+        "classificationCount",
+        "classifications",
+        "ingested",
+        "ingestion",
+        "maxCandidates",
+        "reconciliation",
+        "suppressed",
+        "target",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:cors.analyze_workspace"
+      ]
+    },
+    "cors.capabilities": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adapter",
+        "capabilities",
+        "limitations"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:cors.capabilities"
+      ]
+    },
+    "cors.generate_test_plan": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "candidateId",
+        "expectedSignals",
+        "guardrails",
+        "method",
+        "probeOrigin",
+        "reasons",
+        "sendsTraffic",
+        "target",
+        "testPlan"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:cors.generate_test_plan"
+      ]
+    },
+    "crawler.extended": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "approval",
+        "built",
+        "message"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:crawler_adapter.crawl_extended"
+      ]
+    },
+    "credentials.authenticate": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "authProfileId",
+        "authenticated",
+        "cookieNames",
+        "credential",
+        "credentialId",
+        "id",
+        "issuedAt",
+        "label",
+        "lastAuthenticatedAt",
+        "loginHost",
+        "maxBodyBytes",
+        "profileId",
+        "scopes",
+        "target",
+        "type"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:credentials.authenticate"
+      ]
+    },
+    "credentials.browser_auth_check_setup": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "browser",
+        "checks",
+        "name",
+        "ok",
+        "provider",
+        "remediation",
+        "remoteUrl"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:credentials.browser_auth_check_setup"
+      ]
+    },
+    "credentials.browser_authenticate": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "authenticated",
+        "cookieNames",
+        "credential",
+        "credentialId",
+        "finalUrl",
+        "loginHost",
+        "profileId",
+        "provider",
+        "storageKeys",
+        "summary",
+        "target",
+        "validation"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:credentials.browser_authenticate"
+      ]
+    },
+    "credentials.delete": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "deleted",
+        "deletedCredential",
+        "deletedProfiles",
+        "id",
+        "path"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:credentials.delete_credential"
+      ]
+    },
+    "credentials.get": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "credential",
+        "exists",
+        "fingerprint",
+        "path",
+        "target"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:credentials.get_credential"
+      ]
+    },
+    "credentials.list": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "authProfiles",
+        "count",
+        "credentials",
+        "items",
+        "path",
+        "redacted",
+        "warnings"
+      ],
+      "fixtureTypes": {
+        "authProfiles": [
+          "array"
+        ],
+        "credentials": [
+          "array"
+        ],
+        "path": [
+          "string"
+        ],
+        "redacted": [
+          "boolean"
+        ]
+      },
+      "sources": [
+        "implementation:credentials.list_credentials",
+        "fixture:credentials_list.json"
+      ]
+    },
+    "credentials.set": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "configured",
+        "credential",
+        "id",
+        "path",
+        "persisted",
+        "providerScopes",
+        "saved",
+        "scope",
+        "scopes",
+        "source",
+        "targetOrigins",
+        "type",
+        "workspaceId"
+      ],
+      "fixtureTypes": {
+        "credential": [
+          "object"
+        ],
+        "path": [
+          "string"
+        ],
+        "saved": [
+          "boolean"
+        ]
+      },
+      "sources": [
+        "implementation:credentials.save_credential",
+        "fixture:credentials_set_confirmed.json"
+      ]
+    },
+    "credentials.set_auth_profile": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "authProfile",
+        "credentialId",
+        "id",
+        "loginHost",
+        "path",
+        "saved",
+        "scopes"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:credentials.save_auth_profile"
+      ]
+    },
+    "credentials.set_browser_auth_profile": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "authProfile",
+        "credentialId",
+        "id",
+        "loginHost",
+        "manualCompletion",
+        "path",
+        "provider",
+        "saved",
+        "scopes"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:credentials.save_browser_auth_profile"
+      ]
+    },
+    "credentials.validate_session": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "credential",
+        "credentialId",
+        "target",
+        "validation"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:credentials.validate_session"
+      ]
+    },
+    "csrf.analyze_workspace": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "active",
+        "adapter",
+        "candidateCount",
+        "candidates",
+        "classificationCount",
+        "classifications",
+        "contextSummary",
+        "endpointCount",
+        "ingested",
+        "ingestion",
+        "maxCandidates",
+        "minScore",
+        "reconciliation",
+        "suppressed",
+        "target",
+        "weakSameSiteObserved",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:csrf.analyze_workspace"
+      ]
+    },
+    "csrf.capabilities": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adapter",
+        "capabilities",
+        "limitations"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:csrf.capabilities"
+      ]
+    },
+    "csrf.generate_test_plan": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "candidateId",
+        "expectedSignals",
+        "guardrails",
+        "inputNames",
+        "manualReproductionOutline",
+        "method",
+        "prerequisites",
+        "reasons",
+        "sendsTraffic",
+        "target",
+        "testPlan",
+        "url",
+        "workflowType"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:csrf.generate_test_plan"
+      ]
+    },
+    "cve.capabilities": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adapter",
+        "capabilities",
+        "limitations"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:cve_intel.capabilities"
+      ]
+    },
+    "cve.correlate": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adapter",
+        "candidateCount",
+        "candidateLimitSuppressed",
+        "candidates",
+        "cveDataAvailable",
+        "deploymentContext",
+        "filtered",
+        "gaps",
+        "high",
+        "ingestion",
+        "low",
+        "maxCandidates",
+        "medium",
+        "nonWeb",
+        "notAffected",
+        "prerequisiteGaps",
+        "productMismatch",
+        "reconciliation",
+        "refutedCandidateCount",
+        "refutedCandidates",
+        "sourceResults",
+        "sourceStatus",
+        "sources",
+        "target",
+        "unconfirmedSuppressed",
+        "unreachable",
+        "versionGaps",
+        "versionUnknownSkipped",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:cve_intel.correlate"
+      ]
+    },
+    "cve.execute_test": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "action",
+        "adapter",
+        "approval",
+        "arguments",
+        "assessment",
+        "buildCommandTool",
+        "builtCommand",
+        "candidate",
+        "candidateId",
+        "confidence",
+        "confirm",
+        "cveId",
+        "delegateToNuclei",
+        "entities",
+        "evidenceId",
+        "evidenceIds",
+        "exchangeEvidence",
+        "exchangeEvidenceIds",
+        "host",
+        "includeWorkspaceUrls",
+        "ingestion",
+        "observations",
+        "priority",
+        "profile",
+        "reason",
+        "request",
+        "requestHeaders",
+        "response",
+        "sourceCandidateId",
+        "target",
+        "template",
+        "templates",
+        "test",
+        "tool",
+        "type",
+        "validation",
+        "value",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:cve_intel.execute_test"
+      ]
+    },
+    "cve.plan_tests": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "arguments",
+        "blockedReason",
+        "candidateId",
+        "component",
+        "controllingFacts",
+        "cveId",
+        "deploymentDisposition",
+        "directReplayEligible",
+        "expectedSignals",
+        "exploitMaturity",
+        "guardrails",
+        "knownExploited",
+        "nucleiBuildCommand",
+        "nucleiTemplate",
+        "pocReferencesBySource",
+        "profile",
+        "promotionPath",
+        "selector",
+        "sendsTraffic",
+        "target",
+        "templates",
+        "testPlan",
+        "tool",
+        "type",
+        "value",
+        "verificationApproach",
+        "version",
+        "versionApplicability",
+        "versionConfidence",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:cve_intel.plan_tests"
+      ]
+    },
+    "cve.prepare_replay": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "candidate",
+        "replay",
+        "testCode"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:cve_intel.prepare_replay"
+      ]
+    },
+    "cve.reset_source_endpoint": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "configured",
+        "persisted",
+        "resolvedFrom",
+        "scope",
+        "source",
+        "url",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:cve_intel.reset_source_endpoint"
+      ]
+    },
+    "cve.session_key.clear": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "configured",
+        "persisted",
+        "provider",
+        "sessionCleared"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:cve_intel.clear_session_key"
+      ]
+    },
+    "cve.session_key.set": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "configured",
+        "persisted",
+        "provider",
+        "source"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:cve_intel.set_session_key"
+      ]
+    },
+    "cve.session_key.status": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "configured",
+        "github",
+        "nvd",
+        "persisted",
+        "providers",
+        "source"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:cve_intel.session_key_status"
+      ]
+    },
+    "cve.set_source_endpoint": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "persisted",
+        "resolvedFrom",
+        "source",
+        "url"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:cve_intel.set_source_endpoint"
+      ]
+    },
+    "cve.sources": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "configuration",
+        "configuredEnabled",
+        "defaultEnabled",
+        "enabled",
+        "envVar",
+        "lastStatus",
+        "resolvedFrom",
+        "sources",
+        "startupConfiguration",
+        "url"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:cve_intel.sources"
+      ]
+    },
+    "documentation.build_evidence_pack": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "contextType",
+        "evidencePack"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:documentation.build_evidence_pack"
+      ]
+    },
+    "documentation.build_finding_context": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "contextType",
+        "findingContext"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:documentation.build_finding_context"
+      ]
+    },
+    "documentation.build_finding_draft": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "affectedAssets",
+        "confidence",
+        "contextType",
+        "description",
+        "draft",
+        "evidence",
+        "impact",
+        "limitations",
+        "operatorReview",
+        "operatorReviewed",
+        "remediation",
+        "reproductionSteps",
+        "severity",
+        "title"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:documentation.build_finding_draft"
+      ]
+    },
+    "documentation.build_layer_report_context": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "contextType",
+        "layerReport"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:documentation.build_layer_report_context"
+      ]
+    },
+    "documentation.build_report_context": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "assessmentType",
+        "client",
+        "contextType",
+        "endDate",
+        "excluded",
+        "name",
+        "notes",
+        "redactionMode",
+        "report",
+        "startDate",
+        "target",
+        "targets",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:documentation.build_report_context"
+      ]
+    },
+    "documentation.build_workspace_report_context": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "contextType",
+        "workspaceReport"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:documentation.build_workspace_report_context"
+      ]
+    },
+    "documentation.export_json": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "bytes",
+        "contextType",
+        "format",
+        "path",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:documentation.export_json"
+      ]
+    },
+    "documentation.list_layers": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "description",
+        "layer",
+        "layers",
+        "refreshable",
+        "sendsTraffic",
+        "title"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:documentation.list_layers"
+      ]
+    },
+    "documentation.list_templates": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "templates"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:documentation.list_templates"
+      ]
+    },
+    "documentation.plan_scope_groups": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "candidateId",
+        "guardrails",
+        "sendsTraffic",
+        "testPlan"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:documentation.plan_scope_groups"
+      ]
+    },
+    "documentation.prepare_validation_batch": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "batchSize",
+        "candidateCount",
+        "candidates",
+        "cursor",
+        "generatedAt",
+        "groupId",
+        "nextCursor",
+        "queuePath",
+        "remainingCount",
+        "requiresApprovalBeforeExecution",
+        "returnedCount",
+        "schemaVersion",
+        "sendsTraffic",
+        "snapshotStable",
+        "targets",
+        "totalCandidates",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:documentation.prepare_validation_batch"
+      ]
+    },
+    "documentation.render_assessment_summary": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "bytes",
+        "content",
+        "contextType",
+        "format",
+        "path",
+        "summary",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:documentation.render_assessment_summary"
+      ]
+    },
+    "documentation.render_layer_report": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "bytes",
+        "content",
+        "contextType",
+        "format",
+        "layer",
+        "path",
+        "summary",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:documentation.render_layer_report"
+      ]
+    },
+    "documentation.render_markdown": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "bytes",
+        "content",
+        "format",
+        "path",
+        "summary",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:documentation.render_markdown"
+      ]
+    },
+    "documentation.render_workspace_report": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "bytes",
+        "content",
+        "contextType",
+        "format",
+        "layers",
+        "path",
+        "summary",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:documentation.render_workspace_report"
+      ]
+    },
+    "documentation.render_workspace_report_batches": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "bytes",
+        "completedGroupCount",
+        "content",
+        "contextPath",
+        "contextType",
+        "coverageGaps",
+        "deferredGroupCount",
+        "deferredPartCount",
+        "format",
+        "generatedAt",
+        "groupCount",
+        "groupCursor",
+        "groupId",
+        "groups",
+        "indexPath",
+        "layers",
+        "manifestPath",
+        "maxParts",
+        "name",
+        "nextGroupCursor",
+        "nextPartCursor",
+        "part",
+        "partCount",
+        "partCursor",
+        "parts",
+        "path",
+        "recordBatchSize",
+        "recordCount",
+        "renderedGroupCount",
+        "renderedPartCount",
+        "reportPath",
+        "runId",
+        "schemaVersion",
+        "scopeGroupManifestPath",
+        "summary",
+        "targetBatchSize",
+        "targetCount",
+        "targets",
+        "totalRecordCount",
+        "updatedAt",
+        "workspaceId",
+        "workspaceReport"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:documentation.render_workspace_report_batches"
+      ]
+    },
+    "documentation.summarize_coverage": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "approvalId",
+        "contextType",
+        "coverage",
+        "createdAt",
+        "riskTier",
+        "target",
+        "tool"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:documentation.summarize_coverage"
+      ]
+    },
+    "dumps.list": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "count",
+        "dumps",
+        "entryCount",
+        "historyJsonl",
+        "items",
+        "manifest",
+        "path"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:dumps.list_dumps"
+      ]
+    },
+    "evidence.host_context": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "events",
+        "fingerprintPaths",
+        "fingerprints",
+        "host",
+        "organization",
+        "paths",
+        "target"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:evidence.host_context"
+      ]
+    },
+    "evidence.init_project": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "host",
+        "hosts",
+        "initialized",
+        "organization",
+        "path",
+        "slug",
+        "updatedAt"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:evidence.ensure_project"
+      ]
+    },
+    "evidence.log_event": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "createdAt",
+        "data",
+        "event",
+        "indexedPaths",
+        "logged",
+        "path",
+        "summary",
+        "type"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:evidence.log_event"
+      ]
+    },
+    "evidence.tail": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "count",
+        "events"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:evidence.tail_events"
+      ]
+    },
+    "ffuf.build_command": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "command",
+        "credential",
+        "output",
+        "profile",
+        "rationale",
+        "scope",
+        "shellCommand",
+        "target",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:ffuf_adapter.build_command"
+      ]
+    },
+    "ffuf.profiles": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "count",
+        "items",
+        "profiles"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:ffuf_adapter.list_profiles"
+      ]
+    },
+    "ffuf.run_profile": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "approval",
+        "built",
+        "message"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:ffuf_adapter.run_profile"
+      ]
+    },
+    "fingerprint.analyze_workspace": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adapter",
+        "auth",
+        "authBoundaryCount",
+        "candidateCount",
+        "candidates",
+        "confidence",
+        "cpe",
+        "endpointCount",
+        "entities",
+        "evidenceIds",
+        "fingerprint",
+        "fingerprintPath",
+        "fingerprinted",
+        "generatedAt",
+        "host",
+        "ingestion",
+        "layer",
+        "loginLikeEndpointCount",
+        "mode",
+        "name",
+        "observations",
+        "organization",
+        "path",
+        "possibleDbms",
+        "possibleOs",
+        "reason",
+        "reasons",
+        "serviceCount",
+        "source",
+        "summary",
+        "target",
+        "technologies",
+        "technologyComponents",
+        "technologyCount",
+        "type",
+        "value",
+        "version",
+        "versionPrecision",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:fingerprint.analyze_workspace"
+      ]
+    },
+    "fingerprint.from_dump": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "dumpPath",
+        "entry",
+        "fingerprinted",
+        "generatedAt",
+        "host",
+        "hosts",
+        "organization",
+        "path",
+        "request",
+        "requestCount",
+        "response",
+        "summary",
+        "summaryPath",
+        "target"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:fingerprint.from_dump"
+      ]
+    },
+    "fingerprint.probe_versions": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "action",
+        "adapter",
+        "approval",
+        "confidence",
+        "cpe",
+        "entities",
+        "evidenceId",
+        "evidenceIds",
+        "exchangeEvidence",
+        "exchangeEvidenceIds",
+        "fingerprint",
+        "ingest",
+        "ingestion",
+        "layer",
+        "maxRequests",
+        "method",
+        "mode",
+        "name",
+        "observations",
+        "path",
+        "probed",
+        "probes",
+        "reason",
+        "requestCount",
+        "response",
+        "signals",
+        "source",
+        "target",
+        "tool",
+        "type",
+        "upgradedComponentCount",
+        "upgradedComponents",
+        "url",
+        "value",
+        "version",
+        "versionPrecision",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:fingerprint.probe_versions"
+      ]
+    },
+    "fingerprint.read_host": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "credential",
+        "exists",
+        "fingerprint",
+        "host",
+        "organization",
+        "path",
+        "target"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:fingerprint.read_host_fingerprint"
+      ]
+    },
+    "graphql.analyze_workspace": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adapter",
+        "candidateCount",
+        "candidates",
+        "contextSummary",
+        "endpointCount",
+        "ingested",
+        "ingestion",
+        "maxCandidates",
+        "target",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:graphql.analyze_workspace"
+      ]
+    },
+    "graphql.capabilities": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adapter",
+        "capabilities",
+        "limitations"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:graphql.capabilities"
+      ]
+    },
+    "graphql.execute_test": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "action",
+        "adapter",
+        "approval",
+        "assessment",
+        "bodyLength",
+        "candidate",
+        "contentType",
+        "endpoints",
+        "entities",
+        "evidenceId",
+        "exchangeEvidence",
+        "exchangeEvidenceId",
+        "host",
+        "ingestion",
+        "method",
+        "observations",
+        "parameters",
+        "query",
+        "request",
+        "requestHeaders",
+        "response",
+        "target",
+        "test",
+        "tool",
+        "type",
+        "url",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:graphql.execute_test"
+      ]
+    },
+    "graphql.generate_test_plan": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "candidateId",
+        "expectedSignals",
+        "guardrails",
+        "introspectionQuery",
+        "method",
+        "reasons",
+        "sendsTraffic",
+        "target",
+        "testPlan"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:graphql.generate_test_plan"
+      ]
+    },
+    "headers_cookies.capabilities": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adapter",
+        "capabilities",
+        "limitations"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:headers_cookies.capabilities"
+      ]
+    },
+    "insecure_deser.analyze_workspace": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adapter",
+        "candidateCount",
+        "candidates",
+        "contextSummary",
+        "endpointCount",
+        "ingested",
+        "ingestion",
+        "maxCandidates",
+        "parameterCount",
+        "target",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:insecure_deser.analyze_workspace"
+      ]
+    },
+    "insecure_deser.capabilities": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adapter",
+        "capabilities",
+        "limitations"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:insecure_deser.capabilities"
+      ]
+    },
+    "jobs.cancel": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "jobId",
+        "pid",
+        "reasonCode",
+        "shellCommand"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:background_jobs.cancel"
+      ]
+    },
+    "jobs.list": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "count",
+        "items",
+        "jobs"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:background_jobs.list_jobs"
+      ]
+    },
+    "js.analyze_static": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adapter",
+        "analysisPath",
+        "asset",
+        "assetCount",
+        "candidateCount",
+        "candidates",
+        "endpointCount",
+        "errors",
+        "ingestion",
+        "libraryCount",
+        "parameterCount",
+        "signalCount",
+        "target",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:js_intel.analyze_static"
+      ]
+    },
+    "js.build_app_model": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "appModelPath",
+        "assetCount",
+        "assets",
+        "authSurface",
+        "derivedEndpoints",
+        "endpoints",
+        "interestingEndpoints",
+        "jsAssets",
+        "jsEndpointCandidates",
+        "operatorNotes",
+        "path",
+        "sha256",
+        "signalTypes",
+        "signals",
+        "size",
+        "source",
+        "stateChangingCandidates",
+        "summary",
+        "target",
+        "url",
+        "workspaceContext",
+        "workspaceEndpointCount",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:js_intel.build_app_model"
+      ]
+    },
+    "js.capabilities": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adapter",
+        "analyze_static",
+        "backgroundJobProvider",
+        "build_app_model",
+        "capabilities",
+        "category",
+        "defaultRiskTier",
+        "discover_assets",
+        "executionMode",
+        "fetch_assets",
+        "limitations",
+        "maxConcurrentBackgroundJobs",
+        "name",
+        "normalize_endpoints",
+        "produces",
+        "render_app_map",
+        "requiresConfirmation",
+        "sendsTraffic",
+        "source"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:js_intel.capabilities"
+      ]
+    },
+    "js.discover_assets": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "assetCount",
+        "assets",
+        "manifestPath",
+        "source",
+        "target",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:js_intel.discover_assets"
+      ]
+    },
+    "js.fetch_assets": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "approvalId",
+        "approvalReason",
+        "assetCount",
+        "assets",
+        "authenticated",
+        "budgetExceeded",
+        "budgetSeconds",
+        "cacheHit",
+        "cacheHitCount",
+        "credentialId",
+        "errorCount",
+        "errors",
+        "httpBackend",
+        "manifestPath",
+        "maxAssets",
+        "networkFetchCount",
+        "refresh",
+        "riskTier",
+        "source",
+        "target",
+        "url",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:js_intel.fetch_assets"
+      ]
+    },
+    "js.normalize_endpoints": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "analysisPath",
+        "analysisSummary",
+        "endpointCount",
+        "entities",
+        "ingested",
+        "ingestion",
+        "normalizedPath",
+        "observationCount",
+        "parameterCount",
+        "source",
+        "target",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:js_intel.normalize_endpoints"
+      ]
+    },
+    "js.render_app_map": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "artifactPath",
+        "bytes",
+        "content",
+        "endpointCount",
+        "format",
+        "jsInferredEndpointCount",
+        "outputPath",
+        "path",
+        "summary",
+        "target",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:js_intel.render_app_map"
+      ]
+    },
+    "jwt.analyze": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adapter",
+        "alg",
+        "candidateCount",
+        "candidates",
+        "claimNames",
+        "findingCount",
+        "findings",
+        "header",
+        "highSeverityCount",
+        "ingested",
+        "ingestion",
+        "kid",
+        "kidPresent",
+        "summary",
+        "target",
+        "typ",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:jwt_analysis.analyze"
+      ]
+    },
+    "jwt.capabilities": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adapter",
+        "capabilities",
+        "limitations"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:jwt_analysis.capabilities"
+      ]
+    },
+    "lfi.capabilities": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adapter",
+        "capabilities",
+        "limitations"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:lfi_rfi.capabilities"
+      ]
+    },
+    "lfi.execute_test": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "action",
+        "adapter",
+        "approval",
+        "assessment",
+        "candidate",
+        "evidenceId",
+        "exchangeEvidence",
+        "exchangeEvidenceIds",
+        "host",
+        "ingestion",
+        "location",
+        "method",
+        "parameter",
+        "payload",
+        "request",
+        "requestHeaders",
+        "response",
+        "target",
+        "test",
+        "tests",
+        "tool",
+        "type",
+        "validation",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:lfi_rfi.execute_test"
+      ]
+    },
+    "lfi.passive_analyze": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adapter",
+        "candidateCount",
+        "candidates",
+        "contextSummary",
+        "ingested",
+        "ingestion",
+        "maxCandidates",
+        "minScore",
+        "target",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:lfi_rfi.passive_analyze"
+      ]
+    },
+    "lfi.plan_tests": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "candidateId",
+        "expectedSignals",
+        "guardrails",
+        "location",
+        "method",
+        "parameter",
+        "reasons",
+        "recommendedTests",
+        "safePayloads",
+        "sendsTraffic",
+        "target",
+        "testPlan"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:lfi_rfi.plan_tests"
+      ]
+    },
+    "nmap.build_command": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "command",
+        "outputBase",
+        "profile",
+        "rationale",
+        "scope",
+        "shellCommand",
+        "target",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:nmap_adapter.build_command"
+      ]
+    },
+    "nmap.profiles": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "count",
+        "items",
+        "profiles"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:nmap_adapter.list_profiles"
+      ]
+    },
+    "nmap.run_profile": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "approval",
+        "built",
+        "message"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:nmap_adapter.run_profile"
+      ]
+    },
+    "nuclei.build_command": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adaptation",
+        "bulkSize",
+        "command",
+        "concurrency",
+        "credential",
+        "description",
+        "executionPolicy",
+        "name",
+        "output",
+        "processTimeout",
+        "processTimeoutPolicy",
+        "processTimeoutSeconds",
+        "profile",
+        "profilePolicy",
+        "rateLimit",
+        "rationale",
+        "requestTimeout",
+        "requestTimeoutSeconds",
+        "scope",
+        "severity",
+        "shellCommand",
+        "tagSelection",
+        "tags",
+        "target",
+        "targetCount",
+        "targetList",
+        "targetListPath",
+        "targetSelection",
+        "targets",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:nuclei_adapter.build_command"
+      ]
+    },
+    "nuclei.profiles": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "count",
+        "items",
+        "profiles"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:nuclei_adapter.list_profiles"
+      ]
+    },
+    "nuclei.run_profile": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "approval",
+        "built",
+        "message"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:nuclei_adapter.run_profile"
+      ]
+    },
+    "open_redirect.analyze_workspace": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adapter",
+        "candidateCount",
+        "candidates",
+        "classificationCount",
+        "classifications",
+        "contextSummary",
+        "endpointCount",
+        "ingested",
+        "ingestion",
+        "interestingCandidateCount",
+        "maxCandidates",
+        "minScore",
+        "observationReconciliation",
+        "parameterCount",
+        "target",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:open_redirect_adapter.analyze_workspace"
+      ]
+    },
+    "open_redirect.execute_test": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "action",
+        "adapter",
+        "approval",
+        "assessment",
+        "candidate",
+        "evidenceId",
+        "exchangeEvidence",
+        "exchangeEvidenceId",
+        "host",
+        "ingestion",
+        "location",
+        "method",
+        "parameter",
+        "payload",
+        "request",
+        "requestHeaders",
+        "response",
+        "target",
+        "test",
+        "tool",
+        "type",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:open_redirect_adapter.execute_test"
+      ]
+    },
+    "open_redirect.generate_test_plan": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "candidateId",
+        "expectedSignals",
+        "guardrails",
+        "location",
+        "method",
+        "parameter",
+        "priority",
+        "reasons",
+        "safeManualPayloads",
+        "sendsTraffic",
+        "target",
+        "testPlan",
+        "url"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:open_redirect_adapter.generate_test_plan"
+      ]
+    },
+    "perimeter.analyze_workspace": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adapter",
+        "candidateCount",
+        "candidates",
+        "ingestion",
+        "loginPortalCount",
+        "reportPath",
+        "summary",
+        "target",
+        "targetCount",
+        "technologyCount",
+        "webApplicationCount",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:perimeter.analyze_workspace"
+      ]
+    },
+    "perimeter.build_summary": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "includeTargets",
+        "summary",
+        "targetCount",
+        "targets",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:perimeter.build_summary"
+      ]
+    },
+    "perimeter.render_report": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "bytes",
+        "content",
+        "format",
+        "path",
+        "refresh",
+        "summary",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:perimeter.render_report"
+      ]
+    },
+    "project.start": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "fingerprint",
+        "scope",
+        "workspace",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:evidence.ensure_project + evidence.log_event + scope.save_scope + workspace.create_workspace + credentials.auth_process_guidance + fingerprint.from_dump"
+      ]
+    },
+    "purple_team.mark_detection_outcome": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "action",
+        "actionKey",
+        "created",
+        "detected",
+        "detectionGap",
+        "gapFindingKey",
+        "notes",
+        "target",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:gap_analysis.mark_detection_outcome"
+      ]
+    },
+    "scope.check_target": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "host",
+        "inScope",
+        "match",
+        "scope",
+        "target"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:scope.check_target"
+      ]
+    },
+    "scope.set": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "configured",
+        "persisted",
+        "scope",
+        "source",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:scope.save_scope + workspace.create_workspace"
+      ]
+    },
+    "shodan.company_queries": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "inputs",
+        "purpose",
+        "queries",
+        "query"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:shodan_adapter.company_queries"
+      ]
+    },
+    "shodan.domain": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "domain",
+        "history",
+        "page",
+        "rawResponseReturned",
+        "type",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:shodan_adapter.domain_info"
+      ]
+    },
+    "shodan.host": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "history",
+        "ip",
+        "minify",
+        "rawResponseReturned",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:shodan_adapter.host_lookup"
+      ]
+    },
+    "shodan.internetdb": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "cpes",
+        "hostnames",
+        "ip",
+        "ports",
+        "rawResponseReturned",
+        "relations",
+        "tags",
+        "vulnerabilities",
+        "vulns",
+        "workspaceId"
+      ],
+      "fixtureTypes": {
+        "cpes": [
+          "array"
+        ],
+        "hostnames": [
+          "array"
+        ],
+        "ip": [
+          "string"
+        ],
+        "ports": [
+          "array"
+        ],
+        "relations": [
+          "array"
+        ],
+        "tags": [
+          "array"
+        ],
+        "vulnerabilities": [
+          "array"
+        ],
+        "vulns": [
+          "array"
+        ]
+      },
+      "sources": [
+        "implementation:shodan_adapter.internetdb_lookup",
+        "fixture:shodan_internetdb.json"
+      ]
+    },
+    "shodan.resolve": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "hostnames"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:shodan_adapter.resolve"
+      ]
+    },
+    "shodan.reverse": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "ips"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:shodan_adapter.reverse"
+      ]
+    },
+    "shodan.search": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "address",
+        "facets",
+        "fields",
+        "ingestedTargetCount",
+        "minify",
+        "page",
+        "query",
+        "rawResponseReturned",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:shodan_adapter.search"
+      ]
+    },
+    "shodan.search_count": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "facets",
+        "query"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:shodan_adapter.search_count"
+      ]
+    },
+    "shodan.search_facets": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "facets"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:shodan_adapter.search_facets"
+      ]
+    },
+    "shodan.search_filters": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "filters"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:shodan_adapter.search_filters"
+      ]
+    },
+    "shodan.session_key.clear": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "configured",
+        "sessionCleared"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:shodan_adapter.clear_session_key"
+      ]
+    },
+    "shodan.session_key.set": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "configured",
+        "persisted",
+        "source"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:shodan_adapter.set_session_key"
+      ]
+    },
+    "shodan.session_key.status": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "configured",
+        "persisted",
+        "source"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:shodan_adapter.session_key_status"
+      ]
+    },
+    "shodan.target_summary": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "history",
+        "hostnames",
+        "ingestedTargetCount",
+        "minify",
+        "page",
+        "rawResponseReturned",
+        "sourceStatus",
+        "target",
+        "targetType",
+        "type",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:shodan_adapter.target_summary"
+      ]
+    },
+    "sitemap.from_dump": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "dumpDir",
+        "dumpPath",
+        "evidenceId",
+        "formCount",
+        "hostCount",
+        "hosts",
+        "includeLinks",
+        "onlyInScope",
+        "outputPath",
+        "scopeHosts",
+        "summary",
+        "target",
+        "tool",
+        "type",
+        "urlCount"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:crawler_adapter.sitemap_from_dump"
+      ]
+    },
+    "social.approve_pretext_candidate": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "approved",
+        "approvedAt",
+        "entityKey",
+        "message",
+        "pretextCandidate",
+        "requiresConfirmation",
+        "target",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:pretext_generator.approve_pretext_candidate"
+      ]
+    },
+    "spec_import.capabilities": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adapter",
+        "capabilities",
+        "limitations"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:spec_import.capabilities"
+      ]
+    },
+    "spec_import.import_spec": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adapter",
+        "authSchemeCount",
+        "authSchemes",
+        "endpointCount",
+        "format",
+        "ingested",
+        "ingestion",
+        "parameterCount",
+        "target",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:spec_import.import_spec"
+      ]
+    },
+    "sqli.analyze_dump": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adapter",
+        "analysis",
+        "candidateCount",
+        "candidates",
+        "dumpPath",
+        "includeCommands",
+        "ingestion",
+        "level",
+        "maxCandidatesPerRequest",
+        "onlyInteresting",
+        "risk",
+        "target",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:sqlmap_adapter.analyze_dump"
+      ]
+    },
+    "sqli.analyze_workspace": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adapter",
+        "candidateCount",
+        "candidates",
+        "contextSummary",
+        "endpointCount",
+        "ingested",
+        "ingestion",
+        "maxCandidates",
+        "minScore",
+        "parameterCount",
+        "target",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:sqlmap_adapter.analyze_workspace"
+      ]
+    },
+    "sqli.build_sqlmap_command": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "bulkTargetUrls",
+        "candidateId",
+        "candidateIds",
+        "command",
+        "locations",
+        "method",
+        "minScore",
+        "parameters",
+        "priorityScore",
+        "promotedCandidates",
+        "shellCommand",
+        "targetCount",
+        "targets",
+        "url"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:sqlmap_adapter.build_command"
+      ]
+    },
+    "ssi.capabilities": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adapter",
+        "capabilities",
+        "limitations"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:ssi.capabilities"
+      ]
+    },
+    "ssi.execute_test": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "action",
+        "adapter",
+        "approval",
+        "assessment",
+        "candidate",
+        "evidenceId",
+        "exchangeEvidence",
+        "exchangeEvidenceIds",
+        "host",
+        "ingestion",
+        "location",
+        "markerReflected",
+        "method",
+        "parameter",
+        "payload",
+        "request",
+        "requestHeaders",
+        "response",
+        "safeEchoPossiblyExecuted",
+        "target",
+        "test",
+        "tests",
+        "tool",
+        "type",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:ssi.execute_test"
+      ]
+    },
+    "ssi.passive_analyze": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adapter",
+        "candidateCount",
+        "candidates",
+        "contextSummary",
+        "ingested",
+        "ingestion",
+        "maxCandidates",
+        "minScore",
+        "target",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:ssi.passive_analyze"
+      ]
+    },
+    "ssi.plan_tests": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "candidateId",
+        "expectedSignals",
+        "guardrails",
+        "location",
+        "method",
+        "parameter",
+        "reasons",
+        "recommendedTests",
+        "safePayloads",
+        "sendsTraffic",
+        "target",
+        "testPlan"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:ssi.plan_tests"
+      ]
+    },
+    "ssi.prepare_replay": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "candidate",
+        "replay",
+        "testCode"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:ssi.prepare_replay"
+      ]
+    },
+    "ssrf.analyze_workspace": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adapter",
+        "candidateCount",
+        "candidates",
+        "contextSummary",
+        "endpointCount",
+        "ingested",
+        "ingestion",
+        "interestingCandidateCount",
+        "maxCandidates",
+        "minScore",
+        "parameterCount",
+        "target",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:ssrf_adapter.analyze_workspace"
+      ]
+    },
+    "ssrf.execute_test": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "action",
+        "adapter",
+        "approval",
+        "assessment",
+        "candidate",
+        "evidenceId",
+        "exchangeEvidence",
+        "exchangeEvidenceId",
+        "host",
+        "ingestion",
+        "location",
+        "method",
+        "parameter",
+        "payload",
+        "request",
+        "requestHeaders",
+        "response",
+        "target",
+        "test",
+        "tool",
+        "type",
+        "validation",
+        "verificationRequired",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:ssrf_adapter.execute_test"
+      ]
+    },
+    "ssrf.generate_test_plan": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "candidateId",
+        "expectedSignals",
+        "guardrails",
+        "location",
+        "method",
+        "parameter",
+        "priority",
+        "reasons",
+        "safeManualPayloads",
+        "sendsTraffic",
+        "target",
+        "testPlan",
+        "url"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:ssrf_adapter.generate_test_plan"
+      ]
+    },
+    "ssti.capabilities": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adapter",
+        "capabilities",
+        "limitations"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:ssti.capabilities"
+      ]
+    },
+    "ssti.execute_test": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "action",
+        "adapter",
+        "approval",
+        "assessment",
+        "candidate",
+        "evaluatedArithmetic",
+        "evidenceId",
+        "exchangeEvidence",
+        "exchangeEvidenceIds",
+        "host",
+        "ingestion",
+        "location",
+        "method",
+        "parameter",
+        "payload",
+        "request",
+        "requestHeaders",
+        "response",
+        "target",
+        "templateErrorSignal",
+        "test",
+        "tests",
+        "tool",
+        "type",
+        "validation",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:ssti.execute_test"
+      ]
+    },
+    "ssti.passive_analyze": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adapter",
+        "candidateCount",
+        "candidates",
+        "contextSummary",
+        "ingested",
+        "ingestion",
+        "maxCandidates",
+        "minScore",
+        "target",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:ssti.passive_analyze"
+      ]
+    },
+    "ssti.plan_tests": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "candidateId",
+        "expectedSignals",
+        "guardrails",
+        "location",
+        "method",
+        "parameter",
+        "reasons",
+        "recommendedTests",
+        "safePayloads",
+        "sendsTraffic",
+        "target",
+        "testPlan"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:ssti.plan_tests"
+      ]
+    },
+    "ssti.prepare_replay": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "candidate",
+        "replay",
+        "testCode"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:ssti.prepare_replay"
+      ]
+    },
+    "tls_posture.analyze_workspace": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adapter",
+        "candidateCount",
+        "candidates",
+        "contextSummary",
+        "endpointCount",
+        "ingested",
+        "ingestion",
+        "maxCandidates",
+        "serviceCount",
+        "summary",
+        "target",
+        "tool",
+        "type",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:tls_posture.analyze_workspace"
+      ]
+    },
+    "tls_posture.capabilities": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adapter",
+        "capabilities",
+        "limitations"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:tls_posture.capabilities"
+      ]
+    },
+    "workspace.add_target": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "added",
+        "createdAt",
+        "kind",
+        "notes",
+        "path",
+        "target",
+        "updatedAt",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:workspace.add_target"
+      ]
+    },
+    "workspace.create": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "created",
+        "createdAt",
+        "hosts",
+        "notes",
+        "organization",
+        "path",
+        "updatedAt",
+        "workspace",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:workspace.create_workspace"
+      ]
+    },
+    "workspace.create_finding": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "affectedAssets",
+        "confidence",
+        "created",
+        "createdAt",
+        "description",
+        "evidenceIds",
+        "finding",
+        "findingId",
+        "findingsDocument",
+        "id",
+        "impact",
+        "missingEvidenceIds",
+        "operatorReviewed",
+        "remediation",
+        "reproductionSteps",
+        "severity",
+        "target",
+        "title",
+        "type",
+        "updatedAt",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:workspace.create_finding"
+      ]
+    },
+    "workspace.curate_candidate": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "action",
+        "added",
+        "candidateId",
+        "confidence",
+        "created",
+        "decidedAt",
+        "entityKey",
+        "entityType",
+        "observation",
+        "priority",
+        "priorityScore",
+        "reason",
+        "reasons",
+        "removed",
+        "retired",
+        "reviewer",
+        "target",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:workspace.curate_candidate"
+      ]
+    },
+    "workspace.delete": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "bytes",
+        "deleted",
+        "directoryCount",
+        "exists",
+        "fileCount",
+        "message",
+        "path",
+        "requiresConfirmation",
+        "targetCount",
+        "workspace",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:workspace.delete_workspace"
+      ]
+    },
+    "workspace.export_finding_context": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "evidence",
+        "finding",
+        "findingsDocument",
+        "target",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:workspace.export_finding_context"
+      ]
+    },
+    "workspace.ingest_data": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "entitiesCreated",
+        "evidenceId",
+        "findingsDocument",
+        "ingestId",
+        "interestingObservations",
+        "llmSummary",
+        "normalizedOutputsRedacted",
+        "rawPath",
+        "rawQueryValuesMayBePresent",
+        "recommendedNextActions",
+        "retention",
+        "scopeReason",
+        "scopeStatus",
+        "source",
+        "target",
+        "warnings",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:workspace.ingest_data"
+      ]
+    },
+    "workspace.link_evidence_to_finding": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "evidenceIds",
+        "finding",
+        "findingId",
+        "findingsDocument",
+        "linked",
+        "missingEvidenceIds",
+        "target",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:workspace.link_evidence_to_finding"
+      ]
+    },
+    "workspace.mark_finding_reviewed": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "findingId",
+        "operatorReviewed",
+        "reviewer",
+        "target",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:workspace.mark_finding_reviewed"
+      ]
+    },
+    "workspace.promote_observation_to_finding": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "findingId",
+        "observationKey",
+        "target",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:workspace.promote_observation_to_finding"
+      ]
+    },
+    "workspace.record_candidate_validation": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "action",
+        "classesUpdated",
+        "decidedAt",
+        "entityKey",
+        "entityType",
+        "findingDraft",
+        "notes",
+        "observation",
+        "outcome",
+        "retired",
+        "reviewer",
+        "selector",
+        "target",
+        "vulnClass",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:workspace.record_candidate_validation"
+      ]
+    },
+    "workspace.set_entity_reportable": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "decidedAt",
+        "decision",
+        "entityKeys",
+        "entityType",
+        "isReportable",
+        "matched",
+        "reason",
+        "reviewer",
+        "selector",
+        "target",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:workspace.set_entity_reportable"
+      ]
+    },
+    "workspace.update_finding": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "finding",
+        "findingId",
+        "findingsDocument",
+        "target",
+        "updated",
+        "updatedFields",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:workspace.update_finding"
+      ]
+    },
+    "xss.analyze_dump": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adapter",
+        "analysis",
+        "candidateCount",
+        "candidates",
+        "dumpPath",
+        "includeTestCode",
+        "ingestion",
+        "maxFindingsPerResponse",
+        "onlyInteresting",
+        "target",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:xss_adapter.analyze_dump"
+      ]
+    },
+    "xss.analyze_workspace": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adapter",
+        "candidateCount",
+        "candidates",
+        "contextSummary",
+        "endpointCount",
+        "ingested",
+        "ingestion",
+        "maxCandidates",
+        "minScore",
+        "parameterCount",
+        "target",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:xss_adapter.analyze_workspace"
+      ]
+    },
+    "xss.execute_test": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "action",
+        "adapter",
+        "approval",
+        "approvedPayloads",
+        "assessment",
+        "candidate",
+        "encodedPayloadReflected",
+        "evidenceId",
+        "exchangeEvidence",
+        "exchangeEvidenceIds",
+        "host",
+        "ingestion",
+        "location",
+        "marker",
+        "markerReflected",
+        "method",
+        "mode",
+        "parameter",
+        "payload",
+        "payloadCapability",
+        "rawPayloadReflected",
+        "request",
+        "requestHeaders",
+        "response",
+        "riskTier",
+        "target",
+        "test",
+        "tests",
+        "tool",
+        "type",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:xss_adapter.execute_test"
+      ]
+    },
+    "xss.generate_test_code": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "candidate",
+        "replay",
+        "testCode"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:xss_adapter.generate_test_code"
+      ]
+    },
+    "xxe.analyze_workspace": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adapter",
+        "candidateCount",
+        "candidates",
+        "contextSummary",
+        "endpointCount",
+        "ingested",
+        "ingestion",
+        "maxCandidates",
+        "parameterCount",
+        "target",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:xxe.analyze_workspace"
+      ]
+    },
+    "xxe.capabilities": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "adapter",
+        "capabilities",
+        "limitations"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:xxe.capabilities"
+      ]
+    },
+    "xxe.execute_test": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "action",
+        "adapter",
+        "approval",
+        "assessment",
+        "candidate",
+        "evidenceId",
+        "exchangeEvidence",
+        "exchangeEvidenceId",
+        "host",
+        "ingestion",
+        "marker",
+        "method",
+        "request",
+        "requestHeaders",
+        "response",
+        "target",
+        "test",
+        "tool",
+        "type",
+        "url",
+        "workspaceId"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:xxe.execute_test"
+      ]
+    },
+    "xxe.generate_test_plan": {
+      "dynamicBoundary": "Known public top-level fields are declared. Values and additional public fields remain JSON because the frozen retained serializer is intentionally open-ended; secrets and internal worker fields are never advertised.",
+      "fields": [
+        "candidateId",
+        "expectedSignals",
+        "guardrails",
+        "manualReproductionOutline",
+        "method",
+        "reasons",
+        "sendsTraffic",
+        "target",
+        "testPlan",
+        "url"
+      ],
+      "fixtureTypes": {},
+      "sources": [
+        "implementation:xxe.generate_test_plan"
+      ]
+    }
+  },
+  "derivation": "canonical implementation serializer source plus frozen representative success/background fixtures",
+  "schemaVersion": 1
+}
