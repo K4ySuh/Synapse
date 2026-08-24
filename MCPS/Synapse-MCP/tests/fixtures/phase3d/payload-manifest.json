@@ -9,9 +9,9 @@
         "toolCount": 174
       },
       "modern-compact": {
-        "compactUtf8Bytes": 22863,
+        "compactUtf8Bytes": 23342,
         "fixture": "modern-compact-tools.json",
-        "sha256": "91a096bbadf832179d5a598f409e83ff0edf3924b6744de33afc049d3940c260",
+        "sha256": "dc9001cbfd471e4365ceb8cb825e42ba2876d2eaeaa844370d0687815d3941e7",
         "toolCount": 11
       },
       "modern-direct": {
@@ -33,33 +33,33 @@
       "modern-compact": {
         "revisions": {
           "2024-11-05": {
-            "compactUtf8Bytes": 24205,
+            "compactUtf8Bytes": 24684,
             "fixture": "sdk-modern-compact-2024-11-05-tools.json",
-            "sha256": "0c6dc6c5b96ee8c4f8b6bce073d392388ab156d60423a5809c47b668a35bd045",
+            "sha256": "b658bfbfb7f7994c931262823317180658261e21f9ca52274bf442503a2d24fc",
             "toolCount": 11
           },
           "2025-03-26": {
-            "compactUtf8Bytes": 24205,
+            "compactUtf8Bytes": 24684,
             "fixture": "sdk-modern-compact-2024-11-05-tools.json",
-            "sha256": "0c6dc6c5b96ee8c4f8b6bce073d392388ab156d60423a5809c47b668a35bd045",
+            "sha256": "b658bfbfb7f7994c931262823317180658261e21f9ca52274bf442503a2d24fc",
             "toolCount": 11
           },
           "2025-06-18": {
-            "compactUtf8Bytes": 24205,
+            "compactUtf8Bytes": 24684,
             "fixture": "sdk-modern-compact-2024-11-05-tools.json",
-            "sha256": "0c6dc6c5b96ee8c4f8b6bce073d392388ab156d60423a5809c47b668a35bd045",
+            "sha256": "b658bfbfb7f7994c931262823317180658261e21f9ca52274bf442503a2d24fc",
             "toolCount": 11
           },
           "2025-11-25": {
-            "compactUtf8Bytes": 24205,
+            "compactUtf8Bytes": 24684,
             "fixture": "sdk-modern-compact-2024-11-05-tools.json",
-            "sha256": "0c6dc6c5b96ee8c4f8b6bce073d392388ab156d60423a5809c47b668a35bd045",
+            "sha256": "b658bfbfb7f7994c931262823317180658261e21f9ca52274bf442503a2d24fc",
             "toolCount": 11
           },
           "2026-07-28": {
-            "compactUtf8Bytes": 23567,
+            "compactUtf8Bytes": 24046,
             "fixture": "sdk-modern-compact-2026-07-28-tools.json",
-            "sha256": "75a0a0614584add8e11e665975d73878421fc357723f6d21505ce46a35275c4b",
+            "sha256": "144941b4f231312ea3913aaa4829fff32a9a12005048b8adfba7d25ef3d61d8e",
             "toolCount": 11
           }
         }

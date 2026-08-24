@@ -11,6 +11,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
+from synapse_mcp.app.context import ContextQueryInput
+
 
 def _camel_case(value: str) -> str:
     head, *tail = value.split("_")
@@ -48,13 +50,6 @@ class EngagementInspectInput(FacadeModel):
     cursor: str | None = None
     limit: int = Field(default=50, ge=1, le=500)
     include_inventory: bool = False
-
-
-class ContextQueryInput(FacadeModel):
-    workspace_id: str
-    target: str
-    purpose: str = "next_step_planning"
-    max_tokens: int = Field(default=1500, ge=100)
 
 
 class CapabilitiesSearchInput(FacadeModel):
@@ -264,7 +259,7 @@ class FacadeCallContext:
             raise PermissionError("Authority-aware facade calls require a server-held session binding")
 
 
-COMPACT_INPUT_MODELS: dict[str, type[FacadeModel]] = {
+COMPACT_INPUT_MODELS: dict[str, type[BaseModel]] = {
     "engagement.open": EngagementOpenInput,
     "engagement.inspect": EngagementInspectInput,
     "context.query": ContextQueryInput,

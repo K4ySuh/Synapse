@@ -87,6 +87,29 @@ class VerticalSlice:
     audit: AuditRecord
 
 
+@dataclass(frozen=True, slots=True)
+class ContextRepositorySnapshot:
+    """One committed repository snapshot consumed by the Context Compiler."""
+
+    store_version: str
+    workspace_id: str
+    revision: int
+    earliest_change_revision: int | None
+    workspace: JsonObject
+    scope: JsonObject
+    targets: Sequence[JsonObject] = field(default_factory=tuple)
+    entities: Sequence[JsonObject] = field(default_factory=tuple)
+    relations: Sequence[JsonObject] = field(default_factory=tuple)
+    findings: Sequence[JsonObject] = field(default_factory=tuple)
+    evidence: Sequence[JsonObject] = field(default_factory=tuple)
+    evidence_artifacts: Sequence[JsonObject] = field(default_factory=tuple)
+    actions: Sequence[JsonObject] = field(default_factory=tuple)
+    dispatches: Sequence[JsonObject] = field(default_factory=tuple)
+    tasks: Sequence[JsonObject] = field(default_factory=tuple)
+    authority: JsonObject = field(default_factory=dict)
+    changes: Sequence[JsonObject] = field(default_factory=tuple)
+
+
 class WorkspaceRepository(Protocol):
     @property
     def workspace_id(self) -> str: ...
@@ -94,6 +117,8 @@ class WorkspaceRepository(Protocol):
     def revision(self) -> int: ...
 
     def snapshot(self) -> dict[str, Any]: ...
+
+    def context_snapshot(self, *, since_revision: int | None = None) -> ContextRepositorySnapshot: ...
 
 
 class EvidenceRepository(Protocol):

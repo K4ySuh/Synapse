@@ -18,7 +18,7 @@ from uuid import uuid4
 
 from .backup import online_backup
 from .connections import StateConnection
-from .contracts import ArtifactRecord
+from .contracts import ArtifactRecord, ContextRepositorySnapshot
 from .errors import (
     StateBusyError,
     StateCommitUnknownError,
@@ -247,6 +247,212 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                 }
             )
         return value
+
+    def context_snapshot(self, *, since_revision: int | None = None) -> ContextRepositorySnapshot:
+        """Read every compiler input from one WAL snapshot."""
+
+        with self.connection_factory.connect() as connection:
+            apply_migrations(connection)
+            connection.execute("BEGIN")
+            try:
+                workspace_row = connection.execute(
+                    "SELECT workspace_id, organization, notes, created_at, updated_at FROM workspaces WHERE workspace_id=?",
+                    (self.workspace_id,),
+                ).fetchone()
+                if workspace_row is None:
+                    raise StateStoreError("workspace_not_initialized", "Workspace is not initialized in State Store v2.")
+                revision = self._workspace_revision(connection)
+                earliest_row = connection.execute(
+                    "SELECT MIN(revision) FROM change_log WHERE workspace_id=?",
+                    (self.workspace_id,),
+                ).fetchone()
+                earliest = int(earliest_row[0]) if earliest_row and earliest_row[0] is not None else None
+                scope_row = connection.execute(
+                    "SELECT payload_json FROM scope_snapshots WHERE workspace_id=? ORDER BY created_revision DESC, scope_snapshot_id DESC LIMIT 1",
+                    (self.workspace_id,),
+                ).fetchone()
+                targets = tuple(
+                    {
+                        "targetId": row[0],
+                        "naturalKey": row[1],
+                        "kind": row[2],
+                        "payload": _decode(row[3]),
+                        "createdRevision": int(row[4]),
+                        "updatedRevision": int(row[5]),
+                    }
+                    for row in connection.execute(
+                        "SELECT target_id, natural_key, kind, payload_json, created_revision, updated_revision FROM targets WHERE workspace_id=? ORDER BY natural_key, target_id",
+                        (self.workspace_id,),
+                    )
+                )
+                entities = tuple(
+                    {
+                        "entityId": row[0],
+                        "targetId": row[1],
+                        "entityType": row[2],
+                        "naturalKey": row[3],
+                        "lifecycle": row[4],
+                        "payload": _decode(row[5]),
+                        "createdRevision": int(row[6]),
+                        "updatedRevision": int(row[7]),
+                    }
+                    for row in connection.execute(
+                        "SELECT entity_id, target_id, entity_type, natural_key, lifecycle, payload_json, created_revision, updated_revision FROM entities WHERE workspace_id=? ORDER BY entity_type, natural_key, entity_id",
+                        (self.workspace_id,),
+                    )
+                )
+                relations = tuple(
+                    {
+                        "relationId": row[0],
+                        "sourceEntityId": row[1],
+                        "targetEntityId": row[2],
+                        "relationType": row[3],
+                        "payload": _decode(row[4]),
+                        "createdRevision": int(row[5]),
+                    }
+                    for row in connection.execute(
+                        "SELECT relation_id, source_entity_id, target_entity_id, relation_type, payload_json, created_revision FROM entity_relations WHERE workspace_id=? ORDER BY relation_type, relation_id",
+                        (self.workspace_id,),
+                    )
+                )
+                findings = tuple(
+                    {
+                        "findingId": row[0],
+                        "targetId": row[1],
+                        "naturalKey": row[2],
+                        "status": row[3],
+                        "severity": row[4],
+                        "operatorReviewed": bool(row[5]),
+                        "payload": _decode(row[6]),
+                        "createdRevision": int(row[7]),
+                        "updatedRevision": int(row[8]),
+                    }
+                    for row in connection.execute(
+                        "SELECT finding_id, target_id, natural_key, status, severity, operator_reviewed, payload_json, created_revision, updated_revision FROM findings WHERE workspace_id=? ORDER BY natural_key, finding_id",
+                        (self.workspace_id,),
+                    )
+                )
+                evidence = tuple(
+                    {
+                        "evidenceId": row[0],
+                        "targetId": row[1],
+                        "summary": row[2],
+                        "payload": _decode(row[3]),
+                        "createdRevision": int(row[4]),
+                    }
+                    for row in connection.execute(
+                        "SELECT evidence_id, target_id, summary, payload_json, created_revision FROM evidence WHERE workspace_id=? ORDER BY created_revision, evidence_id",
+                        (self.workspace_id,),
+                    )
+                )
+                evidence_artifacts = tuple(
+                    {
+                        "evidenceId": row[0],
+                        "artifactId": row[1],
+                        "digest": row[2],
+                        "size": int(row[3]),
+                        "mediaType": row[4],
+                        "origin": row[5],
+                        "createdRevision": int(row[6]),
+                    }
+                    for row in connection.execute(
+                        "SELECT ea.evidence_id, a.artifact_id, a.digest, a.size, a.media_type, a.origin, ea.created_revision "
+                        "FROM evidence_artifacts ea JOIN artifacts a ON a.workspace_id=ea.workspace_id AND a.artifact_id=ea.artifact_id "
+                        "WHERE ea.workspace_id=? ORDER BY ea.evidence_id, a.artifact_id",
+                        (self.workspace_id,),
+                    )
+                )
+                actions = tuple(
+                    {
+                        "actionId": row[0],
+                        "actionName": row[1],
+                        "state": row[2],
+                        "payload": _decode(row[3]),
+                        "createdRevision": int(row[4]),
+                        "updatedRevision": int(row[5]),
+                    }
+                    for row in connection.execute(
+                        "SELECT action_id, action_name, state, payload_json, created_revision, updated_revision FROM actions WHERE workspace_id=? ORDER BY updated_revision DESC, action_id",
+                        (self.workspace_id,),
+                    )
+                )
+                dispatches = tuple(
+                    {
+                        "dispatchId": row[0],
+                        "actionId": row[1],
+                        "state": row[2],
+                        "payload": _decode(row[3]),
+                        "createdRevision": int(row[4]),
+                        "updatedRevision": int(row[5]),
+                    }
+                    for row in connection.execute(
+                        "SELECT dispatch_id, action_id, state, payload_json, created_revision, updated_revision FROM action_dispatches WHERE workspace_id=? ORDER BY updated_revision DESC, dispatch_id",
+                        (self.workspace_id,),
+                    )
+                )
+                tasks = tuple(
+                    {
+                        "taskId": row[0],
+                        "actionId": row[1],
+                        "state": row[2],
+                        "taskRevision": int(row[3]),
+                        "payload": _decode(row[4]),
+                        "createdRevision": int(row[5]),
+                        "updatedRevision": int(row[6]),
+                    }
+                    for row in connection.execute(
+                        "SELECT task_id, action_id, state, revision, payload_json, created_revision, updated_revision FROM tasks WHERE workspace_id=? ORDER BY updated_revision DESC, task_id",
+                        (self.workspace_id,),
+                    )
+                )
+                changes = tuple(
+                    {
+                        "revision": int(row[0]),
+                        "sequence": int(row[1]),
+                        "entityType": row[2],
+                        "entityId": row[3],
+                        "changeKind": row[4],
+                        "payload": _decode(row[5]),
+                    }
+                    for row in connection.execute(
+                        "SELECT revision, sequence, entity_type, entity_id, change_kind, payload_json FROM change_log "
+                        "WHERE workspace_id=? AND revision>? ORDER BY revision, sequence",
+                        (self.workspace_id, int(since_revision or 0)),
+                    )
+                ) if since_revision is not None else ()
+                authority = self.authority_state(connection)
+                connection.commit()
+            except BaseException:
+                try:
+                    connection.rollback()
+                except Exception:
+                    pass
+                raise
+        return ContextRepositorySnapshot(
+            store_version="sqlite-v2",
+            workspace_id=self.workspace_id,
+            revision=revision,
+            earliest_change_revision=earliest,
+            workspace={
+                "workspaceId": workspace_row[0],
+                "organization": workspace_row[1],
+                "notes": workspace_row[2],
+                "createdAt": workspace_row[3],
+                "updatedAt": workspace_row[4],
+            },
+            scope=_decode(scope_row[0]) if scope_row else {},
+            targets=targets,
+            entities=entities,
+            relations=relations,
+            findings=findings,
+            evidence=evidence,
+            evidence_artifacts=evidence_artifacts,
+            actions=actions,
+            dispatches=dispatches,
+            tasks=tasks,
+            authority=authority,
+            changes=changes,
+        )
 
     def _finish_revision(
         self,
@@ -1319,6 +1525,25 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
             "mediaType": row[4],
             "version": row[5],
             "size": int(row[6]),
+        }
+
+    def artifact_record(self, artifact_id: str) -> dict[str, Any] | None:
+        with self.connection_factory.connect() as connection:
+            apply_migrations(connection)
+            row = connection.execute(
+                "SELECT artifact_id, digest, size, media_type, origin FROM artifacts WHERE workspace_id=? AND artifact_id=?",
+                (self.workspace_id, artifact_id),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "artifactId": row[0],
+            "path": self.artifacts.resolve(str(row[0]), workspace_id=self.workspace_id),
+            "workspaceId": self.workspace_id,
+            "version": row[1],
+            "size": int(row[2]),
+            "mediaType": row[3],
+            "origin": row[4],
         }
 
     # Bounded WAL status/checkpoint and online backup.

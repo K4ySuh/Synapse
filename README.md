@@ -94,6 +94,16 @@ prior assessment knowledge available through MCP tools and resources.
 
 ## Modernization Status
 
+Phase 4D replaces only modern compact `context.query` with the typed,
+revision-aware Context Compiler. It reads one committed repository snapshot,
+separates facts/candidates/contradictions/gaps/actions/tasks/recommendations,
+protects current scope and authority truth, supports exact `sinceRevision`
+deltas, and accounts for the canonical UTF-8 context payload with explicit
+omissions. Large evidence remains behind bound resource links. The frozen
+legacy `workspace.prepare_target_context` action is unchanged. Current compact
+application metadata is 23,342 bytes; the largest supported official-SDK wire
+projection is 24,684 bytes, below the 24,834-byte gate.
+
 Phase 3C completes the production official-SDK adapter over the
 protocol-independent modern application surfaces. Phase 3D is complete under
 the operator-approved stable-Codex contract. Codex can use protocol-native

@@ -30,8 +30,10 @@ legacy stdio projection       production SDK adapter (stdio / authenticated HTTP
                    -> canonical output-model validation
 ```
 
-The compact facade has exactly eleven stable application operations; the
-direct projection is generated in canonical Registry order. The Phase 3C
+The compact facade has exactly eleven stable application operations. Its
+modern `context.query` operation enters the transport-independent Context
+Compiler directly; executable operations still enter the Registry. The direct
+projection is generated in canonical Registry order. The Phase 3C
 official-SDK adapter publishes exactly one selected projection. Startup surface
 selection is trusted configuration and is independent from wire negotiation,
 client metadata, and authority. Dynamic facade inputs cannot submit a
@@ -76,6 +78,7 @@ MCP client
                    |-- uses $SYNAPSE_PYTHON, active VIRTUAL_ENV, or .venv/bin/python
                    |-- app/
                    |   |-- actions/ (174 canonical descriptors and Registry)
+                   |   |-- context.py (revision-aware budgeted compiler)
                    |   `-- facade/ (compact/direct services, catalog, resources)
                    |-- transport/modern/ (official-SDK stdio/HTTP adapter,
                    |                     identity, keyring, HTTP security)
@@ -255,6 +258,18 @@ manifest. The selector still defaults to JSON v1 and there is no dual-write.
 Once selected, SQLite-v2 is authoritative under both legacy and modern protocol
 profiles. Durable model-facing resources resolve through workspace CAS rows and
 hashed principal/session/reference bindings rather than server paths.
+
+The Phase 4 Context Compiler is an application service with no MCP dependency.
+It asks the selected repository for one snapshot containing current scope,
+authority, normalized domain rows, artifact metadata, and the requested
+change-log interval. Its closed result protects revision and safety data,
+classifies lifecycle truth without promoting candidates, and packs sections in
+a fixed stable order. The published `utf8_bytes_v1` counter measures canonical
+compact UTF-8 JSON; if the protected minimum exceeds the request, the compiler
+returns that measured minimum instead of dropping safety warnings. Large
+evidence bodies are never embedded. Full queries return CAS-backed links, while
+future or pruned delta cursors fail or require an explicit full refresh. The
+legacy `workspace.prepare_target_context` action does not use this compiler.
 
 The modern HTTP boundary authenticates one high-entropy bearer token by
 server-held digest, then resolves principal/workspace to a server-held authority

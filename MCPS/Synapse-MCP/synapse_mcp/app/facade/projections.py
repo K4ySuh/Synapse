@@ -10,6 +10,7 @@ from typing import Any
 
 from synapse_mcp.app.actions import REGISTRY
 from synapse_mcp.app.actions.registry import ActionRegistry
+from synapse_mcp.app.context import ContextQueryResult
 
 from .catalog import action_annotations, model_facing_action_input_schema
 from .contracts import (
@@ -136,7 +137,8 @@ class CompactProjection:
             "engagement.open": concise_json_object_schema(REGISTRY.contract_schema("project.start")["outputSchema"]),
             "engagement.inspect": concise_json_object_schema(REGISTRY.contract_schema("workspace.summary")["outputSchema"]),
             "context.query": concise_json_object_schema(
-                REGISTRY.contract_schema("workspace.prepare_target_context")["outputSchema"]
+                compact_json_schema(ContextQueryResult),
+                boundary="Closed ContextQueryResult; nested values are validated by the application model.",
             ),
             "capabilities.search": concise_json_object_schema(compact_json_schema(CatalogPage)),
             "actions.describe": concise_json_object_schema(compact_json_schema(ActionDescription)),

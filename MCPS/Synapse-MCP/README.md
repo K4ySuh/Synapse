@@ -83,6 +83,26 @@ online backup API without overwriting an existing destination. Credential
 bodies and raw opaque request state are excluded.
 See [Operations](../../docs/Operations.md) for the exact workflow.
 
+## Modern Context Compiler
+
+Modern compact `context.query` is a local application service, not a mapped
+legacy action. It reads one selected repository snapshot and returns the
+committed revision with closed fact, candidate, contradiction, coverage-gap,
+action/task, recommendation, resource-link, and omission sections. Current
+scope and authority are taken from trusted repositories. `sinceRevision`
+returns the covered committed interval; future cursors fail and pruned cursors
+require a full refresh. JSON-v1 supports full compilation but explicitly
+requires a refresh for every delta request because it has no transactional
+change log.
+
+The reported `utf8_bytes_v1` counter measures canonical compact UTF-8 context
+JSON. Protected revision and safety data are never omitted: undersized requests
+return `budget_too_small` with `minimumRequired`. Large evidence bodies remain
+in the workspace CAS and are exposed only as resource links bound to the
+trusted workspace, principal, and authority session. `target`/`purpose` remain
+temporary aliases, while frozen legacy `workspace.prepare_target_context`
+retains its original schema and behavior.
+
 ## Runtime Python
 
 Run this MCP through `MCPS/Synapse-MCP/bin/synapse-mcp`. The launcher sources

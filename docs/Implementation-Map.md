@@ -73,7 +73,9 @@ and task revisions, the activated transactional runtime repository, bounded WAL
 checkpoint/status and online backup, and the workspace-local SHA-256 artifact
 store. `state/runtime.py` owns activated workspace, entity/relation, evidence,
 artifact/resource, finding/review, authority/dispatch, task/finalization, and
-audit operations. `state/migration.py` owns
+audit operations. Its `context_snapshot()` reads compiler inputs and the
+requested change-log interval from one committed WAL snapshot.
+`state/migration.py` owns
 read-only inventory, immutable snapshots, restartable/idempotent v1-to-v2
 stages, verification, guarded activation, and rollback-boundary enforcement.
 `state/bundles.py` owns canonical export/import and artifact-manifest
@@ -351,10 +353,13 @@ The application action layer is under `synapse_mcp/app/actions/`:
 typed `outputSchema` for all 174 actions. The stable legacy tools list stays
 frozen and therefore does not publish these output schemas.
 
-The Phase 3B application surfaces are under `synapse_mcp/app/facade/`:
+The application surfaces are under `synapse_mcp/app/`:
 
-- `contracts.py` owns the strict eleven compact inputs, common typed outcome,
-  annotations, resource references, and trusted adapter context;
+- `context.py` owns the modern compact Context Compiler, its strict query and
+  result models, deterministic UTF-8 budget counter, packing rules, lifecycle
+  classification, safety warnings, delta behavior, and bound artifact links;
+- `facade/contracts.py` owns the remaining strict compact inputs, common typed
+  outcome, annotations, resource references, and trusted adapter context;
 - `catalog.py` provides deterministic bounded search and exact description over
   all 174 descriptors without hiding high-risk actions;
 - `services.py` revalidates nested action input, gates passive effects, invokes
@@ -367,8 +372,10 @@ The Phase 3B application surfaces are under `synapse_mcp/app/facade/`:
 - `projections.py` fixes the eleven-operation compact order and generates the
   174-operation direct surface plus static annotations from descriptor truth.
 
-The compact application descriptor payload is 21,648 bytes under deterministic
-compact JSON. `synapse_mcp/transport/modern/` projects either surface through
+The current compact application descriptor payload is 23,342 bytes under
+deterministic compact JSON. Its largest supported official-SDK projection is
+24,684 bytes, below the 24,834-byte ceiling.
+`synapse_mcp/transport/modern/` projects either surface through
 official SDK 2.0.0 over stdio or authenticated Streamable HTTP. `config.py`
 owns fail-closed startup policy and keyrings, `identity.py` owns principal and
 authority-session binding, `http_security.py` owns the HTTP authentication and

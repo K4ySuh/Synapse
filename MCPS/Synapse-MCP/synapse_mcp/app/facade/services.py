@@ -29,9 +29,11 @@ from synapse_mcp.app.actions import (
     ValidationFailure,
 )
 from synapse_mcp.app.actions.registry import ActionRegistry
+from synapse_mcp.app.context import ContextCompiler, ContextQueryError, ContextTrust
 from synapse_mcp.core import workspace
 from synapse_mcp.core.atomic_io import atomic_write_text, file_lock
 from synapse_mcp.policy.repository import AuthorityRepositoryError, WorkspaceAuthorityRepository
+from synapse_mcp.state.selector import repository_bundle
 
 from .catalog import ActionCatalogService, effect_summary
 from .contracts import (
@@ -696,7 +698,32 @@ class CompactFacadeService:
         if isinstance(value, EngagementInspectInput):
             return self._run_mapped(operation, "workspace.summary", value, context, passive=True)
         if isinstance(value, ContextQueryInput):
-            return self._run_mapped(operation, "workspace.prepare_target_context", value, context, passive=True)
+            if context.workspace_id and value.workspace_id != context.workspace_id:
+                return _validation_envelope(
+                    operation,
+                    context,
+                    "context.query workspace does not match the trusted workspace binding.",
+                    reason_code="context_workspace_mismatch",
+                )
+            try:
+                repository = repository_bundle(value.workspace_id, workspace.WORKSPACES_DIR).workspace
+                result = ContextCompiler(repository).compile(
+                    value,
+                    trust=ContextTrust(
+                        execution_profile=context.execution_profile,
+                        selected_grant_id=context.selected_grant_id,
+                        principal_id=context.principal_id,
+                        authority_session_id=context.authority_session_id,
+                    ),
+                )
+            except ContextQueryError as exc:
+                return _validation_envelope(
+                    operation,
+                    context,
+                    str(exc),
+                    reason_code=exc.reason_code,
+                )
+            return self._local_success(operation, context, result)
         if isinstance(value, CapabilitiesSearchInput):
             try:
                 result = self.catalog.search(value)

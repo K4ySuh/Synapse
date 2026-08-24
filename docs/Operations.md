@@ -611,6 +611,38 @@ workspace.prepare_target_context(
 )
 ```
 
+That action is the frozen legacy context contract. In `modern-compact`, use the
+revision-aware compiler instead:
+
+```text
+context.query(
+  workspaceId="<workspace>",
+  intent="next_step_planning",
+  targets=["example.com"],
+  entityTypes=["endpoint", "finding"],
+  sinceRevision=<optional committed revision>,
+  maxTokens=6000,
+  includeEvidenceSummaries=false
+)
+```
+
+`maxTokens` is measured with the reported conservative `utf8_bytes_v1`
+canonical-payload counter. A complete or truncated result never exceeds the
+request; if revision/scope/authority/contradiction safety cannot fit, status is
+`budget_too_small` and `minimumRequired` reports the actual protected size.
+Every budget omission includes its section, count, reason, and continuation.
+Large evidence content is represented by `resourceLinks` and can be inspected
+only through the same trusted workspace, principal, and authority session.
+
+For incremental context, retain the returned `revision` and pass it as the next
+`sinceRevision`. A future revision returns `context_revision_future`. If
+retention has pruned the required change-log interval, the result sets
+`fullRefreshRequired=true`; repeat without `sinceRevision`. Do not merge a
+pruned partial result into cached context. JSON-v1 repositories support full
+queries but have no transactional change log, so every delta request also
+requires a full refresh. The transitional singular `target` and `purpose`
+inputs remain accepted aliases for `targets` and `intent`.
+
 Use `workspace.summary` to scan workspace-level progress and
 `workspace.create_finding` to record operator-reviewed issues. Ingestion returns
 `scopeStatus` (`in_scope`, `out_of_scope`, or `scope_unset`) and a reason so

@@ -24,6 +24,18 @@ durable dispatch and continuation truth.
 
 ### Added
 
+- **Phase 4D revision-aware Context Compiler.** Modern compact
+  `context.query` now reads one committed repository snapshot and returns a
+  strict, deterministic context model with current revision, optional
+  `sinceRevision` deltas, protected scope/authority/contradiction safety,
+  lifecycle-separated facts and candidates, gaps, tasks/actions,
+  non-executable recommendations, and explicit omissions. Canonical UTF-8 byte
+  accounting enforces historical budgets with a typed `budget_too_small`
+  result when protected data cannot fit. Large evidence stays in the
+  workspace CAS behind principal/session/workspace-bound resource links. The
+  legacy `workspace.prepare_target_context` contract is unchanged; refreshed
+  compact official-SDK fixtures remain below the 24,834-byte ceiling for every
+  supported negotiated revision.
 - **Phase 4C transactional runtime adoption.** Activated workspaces now route
   workspace/entity/relation, evidence/artifact, finding/review, authority,
   dispatch, task/finalization, resource-reference, revision, and audit truth

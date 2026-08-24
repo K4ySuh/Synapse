@@ -285,7 +285,7 @@ class ResourceReferenceService:
         return any(_is_relative_to(resolved, root) for root in self._allowed_roots)
 
     def resolve(self, reference: str, *, context: FacadeCallContext) -> ResolvedArtifact:
-        record = self._record(reference)
+        record = self._record(reference, context=context)
         if record is None:
             raise ResourceAccessError("resource_reference_invalid", "Opaque resource reference is unknown")
         if not _binding_matches(record.principal_id, context.principal_id):
@@ -317,7 +317,7 @@ class ResourceReferenceService:
     def resolve_path(self, reference: str, *, context: FacadeCallContext) -> Path:
         """Resolve a bound opaque reference for server-internal action input only."""
 
-        record = self._record(reference)
+        record = self._record(reference, context=context)
         if record is None:
             raise ResourceAccessError("resource_reference_invalid", "Opaque resource reference is unknown")
         if not _binding_matches(record.principal_id, context.principal_id):
@@ -336,6 +336,12 @@ class ResourceReferenceService:
     def workspace_hint(self, reference: str, *, principal_id: str) -> str:
         """Return a principal-bound workspace hint for adapter identity resolution."""
 
+        context_binding = _context_reference_parts(reference)
+        if context_binding is not None:
+            workspace_id, _artifact_id, principal_ref, _authority_ref = context_binding
+            if not secrets.compare_digest(principal_ref, sha256(principal_id.encode("utf-8")).hexdigest()):
+                raise ResourceAccessError("resource_principal_mismatch", "Resource principal binding does not match")
+            return workspace_id
         record = self._record(reference)
         if record is None:
             raise ResourceAccessError("resource_reference_invalid", "Opaque resource reference is unknown")
@@ -392,7 +398,47 @@ class ResourceReferenceService:
             raise ResourceAccessError("resource_outside_allowed_roots", "Resource is outside Synapse artifact roots")
         return resolved
 
-    def _record(self, reference: str) -> _ResourceRecord | None:
+    def _record(
+        self,
+        reference: str,
+        *,
+        context: FacadeCallContext | None = None,
+    ) -> _ResourceRecord | None:
+        context_binding = _context_reference_parts(reference)
+        if context_binding is not None:
+            if context is None:
+                return None
+            workspace_id, artifact_id, principal_ref, authority_ref = context_binding
+            trusted_workspace = workspace.normalize_workspace_id(context.workspace_id)
+            if not secrets.compare_digest(workspace_id, trusted_workspace):
+                raise ResourceAccessError("resource_workspace_mismatch", "Resource workspace binding does not match")
+            if not secrets.compare_digest(principal_ref, sha256(context.principal_id.encode("utf-8")).hexdigest()):
+                raise ResourceAccessError("resource_principal_mismatch", "Resource principal binding does not match")
+            if not secrets.compare_digest(authority_ref, sha256(context.authority_session_id.encode("utf-8")).hexdigest()):
+                raise ResourceAccessError("resource_authority_mismatch", "Resource authority binding does not match")
+            from synapse_mcp.state.runtime import ActivatedWorkspaceRepository, opaque_ref
+            from synapse_mcp.state.selector import selected_store_version
+
+            root = workspace.workspace_path(workspace_id)
+            if selected_store_version(root) != "sqlite-v2":
+                return None
+            value = ActivatedWorkspaceRepository(workspace_id, root).artifact_record(artifact_id)
+            if value is None:
+                return None
+            return _ResourceRecord(
+                reference=ResourceReference(
+                    reference=reference,
+                    artifact_type="evidence",
+                    media_type=str(value["mediaType"]),
+                    version=str(value["version"]),
+                    size=int(value["size"]),
+                ),
+                path=Path(value["path"]),
+                workspace_id=workspace_id,
+                principal_id=opaque_ref(context.principal_id),
+                authority_session_id=opaque_ref(context.authority_session_id),
+                durable_artifact=True,
+            )
         if self._state_path is None:
             local = self._records.get(reference)
             if local is not None:
@@ -475,6 +521,21 @@ class ResourceReferenceService:
             authority_session_id=str(value["authoritySessionId"]),
             durable_artifact=bool(value.get("durableArtifact")),
         )
+
+
+def _context_reference_parts(reference: str) -> tuple[str, str, str, str] | None:
+    if not reference.startswith("context-artifact:"):
+        return None
+    try:
+        workspace_id, remainder = reference.removeprefix("context-artifact:").split(":", 1)
+        artifact_id, principal_ref, authority_ref = remainder.rsplit(":", 2)
+    except ValueError:
+        return None
+    if workspace.normalize_workspace_id(workspace_id) != workspace_id or not artifact_id:
+        return None
+    if any(len(value) != 64 or any(character not in "0123456789abcdef" for character in value) for value in (principal_ref, authority_ref)):
+        return None
+    return workspace_id, artifact_id, principal_ref, authority_ref
 
 
 def _is_relative_to(path: Path, root: Path) -> bool:
