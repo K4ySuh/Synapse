@@ -16,6 +16,7 @@ strict_tools=0
 legacy_ready=0
 modern_ready=0
 tooling_ready=0
+state_store_ready=0
 
 usage() {
     cat <<'EOF'
@@ -95,6 +96,17 @@ if [ -n "$SYNAPSE_PYTHON_RESOLVED" ]; then
             legacy_ready=1
         fi
     done
+
+    printf '\nState Store v2 readiness (required for newly created workspaces):\n'
+    if state_readiness=$(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$ROOT_DIR/MCPS/Synapse-MCP" \
+        "$SYNAPSE_PYTHON_RESOLVED" -c 'from synapse_mcp.state.readiness import main; raise SystemExit(main())' 2>&1); then
+        printf '%s\n' "$state_readiness"
+    else
+        printf '%s\n' "$state_readiness"
+        state_store_ready=1
+        legacy_ready=1
+        modern_ready=1
+    fi
 fi
 
 for tool in sqlmap ffuf nmap nuclei; do
@@ -176,4 +188,5 @@ case "$profile" in
         if [ "$modern_ready" -ne 0 ]; then selected_status=$modern_ready; fi ;;
 esac
 if [ "$tooling_ready" -ne 0 ]; then selected_status=$tooling_ready; fi
+if [ "$state_store_ready" -ne 0 ]; then selected_status=$state_store_ready; fi
 exit "$selected_status"

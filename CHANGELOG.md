@@ -24,6 +24,20 @@ durable dispatch and continuation truth.
 
 ### Added
 
+- **Phase 4 acceptance and State Store v2 adoption.** Genuinely new workspaces
+  now initialize workspace, scope, targets, revision, change log, and audit
+  transactionally in SQLite-v2 before an atomic selector install; interrupted
+  creation resumes without duplicate truth. Existing JSON-v1 workspaces never
+  migrate automatically and retain their adapter, fixtures, pre-cutover
+  snapshots, frozen launcher, and open-ended operator-controlled migration
+  timeline. Canonical bundle import selects v2 only after semantic and artifact
+  verification. Added the private-root, fictional-target, disabled-traffic
+  `bin/run-phase4-acceptance` gate covering deterministic migration/resume,
+  v2 restart/concurrency/crash truth, backup and bundle recovery, legacy MCP
+  over v2, modern budgets/deltas/omissions, rollback refusal, environment/wire
+  measurements, Inspector discovery, and secret hygiene. Generic MCP
+  conformance remains explicitly `partial_fail`, and exact transport smoke is
+  kept separate from the live objective Codex workflow benchmark.
 - **Phase 4D revision-aware Context Compiler.** Modern compact
   `context.query` now reads one committed repository snapshot and returns a
   strict, deterministic context model with current revision, optional

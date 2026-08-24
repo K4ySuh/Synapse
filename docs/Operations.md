@@ -60,8 +60,10 @@ Run:
 bin/check-setup
 ```
 
-The check reports `LEGACY READY` and `MODERN READY` independently. Legacy
-readiness proves the frozen 174-tool server can start with the core dependencies.
+The check reports State Store readiness plus `LEGACY READY` and `MODERN READY`
+independently. State Store readiness is shared because either protocol profile
+can create or open SQLite-v2 workspaces. Legacy readiness proves the frozen
+174-tool server can start with the core dependencies.
 Modern readiness additionally requires the selected interpreter to contain
 exactly `mcp==2.0.0`, private `0600` identity bindings and request-state
 keyring, a writable state directory, and a principal/workspace authority
@@ -234,8 +236,10 @@ bin/check-state-v2-readiness
 The probe prints Python, the actual `sqlite3.sqlite_version`, APSW and its
 linked SQLite version when installed, and the selected State Store binding. A
 non-zero result is a hard State Store v2 readiness failure; do not weaken the
-SQLite floor. This entry probe does not migrate or activate a workspace.
-Existing workspaces remain JSON v1 until the explicit migration,
+SQLite floor. This entry probe does not migrate or activate a workspace. After
+the Phase 4 acceptance gate, a genuinely new workspace ID with no legacy files
+is created directly in SQLite-v2; initialization fails closed when readiness is
+not met. Existing workspaces remain JSON v1 until the explicit migration,
 verification, and activation workflow. Protocol selection (`legacy`,
 `modern-compact`, or `modern-direct`) is independent of the workspace
 store selector.
@@ -246,7 +250,22 @@ audit writes, a workspace-local content-addressed artifact repository, and the
 selected SQLite binding's online backup API. The fixed v2 layout is
 `DATA/workspaces/<workspaceId>/state-v2/state.sqlite3` with artifacts under
 `state-v2/artifacts/sha256/<prefix>/<digest>`. Do not create a v2 selector
-manually. An absent selector means JSON v1 and workspaces never dual-write.
+manually. An absent selector means JSON v1 for an existing workspace. During a
+fresh-v2 bootstrap, a committed database without a selector is an interrupted
+creation; retrying the same create operation installs the selector without a
+duplicate revision. Workspaces never dual-write.
+
+Run the complete offline adoption gate before shipping State Store changes:
+
+```bash
+bin/run-phase4-acceptance
+```
+
+It uses private temporary roots and fictional targets with target traffic
+disabled. Exact transport smoke is reported separately from objective agent
+tool-selection evidence. See the
+[Phase 4 handoff](modernization/phase-4-handoff.md) for coverage and retained
+limitations.
 
 ### Deterministic JSON-v1 migration and cutover
 
@@ -278,7 +297,8 @@ bin/state rollback <workspace>
 After the first v2-only revision, rollback fails with
 `rollback_v2_data_loss_risk`; export and perform a forward migration instead.
 Canonical portable bundles contain versioned JSON plus a SHA-256 artifact
-manifest. Import accepts only an empty workspace with the same identity and
+manifest. Import accepts only an empty workspace with the same identity,
+selects v2 only after semantic verification succeeds, and
 rejects traversal, hash mismatch, duplicate identity, unsupported schema, and
 cross-workspace rows.
 
@@ -306,6 +326,14 @@ bin/state status <workspace>
 bin/state checkpoint <workspace>
 bin/state backup <workspace> --output /private/path/state-backup.sqlite3
 ```
+
+The online backup is a consistent database-only image; retain the workspace
+CAS and external credential store separately. Never copy the live database,
+WAL, or SHM files. For portable recovery, prefer a canonical export and import
+into an empty same-identity destination. In-place backup restoration is not an
+automated operation: stop writers, preserve the failed workspace, verify the
+backup and artifact inventory, and perform a reviewed forward recovery. Do not
+overwrite a live workspace ad hoc.
 
 Writers wait only for the configured bounded busy timeout. Contention before a
 transaction obtains write authority is a retryable `state_busy_retryable`

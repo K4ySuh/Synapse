@@ -23,7 +23,7 @@ from .artifacts import ContentAddressedArtifactRepository, normalize_workspace_i
 from .connections import immediate_transaction, verify_database_integrity
 from .errors import ArtifactStoreError, StateConflictError, StateIntegrityError, StateSelectionError, StateStoreError
 from .migrations import apply_migrations, schema_hash
-from .selector import selected_store_version, selector_path
+from .selector import selected_store_version, selector_path, write_store_selector
 from .sqlite_store import SQLiteWorkspaceRepository
 
 
@@ -629,7 +629,7 @@ class StateMigrationService:
             run["activationRevision"] = revision
             run["activationPending"] = True
             self._write_run(run)
-            _atomic_write(selector_path(inventory.workspace_root), canonical_json_bytes(selector) + b"\n")
+            write_store_selector(inventory.workspace_root, selector)
             run["activated"] = True
             run["activationPending"] = False
             self._write_run(run)

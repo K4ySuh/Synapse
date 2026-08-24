@@ -46,6 +46,7 @@ ENTITY_FILES = {
     "pretextCandidates": "pretext-candidates.json",
     "detectionGaps": "detection-gaps.json",
 }
+DEFAULT_NEW_WORKSPACE_STORE = "sqlite-v2"
 ARCHIVE_EXTENSIONS = (".zip", ".tar", ".tar.gz", ".tgz", ".gz", ".7z", ".rar", ".bak", ".backup", ".sql", ".db")
 INTERESTING_PATH_MARKERS = ("admin", "backup", "debug", "dump", "config", "secret", "token", "swagger", "graphql")
 AUTH_FIELD_MARKERS = ("pass", "token", "otp", "mfa", "csrf", "user", "email", "login")
@@ -162,16 +163,21 @@ def workspace_output_path(workspace_id: str, tool: str, suffix: str) -> Path:
     return root / timestamped_filename(suffix)
 
 
-def target_output_dir(workspace_id: str, target: str, tool: str) -> Path:
-    from ..state.selector import assert_json_v1_write_allowed, selected_store_version
+def target_output_root(workspace_id: str, target: str, tool: str) -> Path:
+    from ..state.selector import selected_store_version
 
     base = workspace_path(workspace_id)
-    root = (
+    return (
         base / "state-v2" / "generated" / "targets" / slug(normalize_target(target)) / "outputs" / slug(tool)
         if selected_store_version(base) == "sqlite-v2"
         else target_path(workspace_id, target) / "outputs" / slug(tool)
     )
 
+
+def target_output_dir(workspace_id: str, target: str, tool: str) -> Path:
+    from ..state.selector import assert_json_v1_write_allowed
+
+    root = target_output_root(workspace_id, target, tool)
     assert_json_v1_write_allowed(root)
     root.mkdir(parents=True, exist_ok=True)
     return root
@@ -329,10 +335,31 @@ def _v2_write_path(path: Path, payload: Any) -> bool:
     return False
 
 
+def _v2_generated_path(path: Path) -> Path | None:
+    """Map the retained workspace perimeter cache into the selected v2 tree."""
+
+    candidate = Path(path).resolve(strict=False)
+    try:
+        relative = candidate.relative_to(WORKSPACES_DIR.resolve(strict=False))
+    except ValueError:
+        return None
+    if len(relative.parts) < 2:
+        return None
+    if relative.parts[1:] != ("perimeter-summary.json",):
+        return None
+    repository = _activated_repository(relative.parts[0])
+    if repository is None:
+        return None
+    return repository.workspace_root / "state-v2" / "generated" / Path(*relative.parts[1:])
+
+
 def _read_json(path: Path, default: Any) -> Any:
     handled, value = _v2_read_path(path)
     if handled:
         return value
+    generated = _v2_generated_path(path)
+    if generated is not None:
+        path = generated
     if not path.exists():
         return default
     try:
@@ -344,6 +371,9 @@ def _read_json(path: Path, default: Any) -> Any:
 def _write_json(path: Path, payload: Any) -> None:
     if _v2_write_path(path, payload):
         return
+    generated = _v2_generated_path(path)
+    if generated is not None:
+        path = generated
     atomic_io.atomic_write_text(
         path,
         json.dumps(payload, indent=2, ensure_ascii=False),
@@ -390,6 +420,42 @@ def workspace_scope(workspace_id: str) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+def _bootstrap_new_v2_workspace(
+    workspace_id: str,
+    *,
+    organization: str,
+    notes: str,
+    scope_snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    from ..state.bootstrap import NewWorkspaceStoreService
+
+    updated_at = now_utc()
+    target_payloads = [
+        {
+            "workspaceId": workspace_id,
+            "target": host,
+            "kind": "host",
+            "notes": "",
+            "createdAt": updated_at,
+            "updatedAt": updated_at,
+        }
+        for host in scope_snapshot.get("hosts", [])
+    ]
+    result = NewWorkspaceStoreService(WORKSPACES_DIR).create(
+        workspace_id,
+        organization=organization,
+        notes=notes,
+        scope={**scope_snapshot, "updatedAt": updated_at} if scope_snapshot else {},
+        targets=target_payloads,
+    )
+    return {
+        "created": result["created"],
+        "workspaceId": result["workspaceId"],
+        "workspace": result["workspace"],
+        "path": result["path"],
+    }
+
+
 def create_workspace(
     workspace_id: str,
     organization: str = "",
@@ -397,16 +463,32 @@ def create_workspace(
     hosts: list[str] | None = None,
     patterns: list[str] | None = None,
     cidrs: list[str] | None = None,
+    store_version: str | None = None,
 ) -> dict[str, Any]:
     wid = normalize_workspace_id(workspace_id)
     if not wid:
         raise McpError(-32602, "workspaceId is required.")
+    selected_new_store = store_version or DEFAULT_NEW_WORKSPACE_STORE
     path = workspace_path(wid)
     existing = _read_json(path / "workspace.json", {})
     created = not bool(existing)
     created_at = existing.get("createdAt") or now_utc()
     scope_snapshot = _normalize_scope_snapshot(hosts, patterns, cidrs)
     normalized_hosts = scope_snapshot.get("hosts", [])
+    if created and selected_new_store == "sqlite-v2":
+        existing_legacy = path.exists() and any(
+            item.name not in {".lock", "state-v2"}
+            for item in path.iterdir()
+        )
+        if not existing_legacy:
+            return _bootstrap_new_v2_workspace(
+                wid,
+                organization=organization,
+                notes=notes,
+                scope_snapshot=scope_snapshot,
+            )
+    if selected_new_store not in {"json-v1", "sqlite-v2"}:
+        raise McpError(-32602, "store_version must be json-v1 or sqlite-v2.")
     payload = {
         "workspaceId": wid,
         "organization": organization or existing.get("organization", ""),
@@ -731,11 +813,24 @@ def _merge_entity_fields(merged: dict[str, Any], item: dict[str, Any]) -> None:
             merged["candidateFor"] = [cls for cls in merged["candidateFor"] if cls not in refuted]
 
 
-def _merge_entities(path: Path, new_entities: list[dict[str, Any]], evidence_id: str) -> tuple[list[dict[str, Any]], int]:
-    existing = _read_json(path, [])
+def _merge_entity_values(
+    existing: Any,
+    new_entities: list[dict[str, Any]],
+    evidence_id: str,
+    *,
+    materialize_keys: bool = False,
+) -> tuple[list[dict[str, Any]], int]:
     if not isinstance(existing, list):
         existing = []
-    by_key = {_entity_key(item): item for item in existing if isinstance(item, dict)}
+    by_key: dict[str, dict[str, Any]] = {}
+    for existing_item in existing:
+        if not isinstance(existing_item, dict):
+            continue
+        item = dict(existing_item)
+        key = _entity_key(item)
+        if materialize_keys:
+            item.setdefault("key", key)
+        by_key[key] = item
     created = 0
     for entity in new_entities:
         if not isinstance(entity, dict):
@@ -751,6 +846,8 @@ def _merge_entities(path: Path, new_entities: list[dict[str, Any]], evidence_id:
         if evidence_id and evidence_id not in item["evidenceIds"]:
             item["evidenceIds"].append(evidence_id)
         key = _entity_key(item)
+        if materialize_keys:
+            item.setdefault("key", key)
         if key in by_key:
             merged = by_key[key]
             _merge_entity_fields(merged, item)
@@ -758,6 +855,11 @@ def _merge_entities(path: Path, new_entities: list[dict[str, Any]], evidence_id:
             by_key[key] = item
             created += 1
     merged_items = sorted(by_key.values(), key=lambda item: _entity_key(item))
+    return merged_items, created
+
+
+def _merge_entities(path: Path, new_entities: list[dict[str, Any]], evidence_id: str) -> tuple[list[dict[str, Any]], int]:
+    merged_items, created = _merge_entity_values(_read_json(path, []), new_entities, evidence_id)
     _write_json(path, merged_items)
     return merged_items, created
 
@@ -2542,17 +2644,30 @@ def _ingest_data_v2(
         observations_by_key.setdefault(_entity_key(item), item)
     observations = list(observations_by_key.values())
     parsed_entities["observations"] = observations
-    collections: dict[str, list[dict[str, Any]]] = {}
-    for entity_name in ENTITY_FILES:
-        values = parsed_entities.get(entity_name, [])
-        collections[entity_name] = (
-            _normalize_entities_for_workspace(workspace_id, host, entity_name, values)
-            if values
-            else []
-        )
-
     stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
     evidence_id = f"ev_{stamp}_{time.time_ns() % 1_000_000:06d}_{slug(source)[:32]}"
+    collections: dict[str, list[dict[str, Any]]] = {}
+    row_id_hints: dict[str, dict[str, str]] = {}
+    for entity_name in ENTITY_FILES:
+        values = parsed_entities.get(entity_name, [])
+        if not values:
+            collections[entity_name] = []
+            continue
+        normalized = _normalize_entities_for_workspace(workspace_id, host, entity_name, values)
+        records = repository.collection_records(host, entity_name)
+        existing = [payload for _row_id, payload in records]
+        by_key = {_entity_key(payload): row_id for row_id, payload in records}
+        collections[entity_name], _created = _merge_entity_values(
+            existing,
+            normalized,
+            evidence_id,
+            materialize_keys=True,
+        )
+        row_id_hints[entity_name] = {
+            str(item.get("key")): by_key[str(item.get("key"))]
+            for item in collections[entity_name]
+            if str(item.get("key")) in by_key
+        }
     media_type = {
         "json": "application/json",
         "jsonl": "application/x-ndjson",
@@ -2605,6 +2720,7 @@ def _ingest_data_v2(
                 else metadata or {}
             ),
         },
+        row_id_hints=row_id_hints,
     )
     stored = {name: repository.collection(host, name) for name in ENTITY_FILES}
     findings_document = write_findings_markdown(workspace_id, host) if counts.get("findings") else None
@@ -3544,7 +3660,8 @@ def append_report_decision(workspace_id: str, record: dict[str, Any]) -> None:
     """
     from ..state.selector import assert_json_v1_write_allowed
 
-    assert_json_v1_write_allowed(workspace_path(workspace_id) / "workspace.json")
+    if _activated_repository(workspace_id) is None:
+        assert_json_v1_write_allowed(workspace_path(workspace_id) / "workspace.json")
     path = report_decisions_path(workspace_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     decisions = read_report_decisions(workspace_id)

@@ -93,6 +93,9 @@ jobs:
       - name: Run official-SDK adapter suite
         run: bin/test-modern
 
+      - name: Run Phase 4 state and context acceptance
+        run: bin/run-phase4-acceptance --evidence-output "$RUNNER_TEMP/phase4-acceptance.json"
+
       - name: Assert clean working tree
         shell: bash
         run: |

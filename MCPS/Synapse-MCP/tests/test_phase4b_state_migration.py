@@ -18,6 +18,7 @@ from synapse_mcp.state import (
     StateMigrationService,
     StateSelectionError,
     canonical_digest,
+    selected_store_version,
 )
 from synapse_mcp.state.connections import immediate_transaction
 from synapse_mcp.state.migrations import apply_migrations
@@ -245,6 +246,10 @@ class Phase4BStateMigrationTests(unittest.TestCase):
         second = self._bundles(import_root).export("beta-complete", self.root / "bundle-imported")
         self.assertEqual(imported["contentDigest"], first["contentDigest"])
         self.assertEqual(second["contentDigest"], first["contentDigest"])
+        self.assertEqual(
+            selected_store_version(import_root / "workspaces" / "beta-complete"),
+            "sqlite-v2",
+        )
         self.assertEqual(
             json.loads((self.root / "bundle-source" / "bundle.json").read_text(encoding="utf-8")),
             json.loads((self.root / "bundle-imported" / "bundle.json").read_text(encoding="utf-8")),

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Literal
 
@@ -37,6 +38,33 @@ def selected_store_version(workspace_root: Path) -> StoreVersion:
     if selected not in {"json-v1", "sqlite-v2"}:
         raise StateSelectionError("store_selector_unknown", "Workspace store selector names an unknown store.")
     return selected
+
+
+def write_store_selector(workspace_root: Path, payload: dict) -> Path:
+    """Install one fsynced selector without exposing an intermediate file."""
+
+    path = selector_path(workspace_root)
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    temporary = path.parent / f".{path.name}.{os.getpid()}.tmp"
+    content = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8") + b"\n"
+    try:
+        with temporary.open("xb") as handle:
+            os.chmod(temporary, 0o600)
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        descriptor = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+    return path
 
 
 def assert_json_v1_write_allowed(path: Path) -> None:

@@ -686,6 +686,31 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                 )
             return [_decode(row[0]) for row in rows]
 
+    def collection_records(self, target: str, entity_type: str) -> list[tuple[str, dict[str, Any]]]:
+        """Return internal row identities with payloads for compatibility merging."""
+
+        with self.connection_factory.connect() as connection:
+            apply_migrations(connection)
+            target_id = self._target_id(connection, target)
+            if target_id is None:
+                return []
+            if entity_type == "findings":
+                rows = connection.execute(
+                    "SELECT finding_id, payload_json FROM findings WHERE workspace_id=? AND target_id=? ORDER BY natural_key",
+                    (self.workspace_id, target_id),
+                )
+            elif entity_type == "actions":
+                rows = connection.execute(
+                    "SELECT action_id, payload_json FROM actions WHERE workspace_id=? ORDER BY action_id",
+                    (self.workspace_id,),
+                )
+            else:
+                rows = connection.execute(
+                    "SELECT entity_id, payload_json FROM entities WHERE workspace_id=? AND target_id=? AND entity_type=? ORDER BY natural_key",
+                    (self.workspace_id, target_id, _COLLECTION_ENTITY_TYPES.get(entity_type, entity_type.removesuffix("s"))),
+                )
+            return [(str(row[0]), _decode(row[1])) for row in rows]
+
     @staticmethod
     def _natural(item: Mapping[str, Any]) -> str:
         return str(item.get("key") or item.get("id") or item.get("entityId") or sha256(_json(item).encode()).hexdigest())
@@ -699,6 +724,7 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
         items: Sequence[Mapping[str, Any]],
         revision: int,
         evidence_id: str = "",
+        row_id_hints: Mapping[str, str] | None = None,
     ) -> tuple[int, list[tuple[str, str, str, Any]]]:
         target_id = self._target_id(connection, target)
         if target_id is None:
@@ -709,12 +735,20 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
         for raw in items:
             item = dict(raw)
             natural = self._natural(item)
+            row_hint = str((row_id_hints or {}).get(natural) or "")
             if entity_type == "findings":
                 finding_id = _safe_id(item.get("id") or item.get("key"), "finding", self.workspace_id, target, natural)
-                existing = connection.execute(
-                    "SELECT finding_id, payload_json FROM findings WHERE workspace_id=? AND target_id=? AND natural_key IN (?, ?) ORDER BY CASE WHEN natural_key=? THEN 0 ELSE 1 END LIMIT 1",
-                    (self.workspace_id, target_id, f"{target_id}:{natural}", natural, f"{target_id}:{natural}"),
-                ).fetchone()
+                existing = (
+                    connection.execute(
+                        "SELECT finding_id, payload_json FROM findings WHERE workspace_id=? AND target_id=? AND finding_id=?",
+                        (self.workspace_id, target_id, row_hint),
+                    ).fetchone()
+                    if row_hint
+                    else connection.execute(
+                        "SELECT finding_id, payload_json FROM findings WHERE workspace_id=? AND target_id=? AND natural_key IN (?, ?) ORDER BY CASE WHEN natural_key=? THEN 0 ELSE 1 END LIMIT 1",
+                        (self.workspace_id, target_id, f"{target_id}:{natural}", natural, f"{target_id}:{natural}"),
+                    ).fetchone()
+                )
                 merged = {**(_decode(existing[1]) if existing else {}), **item}
                 if existing:
                     finding_id = str(existing[0])
@@ -736,6 +770,8 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                 row_id = finding_id
             elif entity_type == "actions":
                 row_id = _safe_id(item.get("actionId") or item.get("id") or natural, "action", self.workspace_id, natural)
+                if row_hint:
+                    row_id = row_hint
                 existing = connection.execute(
                     "SELECT payload_json FROM actions WHERE workspace_id=? AND action_id=?",
                     (self.workspace_id, row_id),
@@ -750,10 +786,17 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
             else:
                 singular = _COLLECTION_ENTITY_TYPES.get(entity_type, entity_type.removesuffix("s"))
                 db_natural = f"{target_id}:{natural}"
-                existing = connection.execute(
-                    "SELECT entity_id, payload_json FROM entities WHERE workspace_id=? AND target_id=? AND entity_type=? AND natural_key IN (?, ?) ORDER BY CASE WHEN natural_key=? THEN 0 ELSE 1 END LIMIT 1",
-                    (self.workspace_id, target_id, singular, db_natural, natural, db_natural),
-                ).fetchone()
+                existing = (
+                    connection.execute(
+                        "SELECT entity_id, payload_json FROM entities WHERE workspace_id=? AND target_id=? AND entity_type=? AND entity_id=?",
+                        (self.workspace_id, target_id, singular, row_hint),
+                    ).fetchone()
+                    if row_hint
+                    else connection.execute(
+                        "SELECT entity_id, payload_json FROM entities WHERE workspace_id=? AND target_id=? AND entity_type=? AND natural_key IN (?, ?) ORDER BY CASE WHEN natural_key=? THEN 0 ELSE 1 END LIMIT 1",
+                        (self.workspace_id, target_id, singular, db_natural, natural, db_natural),
+                    ).fetchone()
+                )
                 row_id = str(existing[0]) if existing else _stable_id("entity", self.workspace_id, target_id, singular, natural)
                 merged = {**(_decode(existing[1]) if existing else {}), **item}
                 prior_evidence = set(merged.get("evidenceIds") or []) if isinstance(merged.get("evidenceIds"), list) else set()
@@ -953,6 +996,7 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
         collections: Mapping[str, Sequence[Mapping[str, Any]]],
         audit_payload: Mapping[str, Any],
         fault_injector: Callable[[str], None] | None = None,
+        row_id_hints: Mapping[str, Mapping[str, str]] | None = None,
     ) -> tuple[int, dict[str, int]]:
         if not self.artifacts.blob_exists(artifact):
             raise StateIntegrityError("artifact_blob_not_installed", "Evidence artifact bytes are not installed.")
@@ -1023,6 +1067,7 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                     items=items,
                     revision=revision,
                     evidence_id=evidence_id,
+                    row_id_hints=(row_id_hints or {}).get(name),
                 )
                 counts[name] = count
                 changes.extend(entity_changes)

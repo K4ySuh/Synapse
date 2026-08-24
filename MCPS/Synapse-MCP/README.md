@@ -69,19 +69,28 @@ Dispatch budgets count actions, not outbound HTTP requests.
 
 ## State Migration Operator
 
+After the Phase 4 offline acceptance gate, genuinely new workspace IDs create
+SQLite-v2 state transactionally by default. Existing JSON-v1 workspace files
+remain v1 until the operator completes the workflow below; selecting a protocol
+profile never triggers migration.
+
 `synapse-state` (repository launcher: `bin/state`) inventories and dry-runs
 JSON-v1 workspaces without mutation, applies restartable deterministic migration
 stages, verifies the SQLite-v2 result, and keeps activation explicit. Its
 `status`, `activate`, and bounded `rollback` commands enforce the first
 v2-only-write boundary. Canonical `export` and empty-workspace `import`
 commands validate artifact paths, hashes, workspace identity, duplicates, and
-schema version. Once activated, SQLite-v2 is authoritative for workspace,
+schema version; verified import selects the resulting v2 workspace. Once
+activated, SQLite-v2 is authoritative for workspace,
 authority/dispatch, task/finalization, durable resource, revision, and audit
 truth under both legacy and modern protocol profiles. `status` includes bounded
 WAL state; `checkpoint` serializes manual checkpoints and `backup` uses the
 online backup API without overwriting an existing destination. Credential
-bodies and raw opaque request state are excluded.
-See [Operations](../../docs/Operations.md) for the exact workflow.
+bodies and raw opaque request state are excluded. Run
+`bin/run-phase4-acceptance` before shipping persistence/context changes. See
+[Operations](../../docs/Operations.md) and the
+[Phase 4 handoff](../../docs/modernization/phase-4-handoff.md) for the exact
+workflow and recovery boundary.
 
 ## Modern Context Compiler
 

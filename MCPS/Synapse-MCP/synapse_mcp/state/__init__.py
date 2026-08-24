@@ -5,6 +5,7 @@
 
 from .artifacts import ArtifactLimits, ContentAddressedArtifactRepository
 from .backup import online_backup
+from .bootstrap import NewWorkspaceStoreService
 from .bundles import BUNDLE_FORMAT, BUNDLE_TABLES, StateBundleService
 from .contracts import (
     ArtifactRecord,
@@ -51,6 +52,7 @@ __all__ = [
     "ArtifactStoreError",
     "AuditRecord",
     "ContentAddressedArtifactRepository",
+    "NewWorkspaceStoreService",
     "EntityRecord",
     "EvidenceRecord",
     "RelationRecord",

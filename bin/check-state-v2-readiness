@@ -7,4 +7,4 @@ SYNAPSE_PYTHON=$("$ROOT_DIR/bin/resolve-synapse-python")
 
 PYTHONDONTWRITEBYTECODE=1 \
 PYTHONPATH="$ROOT_DIR/MCPS/Synapse-MCP" \
-exec "$SYNAPSE_PYTHON" -m synapse_mcp.state.readiness "$@"
+exec "$SYNAPSE_PYTHON" -c 'from synapse_mcp.state.readiness import main; raise SystemExit(main())' "$@"

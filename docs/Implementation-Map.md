@@ -78,11 +78,15 @@ requested change-log interval from one committed WAL snapshot.
 `state/migration.py` owns
 read-only inventory, immutable snapshots, restartable/idempotent v1-to-v2
 stages, verification, guarded activation, and rollback-boundary enforcement.
-`state/bundles.py` owns canonical export/import and artifact-manifest
-validation; `state/cli.py` and `bin/state` expose the operator surface.
-Raw SQL remains confined to this package. The selector still defaults to JSON
-v1 and migration never activates implicitly; an activated selector makes v2
-authoritative for both protocol profiles without dual-write.
+`state/bootstrap.py` owns crash-safe fresh-v2 initialization and selector
+installation. `state/bundles.py` owns canonical export/import,
+artifact-manifest validation, and verified import selection; `state/cli.py` and
+`bin/state` expose the operator surface. `bin/run-phase4-acceptance` owns the
+offline migration/recovery/context adoption gate. Raw SQL remains confined to
+the state package. New workspaces default to v2 after acceptance, while an
+existing selector-less JSON workspace remains v1 until explicit migration and
+activation; an activated selector makes v2 authoritative for both protocol
+profiles without dual-write.
 
 ## Data Layout
 

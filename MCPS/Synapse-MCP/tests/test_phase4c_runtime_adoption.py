@@ -334,7 +334,7 @@ class Phase4CRuntimeAdoptionTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def activate(self, workspace_id: str, *, hosts: list[str] | None = None) -> ActivatedWorkspaceRepository:
-        workspace.create_workspace(workspace_id, hosts=hosts or [])
+        workspace.create_workspace(workspace_id, hosts=hosts or [], store_version="json-v1")
         migration = StateMigrationService(self.root)
         migration.migrate(workspace_id, apply=True)
         migration.activate(workspace_id)

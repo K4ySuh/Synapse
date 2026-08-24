@@ -254,9 +254,12 @@ activation as a separate operator action. Activation flips one atomic selector
 and makes legacy JSON writes fail closed. Pre-first-v2-write rollback restores
 the exact prior selector; later rollback is refused to prevent data loss.
 Canonical bundles carry versioned relational JSON and a verified CAS artifact
-manifest. The selector still defaults to JSON v1 and there is no dual-write.
-Once selected, SQLite-v2 is authoritative under both legacy and modern protocol
-profiles. Durable model-facing resources resolve through workspace CAS rows and
+manifest. After Phase 4 acceptance, genuinely new workspaces bootstrap
+directly into v2; an existing workspace with no selector remains JSON v1 and
+is never migrated implicitly. There is no dual-write. Once selected,
+SQLite-v2 is authoritative under both legacy and modern protocol profiles.
+Canonical bundle import selects v2 only after semantic and artifact
+verification. Durable model-facing resources resolve through workspace CAS rows and
 hashed principal/session/reference bindings rather than server paths.
 
 The Phase 4 Context Compiler is an application service with no MCP dependency.

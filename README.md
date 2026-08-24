@@ -94,6 +94,16 @@ prior assessment knowledge available through MCP tools and resources.
 
 ## Modernization Status
 
+Phase 4 is complete. Genuinely new workspaces now bootstrap transactionally in
+SQLite-v2 after linked-runtime and filesystem readiness succeeds. Existing
+JSON-v1 workspaces remain unchanged until an operator runs the separate
+inventory, migration, verification, and activation steps; there is no
+dual-write or migration deadline. Canonical bundle import selects v2 only after
+semantic/artifact verification, while online backup, deterministic recovery
+tests, and rollback refusal protect post-cutover truth. The reproducible
+offline gate is `bin/run-phase4-acceptance`; see the
+[Phase 4 handoff](docs/modernization/phase-4-handoff.md).
+
 Phase 4D replaces only modern compact `context.query` with the typed,
 revision-aware Context Compiler. It reads one committed repository snapshot,
 separates facts/candidates/contradictions/gaps/actions/tasks/recommendations,
@@ -382,12 +392,12 @@ Recommended optional tooling:
    The separate State Store v2 probe prints the actual linked SQLite versions
    and requires SQLite 3.51.3 or later. It does not migrate or activate an
    existing workspace. The Task 4A repository, migration, revision, online
-   backup, and content-addressed artifact foundations remain behind a
-   JSON-v1-default workspace selector. Use `bin/state inventory`, `migrate
+   backup, and content-addressed artifact foundations now back new workspaces
+   by default. Existing JSON-v1 workspaces remain on v1. Use `bin/state inventory`, `migrate
    --dry-run`, `migrate --apply`, `verify`, and the separate `activate`
    command for a guarded Task 4B cutover; migration never activates implicitly.
-   Stop the MCP service during this checkpoint's cutover. Task 4C supplies live
-   runtime adoption over v2.
+   Stop the MCP service during cutover. Before shipping state changes, run the
+   private, disabled-traffic `bin/run-phase4-acceptance` gate.
 
 3. For a full active-adapter workstation, require scanner binaries too:
 

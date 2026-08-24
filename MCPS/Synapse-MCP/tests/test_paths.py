@@ -105,7 +105,8 @@ print(json.dumps({
     "dataDir": str(DATA_DIR),
     "dumpDir": str(DUMP_DIR),
     "cwdDataExists": __import__("pathlib").Path.cwd().joinpath("DATA").exists(),
-    "workspaceExists": DATA_DIR.joinpath("workspaces", "engagement", "workspace.json").exists(),
+    "workspaceExists": DATA_DIR.joinpath("workspaces", "engagement", "state-v2", "state.sqlite3").exists(),
+    "selectorExists": DATA_DIR.joinpath("workspaces", "engagement", "state-v2", "store-selector.json").exists(),
 }))
 """
             output = subprocess.check_output([sys.executable, "-c", code], cwd=cwd, env=env, text=True)
@@ -114,6 +115,7 @@ print(json.dumps({
             self.assertEqual(Path(result["dataDir"]), root / "DATA")
             self.assertEqual(Path(result["dumpDir"]), root / "DATA" / "workspaces")
             self.assertTrue(result["workspaceExists"])
+            self.assertTrue(result["selectorExists"])
             self.assertFalse(result["cwdDataExists"])
 
     def test_data_dir_outside_synapse_root_is_rejected(self) -> None:

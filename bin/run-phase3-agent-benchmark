@@ -199,9 +199,8 @@ def _crawler_output_allowlist() -> tuple[Any, ...]:
     from synapse_mcp.core import workspace
     from synapse_mcp.core.execution import LocalOutputDestination
 
-    target_outputs = workspace.target_path(WORKSPACE_ID, TARGET) / "outputs"
-    sitemap_root = target_outputs / workspace.slug("sitemap")
-    jobs_root = target_outputs / "jobs"
+    sitemap_root = workspace.target_output_root(WORKSPACE_ID, TARGET, "sitemap")
+    jobs_root = workspace.target_output_root(WORKSPACE_ID, TARGET, "jobs")
     destinations: list[LocalOutputDestination] = []
     now = int(time.time())
     # The agent is instructed to use the workspace-owned default. This bounded

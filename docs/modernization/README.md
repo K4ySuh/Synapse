@@ -48,6 +48,15 @@ tests, and the shared [changelog](../../CHANGELOG.md).
 - [Canonical action migration guide](action-migration-guide.md) — current
   bounded pack-batch and manifest procedure
 
+## Phase 4
+
+- [State and context handoff](phase-4-handoff.md) — v2 default for new
+  workspaces, explicit existing-workspace migration, recovery procedures, and
+  the reproducible offline acceptance gate
+- [Machine-readable Phase 4 evidence](evidence/phase-4/) — sanitized
+  migration/recovery/context, environment, transport, Inspector, and test
+  measurements
+
 ## Architecture decisions
 
 | ADR | Decision | Status |

@@ -151,12 +151,7 @@ def resolve_crawler_intent(request: ActionRequest) -> AuthorizationIntent:
     )
     host = seed.host
     suffix = f"{host}-crawler-crawl-sitemap.json"
-    default_path = (
-        workspace.target_path(workspace_id, host)
-        / "outputs"
-        / workspace.slug("sitemap")
-        / workspace.timestamped_filename(suffix)
-    )
+    default_path = workspace.target_output_root(workspace_id, host, "sitemap") / workspace.timestamped_filename(suffix)
     outputs = resolve_local_outputs(
         requested_path=str(args.get("output")) if args.get("output") else None,
         default_path=default_path,
@@ -164,7 +159,7 @@ def resolve_crawler_intent(request: ActionRequest) -> AuthorizationIntent:
         allow_external=bool(args.get("allowExternalOutput")),
     )
     if bool(args.get("background", True)):
-        internal_root = (workspace.target_path(workspace_id, host) / "outputs" / "jobs").resolve(strict=False)
+        internal_root = workspace.target_output_root(workspace_id, host, "jobs").resolve(strict=False)
         internal_specs = (
             (internal_root / workspace.timestamped_filename("crawler-crawl-args.json"), "crawler.worker_args", True),
             (internal_root / workspace.timestamped_filename("crawler-crawl-result.json"), "crawler.worker_result", False),

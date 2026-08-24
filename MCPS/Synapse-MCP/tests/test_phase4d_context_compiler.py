@@ -96,7 +96,7 @@ class Phase4DContextCompilerTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def _activate(self, workspace_id: str, *, hosts: list[str]) -> ActivatedWorkspaceRepository:
-        workspace.create_workspace(workspace_id, hosts=hosts)
+        workspace.create_workspace(workspace_id, hosts=hosts, store_version="json-v1")
         migration = StateMigrationService(self.root)
         migration.migrate(workspace_id, apply=True)
         migration.activate(workspace_id)
@@ -416,7 +416,7 @@ class Phase4DContextCompilerTests(unittest.TestCase):
         self.assertFalse(out_of_scope.confirmed_facts)
 
     def test_json_v1_full_context_includes_authority_and_delta_requires_refresh(self) -> None:
-        workspace.create_workspace("context-v1", hosts=["v1-context.example"])
+        workspace.create_workspace("context-v1", hosts=["v1-context.example"], store_version="json-v1")
         plan = _plan("context-v1")
         WorkspaceAuthorityRepository("context-v1").create_grant(_grant(plan))
         repository = repository_bundle("context-v1", workspace.WORKSPACES_DIR).workspace

@@ -22,6 +22,7 @@ from .migration import (
     canonical_json_bytes,
 )
 from .migrations import apply_migrations, schema_hash
+from .selector import write_store_selector
 from .sqlite_store import SQLiteWorkspaceRepository
 
 
@@ -149,6 +150,16 @@ class StateBundleService:
                     }
                 )
                 + b"\n",
+            )
+            write_store_selector(
+                root,
+                {
+                    "activatedRevision": int(payload["revision"]),
+                    "authoritativeStore": "sqlite-v2",
+                    "creationMode": "bundle-import",
+                    "importBundleDigest": str(payload["contentDigest"]),
+                    "version": 1,
+                },
             )
             return {"contentDigest": payload["contentDigest"], "revision": payload["revision"], "workspaceId": destination_wid}
 

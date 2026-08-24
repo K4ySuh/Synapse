@@ -109,6 +109,59 @@ class SQLiteWorkspaceRepository:
         except Exception as exc:
             raise self._translate_write_error(exc) from exc
 
+    def initialize_fresh(
+        self,
+        record: WorkspaceRecord,
+        *,
+        scope: dict[str, Any],
+        targets: Sequence[TargetRecord],
+        audit: AuditRecord,
+    ) -> int:
+        """Create one fresh v2 workspace, scope, and target set atomically."""
+
+        if normalize_workspace_id(record.workspace_id) != self._workspace_id:
+            raise StateStoreError("state_workspace_mismatch", "Workspace record identity does not match repository.")
+        now = _now_utc()
+        try:
+            with self.connection_factory.connect() as connection:
+                apply_migrations(connection)
+                with immediate_transaction(connection):
+                    if connection.execute(
+                        "SELECT 1 FROM workspaces WHERE workspace_id=?",
+                        (self._workspace_id,),
+                    ).fetchone():
+                        raise StateConflictError("workspace_already_exists", "Workspace already exists in State Store v2.")
+                    connection.execute(
+                        "INSERT INTO workspaces(workspace_id, organization, notes, created_at, updated_at) VALUES(?, ?, ?, ?, ?)",
+                        (self._workspace_id, record.organization, record.notes, now, now),
+                    )
+                    changes: list[tuple[str, str, str, Any]] = [
+                        ("workspace", self._workspace_id, "create", {"organization": record.organization})
+                    ]
+                    if scope:
+                        scope_json = _json(scope)
+                        scope_digest = sha256(scope_json.encode("utf-8")).hexdigest()
+                        scope_id = f"scope-{scope_digest[:24]}"
+                        connection.execute(
+                            "INSERT INTO scope_snapshots(scope_snapshot_id, workspace_id, digest, payload_json, created_revision, created_at) VALUES(?, ?, ?, ?, 1, ?)",
+                            (scope_id, self._workspace_id, scope_digest, scope_json, now),
+                        )
+                        changes.append(("scope_snapshot", scope_id, "create", scope))
+                    for target in targets:
+                        self._insert_target(connection, target, 1, now)
+                        changes.append(("target", target.target_id, "create", target.payload))
+                    connection.execute(
+                        "INSERT INTO workspace_revisions(workspace_id, revision, updated_at) VALUES(?, 1, ?)",
+                        (self._workspace_id, now),
+                    )
+                    self._insert_changes(connection, 1, changes, now)
+                    self._insert_audit(connection, audit, 1, now)
+            return 1
+        except StateStoreError:
+            raise
+        except Exception as exc:
+            raise self._translate_write_error(exc) from exc
+
     def apply_vertical_slice(
         self,
         value: VerticalSlice,

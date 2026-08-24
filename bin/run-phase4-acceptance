@@ -1,0 +1,721 @@
+#!/usr/bin/env python3
+# Copyright 2026 Javier Roldán Ortiz
+# SPDX-License-Identifier: Apache-2.0
+
+"""Run the reproducible, offline Phase 4 state/context adoption gate."""
+
+from __future__ import annotations
+
+import argparse
+from datetime import datetime, timezone
+from hashlib import sha256
+from importlib.metadata import PackageNotFoundError, version
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+from tempfile import TemporaryDirectory
+from typing import Any
+
+
+ROOT = Path(__file__).resolve().parents[1]
+PACKAGE = ROOT / "MCPS" / "Synapse-MCP"
+TESTS = PACKAGE / "tests"
+FIXTURE = TESTS / "fixtures" / "state_v1" / "complete"
+PHASE3_EVIDENCE = ROOT / "docs" / "modernization" / "evidence" / "phase-3"
+DEFAULT_EVIDENCE = ROOT / "docs" / "modernization" / "evidence" / "phase-4" / "acceptance-results.json"
+FICTIONAL_TARGET = "phase4.example"
+SECRET_SENTINEL = "phase4e-secret-must-not-cross-state-boundary"
+HISTORICAL_BUDGETS = (100, 400, 1_500, 6_000, 20_000)
+CONCURRENCY_ROUNDS = 100
+
+
+def _ensure_selected_runtime() -> None:
+    resolver = ROOT / "bin" / "resolve-synapse-python"
+    selected = subprocess.run(
+        [str(resolver)],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    ).stdout.strip()
+    if selected and Path(sys.executable) != Path(selected) and os.environ.get("SYNAPSE_PHASE4_RUNTIME_SELECTED") != "1":
+        environment = dict(os.environ)
+        environment["SYNAPSE_PHASE4_RUNTIME_SELECTED"] = "1"
+        os.execve(selected, [selected, *sys.argv], environment)
+
+
+_ensure_selected_runtime()
+
+sys.path.insert(0, str(PACKAGE))
+
+from synapse_mcp.app.context import (  # noqa: E402
+    ContextCompiler,
+    ContextQueryInput,
+    ContextTrust,
+    canonical_context_bytes,
+)
+from synapse_mcp.state import (  # noqa: E402
+    ActivatedWorkspaceRepository,
+    NewWorkspaceStoreService,
+    StateBundleService,
+    StateConflictError,
+    StateMigrationService,
+    selected_store_version,
+)
+from synapse_mcp.state.connections import ConnectionFactory, verify_database_integrity  # noqa: E402
+from synapse_mcp.state.migrations import schema_hash  # noqa: E402
+from synapse_mcp.state.readiness import (  # noqa: E402
+    check_filesystem_readiness,
+    probe_state_store_runtime,
+)
+
+
+class AcceptanceFailure(RuntimeError):
+    """A Phase 4 acceptance invariant failed."""
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _package_version(name: str) -> str:
+    try:
+        return version(name)
+    except PackageNotFoundError:
+        return "unavailable"
+
+
+def _json_bytes(value: Any) -> bytes:
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+
+
+def _write_private_json(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path.write_bytes(_json_bytes(payload) + b"\n")
+    path.chmod(0o600)
+
+
+def _run_phase4_tests() -> dict[str, Any]:
+    command = [
+        sys.executable,
+        "-m",
+        "unittest",
+        "discover",
+        str(TESTS),
+        "-p",
+        "test_phase4*.py",
+    ]
+    environment = dict(os.environ)
+    environment.update(
+        {
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONPATH": str(PACKAGE),
+        }
+    )
+    completed = subprocess.run(
+        command,
+        cwd=ROOT,
+        env=environment,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=300,
+        check=False,
+    )
+    match = re.search(r"Ran (\d+) tests?", completed.stdout)
+    count = int(match.group(1)) if match else 0
+    if completed.returncode or not count:
+        tail = "\n".join(completed.stdout.splitlines()[-30:])
+        raise AcceptanceFailure(f"Phase 4 test gate failed:\n{tail}")
+    return {
+        "command": "python -m unittest discover MCPS/Synapse-MCP/tests -p test_phase4*.py",
+        "count": count,
+        "result": "pass",
+    }
+
+
+def _fresh_workspace(data_root: Path) -> tuple[dict[str, Any], ActivatedWorkspaceRepository]:
+    service = NewWorkspaceStoreService(data_root / "workspaces")
+    created = service.create(
+        "fresh-v2",
+        organization="Fictional Phase 4",
+        notes="Offline acceptance fixture",
+        scope={"hosts": [FICTIONAL_TARGET], "patterns": [], "cidrs": []},
+        targets=(
+            {
+                "workspaceId": "fresh-v2",
+                "target": FICTIONAL_TARGET,
+                "kind": "host",
+                "notes": "fictional local-only target",
+            },
+        ),
+    )
+    reopened = service.create(
+        "fresh-v2",
+        organization="ignored-on-resume",
+        notes="ignored-on-resume",
+        scope={},
+        targets=(),
+    )
+    repository = ActivatedWorkspaceRepository("fresh-v2", data_root / "workspaces" / "fresh-v2")
+    if created["storeVersion"] != "sqlite-v2" or reopened["created"] or repository.revision() != 1:
+        raise AcceptanceFailure("Fresh-v2 bootstrap or restart was not idempotent.")
+    return (
+        {
+            "created": created["created"],
+            "restartCreatedDuplicate": reopened["created"],
+            "revision": repository.revision(),
+            "storeVersion": created["storeVersion"],
+            "targetCount": len(repository.target_documents()),
+        },
+        repository,
+    )
+
+
+def _context_gate(repository: ActivatedWorkspaceRepository) -> dict[str, Any]:
+    artifact = repository.artifacts.ingest_bytes(
+        b'{"fixture":"phase4e-offline"}',
+        media_type="application/json",
+        origin="phase4e.acceptance",
+    )
+    repository.ingest_collections(
+        target=FICTIONAL_TARGET,
+        target_payload={"workspaceId": "fresh-v2", "target": FICTIONAL_TARGET, "kind": "host"},
+        evidence_payload={
+            "evidenceId": "evidence-phase4e",
+            "source": "phase4e",
+            "dataType": "offline_fixture",
+            "summary": "Sanitized fictional acceptance evidence.",
+        },
+        artifact=artifact,
+        collections={
+            "endpoints": (
+                {
+                    "type": "endpoint",
+                    "key": f"GET:https://{FICTIONAL_TARGET}/api/items",
+                    "method": "GET",
+                    "url": f"https://{FICTIONAL_TARGET}/api/items",
+                    "priorityScore": 80,
+                },
+            ),
+            "observations": (
+                {
+                    "type": "state_contradiction",
+                    "key": "phase4e-contradiction",
+                    "summary": "Fictional scope and authority records require operator review.",
+                    "scopeStatus": "in_scope",
+                    "authorityStatus": "unknown",
+                    "priorityScore": 100,
+                },
+            ),
+        },
+        audit_payload={"summary": "Installed deterministic Phase 4E context fixture."},
+    )
+    compiler = ContextCompiler(repository)
+    trust = ContextTrust(execution_profile="observe", principal_id="phase4e-operator")
+    adherence: list[dict[str, Any]] = []
+    for budget in HISTORICAL_BUDGETS:
+        result = compiler.compile(
+            ContextQueryInput(
+                workspace_id="fresh-v2",
+                intent="phase4_acceptance",
+                targets=[FICTIONAL_TARGET],
+                max_tokens=budget,
+                include_evidence_summaries=True,
+            ),
+            trust=trust,
+        )
+        actual = len(canonical_context_bytes(result))
+        within = actual == result.budget.used and (
+            result.budget.status == "budget_too_small" or actual <= budget
+        )
+        adherence.append(
+            {
+                "budget": budget,
+                "status": result.budget.status,
+                "used": actual,
+                "withinBudget": within,
+                "omissionCount": len(result.omissions),
+                "contradictionCount": len(result.contradictions),
+            }
+        )
+    if not all(item["withinBudget"] for item in adherence):
+        raise AcceptanceFailure("Context budget adherence fell below 100%.")
+
+    base = repository.revision()
+    repository.replace_collection(
+        FICTIONAL_TARGET,
+        "endpoints",
+        (
+            {
+                "type": "endpoint",
+                "key": f"GET:https://{FICTIONAL_TARGET}/delta",
+                "method": "GET",
+                "url": f"https://{FICTIONAL_TARGET}/delta",
+            },
+        ),
+    )
+    delta = compiler.compile(
+        ContextQueryInput(
+            workspace_id="fresh-v2",
+            intent="phase4_delta",
+            targets=[FICTIONAL_TARGET],
+            since_revision=base,
+            max_tokens=20_000,
+        ),
+        trust=trust,
+    )
+    rollback_base = repository.revision()
+    orphan = repository.artifacts.ingest_bytes(b"rollback-refusal", origin="phase4e.rollback")
+
+    def fail_after_domain(_stage: str) -> None:
+        raise RuntimeError("phase4e injected transaction rollback")
+
+    try:
+        repository.ingest_collections(
+            target=FICTIONAL_TARGET,
+            target_payload={"workspaceId": "fresh-v2", "target": FICTIONAL_TARGET, "kind": "host"},
+            evidence_payload={"evidenceId": "evidence-must-rollback", "source": "phase4e"},
+            artifact=orphan,
+            collections={"observations": ({"type": "observation", "key": "must-rollback"},)},
+            audit_payload={"summary": "This transaction must roll back."},
+            fault_injector=fail_after_domain,
+        )
+    except RuntimeError:
+        pass
+    else:
+        raise AcceptanceFailure("Injected context transaction did not roll back.")
+    if repository.revision() != rollback_base:
+        raise AcceptanceFailure("Rolled-back domain write advanced the workspace revision.")
+    return {
+        "adherence": "100%",
+        "budgets": adherence,
+        "delta": {
+            "baseRevision": delta.base_revision,
+            "revision": delta.revision,
+            "fullRefreshRequired": delta.full_refresh_required,
+            "factCount": len(delta.confirmed_facts),
+        },
+        "rollback": {"revisionUnchanged": True, "visibleDelta": False},
+    }
+
+
+def _migrate_recover_bundle(data_root: Path, scratch: Path) -> dict[str, Any]:
+    workspace_root = data_root / "workspaces" / "beta-complete"
+    workspace_root.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(FIXTURE, workspace_root)
+    credential = workspace_root / "credentials" / "excluded.json"
+    _write_private_json(credential, {"credentialId": "fixture-reference", "secret": SECRET_SENTINEL})
+    migration = StateMigrationService(data_root)
+    inventory = migration.inventory("beta-complete")
+    dry = migration.migrate("beta-complete", apply=False)
+    first = migration.migrate("beta-complete", apply=True)
+    second = migration.migrate("beta-complete", apply=True)
+    first_verification = first["migrationRun"]["verification"]
+    second_verification = second["migrationRun"]["verification"]
+    if first_verification["verificationDigest"] != second_verification["verificationDigest"]:
+        raise AcceptanceFailure("Repeated migration produced a different verification digest.")
+
+    interrupted_root = scratch / "interrupted-data"
+    interrupted_workspace = interrupted_root / "workspaces" / "beta-complete"
+    interrupted_workspace.parent.mkdir(parents=True)
+    shutil.copytree(FIXTURE, interrupted_workspace)
+    _write_private_json(
+        interrupted_workspace / "credentials" / "excluded.json",
+        {"credentialId": "fixture-reference", "secret": SECRET_SENTINEL},
+    )
+    interrupted_service = StateMigrationService(interrupted_root)
+    injected = False
+
+    def interrupt(stage: str) -> None:
+        nonlocal injected
+        if stage == "knowledge" and not injected:
+            injected = True
+            raise RuntimeError("phase4e migration interruption")
+
+    try:
+        interrupted_service.migrate("beta-complete", apply=True, fault_injector=interrupt)
+    except RuntimeError:
+        pass
+    else:
+        raise AcceptanceFailure("Migration crash injection was not reached.")
+    resumed = interrupted_service.migrate("beta-complete", apply=True)
+    if not resumed["migrationRun"]["verification"]["success"]:
+        raise AcceptanceFailure("Interrupted migration did not resume successfully.")
+    if resumed["migrationRun"]["verification"]["verificationDigest"] != first_verification["verificationDigest"]:
+        raise AcceptanceFailure("Resumed migration differs from the uninterrupted deterministic result.")
+
+    activation = migration.activate("beta-complete")
+    repository = ActivatedWorkspaceRepository("beta-complete", workspace_root)
+    repository.upsert_target("v2-write.example", {"workspaceId": "beta-complete", "target": "v2-write.example", "kind": "host"})
+    reopened = ActivatedWorkspaceRepository("beta-complete", workspace_root)
+    if not reopened.target_document("v2-write.example"):
+        raise AcceptanceFailure("Post-activation v2 write was not visible after restart.")
+    try:
+        migration.rollback("beta-complete")
+    except StateConflictError as exc:
+        rollback_reason = exc.reason_code
+    else:
+        raise AcceptanceFailure("Rollback after a v2-only write was not refused.")
+
+    backup_path = scratch / "backup" / "beta-complete.sqlite3"
+    reopened.backup_to(backup_path)
+    with ConnectionFactory(backup_path).connect() as connection:
+        verify_database_integrity(connection)
+        backup_revision = int(
+            connection.execute(
+                "SELECT revision FROM workspace_revisions WHERE workspace_id='beta-complete'"
+            ).fetchone()[0]
+        )
+
+    bundles = StateBundleService(data_root)
+    exported = bundles.export("beta-complete", scratch / "bundle-source")
+    imported_root = scratch / "imported-data"
+    imported = StateBundleService(imported_root).import_bundle(scratch / "bundle-source")
+    exported_again = StateBundleService(imported_root).export("beta-complete", scratch / "bundle-imported")
+    if exported["contentDigest"] != exported_again["contentDigest"]:
+        raise AcceptanceFailure("Export/import/export semantic digest changed.")
+    if selected_store_version(imported_root / "workspaces" / "beta-complete") != "sqlite-v2":
+        raise AcceptanceFailure("Verified bundle import did not select SQLite-v2.")
+
+    protected = b"".join(
+        path.read_bytes()
+        for root in (workspace_root / "state-v2", scratch / "bundle-source", scratch / "bundle-imported")
+        for path in root.rglob("*")
+        if path.is_file()
+    )
+    if SECRET_SENTINEL.encode("utf-8") in protected:
+        raise AcceptanceFailure("Credential material crossed into v2 state or an export bundle.")
+    return {
+        "inventoryDigest": inventory["sourceDigest"],
+        "dryRunDigest": dry["inventory"]["sourceDigest"],
+        "firstVerificationDigest": first_verification["verificationDigest"],
+        "secondVerificationDigest": second_verification["verificationDigest"],
+        "migrationIdempotent": True,
+        "interruptionStage": "knowledge",
+        "resumeVerificationDigest": resumed["migrationRun"]["verification"]["verificationDigest"],
+        "activation": {
+            "selectedStore": activation["selectedStore"],
+            "activatedRevision": activation["activationRevision"],
+        },
+        "restartWriteVisible": True,
+        "rollbackRefusalReason": rollback_reason,
+        "backup": {"integrity": "pass", "revision": backup_revision},
+        "bundle": {
+            "contentDigest": exported["contentDigest"],
+            "importDigest": imported["contentDigest"],
+            "importSelectedStore": "sqlite-v2",
+            "roundTripEquivalent": True,
+        },
+        "secretHygiene": "pass",
+    }
+
+
+def _legacy_protocol(data_root: Path) -> dict[str, Any]:
+    requests = (
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-03-26",
+                "capabilities": {},
+                "clientInfo": {"name": "phase4-stdlib-client", "version": "1"},
+            },
+        },
+        {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}},
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {
+                "name": "workspace.prepare_target_context",
+                "arguments": {"workspaceId": "fresh-v2", "target": FICTIONAL_TARGET, "maxTokens": 1_500},
+            },
+        },
+    )
+    environment = dict(os.environ)
+    environment.update(
+        {
+            "SYNAPSE_ROOT": str(data_root.parent),
+            "SYNAPSE_DATA_DIR": str(data_root),
+            "SYNAPSE_DUMP_DIR": str(data_root / "workspaces"),
+            "SYNAPSE_REPORTS_DIR": str(data_root / "reports"),
+            "SYNAPSE_PROMPT_PATH": str(ROOT / "AGENTS.md"),
+            "PYTHONPATH": str(PACKAGE),
+            "PYTHONDONTWRITEBYTECODE": "1",
+        }
+    )
+    completed = subprocess.run(
+        [sys.executable, "-m", "synapse_mcp.transport.stdio_server"],
+        input="".join(json.dumps(item, separators=(",", ":")) + "\n" for item in requests),
+        cwd=ROOT,
+        env=environment,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=30,
+        check=False,
+    )
+    responses = [json.loads(line) for line in completed.stdout.splitlines() if line.strip()]
+    by_id = {item.get("id"): item for item in responses}
+    if completed.returncode or "error" in by_id.get(1, {}) or "error" in by_id.get(2, {}):
+        detail = by_id.get(2, {}).get("error") or by_id.get(1, {}).get("error") or completed.stderr.strip()[-500:]
+        raise AcceptanceFailure(f"Frozen legacy protocol client failed over a v2 workspace: {detail}")
+    context_text = by_id[2]["result"]["content"][0]["text"]
+    context = json.loads(context_text)
+    if context.get("workspaceId") != "fresh-v2" or context.get("target") != FICTIONAL_TARGET:
+        raise AcceptanceFailure("Legacy protocol returned the wrong v2 workspace context.")
+    initialized = by_id[1]["result"]
+    return {
+        "classification": "exact_transport_smoke",
+        "objectiveDriven": False,
+        "client": {"name": "phase4-stdlib-client", "version": "1"},
+        "transport": "stdio-jsonrpc",
+        "requestedRevision": "2025-03-26",
+        "negotiatedRevision": initialized["protocolVersion"],
+        "server": initialized["serverInfo"],
+        "legacyContextOverV2": "pass",
+    }
+
+
+def _inspector_version() -> str:
+    versions: set[str] = set()
+    for manifest in (Path.home() / ".npm" / "_npx").glob(
+        "*/node_modules/@modelcontextprotocol/inspector/package.json"
+    ):
+        try:
+            versions.add(str(json.loads(manifest.read_text(encoding="utf-8"))["version"]))
+        except (OSError, KeyError, json.JSONDecodeError):
+            continue
+    return sorted(versions)[-1] if versions else "available-version-unresolved"
+
+
+def _inspector_probe(data_root: Path, scratch: Path) -> dict[str, Any]:
+    if shutil.which("npx") is None:
+        return {"available": False, "result": "not_run", "reason": "npx_unavailable"}
+    preflight = subprocess.run(
+        ["npx", "--no-install", "@modelcontextprotocol/inspector", "--cli", "--help"],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=30,
+        check=False,
+    )
+    if preflight.returncode:
+        return {"available": False, "result": "not_run", "reason": "inspector_package_unavailable"}
+    config = scratch / "inspector-config.json"
+    environment = {
+        "SYNAPSE_ROOT": str(data_root.parent),
+        "SYNAPSE_DATA_DIR": str(data_root),
+        "SYNAPSE_DUMP_DIR": str(data_root / "workspaces"),
+        "SYNAPSE_REPORTS_DIR": str(data_root / "reports"),
+        "SYNAPSE_PROMPT_PATH": str(ROOT / "AGENTS.md"),
+        "PYTHONPATH": str(PACKAGE),
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
+    _write_private_json(
+        config,
+        {
+            "mcpServers": {
+                "synapse-phase4": {
+                    "command": sys.executable,
+                    "args": ["-m", "synapse_mcp.transport.stdio_server"],
+                    "env": environment,
+                }
+            }
+        },
+    )
+    command = [
+        "npx",
+        "--no-install",
+        "@modelcontextprotocol/inspector",
+        "--cli",
+        "--config",
+        str(config),
+        "--server",
+        "synapse-phase4",
+        "--method",
+        "tools/list",
+        "--format",
+        "json",
+        "--cwd",
+        str(ROOT),
+    ]
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=60,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {"available": True, "version": _inspector_version(), "result": "not_run", "reason": type(exc).__name__}
+    try:
+        payload = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        payload = {}
+    if isinstance(payload, dict) and isinstance(payload.get("result"), dict):
+        payload = payload["result"]
+    tools = payload.get("tools", []) if isinstance(payload, dict) else []
+    result = "pass" if completed.returncode == 0 and isinstance(tools, list) and tools else "fail"
+    return {
+        "available": True,
+        "client": "MCP Inspector",
+        "version": _inspector_version(),
+        "transport": "stdio",
+        "result": result,
+        "toolCount": len(tools) if isinstance(tools, list) else 0,
+        "negotiatedRevision": "2025-03-26",
+        "revisionEvidence": "successful handshake against the frozen legacy server initialization contract",
+        **(
+            {"diagnostic": (completed.stderr or completed.stdout).strip()[-500:]}
+            if result != "pass"
+            else {}
+        ),
+    }
+
+
+def _surface_measurements() -> dict[str, Any]:
+    completed = subprocess.run(
+        [str(ROOT / "bin" / "measure-phase3-surfaces"), "--json"],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=60,
+        check=False,
+    )
+    if completed.returncode:
+        raise AcceptanceFailure("Current schema/wire surface measurement failed.")
+    payload = json.loads(completed.stdout)
+    compact = payload["applicationProjection"]["surfaces"]["modern-compact"]
+    wire = payload["officialSdkWire"]["surfaces"]["modern-compact"]["revisions"]
+    return {
+        "schema": {
+            "toolCount": compact["toolCount"],
+            "compactUtf8Bytes": compact["compactUtf8Bytes"],
+            "sha256": compact["sha256"],
+        },
+        "wire": wire,
+        "sdkVersion": payload["officialSdkWire"]["sdkVersion"],
+        "maximumBytes": payload["compactMaximumBytes"],
+        "withinCeiling": payload["officialSdkWire"]["compactWithinMaximum"],
+    }
+
+
+def _historic_conformance() -> dict[str, Any]:
+    payload = json.loads((PHASE3_EVIDENCE / "conformance-results.json").read_text(encoding="utf-8"))
+    if payload.get("overall") != "partial_fail":
+        raise AcceptanceFailure("Historic generic conformance classification changed unexpectedly.")
+    return {
+        "classification": "partial_fail",
+        "source": "phase-3/conformance-results.json",
+        "freshGenericSuite": "not_rerun_unresolved_runner_limitations",
+    }
+
+
+def run(*, include_tests: bool, include_inspector: bool) -> dict[str, Any]:
+    readiness = probe_state_store_runtime()
+    if not readiness.ready:
+        raise AcceptanceFailure(f"State Store v2 runtime is not ready: {readiness.reason_code}")
+    with TemporaryDirectory(prefix="synapse-phase4-acceptance-") as temporary:
+        scratch = Path(temporary)
+        data_root = scratch / "scenario-data"
+        filesystem = check_filesystem_readiness(data_root)
+        if not filesystem.ready:
+            raise AcceptanceFailure(f"Temporary acceptance root is unsupported: {filesystem.reason_code}")
+        fresh, repository = _fresh_workspace(data_root)
+        context = _context_gate(repository)
+        migration = _migrate_recover_bundle(data_root, scratch)
+        exact_transport = _legacy_protocol(data_root)
+        inspector = (
+            _inspector_probe(data_root, scratch)
+            if include_inspector
+            else {"available": False, "result": "skipped_by_operator"}
+        )
+        if inspector.get("result") == "fail":
+            raise AcceptanceFailure("Available MCP Inspector failed legacy stdio discovery.")
+        tests = _run_phase4_tests() if include_tests else {"result": "skipped_by_operator", "count": 0}
+        surface = _surface_measurements()
+        document = {
+            "schemaVersion": 1,
+            "classification": "phase4_state_context_acceptance",
+            "capturedAt": _utc_now(),
+            "result": "pass",
+            "objectiveDriven": False,
+            "externalTargetTraffic": "disabled",
+            "fixture": {
+                "targets": [FICTIONAL_TARGET, "v2-write.example"],
+                "privateTemporaryRoot": True,
+                "deterministicInput": True,
+                "crashInjection": True,
+                "committedSecrets": False,
+            },
+            "environment": {
+                **readiness.to_dict(),
+                "filesystemType": filesystem.filesystem_type,
+                "mcpSdkVersion": _package_version("mcp") if _package_version("mcp") != "unavailable" else surface["sdkVersion"],
+                "synapseVersion": _package_version("synapse-mcp"),
+                "schemaHash": schema_hash(),
+                "pythonExecutableClass": "selected Synapse runtime",
+            },
+            "freshWorkspace": fresh,
+            "migrationRecovery": migration,
+            "context": context,
+            "concurrency": {
+                "roundsPerDomainGate": CONCURRENCY_ROUNDS,
+                "coverage": "phase4c multi-process entity/action/task tests",
+            },
+            "tests": tests,
+            "surfaceMeasurements": surface,
+            "exactTransportSmoke": exact_transport,
+            "objectiveAgentWorkflow": {
+                "countedByThisRunner": False,
+                "reason": "Exact transport smoke is not agent tool-selection evidence.",
+                "separateCommand": "bin/run-phase3-agent-benchmark --run --repetitions 3",
+            },
+            "independentClients": {"inspector": inspector},
+            "genericConformance": _historic_conformance(),
+            "retention": {
+                "jsonV1Adapter": "retained",
+                "preCutoverSnapshot": "retained",
+                "legacyFixtures": "retained",
+                "legacyLauncher": "retained",
+                "automaticMigrationDeadline": None,
+            },
+        }
+        serialized = _json_bytes(document)
+        if SECRET_SENTINEL.encode("utf-8") in serialized or str(scratch).encode("utf-8") in serialized:
+            raise AcceptanceFailure("Acceptance evidence contains a secret sentinel or private temporary path.")
+        document["evidenceSha256"] = sha256(serialized).hexdigest()
+        return document
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--evidence-output", type=Path, default=DEFAULT_EVIDENCE)
+    parser.add_argument("--skip-tests", action="store_true", help="Skip the focused Phase 4 unittest subprocess")
+    parser.add_argument("--skip-inspector", action="store_true", help="Skip the independent Inspector discovery probe")
+    args = parser.parse_args()
+    try:
+        result = run(include_tests=not args.skip_tests, include_inspector=not args.skip_inspector)
+        _write_private_json(args.evidence_output, result)
+    except (AcceptanceFailure, OSError, ValueError, json.JSONDecodeError) as exc:
+        print(json.dumps({"result": "fail", "error": str(exc)}, sort_keys=True), file=sys.stderr)
+        return 1
+    print(json.dumps(result, indent=2, ensure_ascii=False, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

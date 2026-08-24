@@ -7,7 +7,7 @@ from synapse_mcp.core import background_jobs, credentials, dumps, evidence, scop
 
 
 @contextmanager
-def isolated_state(tmp_path: Path) -> Iterator[None]:
+def isolated_state(tmp_path: Path, *, store_version: str = "json-v1") -> Iterator[None]:
     old_workspaces_dir = workspace.WORKSPACES_DIR
     old_reports_dir = workspace.REPORTS_DIR
     old_dump_dir = dumps.DUMP_DIR
@@ -16,6 +16,7 @@ def isolated_state(tmp_path: Path) -> Iterator[None]:
     old_evidence_dir = evidence.EVIDENCE_DIR
     old_evidence_log = evidence.EVIDENCE_LOG
     old_orgs_dir = evidence.ORGS_DIR
+    old_default_store = workspace.DEFAULT_NEW_WORKSPACE_STORE
     workspace.WORKSPACES_DIR = tmp_path / "workspaces"
     workspace.REPORTS_DIR = tmp_path / "reports"
     dumps.DUMP_DIR = workspace.WORKSPACES_DIR
@@ -24,6 +25,10 @@ def isolated_state(tmp_path: Path) -> Iterator[None]:
     evidence.EVIDENCE_DIR = tmp_path / "evidence"
     evidence.EVIDENCE_LOG = evidence.EVIDENCE_DIR / "events.jsonl"
     evidence.ORGS_DIR = evidence.EVIDENCE_DIR / "orgs"
+    # The broad compatibility suite intentionally retains its JSON-v1 physical
+    # fixtures. Phase 4 acceptance tests opt into sqlite-v2 explicitly so a
+    # changed production default cannot silently rewrite legacy assertions.
+    workspace.DEFAULT_NEW_WORKSPACE_STORE = store_version
     try:
         yield
     finally:
@@ -35,6 +40,7 @@ def isolated_state(tmp_path: Path) -> Iterator[None]:
         evidence.EVIDENCE_DIR = old_evidence_dir
         evidence.EVIDENCE_LOG = old_evidence_log
         evidence.ORGS_DIR = old_orgs_dir
+        workspace.DEFAULT_NEW_WORKSPACE_STORE = old_default_store
 
 
 def assert_shared_html_shell(testcase, content: str) -> None:
