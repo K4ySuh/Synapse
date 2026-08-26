@@ -198,6 +198,10 @@ class ModernConfigurationTests(ModernAdapterFixture, unittest.TestCase):
         self.assertEqual(version("mcp"), MODERN_SDK_VERSION)
         with self.assertRaises(ModernConfigurationError):
             self.config(surface=SurfaceMode.LEGACY)
+        with self.assertRaisesRegex(ModernConfigurationError, "must be unique"):
+            self.config(capability_packs=("core", "core"))
+        with self.assertRaisesRegex(ModernConfigurationError, "invalid capability-pack"):
+            self.config(capability_packs=("Web",))
         with self.assertRaises(ModernConfigurationError):
             self.config(keyring=False, allow_ephemeral_request_state=False)
         with self.assertRaises(ModernConfigurationError):
@@ -507,6 +511,20 @@ class ModernDiscoveryTests(ModernAdapterFixture, unittest.IsolatedAsyncioTestCas
 
 
 class ModernPersistenceAndResourceTests(ModernAdapterFixture, unittest.IsolatedAsyncioTestCase):
+    async def test_selected_capability_pack_catalog_and_methodology_resources_are_readable(self) -> None:
+        runtime = build_runtime(self.config())
+        async with Client(runtime.server) as client:
+            catalog_result = await client.read_resource("synapse://capability-packs")
+            catalog = json.loads(catalog_result.contents[0].text)
+            self.assertEqual(catalog["packCount"], 6)
+            self.assertEqual(catalog["actionCount"], 174)
+
+            web_result = await client.read_resource("synapse://capability-packs/web")
+            web = json.loads(web_result.contents[0].text)
+            self.assertEqual(web["packId"], "web")
+            self.assertEqual(web["actionCount"], 78)
+            self.assertEqual(web["resources"][0]["uri"], "synapse://capability-packs/web")
+
     async def test_resource_links_and_reads_survive_restart_and_reject_cross_principal(self) -> None:
         artifact = self.data / "artifact.txt"
         artifact.write_text("durable artifact", encoding="utf-8")

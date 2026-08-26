@@ -74,9 +74,13 @@ from synapse_mcp.core.execution import (
     TargetSelector,
 )
 from synapse_mcp.app.capability_packs.loader import assemble_capability_packs
+from synapse_mcp.app.capability_packs.bootstrap import consume_startup_capability_packs
 
 
-CAPABILITY_PACKS = assemble_capability_packs(registry=REGISTRY)
+CAPABILITY_PACKS = assemble_capability_packs(
+    consume_startup_capability_packs(),
+    registry=REGISTRY,
+)
 
 __all__ = [
     "ActionDescriptor",

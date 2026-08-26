@@ -54,6 +54,7 @@ class EngagementInspectInput(FacadeModel):
 
 class CapabilitiesSearchInput(FacadeModel):
     query: str = ""
+    capability_pack: str = ""
     pack: str | None = None
     intent: str | None = None
     effect: str | None = None
@@ -61,6 +62,8 @@ class CapabilitiesSearchInput(FacadeModel):
     availability: Literal["available", "unavailable", "runtime_resolved"] | None = None
     credential_need: str | None = None
     scope: str | None = None
+    target_type: str = ""
+    task_suitability: str = ""
     cursor: str | None = None
     limit: int = Field(default=25, ge=1, le=100)
 
@@ -193,13 +196,18 @@ class CatalogItem(FacadeModel):
     title: str
     description: str
     pack: str
+    capability_pack: str
     intent: str
     effects: EffectSummary
     risk: str
     availability: str
     credential_need: str
+    credential_use: bool
     scope: str
     approval_required: bool
+    target_types: list[str]
+    task_suitability: list[str]
+    methodology_resources: list[str]
 
 
 class CatalogPage(FacadeModel):
@@ -215,6 +223,7 @@ class ActionDescription(FacadeModel):
     title: str
     description: str
     pack: str
+    capability_pack: str
     intent: str
     input_schema: dict[str, JsonValue]
     output_schema: dict[str, JsonValue]

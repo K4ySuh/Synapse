@@ -8,8 +8,9 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any
 
-from synapse_mcp.app.actions import REGISTRY
+from synapse_mcp.app.actions import CAPABILITY_PACKS, REGISTRY
 from synapse_mcp.app.actions.registry import ActionRegistry
+from synapse_mcp.app.capability_packs.loader import AssembledCapabilityPacks
 from synapse_mcp.app.context import ContextQueryResult
 
 from .catalog import action_annotations, model_facing_action_input_schema
@@ -55,7 +56,7 @@ _COMPACT_DETAILS = {
     ),
     "capabilities.search": (
         "Search capabilities",
-        "Search the complete canonical action catalog with bounded deterministic filters.",
+        "Search actions with deterministic filters.",
         OperationAnnotations(read_only=True, destructive=False, open_world=False, idempotent=True),
     ),
     "actions.describe": (
@@ -129,13 +130,36 @@ _COMPACT_DETAILS = {
 
 
 class CompactProjection:
-    def __init__(self, service: CompactFacadeService | None = None) -> None:
-        self.service = service or CompactFacadeService()
+    def __init__(
+        self,
+        service: CompactFacadeService | None = None,
+        *,
+        registry: ActionRegistry = REGISTRY,
+        capability_packs: AssembledCapabilityPacks = CAPABILITY_PACKS,
+    ) -> None:
+        self.service = service or CompactFacadeService(
+            registry=registry,
+            capability_packs=capability_packs,
+        )
+        self.registry = self.service.execution.registry
+
+    def _selected_output_schema(self, action_id: str, *, boundary: str) -> dict[str, Any]:
+        try:
+            schema = self.registry.contract_schema(action_id)["outputSchema"]
+        except LookupError:
+            return dynamic_json_object_schema(boundary=boundary)
+        return concise_json_object_schema(schema)
 
     def operations(self) -> tuple[ApplicationOperation, ...]:
         result_schemas = {
-            "engagement.open": concise_json_object_schema(REGISTRY.contract_schema("project.start")["outputSchema"]),
-            "engagement.inspect": concise_json_object_schema(REGISTRY.contract_schema("workspace.summary")["outputSchema"]),
+            "engagement.open": self._selected_output_schema(
+                "project.start",
+                boundary="Unavailable when the selected catalog excludes project.start.",
+            ),
+            "engagement.inspect": self._selected_output_schema(
+                "workspace.summary",
+                boundary="Unavailable when the selected catalog excludes workspace.summary.",
+            ),
             "context.query": concise_json_object_schema(
                 compact_json_schema(ContextQueryResult),
                 boundary="Closed ContextQueryResult; nested values are validated by the application model.",
@@ -155,8 +179,9 @@ class CompactProjection:
                 properties=("workspaceId", "target", "finding", "observation", "decision"),
             ),
             "artifacts.inspect": concise_json_object_schema(compact_json_schema(ResolvedArtifact)),
-            "reports.render": concise_json_object_schema(
-                REGISTRY.contract_schema("documentation.render_workspace_report")["outputSchema"]
+            "reports.render": self._selected_output_schema(
+                "documentation.render_workspace_report",
+                boundary="Unavailable when the selected catalog excludes the reporting pack.",
             ),
             "tasks.control": dynamic_json_object_schema(
                 boundary="Result is a canonical job or opaque-operation state selected by operation.",
@@ -242,12 +267,17 @@ class DirectProjection:
         )
 
 
-def build_application_projection(mode: SurfaceMode | str) -> CompactProjection | DirectProjection | None:
+def build_application_projection(
+    mode: SurfaceMode | str,
+    *,
+    registry: ActionRegistry = REGISTRY,
+    capability_packs: AssembledCapabilityPacks = CAPABILITY_PACKS,
+) -> CompactProjection | DirectProjection | None:
     """Select one server-lifetime surface from trusted operator configuration."""
 
     selected = SurfaceMode(mode)
     if selected is SurfaceMode.LEGACY:
         return None
     if selected is SurfaceMode.MODERN_COMPACT:
-        return CompactProjection()
-    return DirectProjection()
+        return CompactProjection(registry=registry, capability_packs=capability_packs)
+    return DirectProjection(registry=registry)

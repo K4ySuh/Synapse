@@ -11,14 +11,17 @@ import json
 from typing import Any
 
 from synapse_mcp.app.actions import (
+    CAPABILITY_PACKS,
     ActionDescriptor,
     ActionEffects,
     Availability,
     Idempotency,
     REGISTRY,
 )
-from synapse_mcp.app.actions.inventory import action_inventory, inventory_entry
+from synapse_mcp.app.actions.legacy_bridge import retained_legacy_implementation_bound
+from synapse_mcp.app.actions.inventory import action_inventory
 from synapse_mcp.app.actions.registry import ActionRegistry
+from synapse_mcp.app.capability_packs.loader import AssembledCapabilityPacks
 
 from .contracts import (
     ActionDescription,
@@ -68,13 +71,27 @@ def action_annotations(descriptor: ActionDescriptor[Any, Any]) -> OperationAnnot
     )
 
 
-def _availability(descriptor: ActionDescriptor[Any, Any]) -> tuple[str, dict[str, Any]]:
+def _availability(
+    descriptor: ActionDescriptor[Any, Any],
+    entry: dict[str, Any] | None,
+) -> tuple[str, dict[str, Any]]:
     declaration = descriptor.availability
     if callable(declaration):
-        entry = inventory_entry(str(descriptor.id))
+        if entry is None:
+            return "runtime_resolved", {"status": "runtime_resolved", "probe": {}}
+        probe = dict(entry.get("availability", {}))
+        if not retained_legacy_implementation_bound():
+            return "unavailable", {
+                "status": "unavailable",
+                "reason": "Retained implementation adapter is not bound.",
+                "reasonCode": "implementation_not_bound",
+                "probe": probe,
+            }
+        if probe.get("probe") == "available":
+            return "available", {"status": "available", "probe": probe}
         return "runtime_resolved", {
             "status": "runtime_resolved",
-            "probe": entry.get("availability", {}),
+            "probe": probe,
         }
     if not isinstance(declaration, Availability):
         return "unavailable", {"status": "unavailable", "reasonCode": "invalid_declaration"}
@@ -106,6 +123,39 @@ def _effect_labels(descriptor: ActionDescriptor[Any, Any], side_effect: str) -> 
     if effects.secret_use:
         values.add("secret_use")
     return frozenset(values)
+
+
+def _target_types(descriptor: ActionDescriptor[Any, Any]) -> tuple[str, ...]:
+    properties = descriptor.input_model.contract_document.parsed().get("properties", {})
+    names = set(properties) if isinstance(properties, dict) else set()
+    values: set[str] = set()
+    if "workspaceId" in names:
+        values.add("workspace")
+    if names.intersection({"url", "requestUrl", "protectedUrl", "targetUrls"}):
+        values.add("url")
+    if names.intersection({"target", "hosts", "assets", "ip", "ips", "hostnames"}):
+        values.add("host")
+    if names.intersection({"requestFile", "candidate", "method", "headers", "body"}):
+        values.add("request")
+    if names.intersection({"dumpPath", "inputPath", "manifestPath", "specPath"}):
+        values.add("artifact")
+    return tuple(sorted(values or {"general"}))
+
+
+def _task_suitability(descriptor: ActionDescriptor[Any, Any]) -> tuple[str, ...]:
+    values = {
+        "background" if descriptor.task_policy.background_capable else "foreground",
+        "recordable" if descriptor.task_policy.passive_recordable else "direct",
+    }
+    forbidden = bool(
+        descriptor.effects.traffic
+        or descriptor.effects.credential_use
+        or descriptor.effects.secret_use
+        or descriptor.effects.remote_state_change
+        or descriptor.effects.local_destruction
+    )
+    values.add("active" if forbidden else "passive")
+    return tuple(sorted(values))
 
 
 def _safe_value(name: str, schema: dict[str, Any]) -> Any:
@@ -201,38 +251,53 @@ def _decode_cursor(cursor: str | None, fingerprint: str) -> int:
 
 
 class ActionCatalogService:
-    """Bounded discovery over the complete canonical Registry."""
+    """Bounded discovery over one frozen selected canonical Registry."""
 
-    def __init__(self, registry: ActionRegistry = REGISTRY) -> None:
+    def __init__(
+        self,
+        registry: ActionRegistry = REGISTRY,
+        capability_packs: AssembledCapabilityPacks = CAPABILITY_PACKS,
+    ) -> None:
         self.registry = registry
         self._inventory = {str(item["actionId"]): item for item in action_inventory()}
+        self.capability_packs = capability_packs
+        self._owners = dict(capability_packs.action_owners)
+        self._manifests = {str(item.id): item for item in capability_packs.manifests}
 
     def search(self, value: CapabilitiesSearchInput) -> CatalogPage:
         fingerprint = _filter_fingerprint(value)
         offset = _decode_cursor(value.cursor, fingerprint)
         query_terms = tuple(part for part in value.query.lower().split() if part)
-        matches: list[CatalogItem] = []
-        for descriptor in self.registry.descriptors():
+        matches: list[tuple[int, int, CatalogItem]] = []
+        namespace_filter = value.pack
+        for index, descriptor in enumerate(self.registry.descriptors()):
             action_id = str(descriptor.id)
-            entry = self._inventory[action_id]
-            availability, _ = _availability(descriptor)
+            entry = self._inventory.get(action_id, {})
+            capability_pack = self._owners[action_id]
+            availability, _ = _availability(descriptor, entry)
             searchable = " ".join(
                 (
                     action_id,
                     descriptor.title,
                     descriptor.summary,
                     descriptor.pack,
-                    str(entry["useCase"]),
-                    str(entry["sideEffectClass"]),
+                    capability_pack,
+                    str(entry.get("useCase", "")),
+                    str(entry.get("sideEffectClass", "")),
                 )
             ).lower()
-            if query_terms and not all(term in searchable for term in query_terms):
+            term_score = sum(term in searchable for term in query_terms)
+            if query_terms and term_score == 0:
                 continue
-            if value.pack and descriptor.pack != value.pack:
+            if value.capability_pack and capability_pack != value.capability_pack:
                 continue
-            if value.intent and entry["useCase"] != value.intent:
+            if namespace_filter and descriptor.pack != namespace_filter:
                 continue
-            if value.effect and value.effect not in _effect_labels(descriptor, str(entry["sideEffectClass"])):
+            if value.intent and entry.get("useCase") != value.intent:
+                continue
+            if value.effect and value.effect not in _effect_labels(
+                descriptor, str(entry.get("sideEffectClass", ""))
+            ):
                 continue
             if value.risk and descriptor.risk_class.value != value.risk:
                 continue
@@ -246,31 +311,56 @@ class ActionCatalogService:
                 continue
             if value.scope and descriptor.scope_policy.requirement.value != value.scope:
                 continue
-            matches.append(self._item(descriptor, entry, availability))
-        page = matches[offset : offset + value.limit]
+            target_types = _target_types(descriptor)
+            if value.target_type and value.target_type not in target_types:
+                continue
+            task_suitability = _task_suitability(descriptor)
+            if value.task_suitability and value.task_suitability not in task_suitability:
+                continue
+            matches.append(
+                (
+                    term_score,
+                    index,
+                    self._item(
+                        descriptor,
+                        entry,
+                        availability,
+                        capability_pack,
+                        target_types,
+                        task_suitability,
+                    ),
+                )
+            )
+        if query_terms:
+            complete = [item for item in matches if item[0] == len(query_terms)]
+            matches = complete or sorted(matches, key=lambda item: (-item[0], item[1]))
+        items = [item[2] for item in matches]
+        page = items[offset : offset + value.limit]
         next_offset = offset + len(page)
         return CatalogPage(
             items=page,
-            total=len(matches),
+            total=len(items),
             returned=len(page),
             cursor=value.cursor,
             next_cursor=(
-                _encode_cursor(next_offset, fingerprint) if next_offset < len(matches) else None
+                _encode_cursor(next_offset, fingerprint) if next_offset < len(items) else None
             ),
         )
 
     def describe(self, action_id: str) -> ActionDescription:
         descriptor = self.registry.get(action_id)
-        entry = self._inventory[str(descriptor.id)]
+        entry = self._inventory.get(str(descriptor.id), {})
+        capability_pack = self._owners[str(descriptor.id)]
         schemas = self.registry.contract_schema(action_id)
         public_input = model_facing_action_input_schema(schemas["inputSchema"])
-        _, availability = _availability(descriptor)
+        _, availability = _availability(descriptor, entry)
         return ActionDescription(
             action_id=str(descriptor.id),
             title=descriptor.title,
             description=descriptor.summary,
             pack=descriptor.pack,
-            intent=str(entry["useCase"]),
+            capability_pack=capability_pack,
+            intent=str(entry.get("useCase", "external")),
             input_schema=public_input,
             output_schema=schemas["outputSchema"],
             effects=effect_summary(descriptor.effects),
@@ -294,22 +384,31 @@ class ActionCatalogService:
             examples=_safe_examples(public_input),
         )
 
-    @staticmethod
     def _item(
+        self,
         descriptor: ActionDescriptor[Any, Any],
         entry: dict[str, Any],
         availability: str,
+        capability_pack: str,
+        target_types: tuple[str, ...],
+        task_suitability: tuple[str, ...],
     ) -> CatalogItem:
+        manifest = self._manifests[capability_pack]
         return CatalogItem(
             action_id=str(descriptor.id),
             title=descriptor.title,
             description=descriptor.summary,
             pack=descriptor.pack,
-            intent=str(entry["useCase"]),
+            capability_pack=capability_pack,
+            intent=str(entry.get("useCase", "external")),
             effects=effect_summary(descriptor.effects),
             risk=descriptor.risk_class.value,
             availability=availability,
             credential_need=descriptor.credential_policy.requirement.value,
+            credential_use=descriptor.effects.credential_use,
             scope=descriptor.scope_policy.requirement.value,
             approval_required=descriptor.approval_required,
+            target_types=list(target_types),
+            task_suitability=list(task_suitability),
+            methodology_resources=[item.uri for item in manifest.resources],
         )

@@ -14,11 +14,35 @@ from .policies import (
     ScopeRequirement,
     TrafficDestination,
 )
-from .registry import REGISTRY
+from .registry import REGISTRY, ActionRegistry
 
 
-def derive_adapter_operational_metadata(action_ids: tuple[str, ...]) -> dict[str, Any]:
-    descriptors = [REGISTRY.get(action_id) for action_id in action_ids]
+def derive_adapter_operational_metadata(
+    action_ids: tuple[str, ...],
+    *,
+    registry: ActionRegistry = REGISTRY,
+) -> dict[str, Any]:
+    descriptors = []
+    for action_id in action_ids:
+        try:
+            descriptors.append(registry.get(action_id))
+        except LookupError:
+            continue
+    if not descriptors:
+        return {
+            "sendsTraffic": False,
+            "requiresConfirmation": False,
+            "requiresScope": False,
+            "requiresCredentials": False,
+            "touchesThirdParty": False,
+            "defaultRiskTier": "info",
+            "executionMode": "unselected",
+            "backgroundJobProvider": "",
+            "executorTool": "",
+            "operationalMetadataSource": "action_registry_v2",
+            "selected": False,
+            "actions": [],
+        }
     risk_order = {RiskClass.NONE: 0, RiskClass.LOW: 1, RiskClass.MODERATE: 2, RiskClass.HIGH: 3}
     risk_names = {0: "info", 1: "low", 2: "medium", 3: "high"}
     action_views = []
@@ -64,5 +88,6 @@ def derive_adapter_operational_metadata(action_ids: tuple[str, ...]) -> dict[str
         ),
         "executorTool": action_ids[0] if len(action_ids) == 1 else "",
         "operationalMetadataSource": "action_registry_v2",
+        "selected": True,
         "actions": action_views,
     }

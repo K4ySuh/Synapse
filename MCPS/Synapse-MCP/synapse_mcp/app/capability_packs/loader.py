@@ -193,7 +193,8 @@ def assemble_capability_packs(
             )
         by_id[pack_id] = manifest
 
-    requested = tuple(str(CapabilityPackId.parse(item)) for item in selection or BUILTIN_PACK_ORDER)
+    requested_values = BUILTIN_PACK_ORDER if selection is None else tuple(selection)
+    requested = tuple(str(CapabilityPackId.parse(item)) for item in requested_values)
     if not requested or len(requested) != len(set(requested)):
         raise CapabilityPackValidationError("capability-pack selection must be non-empty and unique")
     selected = _ordered_selection(by_id, requested)

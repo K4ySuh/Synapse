@@ -30,6 +30,10 @@ application compatibility, contributions, and aliases, then freezes the
 selected catalog and the one Registry. The checked inventories preserve exact
 name/order/schema projection and serializer ownership; the retained
 implementation adapter stays available as the per-action rollback path.
+Modern startup loads all built-ins by default. Repeating `--capability-pack`
+selects an explicit startup set; `--capability-pack core` exposes 42 direct
+actions without importing unselected implementations. The compact surface
+stays at eleven operations and rejects unselected action IDs.
 
 Phase 3B added protocol-independent surfaces under `synapse_mcp.app.facade`.
 `modern-compact` has exactly eleven bounded engagement/context/catalog/action/
@@ -40,6 +44,13 @@ dispatch fails closed on traffic, credentials/secrets, remote mutation, or
 destructive effects. Local file results become opaque, versioned references
 reauthorized against principal, authority session, and workspace on every
 read.
+
+Capability discovery reports both the high-level `capabilityPack` owner and
+the stable action namespace `pack`. Deterministic filters cover effects,
+availability, target type, risk, credential need/use, scope, and task
+suitability. Pack descriptions and methodology links are read on demand from
+`synapse://capability-packs` and `synapse://capability-packs/{pack_id}` rather
+than expanding the main prompt.
 
 Retained action outputs are described by action-specific public field
 contracts derived from canonical serializer source and frozen representative

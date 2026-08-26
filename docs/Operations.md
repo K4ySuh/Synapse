@@ -209,6 +209,29 @@ mutation, or local destruction. The modern launcher is additive: selecting it
 as the generated Codex default does not modify the frozen `synapse-mcp`
 launcher or its public contract.
 
+Modern startup loads all six built-in capability packs by default. To run the
+independently loadable 42-action core profile, add the trusted launcher option
+before `--transport`:
+
+```text
+--capability-pack core
+```
+
+Repeat `--capability-pack` for another explicit selection; dependencies are
+included and the final order is deterministic. Selection is sealed before the
+action package loads and cannot be changed through MCP input. The legacy
+launcher always keeps its frozen 174 tools. In core-only mode,
+`modern-direct` lists 42 actions and `modern-compact` remains eleven operations;
+search, describe, and run reject unselected actions.
+
+`capabilities.search` uses `capabilityPack` for the six high-level operational
+owners and `pack` for the stable action namespace such as `cors` or
+`workspace`. Other filters include `effect` (use `credential_use` for actions
+whose canonical effects permit credential use), `availability`, `targetType`,
+`risk`, `credentialNeed`, `scope`, and `taskSuitability`. Read the selected pack
+catalog at `synapse://capability-packs` and one on-demand methodology summary at
+`synapse://capability-packs/{pack_id}`.
+
 Generated local files are returned as opaque resource references rather than
 paths. The modern adapter persists their private server-held records under
 `DATA/modern-adapter/`; reads require the same principal, authority session,

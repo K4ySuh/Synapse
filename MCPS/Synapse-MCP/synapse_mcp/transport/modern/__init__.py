@@ -3,6 +3,22 @@
 
 """Official-SDK modern MCP adapter; application code remains protocol-free."""
 
-from .config import ModernAdapterConfig, ModernConfigurationError
+from __future__ import annotations
+
+from typing import Any
+
 
 __all__ = ["ModernAdapterConfig", "ModernConfigurationError"]
+
+
+def __getattr__(name: str) -> Any:
+    if name not in __all__:
+        raise AttributeError(name)
+    from .config import ModernAdapterConfig, ModernConfigurationError
+
+    values = {
+        "ModernAdapterConfig": ModernAdapterConfig,
+        "ModernConfigurationError": ModernConfigurationError,
+    }
+    globals().update(values)
+    return values[name]

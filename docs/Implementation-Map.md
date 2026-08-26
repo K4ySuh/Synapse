@@ -351,6 +351,8 @@ The application action layer is under `synapse_mcp/app/actions/`:
   implementation adapter;
 - `adapter_metadata.py` projects migrated operational metadata back into
   adapter discovery without reversing the core/application dependency;
+- `core_dispatch.py` is the protocol-free retained dispatcher used by the
+  independently loadable 42-action core-only modern process;
 - `packs/` contains six native descriptors exposed as provider values rather
   than import-time registrations.
 
@@ -364,14 +366,18 @@ The high-level capability lifecycle is under
 - `loader.py` discovers external entry points once, resolves dependencies,
   validates exact ownership/contributions, restores canonical built-in order,
   and freezes the one selected Registry;
+- `bootstrap.py` seals a trusted one-shot launcher selection before action
+  package import;
 - `service.py` exposes the selected catalog as a read-only application/resource
   document;
 - `capability-pack-ownership.json` is the generated checked 174-action review
   artifact. `bin/generate-capability-pack-ownership --check` rejects drift.
 
-`REGISTRY` remains the frozen fully assembled standard compatibility facade.
-Isolated tests and explicit startup profiles can assemble a fresh selected
-Registry through the same validation path.
+`REGISTRY` remains the frozen assembled compatibility facade for the process's
+startup selection. With no explicit modern selection it contains the standard
+six built-ins; `--capability-pack core` assembles 42 actions. Isolated tests and
+explicit startup profiles build a fresh selected Registry through the same
+validation path.
 
 `REGISTRY.contract_schema(action_id)` exposes the canonical `inputSchema` and
 typed `outputSchema` for all 174 actions. The stable legacy tools list stays
@@ -385,7 +391,9 @@ The application surfaces are under `synapse_mcp/app/`:
 - `facade/contracts.py` owns the remaining strict compact inputs, common typed
   outcome, annotations, resource references, and trusted adapter context;
 - `catalog.py` provides deterministic bounded search and exact description over
-  all 174 descriptors without hiding high-risk actions;
+  the selected descriptors without hiding high-risk actions. Search separates
+  high-level `capabilityPack` ownership from action-namespace `pack`; the
+  `effect=credential_use` filter uses canonical descriptor effects;
 - `services.py` revalidates nested action input, gates passive effects, invokes
   only `ActionRegistry.execute()`, normalizes typed outcomes, and resumes opaque
   supervised operation handles exactly once;
@@ -394,11 +402,11 @@ The application surfaces are under `synapse_mcp/app/`:
   reauthorization on every read. Directory traversal bounds file count,
   total/per-file bytes, relative-path bytes, and depth before/during hashing;
 - `projections.py` fixes the eleven-operation compact order and generates the
-  174-operation direct surface plus static annotations from descriptor truth.
+  selected direct surface plus static annotations from descriptor truth.
 
-The current compact application descriptor payload is 23,342 bytes under
+The current compact application descriptor payload is 23,482 bytes under
 deterministic compact JSON. Its largest supported official-SDK projection is
-24,684 bytes, below the 24,834-byte ceiling.
+24,824 bytes, below the 24,834-byte ceiling.
 `synapse_mcp/transport/modern/` projects either surface through
 official SDK 2.0.0 over stdio or authenticated Streamable HTTP. `config.py`
 owns fail-closed startup policy and keyrings, `identity.py` owns principal and

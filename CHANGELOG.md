@@ -36,6 +36,18 @@ durable dispatch and continuation truth.
   actions remain modern-only and unselected by default, and every selected
   action still crosses the same Registry policy/effect/execution path.
 
+- **Phase 5B built-in capability migration.** Added trusted one-shot modern
+  pack selection with all built-ins as the default and a real 42-action
+  `core`-only startup that avoids unselected implementation imports. Compact
+  remains eleven operations, default direct and frozen legacy remain 174
+  actions, and search/describe/execute share the selected Registry. Discovery
+  now distinguishes high-level `capabilityPack` ownership from the stable
+  action namespace `pack`, filters canonical effects, availability, target,
+  risk, credential, scope, and task properties, and links selected pack
+  resources without expanding the main prompt. Compact-only fixtures were
+  refreshed at 23,482 application bytes and at most 24,824 official-SDK wire
+  bytes; legacy and direct fixtures are unchanged.
+
 - **Phase 4 acceptance and State Store v2 adoption.** Genuinely new workspaces
   now initialize workspace, scope, targets, revision, change log, and audit
   transactionally in SQLite-v2 before an atomic selector install; interrupted

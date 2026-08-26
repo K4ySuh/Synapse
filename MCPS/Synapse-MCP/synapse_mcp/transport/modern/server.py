@@ -14,7 +14,16 @@ from typing import Any, Callable
 from uuid import uuid4
 
 from synapse_mcp import __version__
-from synapse_mcp.app.actions import REGISTRY
+from synapse_mcp.app.actions import CAPABILITY_PACKS
+from synapse_mcp.app.capability_packs.loader import (
+    AssembledCapabilityPacks,
+    assemble_capability_packs,
+)
+from synapse_mcp.app.capability_packs.service import (
+    CAPABILITY_PACK_CATALOG_URI,
+    CAPABILITY_PACK_RESOURCE_TEMPLATE,
+    CapabilityPackCatalogService,
+)
 from synapse_mcp.app.facade.contracts import (
     COMPACT_INPUT_MODELS,
     ApplicationOperation,
@@ -65,6 +74,8 @@ class ModernAdapterRuntime:
     execution: ActionExecutionService
     resources: ResourceReferenceService
     operations: OperationHandleService
+    capability_packs: AssembledCapabilityPacks
+    pack_catalog: CapabilityPackCatalogService
     bindings: AuthorityBindingResolver
     tokens: TokenPrincipalResolver | None
 
@@ -287,7 +298,7 @@ def _tool_result(
 def _input_model(runtime: ModernAdapterRuntime, operation: ApplicationOperation) -> type[Any]:
     if runtime.config.surface is SurfaceMode.MODERN_COMPACT:
         return COMPACT_INPUT_MODELS[operation.name]
-    return REGISTRY.get(operation.name).input_model
+    return runtime.execution.registry.get(operation.name).input_model
 
 
 def _projected_callable(runtime: ModernAdapterRuntime, operation: ApplicationOperation, sdk: dict[str, Any]) -> Callable[..., Any]:
@@ -344,26 +355,48 @@ def build_runtime(
     bindings: AuthorityBindingResolver | None = None,
     tokens: TokenPrincipalResolver | None = None,
 ) -> ModernAdapterRuntime:
-    # Retained descriptors are canonical application actions, not a legacy-only
-    # surface. Bind their frozen implementation adapter in standalone modern
-    # processes as well as in the hand-written transport process.
-    from synapse_mcp.app.actions.legacy_bridge import retained_legacy_implementation_bound
+    selected_global = tuple(str(item.id) for item in CAPABILITY_PACKS.manifests)
+    if config.capability_packs and config.capability_packs != selected_global:
+        capability_packs = assemble_capability_packs(config.capability_packs)
+    else:
+        capability_packs = CAPABILITY_PACKS
+    registry = capability_packs.registry
 
-    if not retained_legacy_implementation_bound():
+    # Retained descriptors are canonical application actions. A real core-only
+    # process binds the protocol-free core dispatcher and never imports the
+    # transport module that owns optional pack implementations.
+    selected_ids = tuple(str(item.id) for item in capability_packs.manifests)
+    if selected_ids == ("core",):
+        from synapse_mcp.app.actions.core_dispatch import bind_core_retained_implementation
+
+        bind_core_retained_implementation(registry)
+    else:
+        from synapse_mcp.app.actions.legacy_bridge import bind_retained_legacy_implementation
         from synapse_mcp.transport import stdio_server as _retained_transport  # noqa: F401
+
+        bind_retained_legacy_implementation(_retained_transport._retained_legacy_call_impl)
 
     sdk = _require_sdk()
     state_dir = config.state_dir
     resources = ResourceReferenceService(state_path=state_dir / "resources.json")
     operations = OperationHandleService(state_path=state_dir / "operations.json")
-    execution = ActionExecutionService(resources=resources, operations=operations)
+    execution = ActionExecutionService(
+        registry=registry,
+        resources=resources,
+        operations=operations,
+    )
     if config.surface is SurfaceMode.MODERN_COMPACT:
         projection: CompactProjection | DirectProjection = CompactProjection(
-            CompactFacadeService(resources=resources, operations=operations)
+            CompactFacadeService(
+                registry=registry,
+                capability_packs=capability_packs,
+                resources=resources,
+                operations=operations,
+            )
         )
         execution = projection.service.execution
     else:
-        projection = DirectProjection(execution=execution)
+        projection = DirectProjection(registry=registry, execution=execution)
     binding_resolver = bindings or AuthorityBindingResolver(config.identity_bindings_path)
     token_resolver = tokens
     if config.transport == "streamable-http" and token_resolver is None:
@@ -408,6 +441,7 @@ def build_runtime(
             for middleware in server._lowlevel_server.middleware
             if not isinstance(middleware, OpenTelemetryMiddleware)
         ]
+    pack_catalog = CapabilityPackCatalogService(capability_packs)
     runtime = ModernAdapterRuntime(
         config=config,
         server=server,
@@ -415,6 +449,8 @@ def build_runtime(
         execution=execution,
         resources=resources,
         operations=operations,
+        capability_packs=capability_packs,
+        pack_catalog=pack_catalog,
         bindings=binding_resolver,
         tokens=token_resolver,
     )
@@ -489,6 +525,28 @@ def build_runtime(
         description="Read one opaque artifact after principal, session, workspace, root, and version checks.",
         mime_type="application/octet-stream",
     )(read_synapse_artifact)
+
+    def read_capability_pack_catalog() -> str:
+        return pack_catalog.read_resource(CAPABILITY_PACK_CATALOG_URI)[1]
+
+    server.resource(
+        CAPABILITY_PACK_CATALOG_URI,
+        name="synapse-capability-packs",
+        title="Selected Synapse capability packs",
+        description="Read the frozen selected pack catalog and exact action ownership.",
+        mime_type="application/json",
+    )(read_capability_pack_catalog)
+
+    def read_capability_pack(pack_id: str) -> str:
+        return pack_catalog.read_resource(f"{CAPABILITY_PACK_CATALOG_URI}/{pack_id}")[1]
+
+    server.resource(
+        CAPABILITY_PACK_RESOURCE_TEMPLATE,
+        name="synapse-capability-pack",
+        title="Synapse capability pack",
+        description="Read one selected pack description, ownership, dependencies, and resource links.",
+        mime_type="application/json",
+    )(read_capability_pack)
 
     return runtime
 

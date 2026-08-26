@@ -15,6 +15,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ValidationError
 
 from synapse_mcp.app.actions import (
+    CAPABILITY_PACKS,
     ActionEffects,
     ActionId,
     ActionRequest,
@@ -28,6 +29,7 @@ from synapse_mcp.app.actions import (
     UnavailableCapability,
     ValidationFailure,
 )
+from synapse_mcp.app.capability_packs.loader import AssembledCapabilityPacks
 from synapse_mcp.app.actions.registry import ActionRegistry
 from synapse_mcp.app.context import ContextCompiler, ContextQueryError, ContextTrust
 from synapse_mcp.core import workspace
@@ -660,11 +662,12 @@ class CompactFacadeService:
         self,
         *,
         registry: ActionRegistry = REGISTRY,
+        capability_packs: AssembledCapabilityPacks = CAPABILITY_PACKS,
         resources: ResourceReferenceService | None = None,
         operations: OperationHandleService | None = None,
     ) -> None:
         self.resources = resources or ResourceReferenceService()
-        self.catalog = ActionCatalogService(registry)
+        self.catalog = ActionCatalogService(registry, capability_packs)
         self.execution = ActionExecutionService(
             registry=registry,
             resources=self.resources,

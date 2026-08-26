@@ -10,6 +10,7 @@ import ipaddress
 import json
 import os
 from pathlib import Path
+import re
 from typing import Literal
 
 from synapse_mcp.app.facade.projections import SurfaceMode
@@ -83,6 +84,7 @@ class ModernAdapterConfig:
     transport: TransportMode
     server_name: str
     audience: str
+    capability_packs: tuple[str, ...] = ()
     host: str = "127.0.0.1"
     port: int = 8765
     remote_enabled: bool = False
@@ -109,6 +111,15 @@ class ModernAdapterConfig:
         if surface is SurfaceMode.LEGACY:
             raise ModernConfigurationError("the production modern adapter cannot select the frozen legacy surface")
         object.__setattr__(self, "surface", surface)
+        if len(self.capability_packs) != len(set(self.capability_packs)):
+            raise ModernConfigurationError("capability-pack selection must be unique")
+        invalid_packs = [
+            value
+            for value in self.capability_packs
+            if not isinstance(value, str) or not re.fullmatch(r"[a-z][a-z0-9_]*", value)
+        ]
+        if invalid_packs:
+            raise ModernConfigurationError(f"invalid capability-pack selection: {invalid_packs}")
         if self.transport not in {"stdio", "streamable-http"}:
             raise ModernConfigurationError(f"unknown modern transport: {self.transport}")
         if not self.server_name.strip() or not self.audience.strip():

@@ -42,10 +42,44 @@ fixture changed.
 
 ## Task 5B — built-in capability migration
 
-Status: pending.
+Status: implemented on 2026-08-26; compatibility gates passed.
 
-The next task adopts explicit modern startup selection, proves that core-only
-startup does not import unselected implementation modules, makes capability
-search/description high-level-pack aware, exposes selected pack resources, and
-runs the complete profile/storage compatibility gate. Stop before the
-adversarial checkpoint that follows 5B.
+Delivered:
+
+- one-shot trusted modern startup selection, defaulting to all built-ins and
+  supporting the independently loadable 42-action `core` profile;
+- a protocol-free core retained dispatcher, with fresh-process proof that a
+  real modern core startup imports no unselected implementation or frozen
+  transport module;
+- selected Registry propagation through compact/direct projections, search,
+  describe, execution, and adapter metadata;
+- deterministic pack-aware discovery with distinct high-level
+  `capabilityPack` and stable action namespace `pack` fields plus canonical
+  effects, availability, target, risk, credential, scope, and task filters;
+- on-demand selected catalog and methodology resources at
+  `synapse://capability-packs` and
+  `synapse://capability-packs/{pack_id}`;
+- unchanged legacy 174-action discovery and default direct 174-action order,
+  with compact fixed at eleven operations and 23,482 application bytes;
+- refreshed compact-only official-SDK fixtures. The largest supported compact
+  wire is 24,824 bytes against the 24,834-byte ceiling; legacy and direct
+  fixtures remain unchanged.
+
+Verification:
+
+```text
+17 focused Phase 5A/5B tests passed
+701 core tests passed (JSON-v1 and SQLite-v2 paths)
+16 official-SDK modern tests passed
+2 custom adapter template tests passed
+58 Phase 4 storage/context acceptance tests passed
+MCP Inspector legacy discovery: 174 tools, pass
+action inventory current: 174 actions
+action output contracts current: 168 retained actions
+capability-pack ownership current: 174 actions, 6 packs
+compact surfaces current: 23,482 application bytes; 24,824 maximum SDK wire
+compile and git diff checks: pass
+```
+
+This implementation stops before the Phase 5B adversarial checkpoint. The
+checkpoint review has not been performed and remains the next explicit task.

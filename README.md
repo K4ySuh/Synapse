@@ -94,14 +94,18 @@ prior assessment knowledge available through MCP tools and resources.
 
 ## Modernization Status
 
-Phase 5A adds a deterministic high-level capability-pack lifecycle around the
-one canonical Action Registry. The standard six-pack assembly preserves all
-174 action IDs and legacy contracts; an isolated `core` selection contains 42
-actions. Native/generated descriptor providers no longer register through
-import side effects, ownership is checked in
+Phase 5A–5B add a deterministic high-level capability-pack lifecycle around
+the one canonical Action Registry. The default six-pack assembly preserves all
+174 action IDs and legacy contracts; `--capability-pack core` starts a real
+42-action modern core process without importing unselected implementations.
+Native/generated descriptor providers no longer register through import side
+effects, ownership is checked in
 [`capability-pack-ownership.json`](docs/modernization/capability-pack-ownership.json),
-and the catalog/Registry freeze before requests. Phase 5B startup selection and
-pack-aware operational discovery are in progress; see the
+and the selected catalog/Registry freeze before requests. Capability search
+distinguishes high-level `capabilityPack` ownership from the stable action
+namespace `pack`, filters canonical effects/availability/target/risk/
+credential/task properties, and links on-demand pack methodology resources.
+See the
 [Phase 5 status](docs/modernization/phase-5-status.md).
 
 Phase 4 is complete. Genuinely new workspaces now bootstrap transactionally in
@@ -121,8 +125,8 @@ protects current scope and authority truth, supports exact `sinceRevision`
 deltas, and accounts for the canonical UTF-8 context payload with explicit
 omissions. Large evidence remains behind bound resource links. The frozen
 legacy `workspace.prepare_target_context` action is unchanged. Current compact
-application metadata is 23,342 bytes; the largest supported official-SDK wire
-projection is 24,684 bytes, below the 24,834-byte gate.
+application metadata is 23,482 bytes; the largest supported official-SDK wire
+projection is 24,824 bytes, below the 24,834-byte gate.
 
 Phase 3C completes the production official-SDK adapter over the
 protocol-independent modern application surfaces. Phase 3D is complete under

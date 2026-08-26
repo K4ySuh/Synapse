@@ -36,7 +36,7 @@ legacy stdio projection       production SDK adapter (stdio / authenticated HTTP
 The compact facade has exactly eleven stable application operations. Its
 modern `context.query` operation enters the transport-independent Context
 Compiler directly; executable operations still enter the Registry. The direct
-projection is generated in canonical Registry order. The Phase 3C
+projection is generated in selected Registry order. The Phase 3C
 official-SDK adapter publishes exactly one selected projection. Startup surface
 selection is trusted configuration and is independent from wire negotiation,
 client metadata, and authority. Dynamic facade inputs cannot submit a
@@ -57,6 +57,13 @@ Manifest providers contribute descriptors only through startup assembly, the
 selected catalog and Registry freeze before serving, and invalid installed
 entry points fail explicitly. External actions are modern-only and are never
 implicitly added to the frozen legacy or default 174-action direct surface.
+
+The production modern launcher selects packs before importing the action
+package. Default selection loads all built-ins; explicit `core` selection uses
+the protocol-free core dispatcher and projects 42 direct actions while keeping
+the compact facade at eleven operations. Search, description, and execution all
+receive that same selected Registry. Coordination labels and future work-item
+identity do not participate in pack selection or authority.
 
 `AuthorizationIntent` is protocol-independent and distinct from a grant. It
 records the current workspace and scope digest plus the requested exact targets

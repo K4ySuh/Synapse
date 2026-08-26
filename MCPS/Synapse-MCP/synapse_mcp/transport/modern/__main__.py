@@ -8,15 +8,16 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from synapse_mcp.app.facade.projections import SurfaceMode
-
-from .config import ModernAdapterConfig
-from .server import build_runtime, run_runtime
-
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--surface", choices=("modern-compact", "modern-direct"), required=True)
+    parser.add_argument(
+        "--capability-pack",
+        action="append",
+        default=[],
+        help="Select one capability pack; repeat for multiple packs. Default: all built-ins.",
+    )
     parser.add_argument("--transport", choices=("stdio", "streamable-http"), required=True)
     parser.add_argument("--server-name", required=True)
     parser.add_argument("--audience", required=True)
@@ -42,8 +43,23 @@ def _parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = _parser().parse_args()
+    selected_packs = tuple(args.capability_pack)
+    if selected_packs:
+        from synapse_mcp.app.capability_packs.bootstrap import select_startup_capability_packs
+
+        select_startup_capability_packs(selected_packs)
+
+    from synapse_mcp.app.facade.projections import SurfaceMode
+
+    from .config import ModernAdapterConfig
+    from .server import build_runtime, run_runtime
+
     values = {
         "surface": SurfaceMode(args.surface),
+        # The launcher selection has already assembled the process-global
+        # catalog. Leaving this override empty avoids re-discovering providers
+        # when a selected pack pulled in dependencies such as core.
+        "capability_packs": (),
         "transport": args.transport,
         "server_name": args.server_name,
         "audience": args.audience,
