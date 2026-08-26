@@ -51,6 +51,8 @@ from .contracts import (
     ReportsRenderInput,
     ReviewsApplyInput,
     TasksControlInput,
+    canonical_facade_bytes,
+    local_success_envelope,
 )
 from .resources import ResourceAccessError, ResourceReferenceService
 
@@ -707,7 +709,14 @@ class CompactFacadeService:
                 )
             try:
                 repository = repository_bundle(value.workspace_id, workspace.WORKSPACES_DIR).workspace
-                result = ContextCompiler(repository).compile(
+                trace_id = _trace_id(context)
+
+                def encode_context_result(candidate: Any) -> bytes:
+                    return canonical_facade_bytes(
+                        self._local_success(operation, context, candidate, trace_id=trace_id)
+                    )
+
+                result = ContextCompiler(repository, payload_encoder=encode_context_result).compile(
                     value,
                     trust=ContextTrust(
                         execution_profile=context.execution_profile,
@@ -723,7 +732,7 @@ class CompactFacadeService:
                     str(exc),
                     reason_code=exc.reason_code,
                 )
-            return self._local_success(operation, context, result)
+            return self._local_success(operation, context, result, trace_id=trace_id)
         if isinstance(value, CapabilitiesSearchInput):
             try:
                 result = self.catalog.search(value)
@@ -851,13 +860,11 @@ class CompactFacadeService:
         result: BaseModel | dict[str, Any],
         *,
         action_id: str | None = None,
+        trace_id: str | None = None,
     ) -> FacadeEnvelope:
-        payload = result.model_dump(mode="json", by_alias=True) if isinstance(result, BaseModel) else result
-        return FacadeEnvelope(
-            operation=operation,
+        return local_success_envelope(
+            operation,
+            result,
             action_id=action_id,
-            outcome_kind="success",
-            summary=f"{operation}: completed.",
-            result=payload,
-            trace_id=_trace_id(context),
+            trace_id=trace_id or _trace_id(context),
         )

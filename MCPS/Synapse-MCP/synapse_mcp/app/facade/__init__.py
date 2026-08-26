@@ -11,6 +11,8 @@ from .contracts import (
     FacadeCallContext,
     FacadeEnvelope,
     ResourceReference,
+    canonical_facade_bytes,
+    local_success_envelope,
 )
 from .projections import (
     CompactProjection,
@@ -46,6 +48,8 @@ __all__ = [
     "SurfaceMode",
     "action_annotations",
     "build_application_projection",
+    "canonical_facade_bytes",
     "effect_summary",
+    "local_success_envelope",
     "passive_gate_reasons",
 ]

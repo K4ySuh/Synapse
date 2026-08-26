@@ -125,8 +125,10 @@ bundle import rather than overwriting live state ad hoc.
 - `migration_verification_failed`: inspect blocking orphans and verification
   counts. Do not activate or delete the pre-cutover snapshot.
 - `state_busy_retryable`: retry the bounded operation after contention clears.
-- `state_commit_unknown`: reconcile current revision, dispatch, task, and audit
-  truth before deciding whether another operation is safe.
+- `state_commit_unknown`: automatic receipt reconciliation could not prove the
+  intended revision and audit IDs durable; use the returned receipt metadata to
+  reconcile current revision, dispatch, task, and audit truth before deciding
+  whether another operation is safe.
 - `rollback_v2_data_loss_risk`: retain v2 as authoritative and use export plus
   forward recovery.
 - A missing selector on an interrupted fresh bootstrap is recovered by retrying

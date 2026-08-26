@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import json
@@ -11,6 +12,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import threading
 import unittest
+from unittest.mock import patch
 
 from helpers import isolated_state
 from synapse_mcp.app.actions import ActionRequest, ExecutionContext, REGISTRY, RiskClass
@@ -26,12 +28,52 @@ from synapse_mcp.policy import (
     StateChangePolicy,
     WorkspaceAuthorityRepository,
 )
-from synapse_mcp.state import ActivatedWorkspaceRepository, StateBusyError, StateMigrationService
+from synapse_mcp.state import (
+    ActivatedWorkspaceRepository,
+    StateBusyError,
+    StateCommitUnknownError,
+    StateMigrationService,
+)
 from synapse_mcp.state.connections import ConnectionFactory, verify_database_integrity
 from synapse_mcp.state.migrations import apply_migrations
 
 
 RACE_ROUNDS = 100
+
+
+class _CommitFaultConnection:
+    def __init__(self, connection, owner, *, after_commit: bool) -> None:
+        self._connection = connection
+        self._owner = owner
+        self._after_commit = after_commit
+
+    def commit(self) -> None:
+        if self._owner.triggered:
+            self._connection.commit()
+            return
+        if self._after_commit:
+            self._connection.commit()
+        self._owner.triggered = True
+        raise OSError("injected commit acknowledgement loss")
+
+    def __getattr__(self, name):
+        return getattr(self._connection, name)
+
+
+class _CommitFaultFactory:
+    def __init__(self, delegate, *, after_commit: bool) -> None:
+        self.database_path = delegate.database_path
+        self._delegate = delegate
+        self._after_commit = after_commit
+        self.triggered = False
+
+    @contextmanager
+    def connect(self):
+        with self._delegate.connect() as connection:
+            if self.triggered:
+                yield connection
+            else:
+                yield _CommitFaultConnection(connection, self, after_commit=self._after_commit)
 
 
 def _plan(workspace_id: str):
@@ -615,6 +657,110 @@ class Phase4CRuntimeAdoptionTests(unittest.TestCase):
         self.assertTrue(unknown["finalized"])
         self.assertTrue(unknown["reconciliationRequired"])
         self.assertEqual(unknown["reconciliationReason"], "process_truth_unknown_after_restart")
+
+    def test_lost_commit_acknowledgements_reconcile_exact_runtime_mutations(self) -> None:
+        repository = self.activate("commit-ack", hosts=["commit-ack.example"])
+
+        def fault_repository() -> ActivatedWorkspaceRepository:
+            return ActivatedWorkspaceRepository(
+                "commit-ack",
+                repository.workspace_root,
+                connection_factory=_CommitFaultFactory(
+                    repository.connection_factory,
+                    after_commit=True,
+                ),
+            )
+
+        revision = repository.revision()
+        committed = fault_repository().update_workspace(
+            {
+                **repository.workspace_document(),
+                "notes": "commit acknowledgement reconciled",
+            }
+        )
+        self.assertEqual(committed, revision + 1)
+        self.assertEqual(repository.workspace_document()["notes"], "commit acknowledgement reconciled")
+
+        revision = repository.revision()
+        evidence_repository = fault_repository()
+        artifact = evidence_repository.artifacts.ingest_bytes(
+            b"commit-ack-evidence",
+            media_type="text/plain",
+            origin="phase4c.commit-ack",
+        )
+        evidence_repository.ingest_collections(
+            target="commit-ack.example",
+            target_payload={
+                "workspaceId": "commit-ack",
+                "target": "commit-ack.example",
+                "kind": "host",
+            },
+            evidence_payload={
+                "evidenceId": "evidence-commit-ack",
+                "source": "phase4c",
+                "dataType": "commit-ack",
+            },
+            artifact=artifact,
+            collections={"observations": ({"type": "observation", "key": "commit-ack"},)},
+            audit_payload={"summary": "Reconcile evidence commit acknowledgement."},
+        )
+        self.assertEqual(repository.revision(), revision + 1)
+        self.assertTrue(repository.evidence_exists("evidence-commit-ack", "commit-ack.example"))
+
+        revision = repository.revision()
+        task_record = _terminal_task_record("commit-ack", "task-commit-ack")
+        self.assertEqual(fault_repository().write_task(task_record, expected_revision=0), 1)
+        self.assertEqual(repository.revision(), revision + 1)
+        self.assertEqual(repository.read_task("task-commit-ack")["jobId"], "task-commit-ack")
+
+        authority = WorkspaceAuthorityRepository("commit-ack")
+        plan = _plan("commit-ack")
+        authority.create_grant(_grant(plan))
+        revision = repository.revision()
+        with patch.object(authority, "_runtime_repository", return_value=fault_repository()):
+            authorized = authority.authorize(
+                plan,
+                risk_class=RiskClass.NONE,
+                profile="full_delegated",
+                authority_session_id="phase4c-session",
+                selected_grant_id="grant-phase4c",
+                idempotency_key="commit-ack-dispatch",
+            )
+        self.assertIsInstance(authorized.decision, Allow)
+        self.assertIsNotNone(authorized.receipt)
+        self.assertEqual(repository.revision(), revision + 1)
+        self.assertTrue(
+            any(item["dispatchId"] == authorized.receipt.dispatch_id for item in authority.list_dispatches())
+        )
+
+    def test_unobserved_commit_failure_surfaces_an_actionable_nonretryable_receipt(self) -> None:
+        repository = self.activate("commit-unknown", hosts=["commit-unknown.example"])
+        revision = repository.revision()
+        failing = ActivatedWorkspaceRepository(
+            "commit-unknown",
+            repository.workspace_root,
+            connection_factory=_CommitFaultFactory(
+                repository.connection_factory,
+                after_commit=False,
+            ),
+        )
+        with self.assertRaises(StateCommitUnknownError) as unknown:
+            failing.update_workspace(
+                {
+                    **repository.workspace_document(),
+                    "notes": "must not become durable",
+                }
+            )
+        self.assertFalse(unknown.exception.retryable)
+        self.assertEqual(unknown.exception.reason_code, "state_commit_unknown")
+        self.assertEqual(unknown.exception.details["workspaceId"], "commit-unknown")
+        self.assertEqual(unknown.exception.details["startRevision"], revision)
+        self.assertEqual(unknown.exception.details["intendedRevision"], revision + 1)
+        self.assertTrue(unknown.exception.details["auditEventIds"])
+        self.assertGreater(unknown.exception.details["changeCount"], 0)
+        self.assertEqual(unknown.exception.details["reconciliation"], "not_observed")
+        self.assertEqual(repository.revision(), revision)
+        self.assertNotEqual(repository.workspace_document()["notes"], "must not become durable")
 
     def test_resource_restart_checkpoint_and_concurrent_backup_are_durable_and_bounded(self) -> None:
         repository = self.activate("operations")

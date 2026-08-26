@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+from hashlib import sha256
 import os
 from pathlib import Path
 import re
@@ -189,24 +190,28 @@ class StateBundleService:
         with repository.connection_factory.connect() as connection:
             apply_migrations(connection)
             verify_database_integrity(connection)
-            revision_row = connection.execute(
-                "SELECT revision FROM workspace_revisions WHERE workspace_id=?", (repository.workspace_id,)
-            ).fetchone()
-            if revision_row is None:
-                raise StateStoreError("workspace_not_initialized", "Workspace is not initialized in State Store v2.")
-            tables: dict[str, list[dict[str, Any]]] = {}
-            for table in BUNDLE_TABLES:
-                columns = [str(row[1]) for row in connection.execute(f"PRAGMA table_info({table})")]
-                if not columns:
-                    raise StateIntegrityError("bundle_table_missing", f"State table is missing: {table}")
-                primary = [str(row[1]) for row in connection.execute(f"PRAGMA table_info({table})") if int(row[5]) > 0]
-                order = primary or columns
-                records = []
-                for values in connection.execute(
-                    f"SELECT {','.join(columns)} FROM {table} ORDER BY {','.join(order)}"
-                ):
-                    records.append({column: value for column, value in zip(columns, values)})
-                tables[table] = records
+            connection.execute("BEGIN")
+            try:
+                revision_row = connection.execute(
+                    "SELECT revision FROM workspace_revisions WHERE workspace_id=?", (repository.workspace_id,)
+                ).fetchone()
+                if revision_row is None:
+                    raise StateStoreError("workspace_not_initialized", "Workspace is not initialized in State Store v2.")
+                tables: dict[str, list[dict[str, Any]]] = {}
+                for table in BUNDLE_TABLES:
+                    columns = [str(row[1]) for row in connection.execute(f"PRAGMA table_info({table})")]
+                    if not columns:
+                        raise StateIntegrityError("bundle_table_missing", f"State table is missing: {table}")
+                    primary = [str(row[1]) for row in connection.execute(f"PRAGMA table_info({table})") if int(row[5]) > 0]
+                    order = primary or columns
+                    records = []
+                    for values in connection.execute(
+                        f"SELECT {','.join(columns)} FROM {table} ORDER BY {','.join(order)}"
+                    ):
+                        records.append({column: value for column, value in zip(columns, values)})
+                    tables[table] = records
+            finally:
+                connection.rollback()
         artifacts = [
             {
                 "artifactId": row["artifact_id"],
@@ -234,13 +239,14 @@ class StateBundleService:
         for artifact in artifacts:
             source = repository.artifacts.resolve(str(artifact["artifactId"]), workspace_id=repository.workspace_id)
             target = destination / str(artifact["path"])
-            self._stream_copy(source, target, int(artifact["size"]))
+            self._stream_copy(source, target, int(artifact["size"]), str(artifact["digest"]))
 
     @staticmethod
-    def _stream_copy(source: Path, destination: Path, expected_size: int) -> None:
+    def _stream_copy(source: Path, destination: Path, expected_size: int, expected_digest: str) -> None:
         destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         descriptor = os.open(source, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
         size = 0
+        digest = sha256()
         try:
             with os.fdopen(descriptor, "rb") as reader:
                 descriptor = -1
@@ -248,11 +254,15 @@ class StateBundleService:
                     os.chmod(destination, 0o600)
                     while chunk := reader.read(1024 * 1024):
                         size += len(chunk)
+                        digest.update(chunk)
                         writer.write(chunk)
                     writer.flush()
                     os.fsync(writer.fileno())
-            if size != expected_size:
-                raise StateIntegrityError("bundle_artifact_size_mismatch", "Artifact size changed during bundle export.")
+            if size != expected_size or digest.hexdigest() != expected_digest:
+                raise StateIntegrityError(
+                    "bundle_artifact_hash_mismatch",
+                    "Artifact content changed during bundle export.",
+                )
         finally:
             if descriptor >= 0:
                 os.close(descriptor)

@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from fnmatch import fnmatch
 from hashlib import sha256
@@ -327,10 +327,12 @@ class ContextCompiler:
         self,
         repository: WorkspaceRepository,
         *,
+        payload_encoder: Callable[[ContextQueryResult], bytes],
         counter: ContextCounter | None = None,
     ) -> None:
         self.repository = repository
         self.counter = counter or Utf8ByteCounter()
+        self.payload_encoder = payload_encoder
         if self.counter.identity != COUNTER_ID:
             raise ValueError("The Phase 4 compiler currently publishes utf8_bytes_v1 accounting.")
 
@@ -867,7 +869,7 @@ class ContextCompiler:
 
     def _fix_used(self, result: ContextQueryResult) -> ContextQueryResult:
         for _iteration in range(12):
-            measured = self.counter(canonical_context_bytes(result))
+            measured = self.counter(self.payload_encoder(result))
             if result.budget.used == measured:
                 return result
             result.budget.used = measured

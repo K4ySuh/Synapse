@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
+from dataclasses import dataclass
 from hashlib import sha256
 import json
 from pathlib import Path
@@ -56,6 +57,15 @@ _COLLECTION_ENTITY_TYPES = {
     "pretextCandidates": "pretext_candidate",
     "detectionGaps": "detection_gap",
 }
+
+
+@dataclass(frozen=True, slots=True)
+class _CommitReceipt:
+    workspace_id: str
+    start_revision: int
+    intended_revision: int
+    audit_event_ids: tuple[str, ...]
+    change_count: int
 
 
 def _now() -> str:
@@ -149,6 +159,8 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                             "State Store remained busy for the bounded pre-commit wait.",
                         ) from exc
                     raise
+                start_revision = self._workspace_revision(connection)
+                start_changes = int(connection.execute("SELECT total_changes()").fetchone()[0])
                 try:
                     yield connection
                 except BaseException:
@@ -158,15 +170,28 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                         pass
                     raise
                 else:
+                    receipt = self._commit_receipt(connection, start_revision, start_changes)
                     try:
                         connection.commit()
-                    except Exception as exc:
-                        if _is_busy(exc):
-                            raise StateCommitUnknownError(
-                                "state_commit_unknown",
-                                "State Store commit outcome is ambiguous; reconciliation is required.",
-                            ) from exc
-                        raise
+                    except BaseException as exc:
+                        try:
+                            connection.rollback()
+                        except Exception:
+                            pass
+                        if receipt.change_count > 0 and self._receipt_is_committed(receipt):
+                            return
+                        raise StateCommitUnknownError(
+                            "state_commit_unknown",
+                            "State Store commit outcome is ambiguous; reconcile the supplied receipt before retrying.",
+                            details={
+                                "workspaceId": receipt.workspace_id,
+                                "startRevision": receipt.start_revision,
+                                "intendedRevision": receipt.intended_revision,
+                                "auditEventIds": list(receipt.audit_event_ids),
+                                "changeCount": receipt.change_count,
+                                "reconciliation": "not_observed",
+                            },
+                        ) from exc
         except (StateBusyError, StateCommitUnknownError):
             raise
         except Exception as exc:
@@ -177,6 +202,54 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                 ) from exc
             raise
 
+    def _commit_receipt(
+        self,
+        connection: StateConnection,
+        start_revision: int,
+        start_changes: int,
+    ) -> _CommitReceipt:
+        intended_revision = self._workspace_revision(connection)
+        audit_event_ids = tuple(
+            str(row[0])
+            for row in connection.execute(
+                "SELECT event_id FROM audit_events WHERE workspace_id=? AND revision>? AND revision<=? ORDER BY revision, event_id",
+                (self.workspace_id, start_revision, intended_revision),
+            )
+        )
+        end_changes = int(connection.execute("SELECT total_changes()").fetchone()[0])
+        return _CommitReceipt(
+            workspace_id=self.workspace_id,
+            start_revision=start_revision,
+            intended_revision=intended_revision,
+            audit_event_ids=audit_event_ids,
+            change_count=max(end_changes - start_changes, 0),
+        )
+
+    def _receipt_is_committed(self, receipt: _CommitReceipt) -> bool:
+        if receipt.intended_revision <= receipt.start_revision or not receipt.audit_event_ids:
+            return False
+        try:
+            with self.connection_factory.connect() as connection:
+                revision_row = connection.execute(
+                    "SELECT revision FROM workspace_revisions WHERE workspace_id=?",
+                    (self.workspace_id,),
+                ).fetchone()
+                if revision_row is None or int(revision_row[0]) < receipt.intended_revision:
+                    return False
+                placeholders = ",".join("?" for _item in receipt.audit_event_ids)
+                rows = list(
+                    connection.execute(
+                        f"SELECT event_id, revision FROM audit_events WHERE workspace_id=? AND event_id IN ({placeholders})",
+                        (self.workspace_id, *receipt.audit_event_ids),
+                    )
+                )
+        except Exception:
+            return False
+        observed = {str(event_id): int(revision) for event_id, revision in rows}
+        return all(
+            receipt.start_revision < observed.get(event_id, -1) <= receipt.intended_revision
+            for event_id in receipt.audit_event_ids
+        )
     def _workspace_revision(self, connection: StateConnection) -> int:
         row = connection.execute(
             "SELECT revision FROM workspace_revisions WHERE workspace_id=?",

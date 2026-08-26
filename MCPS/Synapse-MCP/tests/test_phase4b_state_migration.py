@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from hashlib import sha256
 import json
 from pathlib import Path
 import shutil
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from synapse_mcp.state import (
+    ActivatedWorkspaceRepository,
     MIGRATION_STAGES,
     SQLiteWorkspaceRepository,
     StateBundleService,
@@ -29,6 +32,49 @@ from synapse_mcp.core import atomic_io, workspace
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURES = ROOT / "MCPS" / "Synapse-MCP" / "tests" / "fixtures" / "state_v1"
 STATE_PACKAGE = ROOT / "MCPS" / "Synapse-MCP" / "synapse_mcp" / "state"
+
+
+class _TriggeredCursor:
+    def __init__(self, cursor, callback) -> None:
+        self._cursor = cursor
+        self._callback = callback
+
+    def fetchone(self):
+        value = self._cursor.fetchone()
+        self._callback()
+        return value
+
+    def __getattr__(self, name):
+        return getattr(self._cursor, name)
+
+
+class _InterleavingConnection:
+    def __init__(self, connection, callback) -> None:
+        self._connection = connection
+        self._callback = callback
+        self._armed = True
+
+    def execute(self, statement, parameters=()):
+        cursor = self._connection.execute(statement, parameters)
+        if self._armed and statement.startswith("SELECT revision FROM workspace_revisions"):
+            self._armed = False
+            return _TriggeredCursor(cursor, self._callback)
+        return cursor
+
+    def __getattr__(self, name):
+        return getattr(self._connection, name)
+
+
+class _InterleavingFactory:
+    def __init__(self, delegate, callback) -> None:
+        self.database_path = delegate.database_path
+        self._delegate = delegate
+        self._callback = callback
+
+    @contextmanager
+    def connect(self):
+        with self._delegate.connect() as connection:
+            yield _InterleavingConnection(connection, self._callback)
 
 
 class Phase4BStateMigrationTests(unittest.TestCase):
@@ -254,6 +300,60 @@ class Phase4BStateMigrationTests(unittest.TestCase):
             json.loads((self.root / "bundle-source" / "bundle.json").read_text(encoding="utf-8")),
             json.loads((self.root / "bundle-imported" / "bundle.json").read_text(encoding="utf-8")),
         )
+
+    def test_export_reads_revision_and_every_table_from_one_wal_snapshot(self) -> None:
+        self._migrate()
+        writer = ActivatedWorkspaceRepository("beta-complete", self.workspace_root)
+        captured_revision = writer.revision()
+        triggered = False
+
+        def interleave_writer() -> None:
+            nonlocal triggered
+            triggered = True
+            writer.replace_collection(
+                "example.test",
+                "observations",
+                ({"type": "observation", "key": "committed-during-export"},),
+            )
+
+        export_repository = SQLiteWorkspaceRepository(
+            "beta-complete",
+            self.workspace_root,
+            connection_factory=_InterleavingFactory(writer.connection_factory, interleave_writer),
+        )
+        destination = self.root / "interleaved-export"
+        with patch(
+            "synapse_mcp.state.bundles.SQLiteWorkspaceRepository",
+            return_value=export_repository,
+        ):
+            self._bundles().export("beta-complete", destination)
+
+        self.assertTrue(triggered)
+        self.assertEqual(writer.revision(), captured_revision + 1)
+        payload = json.loads((destination / "bundle.json").read_text(encoding="utf-8"))
+        self.assertEqual(payload["revision"], captured_revision)
+        self.assertTrue(
+            all(int(row["revision"]) <= captured_revision for row in payload["tables"]["change_log"])
+        )
+        self.assertFalse(
+            any("committed-during-export" in str(row.get("payload_json")) for row in payload["tables"]["entities"])
+        )
+        imported_root = self.root / "interleaved-import"
+        imported = self._bundles(imported_root).import_bundle(destination)
+        self.assertEqual(imported["revision"], captured_revision)
+
+    def test_artifact_copy_verifies_the_bytes_read_against_the_manifest_digest(self) -> None:
+        source = self.root / "artifact-source"
+        source.write_bytes(b"changed-content")
+        destination = self.root / "artifact-copy"
+        with self.assertRaises(StateIntegrityError) as mismatch:
+            StateBundleService._stream_copy(
+                source,
+                destination,
+                len(b"changed-content"),
+                sha256(b"original-content").hexdigest(),
+            )
+        self.assertEqual(mismatch.exception.reason_code, "bundle_artifact_hash_mismatch")
 
     def test_import_rejects_format_traversal_hash_duplicate_and_cross_workspace(self) -> None:
         self._migrate()

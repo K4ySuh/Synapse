@@ -57,8 +57,8 @@ from synapse_mcp.app.context import (  # noqa: E402
     ContextCompiler,
     ContextQueryInput,
     ContextTrust,
-    canonical_context_bytes,
 )
+from synapse_mcp.app.facade import canonical_facade_bytes, local_success_envelope  # noqa: E402
 from synapse_mcp.state import (  # noqa: E402
     ActivatedWorkspaceRepository,
     NewWorkspaceStoreService,
@@ -216,7 +216,13 @@ def _context_gate(repository: ActivatedWorkspaceRepository) -> dict[str, Any]:
         },
         audit_payload={"summary": "Installed deterministic Phase 4E context fixture."},
     )
-    compiler = ContextCompiler(repository)
+    trace_id = "phase4e-acceptance"
+    compiler = ContextCompiler(
+        repository,
+        payload_encoder=lambda result: canonical_facade_bytes(
+            local_success_envelope("context.query", result, trace_id=trace_id)
+        ),
+    )
     trust = ContextTrust(execution_profile="observe", principal_id="phase4e-operator")
     adherence: list[dict[str, Any]] = []
     for budget in HISTORICAL_BUDGETS:
@@ -230,7 +236,11 @@ def _context_gate(repository: ActivatedWorkspaceRepository) -> dict[str, Any]:
             ),
             trust=trust,
         )
-        actual = len(canonical_context_bytes(result))
+        actual = len(
+            canonical_facade_bytes(
+                local_success_envelope("context.query", result, trace_id=trace_id)
+            )
+        )
         within = actual == result.budget.used and (
             result.budget.status == "budget_too_small" or actual <= budget
         )

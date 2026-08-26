@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from typing import Any, Mapping
+
 
 class StateStoreError(RuntimeError):
     """Base failure with a stable machine-readable reason code."""
@@ -32,6 +34,10 @@ class StateCommitUnknownError(StateStoreError):
     """Commit returned an ambiguous outcome and must never be blindly retried."""
 
     retryable = False
+
+    def __init__(self, reason_code: str, message: str, *, details: Mapping[str, Any] | None = None) -> None:
+        super().__init__(reason_code, message)
+        self.details = dict(details or {})
 
 
 class StateIntegrityError(StateStoreError):

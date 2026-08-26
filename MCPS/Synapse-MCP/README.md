@@ -104,8 +104,9 @@ require a full refresh. JSON-v1 supports full compilation but explicitly
 requires a refresh for every delta request because it has no transactional
 change log.
 
-The reported `utf8_bytes_v1` counter measures canonical compact UTF-8 context
-JSON. Protected revision and safety data are never omitted: undersized requests
+The reported `utf8_bytes_v1` counter measures the final canonical compact UTF-8
+facade envelope, not only its inner context result. Protected revision and
+safety data are never omitted: undersized requests
 return `budget_too_small` with `minimumRequired`. Large evidence bodies remain
 in the workspace CAS and are exposed only as resource links bound to the
 trusted workspace, principal, and authority session. `target`/`purpose` remain

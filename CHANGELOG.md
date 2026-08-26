@@ -227,6 +227,15 @@ durable dispatch and continuation truth.
 
 ### Fixed
 
+- **Phase 4 adversarial operability corrections.** Canonical State Store
+  bundles now capture revision and relational truth from one WAL snapshot and
+  verify the digest of artifact bytes copied into the bundle. Activated writes
+  reconcile lost commit acknowledgements against revision/audit receipts and
+  expose non-retryable metadata when durability cannot be proved. Modern
+  `context.query` budgets now measure the final canonical facade envelope, and
+  repository policy consistently describes per-workspace SQLite-v2 as the
+  default for new workspaces with JSON-v1 retained for compatibility and
+  migration.
 - **Phase 4 entry residuals.** Existing Phase 3 benchmark evidence now validates
   offline without rewriting historic client metadata, missing live clients fail
   cleanly, runtime-resolution tests are checkout-independent, and the retained

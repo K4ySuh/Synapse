@@ -280,6 +280,37 @@ def json_schema(model: type[BaseModel]) -> dict[str, Any]:
     return model.model_json_schema(mode="validation", by_alias=True)
 
 
+def canonical_facade_bytes(envelope: FacadeEnvelope) -> bytes:
+    """Serialize one facade envelope exactly as context budget accounting sees it."""
+
+    return json.dumps(
+        envelope.model_dump(mode="json", by_alias=True),
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+
+
+def local_success_envelope(
+    operation: str,
+    result: BaseModel | dict[str, Any],
+    *,
+    trace_id: str,
+    action_id: str | None = None,
+) -> FacadeEnvelope:
+    """Build the standard successful local-operation envelope."""
+
+    payload = result.model_dump(mode="json", by_alias=True) if isinstance(result, BaseModel) else result
+    return FacadeEnvelope(
+        operation=operation,
+        action_id=action_id,
+        outcome_kind="success",
+        summary=f"{operation}: completed.",
+        result=payload,
+        trace_id=trace_id,
+    )
+
+
 def compact_json_schema(model: type[BaseModel]) -> dict[str, Any]:
     """Remove non-semantic titles while preserving all validation keywords."""
 

@@ -267,8 +267,9 @@ It asks the selected repository for one snapshot containing current scope,
 authority, normalized domain rows, artifact metadata, and the requested
 change-log interval. Its closed result protects revision and safety data,
 classifies lifecycle truth without promoting candidates, and packs sections in
-a fixed stable order. The published `utf8_bytes_v1` counter measures canonical
-compact UTF-8 JSON; if the protected minimum exceeds the request, the compiler
+a fixed stable order. The published `utf8_bytes_v1` counter measures the final
+canonical compact UTF-8 facade envelope through an application-injected
+encoder; if the protected minimum exceeds the request, the compiler
 returns that measured minimum instead of dropping safety warnings. Large
 evidence bodies are never embedded. Full queries return CAS-backed links, while
 future or pruned delta cursors fail or require an explicit full refresh. The

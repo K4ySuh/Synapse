@@ -33,11 +33,11 @@ The modern input is `workspaceId`, `intent`, `targets[]`, optional
 are deprecated aliases normalized before the service boundary.
 
 The provider-neutral default counter is `utf8_bytes_v1`: one measured unit per
-byte of the canonical UTF-8 serialized context payload inside the standard
-facade envelope. This intentionally conservative upper bound is deterministic
-and does not claim parity with a provider tokenizer. Results report requested
-and used units, counter identity, and status. A future injected precise counter
-may replace only accounting, not retrieval or packing semantics.
+byte of the final canonical UTF-8 serialized facade envelope. This intentionally
+conservative upper bound is deterministic and does not claim parity with a
+provider tokenizer. Results report requested and used units, counter identity,
+and status. A future injected precise counter may replace only accounting, not
+retrieval or packing semantics.
 
 Packing order is fixed: protected scope/authority/contradiction/revision
 warnings, confirmed facts, coverage gaps, active tasks and recent actions,

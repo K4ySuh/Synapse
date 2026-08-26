@@ -337,9 +337,13 @@ overwrite a live workspace ad hoc.
 
 Writers wait only for the configured bounded busy timeout. Contention before a
 transaction obtains write authority is a retryable `state_busy_retryable`
-result. An ambiguous commit is `state_commit_unknown` and must be reconciled,
-not blindly retried. Tasks found running after their process dies likewise move
-to reconciliation-required truth without redispatch.
+result. Each revisioned write captures its intended revision and audit IDs
+before commit. If commit acknowledgement is lost, the repository checks that
+receipt through a fresh connection and returns success only when the exact
+mutation is durable. An outcome that cannot be proved is
+`state_commit_unknown`; use its receipt metadata to reconcile and never blindly
+retry. Tasks found running after their process dies likewise move to
+reconciliation-required truth without redispatch.
 
 Production startup requires private (`0600`) operator files. The identity
 binding maps authenticated principals to server-held workspace and authority
@@ -654,9 +658,9 @@ context.query(
 )
 ```
 
-`maxTokens` is measured with the reported conservative `utf8_bytes_v1`
-canonical-payload counter. A complete or truncated result never exceeds the
-request; if revision/scope/authority/contradiction safety cannot fit, status is
+`maxTokens` is measured with the reported conservative `utf8_bytes_v1` counter
+over the final canonical facade envelope. A complete or truncated response
+never exceeds the request; if revision/scope/authority/contradiction safety cannot fit, status is
 `budget_too_small` and `minimumRequired` reports the actual protected size.
 Every budget omission includes its section, count, reason, and continuation.
 Large evidence content is represented by `resourceLinks` and can be inspected

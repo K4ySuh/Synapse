@@ -7,9 +7,13 @@ application context, adapters, jobs, and internal reporting.
 
 "Local-first" describes where engagement memory lives and who owns it: durable
 state (workspace, scope, evidence, fingerprints, findings) is stored on local
-disk as inspectable JSON, and every adapter's output is normalized into that
-local model. It does not restrict network egress and does not forbid online
-research. Agents may use online tools — querying CVE databases, retrieving
+disk in operator-owned workspace repositories and inspectable artifacts. New
+workspaces use per-workspace SQLite-v2 by default; JSON-v1 remains the explicit
+compatibility and migration engine for existing workspaces. Canonical bundles,
+repository tools, and artifact files keep that state locally inspectable, and
+every adapter's output is normalized into the selected repository. Local-first
+does not restrict network egress and does not forbid online research. Agents may
+use online tools — querying CVE databases, retrieving
 public PoCs, checking current exploitation techniques — the same way the Shodan
 and nuclei adapters already reach external services. Whatever comes back is
 treated as external intelligence: scope-checked, recorded as evidence, and
@@ -624,7 +628,8 @@ Keep target-specific details out of `AGENTS.md`.
 Do not turn Synapse into:
 
 - an autonomous offensive agent without operator control;
-- a database-backed platform;
+- a centralized or multi-tenant database-backed platform (per-workspace local
+  SQLite-v2 is the default workspace repository);
 - a report-only product;
 - a client-deliverable generator by default;
 - a frontend application;

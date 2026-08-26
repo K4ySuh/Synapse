@@ -62,9 +62,10 @@ _TRANSITIONS = {
 class AuthorityRepositoryError(RuntimeError):
     """Recoverable, operator-facing durable authority failure."""
 
-    def __init__(self, reason_code: str, message: str):
+    def __init__(self, reason_code: str, message: str, *, details: Mapping[str, Any] | None = None):
         super().__init__(message)
         self.reason_code = reason_code
+        self.details = dict(details or {})
 
 
 class AuthorityRevisionConflict(AuthorityRepositoryError):
@@ -248,7 +249,11 @@ class WorkspaceAuthorityRepository:
                 finally:
                     self._active_connection.reset(token)
         except StateStoreError as exc:
-            raise AuthorityRepositoryError(exc.reason_code, str(exc)) from exc
+            raise AuthorityRepositoryError(
+                exc.reason_code,
+                str(exc),
+                details=getattr(exc, "details", None),
+            ) from exc
 
     def _opaque(self, value: str, source_kind: str = "") -> str:
         if not self._activated or not value:

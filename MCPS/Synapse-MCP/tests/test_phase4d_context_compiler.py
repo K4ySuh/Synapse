@@ -27,6 +27,8 @@ from synapse_mcp.app.facade import (
     FacadeCallContext,
     ResourceAccessError,
     ResourceReferenceService,
+    canonical_facade_bytes,
+    local_success_envelope,
 )
 from synapse_mcp.core import workspace
 from synapse_mcp.policy import AuthorityGrant, AuthorityMode, BudgetLimits, StateChangePolicy, WorkspaceAuthorityRepository
@@ -222,7 +224,7 @@ class Phase4DContextCompilerTests(unittest.TestCase):
         include_evidence_summaries: bool = False,
         trust: ContextTrust | None = None,
     ) -> ContextQueryResult:
-        return ContextCompiler(self.repository).compile(
+        return self._compiler(self.repository).compile(
             ContextQueryInput(
                 workspace_id="context",
                 intent="next_step_planning",
@@ -234,11 +236,26 @@ class Phase4DContextCompilerTests(unittest.TestCase):
             trust=trust or self.trust,
         )
 
+    def _compiler(self, repository) -> ContextCompiler:
+        return ContextCompiler(
+            repository,
+            payload_encoder=lambda result: self._facade_bytes(result),
+        )
+
+    def _facade_bytes(self, result: ContextQueryResult) -> bytes:
+        return canonical_facade_bytes(
+            local_success_envelope(
+                "context.query",
+                result,
+                trace_id=self.call_context.correlation_id,
+            )
+        )
+
     def test_historical_budgets_and_exact_boundary_have_complete_accounting(self) -> None:
         for budget in HISTORICAL_BUDGETS:
             with self.subTest(budget=budget):
                 result = self._query(budget, include_evidence_summaries=True)
-                self.assertEqual(result.budget.used, len(canonical_context_bytes(result)))
+                self.assertEqual(result.budget.used, len(self._facade_bytes(result)))
                 self.assertEqual(result.budget.counter, "utf8_bytes_v1")
                 if result.budget.status == "budget_too_small":
                     self.assertGreater(result.budget.minimum_required, budget)
@@ -264,7 +281,7 @@ class Phase4DContextCompilerTests(unittest.TestCase):
 
     def test_empty_huge_unicode_evidence_and_many_contradictions_are_bounded(self) -> None:
         empty = self._activate("empty-context", hosts=[])
-        empty_result = ContextCompiler(empty).compile(
+        empty_result = self._compiler(empty).compile(
             ContextQueryInput(workspace_id="empty-context", intent="inventory", max_tokens=6_000),
             trust=self.trust,
         )
@@ -326,9 +343,9 @@ class Phase4DContextCompilerTests(unittest.TestCase):
             max_tokens=20_000,
             include_evidence_summaries=True,
         )
-        first = ContextCompiler(self.repository).compile(query, trust=self.trust)
+        first = self._compiler(self.repository).compile(query, trust=self.trust)
         reopened = ActivatedWorkspaceRepository("context", self.repository.workspace_root)
-        second = ContextCompiler(reopened).compile(query, trust=self.trust)
+        second = self._compiler(reopened).compile(query, trust=self.trust)
         self.assertEqual(canonical_context_bytes(first), canonical_context_bytes(second))
 
         base = self.repository.revision()
@@ -426,7 +443,7 @@ class Phase4DContextCompilerTests(unittest.TestCase):
             principal_id="operator:phase4d",
             authority_session_id="session-phase4d",
         )
-        compiler = ContextCompiler(repository)
+        compiler = self._compiler(repository)
         full = compiler.compile(
             ContextQueryInput(
                 workspace_id="context-v1",
@@ -485,6 +502,8 @@ class Phase4DContextCompilerTests(unittest.TestCase):
         self.assertEqual(envelope.outcome_kind, "success")
         parsed = ContextQueryResult.model_validate(envelope.result)
         self.assertEqual(parsed.intent, "deprecated_alias_compatibility")
+        self.assertEqual(parsed.budget.used, len(canonical_facade_bytes(envelope)))
+        self.assertLessEqual(parsed.budget.used, 6_000)
         Draft202012Validator(operation.output_schema).validate(envelope.model_dump(mode="json", by_alias=True))
         with self.assertRaises(ValidationError):
             ContextQueryResult.model_validate({**envelope.result, "unexpected": True})
@@ -497,6 +516,24 @@ class Phase4DContextCompilerTests(unittest.TestCase):
         legacy = REGISTRY.contract_schema("workspace.prepare_target_context")
         self.assertIn("target", legacy["inputSchema"]["properties"])
         self.assertNotIn("sinceRevision", legacy["inputSchema"]["properties"])
+
+    def test_public_facade_budget_includes_the_standard_envelope(self) -> None:
+        envelope = CompactFacadeService().invoke(
+            "context.query",
+            {
+                "workspaceId": "context",
+                "target": "context.example",
+                "purpose": "next_step_planning",
+                "maxTokens": 5_800,
+                "includeEvidenceSummaries": True,
+            },
+            context=self.call_context,
+        )
+        parsed = ContextQueryResult.model_validate(envelope.result)
+        actual = len(canonical_facade_bytes(envelope))
+        self.assertEqual(parsed.budget.used, actual)
+        self.assertLessEqual(actual, 5_800)
+        self.assertEqual(parsed.budget.status, "truncated")
 
 
 if __name__ == "__main__":
