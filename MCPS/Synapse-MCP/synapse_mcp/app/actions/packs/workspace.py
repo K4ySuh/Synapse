@@ -28,7 +28,6 @@ from ..policies import (
     ScopeRequirement,
     TaskPolicy,
 )
-from ..registry import REGISTRY
 
 
 WORKSPACE_SUMMARY_INPUT_DOCUMENT = InputContractDocument(
@@ -200,5 +199,4 @@ WORKSPACE_PREPARE_TARGET_CONTEXT = ActionDescriptor(
     idempotency_policy=IdempotencyPolicy(Idempotency.PURE_READ),
 )
 
-REGISTRY.register(WORKSPACE_SUMMARY)
-REGISTRY.register(WORKSPACE_PREPARE_TARGET_CONTEXT)
+DESCRIPTORS = (WORKSPACE_SUMMARY, WORKSPACE_PREPARE_TARGET_CONTEXT)

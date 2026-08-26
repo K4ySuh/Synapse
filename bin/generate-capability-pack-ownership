@@ -1,0 +1,72 @@
+#!/usr/bin/env python3
+# Copyright 2026 Javier Roldán Ortiz
+# SPDX-License-Identifier: Apache-2.0
+
+"""Generate or verify the checked Phase 5 built-in capability ownership map."""
+
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+import sys
+
+
+ROOT = Path(__file__).resolve().parents[1]
+PACKAGE_ROOT = ROOT / "MCPS" / "Synapse-MCP"
+OUTPUT = ROOT / "docs" / "modernization" / "capability-pack-ownership.json"
+sys.path.insert(0, str(PACKAGE_ROOT))
+
+from synapse_mcp.app.actions.inventory import action_inventory  # noqa: E402
+from synapse_mcp.app.capability_packs.builtins import (  # noqa: E402
+    BUILTIN_NAMESPACE_OWNERS,
+    BUILTIN_PACK_ORDER,
+    builtin_action_owners,
+)
+
+
+def document() -> dict:
+    owners = builtin_action_owners()
+    entries = action_inventory()
+    return {
+        "schemaVersion": 1,
+        "source": "synapse_mcp.app.actions.action_inventory.json",
+        "builtInActionCount": len(entries),
+        "capabilityPackCount": len(BUILTIN_PACK_ORDER),
+        "capabilityPacks": [
+            {
+                "packId": pack_id,
+                "namespaces": list(BUILTIN_NAMESPACE_OWNERS[pack_id]),
+                "actionCount": sum(1 for owner in owners.values() if owner == pack_id),
+            }
+            for pack_id in BUILTIN_PACK_ORDER
+        ],
+        "actions": [
+            {
+                "actionId": str(entry["actionId"]),
+                "actionNamespace": str(entry["pack"]),
+                "capabilityPack": owners[str(entry["actionId"])],
+            }
+            for entry in entries
+        ],
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check", action="store_true")
+    args = parser.parse_args()
+    rendered = json.dumps(document(), indent=2, sort_keys=False) + "\n"
+    if args.check:
+        if not OUTPUT.exists() or OUTPUT.read_text(encoding="utf-8") != rendered:
+            print(f"capability-pack ownership is stale: {OUTPUT}", file=sys.stderr)
+            return 1
+        print("capability-pack ownership is current: 174 actions, 6 packs")
+        return 0
+    OUTPUT.write_text(rendered, encoding="utf-8")
+    print(f"wrote {OUTPUT}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

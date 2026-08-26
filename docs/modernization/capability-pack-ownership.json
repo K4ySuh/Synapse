@@ -1,0 +1,956 @@
+{
+  "schemaVersion": 1,
+  "source": "synapse_mcp.app.actions.action_inventory.json",
+  "builtInActionCount": 174,
+  "capabilityPackCount": 6,
+  "capabilityPacks": [
+    {
+      "packId": "core",
+      "namespaces": [
+        "adapters",
+        "cache",
+        "credentials",
+        "dumps",
+        "evidence",
+        "jobs",
+        "project",
+        "scope",
+        "workspace"
+      ],
+      "actionCount": 42
+    },
+    {
+      "packId": "web",
+      "namespaces": [
+        "access_control",
+        "command_injection",
+        "cors",
+        "crawler",
+        "csrf",
+        "ffuf",
+        "graphql",
+        "headers_cookies",
+        "insecure_deser",
+        "js",
+        "jwt",
+        "lfi",
+        "nuclei",
+        "open_redirect",
+        "sitemap",
+        "spec_import",
+        "sqli",
+        "ssi",
+        "ssrf",
+        "ssti",
+        "tls_posture",
+        "xss",
+        "xxe"
+      ],
+      "actionCount": 78
+    },
+    {
+      "packId": "infra",
+      "namespaces": [
+        "fingerprint",
+        "nmap",
+        "perimeter"
+      ],
+      "actionCount": 10
+    },
+    {
+      "packId": "reporting",
+      "namespaces": [
+        "documentation"
+      ],
+      "actionCount": 17
+    },
+    {
+      "packId": "purple",
+      "namespaces": [
+        "purple_team",
+        "social"
+      ],
+      "actionCount": 2
+    },
+    {
+      "packId": "intelligence",
+      "namespaces": [
+        "cve",
+        "shodan"
+      ],
+      "actionCount": 25
+    }
+  ],
+  "actions": [
+    {
+      "actionId": "jobs.list",
+      "actionNamespace": "jobs",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "jobs.status",
+      "actionNamespace": "jobs",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "jobs.cancel",
+      "actionNamespace": "jobs",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "adapters.list",
+      "actionNamespace": "adapters",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "adapters.capabilities",
+      "actionNamespace": "adapters",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "documentation.list_templates",
+      "actionNamespace": "documentation",
+      "capabilityPack": "reporting"
+    },
+    {
+      "actionId": "documentation.list_layers",
+      "actionNamespace": "documentation",
+      "capabilityPack": "reporting"
+    },
+    {
+      "actionId": "perimeter.analyze_workspace",
+      "actionNamespace": "perimeter",
+      "capabilityPack": "infra"
+    },
+    {
+      "actionId": "perimeter.build_summary",
+      "actionNamespace": "perimeter",
+      "capabilityPack": "infra"
+    },
+    {
+      "actionId": "perimeter.render_report",
+      "actionNamespace": "perimeter",
+      "capabilityPack": "infra"
+    },
+    {
+      "actionId": "documentation.build_report_context",
+      "actionNamespace": "documentation",
+      "capabilityPack": "reporting"
+    },
+    {
+      "actionId": "documentation.build_layer_report_context",
+      "actionNamespace": "documentation",
+      "capabilityPack": "reporting"
+    },
+    {
+      "actionId": "documentation.build_workspace_report_context",
+      "actionNamespace": "documentation",
+      "capabilityPack": "reporting"
+    },
+    {
+      "actionId": "documentation.plan_scope_groups",
+      "actionNamespace": "documentation",
+      "capabilityPack": "reporting"
+    },
+    {
+      "actionId": "documentation.prepare_validation_batch",
+      "actionNamespace": "documentation",
+      "capabilityPack": "reporting"
+    },
+    {
+      "actionId": "documentation.render_workspace_report_batches",
+      "actionNamespace": "documentation",
+      "capabilityPack": "reporting"
+    },
+    {
+      "actionId": "documentation.build_finding_context",
+      "actionNamespace": "documentation",
+      "capabilityPack": "reporting"
+    },
+    {
+      "actionId": "documentation.build_finding_draft",
+      "actionNamespace": "documentation",
+      "capabilityPack": "reporting"
+    },
+    {
+      "actionId": "documentation.build_evidence_pack",
+      "actionNamespace": "documentation",
+      "capabilityPack": "reporting"
+    },
+    {
+      "actionId": "documentation.summarize_coverage",
+      "actionNamespace": "documentation",
+      "capabilityPack": "reporting"
+    },
+    {
+      "actionId": "documentation.render_markdown",
+      "actionNamespace": "documentation",
+      "capabilityPack": "reporting"
+    },
+    {
+      "actionId": "documentation.render_layer_report",
+      "actionNamespace": "documentation",
+      "capabilityPack": "reporting"
+    },
+    {
+      "actionId": "documentation.render_workspace_report",
+      "actionNamespace": "documentation",
+      "capabilityPack": "reporting"
+    },
+    {
+      "actionId": "documentation.render_assessment_summary",
+      "actionNamespace": "documentation",
+      "capabilityPack": "reporting"
+    },
+    {
+      "actionId": "documentation.export_json",
+      "actionNamespace": "documentation",
+      "capabilityPack": "reporting"
+    },
+    {
+      "actionId": "scope.set",
+      "actionNamespace": "scope",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "project.start",
+      "actionNamespace": "project",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "scope.check_target",
+      "actionNamespace": "scope",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "workspace.create",
+      "actionNamespace": "workspace",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "workspace.add_target",
+      "actionNamespace": "workspace",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "workspace.ingest_data",
+      "actionNamespace": "workspace",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "workspace.prepare_target_context",
+      "actionNamespace": "workspace",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "workspace.summary",
+      "actionNamespace": "workspace",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "workspace.delete",
+      "actionNamespace": "workspace",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "workspace.create_finding",
+      "actionNamespace": "workspace",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "workspace.update_finding",
+      "actionNamespace": "workspace",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "workspace.promote_observation_to_finding",
+      "actionNamespace": "workspace",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "workspace.link_evidence_to_finding",
+      "actionNamespace": "workspace",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "workspace.mark_finding_reviewed",
+      "actionNamespace": "workspace",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "social.approve_pretext_candidate",
+      "actionNamespace": "social",
+      "capabilityPack": "purple"
+    },
+    {
+      "actionId": "purple_team.mark_detection_outcome",
+      "actionNamespace": "purple_team",
+      "capabilityPack": "purple"
+    },
+    {
+      "actionId": "workspace.set_entity_reportable",
+      "actionNamespace": "workspace",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "workspace.record_candidate_validation",
+      "actionNamespace": "workspace",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "workspace.curate_candidate",
+      "actionNamespace": "workspace",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "workspace.export_finding_context",
+      "actionNamespace": "workspace",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "credentials.set",
+      "actionNamespace": "credentials",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "credentials.list",
+      "actionNamespace": "credentials",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "credentials.set_auth_profile",
+      "actionNamespace": "credentials",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "credentials.set_browser_auth_profile",
+      "actionNamespace": "credentials",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "credentials.authenticate",
+      "actionNamespace": "credentials",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "credentials.browser_auth_check_setup",
+      "actionNamespace": "credentials",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "credentials.browser_authenticate",
+      "actionNamespace": "credentials",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "credentials.validate_session",
+      "actionNamespace": "credentials",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "credentials.get",
+      "actionNamespace": "credentials",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "credentials.delete",
+      "actionNamespace": "credentials",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "dumps.list",
+      "actionNamespace": "dumps",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "cache.inspect_scope_data",
+      "actionNamespace": "cache",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "cache.clean_out_of_scope",
+      "actionNamespace": "cache",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "cache.inspect_generated_artifacts",
+      "actionNamespace": "cache",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "cache.clean_generated_artifacts",
+      "actionNamespace": "cache",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "sqli.analyze_workspace",
+      "actionNamespace": "sqli",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "sqli.analyze_dump",
+      "actionNamespace": "sqli",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "sqli.build_sqlmap_command",
+      "actionNamespace": "sqli",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "xss.analyze_workspace",
+      "actionNamespace": "xss",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "xss.analyze_dump",
+      "actionNamespace": "xss",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "xss.generate_test_code",
+      "actionNamespace": "xss",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "xss.execute_test",
+      "actionNamespace": "xss",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "spec_import.capabilities",
+      "actionNamespace": "spec_import",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "headers_cookies.capabilities",
+      "actionNamespace": "headers_cookies",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "jwt.capabilities",
+      "actionNamespace": "jwt",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "csrf.capabilities",
+      "actionNamespace": "csrf",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "csrf.analyze_workspace",
+      "actionNamespace": "csrf",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "csrf.generate_test_plan",
+      "actionNamespace": "csrf",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "cors.capabilities",
+      "actionNamespace": "cors",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "cors.analyze_workspace",
+      "actionNamespace": "cors",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "cors.generate_test_plan",
+      "actionNamespace": "cors",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "cors.execute_test",
+      "actionNamespace": "cors",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "insecure_deser.capabilities",
+      "actionNamespace": "insecure_deser",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "insecure_deser.analyze_workspace",
+      "actionNamespace": "insecure_deser",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "xxe.capabilities",
+      "actionNamespace": "xxe",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "xxe.analyze_workspace",
+      "actionNamespace": "xxe",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "xxe.generate_test_plan",
+      "actionNamespace": "xxe",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "xxe.execute_test",
+      "actionNamespace": "xxe",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "graphql.capabilities",
+      "actionNamespace": "graphql",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "graphql.analyze_workspace",
+      "actionNamespace": "graphql",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "graphql.generate_test_plan",
+      "actionNamespace": "graphql",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "graphql.execute_test",
+      "actionNamespace": "graphql",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "tls_posture.capabilities",
+      "actionNamespace": "tls_posture",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "tls_posture.analyze_workspace",
+      "actionNamespace": "tls_posture",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "jwt.analyze",
+      "actionNamespace": "jwt",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "headers_cookies.analyze_workspace",
+      "actionNamespace": "headers_cookies",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "spec_import.import_spec",
+      "actionNamespace": "spec_import",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "ssrf.analyze_workspace",
+      "actionNamespace": "ssrf",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "ssrf.generate_test_plan",
+      "actionNamespace": "ssrf",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "ssrf.execute_test",
+      "actionNamespace": "ssrf",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "open_redirect.analyze_workspace",
+      "actionNamespace": "open_redirect",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "open_redirect.generate_test_plan",
+      "actionNamespace": "open_redirect",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "open_redirect.execute_test",
+      "actionNamespace": "open_redirect",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "command_injection.analyze_workspace",
+      "actionNamespace": "command_injection",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "command_injection.generate_test_plan",
+      "actionNamespace": "command_injection",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "command_injection.prepare_replay",
+      "actionNamespace": "command_injection",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "command_injection.execute_test",
+      "actionNamespace": "command_injection",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "cve.capabilities",
+      "actionNamespace": "cve",
+      "capabilityPack": "intelligence"
+    },
+    {
+      "actionId": "cve.sources",
+      "actionNamespace": "cve",
+      "capabilityPack": "intelligence"
+    },
+    {
+      "actionId": "cve.set_source_endpoint",
+      "actionNamespace": "cve",
+      "capabilityPack": "intelligence"
+    },
+    {
+      "actionId": "cve.reset_source_endpoint",
+      "actionNamespace": "cve",
+      "capabilityPack": "intelligence"
+    },
+    {
+      "actionId": "cve.session_key.set",
+      "actionNamespace": "cve",
+      "capabilityPack": "intelligence"
+    },
+    {
+      "actionId": "cve.session_key.clear",
+      "actionNamespace": "cve",
+      "capabilityPack": "intelligence"
+    },
+    {
+      "actionId": "cve.session_key.status",
+      "actionNamespace": "cve",
+      "capabilityPack": "intelligence"
+    },
+    {
+      "actionId": "cve.correlate",
+      "actionNamespace": "cve",
+      "capabilityPack": "intelligence"
+    },
+    {
+      "actionId": "cve.plan_tests",
+      "actionNamespace": "cve",
+      "capabilityPack": "intelligence"
+    },
+    {
+      "actionId": "cve.prepare_replay",
+      "actionNamespace": "cve",
+      "capabilityPack": "intelligence"
+    },
+    {
+      "actionId": "cve.execute_test",
+      "actionNamespace": "cve",
+      "capabilityPack": "intelligence"
+    },
+    {
+      "actionId": "ssti.capabilities",
+      "actionNamespace": "ssti",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "ssti.passive_analyze",
+      "actionNamespace": "ssti",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "ssti.plan_tests",
+      "actionNamespace": "ssti",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "ssti.prepare_replay",
+      "actionNamespace": "ssti",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "ssti.execute_test",
+      "actionNamespace": "ssti",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "lfi.capabilities",
+      "actionNamespace": "lfi",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "lfi.passive_analyze",
+      "actionNamespace": "lfi",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "lfi.plan_tests",
+      "actionNamespace": "lfi",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "lfi.execute_test",
+      "actionNamespace": "lfi",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "ssi.capabilities",
+      "actionNamespace": "ssi",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "ssi.passive_analyze",
+      "actionNamespace": "ssi",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "ssi.plan_tests",
+      "actionNamespace": "ssi",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "ssi.prepare_replay",
+      "actionNamespace": "ssi",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "ssi.execute_test",
+      "actionNamespace": "ssi",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "access_control.capabilities",
+      "actionNamespace": "access_control",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "access_control.identify_objects",
+      "actionNamespace": "access_control",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "access_control.record_context",
+      "actionNamespace": "access_control",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "access_control.build_test_matrix",
+      "actionNamespace": "access_control",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "access_control.plan_tests",
+      "actionNamespace": "access_control",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "access_control.execute_matrix_test",
+      "actionNamespace": "access_control",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "js.capabilities",
+      "actionNamespace": "js",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "js.discover_assets",
+      "actionNamespace": "js",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "js.fetch_assets",
+      "actionNamespace": "js",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "js.analyze_static",
+      "actionNamespace": "js",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "js.normalize_endpoints",
+      "actionNamespace": "js",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "js.build_app_model",
+      "actionNamespace": "js",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "js.render_app_map",
+      "actionNamespace": "js",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "sitemap.from_dump",
+      "actionNamespace": "sitemap",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "crawler.crawl",
+      "actionNamespace": "crawler",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "crawler.extended",
+      "actionNamespace": "crawler",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "ffuf.profiles",
+      "actionNamespace": "ffuf",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "ffuf.build_command",
+      "actionNamespace": "ffuf",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "ffuf.run_profile",
+      "actionNamespace": "ffuf",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "nuclei.profiles",
+      "actionNamespace": "nuclei",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "nuclei.build_command",
+      "actionNamespace": "nuclei",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "nuclei.run_profile",
+      "actionNamespace": "nuclei",
+      "capabilityPack": "web"
+    },
+    {
+      "actionId": "nmap.profiles",
+      "actionNamespace": "nmap",
+      "capabilityPack": "infra"
+    },
+    {
+      "actionId": "nmap.build_command",
+      "actionNamespace": "nmap",
+      "capabilityPack": "infra"
+    },
+    {
+      "actionId": "nmap.run_profile",
+      "actionNamespace": "nmap",
+      "capabilityPack": "infra"
+    },
+    {
+      "actionId": "shodan.session_key.set",
+      "actionNamespace": "shodan",
+      "capabilityPack": "intelligence"
+    },
+    {
+      "actionId": "shodan.session_key.clear",
+      "actionNamespace": "shodan",
+      "capabilityPack": "intelligence"
+    },
+    {
+      "actionId": "shodan.session_key.status",
+      "actionNamespace": "shodan",
+      "capabilityPack": "intelligence"
+    },
+    {
+      "actionId": "shodan.host",
+      "actionNamespace": "shodan",
+      "capabilityPack": "intelligence"
+    },
+    {
+      "actionId": "shodan.internetdb",
+      "actionNamespace": "shodan",
+      "capabilityPack": "intelligence"
+    },
+    {
+      "actionId": "shodan.domain",
+      "actionNamespace": "shodan",
+      "capabilityPack": "intelligence"
+    },
+    {
+      "actionId": "shodan.resolve",
+      "actionNamespace": "shodan",
+      "capabilityPack": "intelligence"
+    },
+    {
+      "actionId": "shodan.reverse",
+      "actionNamespace": "shodan",
+      "capabilityPack": "intelligence"
+    },
+    {
+      "actionId": "shodan.search_count",
+      "actionNamespace": "shodan",
+      "capabilityPack": "intelligence"
+    },
+    {
+      "actionId": "shodan.search",
+      "actionNamespace": "shodan",
+      "capabilityPack": "intelligence"
+    },
+    {
+      "actionId": "shodan.search_facets",
+      "actionNamespace": "shodan",
+      "capabilityPack": "intelligence"
+    },
+    {
+      "actionId": "shodan.search_filters",
+      "actionNamespace": "shodan",
+      "capabilityPack": "intelligence"
+    },
+    {
+      "actionId": "shodan.target_summary",
+      "actionNamespace": "shodan",
+      "capabilityPack": "intelligence"
+    },
+    {
+      "actionId": "shodan.company_queries",
+      "actionNamespace": "shodan",
+      "capabilityPack": "intelligence"
+    },
+    {
+      "actionId": "evidence.log_event",
+      "actionNamespace": "evidence",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "evidence.tail",
+      "actionNamespace": "evidence",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "evidence.init_project",
+      "actionNamespace": "evidence",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "evidence.host_context",
+      "actionNamespace": "evidence",
+      "capabilityPack": "core"
+    },
+    {
+      "actionId": "fingerprint.from_dump",
+      "actionNamespace": "fingerprint",
+      "capabilityPack": "infra"
+    },
+    {
+      "actionId": "fingerprint.analyze_workspace",
+      "actionNamespace": "fingerprint",
+      "capabilityPack": "infra"
+    },
+    {
+      "actionId": "fingerprint.probe_versions",
+      "actionNamespace": "fingerprint",
+      "capabilityPack": "infra"
+    },
+    {
+      "actionId": "fingerprint.read_host",
+      "actionNamespace": "fingerprint",
+      "capabilityPack": "infra"
+    }
+  ]
+}

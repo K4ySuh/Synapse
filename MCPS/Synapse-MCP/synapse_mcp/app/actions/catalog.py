@@ -1,7 +1,7 @@
 # Copyright 2026 Javier Roldán Ortiz
 # SPDX-License-Identifier: Apache-2.0
 
-"""Register generated canonical descriptors not owned by explicit packs."""
+"""Build generated canonical descriptors not owned by native modules."""
 
 from __future__ import annotations
 
@@ -44,7 +44,6 @@ from .policies import (
     TaskPolicy,
     TrafficDestination,
 )
-from .registry import REGISTRY
 
 
 def _maximum_effects(action_id: str) -> ActionEffects:
@@ -207,8 +206,18 @@ def _availability_resolver(entry: dict[str, Any]):
     return resolve
 
 
-def _register_generated_descriptors() -> None:
-    existing = {str(descriptor.id) for descriptor in REGISTRY.descriptors()}
+def generated_descriptors(
+    action_ids: tuple[str, ...],
+    *,
+    native_action_ids: frozenset[str] = frozenset(),
+) -> tuple[ActionDescriptor[Any, Any], ...]:
+    """Build a deterministic descriptor subset for one assembly target."""
+
+    selected = frozenset(action_ids)
+    unknown = selected - {str(entry["actionId"]) for entry in action_inventory()}
+    if unknown:
+        raise ValueError(f"Unknown generated action ids: {sorted(unknown)}")
+    descriptors: list[ActionDescriptor[Any, Any]] = []
     deadline_tiers = {
         "fast": DeadlineTier.FAST,
         "status": DeadlineTier.STATUS,
@@ -216,7 +225,7 @@ def _register_generated_descriptors() -> None:
     }
     for entry in action_inventory():
         action_id = str(entry["actionId"])
-        if action_id in existing:
+        if action_id not in selected or action_id in native_action_ids:
             continue
         document = InputContractDocument(
             json.dumps(entry["inputSchema"], separators=(",", ":"), ensure_ascii=False)
@@ -263,11 +272,5 @@ def _register_generated_descriptors() -> None:
                 condition=idempotency.get("condition"),
             ),
         )
-        REGISTRY.register(descriptor)
-
-    REGISTRY.set_descriptor_order(
-        tuple(str(entry["actionId"]) for entry in action_inventory())
-    )
-
-
-_register_generated_descriptors()
+        descriptors.append(descriptor)
+    return tuple(descriptors)

@@ -22,10 +22,14 @@ Authority Grants and atomically reserve a dispatch before the executor runs.
 Caller input cannot select or enlarge the profile, grant, step-up, request
 state, dispatch, or continuation.
 
-All 174 legacy names are mapped to canonical descriptors across 40 packs before
-execution. The checked-in generated inventory preserves exact name/order/schema
-projection and serializer ownership; the retained implementation adapter stays
-available as the per-action rollback path.
+All 174 legacy names are mapped to canonical descriptors across 40 action
+namespaces before execution. Phase 5 separately groups them into six
+high-level operational capability packs without changing action identity. A
+deterministic startup assembler validates single ownership, dependencies,
+application compatibility, contributions, and aliases, then freezes the
+selected catalog and the one Registry. The checked inventories preserve exact
+name/order/schema projection and serializer ownership; the retained
+implementation adapter stays available as the per-action rollback path.
 
 Phase 3B added protocol-independent surfaces under `synapse_mcp.app.facade`.
 `modern-compact` has exactly eleven bounded engagement/context/catalog/action/

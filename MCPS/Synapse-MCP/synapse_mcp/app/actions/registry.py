@@ -118,21 +118,43 @@ class ActionRegistry:
         self._descriptors: dict[str, ActionDescriptor[Any, Any]] = {}
         self._legacy_aliases: dict[str, str] = {}
         self._policy_evaluator = policy_evaluator or ProfilePolicyEvaluator()
+        self._frozen = False
 
-    def register(self, descriptor: ActionDescriptor[Any, Any]) -> None:
+    @property
+    def frozen(self) -> bool:
+        """Return whether startup assembly has closed mutation."""
+
+        return self._frozen
+
+    def freeze(self) -> "ActionRegistry":
+        """Prevent descriptor or ordering mutation after startup assembly."""
+
+        self._frozen = True
+        return self
+
+    def register(
+        self,
+        descriptor: ActionDescriptor[Any, Any],
+        *,
+        legacy_compatible: bool = True,
+    ) -> None:
         action_id = str(descriptor.id)
 
         def invalid(reason: str) -> None:
             raise ValueError(f"{action_id}: {reason}")
 
+        if self._frozen:
+            invalid("registry is frozen")
         if action_id in self._descriptors:
             invalid("duplicate action id")
         if not descriptor.title.strip() or not descriptor.summary.strip():
             invalid("title and summary must be non-empty")
         if not descriptor.implementation_ref.strip():
             invalid("implementation reference must be non-empty")
-        if not descriptor.legacy_aliases:
+        if legacy_compatible and not descriptor.legacy_aliases:
             invalid("at least one legacy alias is required")
+        if not legacy_compatible and descriptor.legacy_aliases:
+            invalid("modern-only actions cannot declare legacy aliases")
         if descriptor.legacy_serializer not in {"transport", "executor"}:
             invalid("legacy serializer must be transport or executor")
         if len(set(descriptor.legacy_aliases)) != len(descriptor.legacy_aliases):
@@ -221,6 +243,8 @@ class ActionRegistry:
     def set_descriptor_order(self, action_ids: tuple[str, ...]) -> None:
         """Apply one complete deterministic order after batch registration."""
 
+        if self._frozen:
+            raise ValueError("registry is frozen")
         if len(action_ids) != len(set(action_ids)):
             raise ValueError("descriptor order contains duplicate action ids")
         if set(action_ids) != set(self._descriptors):

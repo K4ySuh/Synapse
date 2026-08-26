@@ -344,14 +344,34 @@ The application action layer is under `synapse_mcp/app/actions/`:
   validation-affecting JSON Schema keywords it cannot preserve;
 - `action_inventory.json` is the generated, ordered 174-action accounting
   manifest; `inventory.py` validates and exposes it;
-- `catalog.py` builds the 168 generated descriptors and their request-aware
-  effects, intent, availability, and retained-implementation executors;
+- `catalog.py` returns selected generated descriptors and their request-aware
+  effects, intent, availability, and retained-implementation executors without
+  mutating the process Registry;
 - `legacy_bridge.py` is the protocol-free binding to the independently retained
   implementation adapter;
 - `adapter_metadata.py` projects migrated operational metadata back into
   adapter discovery without reversing the core/application dependency;
-- `packs/` contains the six native descriptors; the catalog completes all 40
-  packs and 174 actions.
+- `packs/` contains six native descriptors exposed as provider values rather
+  than import-time registrations.
+
+The high-level capability lifecycle is under
+`synapse_mcp/app/capability_packs/`:
+
+- `contracts.py` defines immutable pack identity, manifest, compatibility,
+  availability, dependency, descriptor-provider, and resource contracts;
+- `builtins.py` owns the six high-level built-in manifests and the reviewed
+  mapping from all 40 action namespaces to exactly one operational pack;
+- `loader.py` discovers external entry points once, resolves dependencies,
+  validates exact ownership/contributions, restores canonical built-in order,
+  and freezes the one selected Registry;
+- `service.py` exposes the selected catalog as a read-only application/resource
+  document;
+- `capability-pack-ownership.json` is the generated checked 174-action review
+  artifact. `bin/generate-capability-pack-ownership --check` rejects drift.
+
+`REGISTRY` remains the frozen fully assembled standard compatibility facade.
+Isolated tests and explicit startup profiles can assemble a fresh selected
+Registry through the same validation path.
 
 `REGISTRY.contract_schema(action_id)` exposes the canonical `inputSchema` and
 typed `outputSchema` for all 174 actions. The stable legacy tools list stays

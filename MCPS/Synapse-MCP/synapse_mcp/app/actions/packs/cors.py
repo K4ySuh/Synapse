@@ -44,7 +44,6 @@ from ..policies import (
     TrafficDestination,
     TaskPolicy,
 )
-from ..registry import REGISTRY
 
 
 CORS_EXECUTE_TEST_INPUT_DOCUMENT = InputContractDocument(
@@ -199,4 +198,4 @@ CORS_EXECUTE_TEST = ActionDescriptor(
     idempotency_policy=IdempotencyPolicy(Idempotency.NON_IDEMPOTENT),
 )
 
-REGISTRY.register(CORS_EXECUTE_TEST)
+DESCRIPTORS = (CORS_EXECUTE_TEST,)

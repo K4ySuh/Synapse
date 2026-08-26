@@ -41,7 +41,6 @@ from ..policies import (
     ScopeRequirement,
     TaskPolicy,
 )
-from ..registry import REGISTRY
 
 
 JOBS_STATUS_INPUT_DOCUMENT = InputContractDocument(
@@ -192,4 +191,4 @@ JOBS_STATUS = ActionDescriptor(
     idempotency_policy=IdempotencyPolicy(Idempotency.PURE_READ),
 )
 
-REGISTRY.register(JOBS_STATUS)
+DESCRIPTORS = (JOBS_STATUS,)

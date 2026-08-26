@@ -147,8 +147,9 @@ class ModernizationDocumentationTests(unittest.TestCase):
     def test_every_adr_has_required_sections_and_a_valid_status(self) -> None:
         adr_paths = sorted(ADR_DIR.glob("ADR-*.md"))
         # 6 from Phase 0; ADR-0007/0008 from Phase 1 Stage A; ADR-0009 closes
-        # the correction gate before Phase 2.
-        self.assertEqual(len(adr_paths), 9)
+        # the correction gate before Phase 2; ADR-0010 establishes Phase 5A
+        # capability-pack assembly.
+        self.assertEqual(len(adr_paths), 10)
 
         for path in adr_paths:
             text = path.read_text(encoding="utf-8")

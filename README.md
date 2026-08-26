@@ -94,6 +94,16 @@ prior assessment knowledge available through MCP tools and resources.
 
 ## Modernization Status
 
+Phase 5A adds a deterministic high-level capability-pack lifecycle around the
+one canonical Action Registry. The standard six-pack assembly preserves all
+174 action IDs and legacy contracts; an isolated `core` selection contains 42
+actions. Native/generated descriptor providers no longer register through
+import side effects, ownership is checked in
+[`capability-pack-ownership.json`](docs/modernization/capability-pack-ownership.json),
+and the catalog/Registry freeze before requests. Phase 5B startup selection and
+pack-aware operational discovery are in progress; see the
+[Phase 5 status](docs/modernization/phase-5-status.md).
+
 Phase 4 is complete. Genuinely new workspaces now bootstrap transactionally in
 SQLite-v2 after linked-runtime and filesystem readiness succeeds. Existing
 JSON-v1 workspaces remain unchanged until an operator runs the separate

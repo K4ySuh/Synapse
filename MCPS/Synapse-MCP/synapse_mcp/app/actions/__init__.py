@@ -73,7 +73,10 @@ from synapse_mcp.core.execution import (
     TargetEnvelope,
     TargetSelector,
 )
-from . import packs as _packs
+from synapse_mcp.app.capability_packs.loader import assemble_capability_packs
+
+
+CAPABILITY_PACKS = assemble_capability_packs(registry=REGISTRY)
 
 __all__ = [
     "ActionDescriptor",
@@ -95,6 +98,7 @@ __all__ = [
     "CredentialPolicy",
     "CredentialRequirement",
     "CanonicalTarget",
+    "CAPABILITY_PACKS",
     "ContinuationLineage",
     "DeadlineTier",
     "Enforcement",

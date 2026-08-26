@@ -57,6 +57,15 @@ tests, and the shared [changelog](../../CHANGELOG.md).
   migration/recovery/context, environment, transport, Inspector, and test
   measurements
 
+## Phase 5
+
+- [Implementation status](phase-5-status.md) — ordered 5A–5F progress and
+  focused gate evidence
+- [Capability-pack ownership map](capability-pack-ownership.json) — checked
+  single-owner assignment for all 174 built-in actions
+- [ADR-0010](adr/ADR-0010-capability-pack-lifecycle.md) — deterministic,
+  frozen, high-level capability-pack assembly over the one Action Registry
+
 ## Architecture decisions
 
 | ADR | Decision | Status |
@@ -70,6 +79,7 @@ tests, and the shared [changelog](../../CHANGELOG.md).
 | [ADR-0007](adr/ADR-0007-application-outcome-model-and-error-boundary.md) | Application outcome model and the protocol error boundary | Proposed |
 | [ADR-0008](adr/ADR-0008-action-identity-and-packs.md) | Action identity and pack scheme | Proposed |
 | [ADR-0009](adr/ADR-0009-registry-v2-correction-gate.md) | Registry v2 correction gate | Accepted |
+| [ADR-0010](adr/ADR-0010-capability-pack-lifecycle.md) | Deterministic high-level capability-pack lifecycle | Accepted |
 
 ## Cross-cutting pattern
 

@@ -29,7 +29,6 @@ from ..policies import (
     ScopeRequirement,
     TaskPolicy,
 )
-from ..registry import REGISTRY
 
 
 HEADERS_COOKIES_ANALYZE_WORKSPACE_INPUT_DOCUMENT = InputContractDocument(
@@ -112,4 +111,4 @@ HEADERS_COOKIES_ANALYZE_WORKSPACE = ActionDescriptor(
     idempotency_policy=IdempotencyPolicy(Idempotency.PURE_READ),
 )
 
-REGISTRY.register(HEADERS_COOKIES_ANALYZE_WORKSPACE)
+DESCRIPTORS = (HEADERS_COOKIES_ANALYZE_WORKSPACE,)

@@ -48,7 +48,6 @@ from ..policies import (
     TrafficDestination,
     TaskPolicy,
 )
-from ..registry import REGISTRY
 
 
 CRAWLER_CRAWL_INPUT_DOCUMENT = InputContractDocument(
@@ -257,4 +256,4 @@ CRAWLER_CRAWL = ActionDescriptor(
     idempotency_policy=IdempotencyPolicy(Idempotency.NON_IDEMPOTENT),
 )
 
-REGISTRY.register(CRAWLER_CRAWL)
+DESCRIPTORS = (CRAWLER_CRAWL,)

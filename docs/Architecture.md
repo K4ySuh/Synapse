@@ -11,12 +11,15 @@ use.
 
 ## Runtime Topology
 
-The frozen transport and both modern application projections reach all 174
-canonical operations through one protocol-independent execution boundary:
+The frozen transport and both modern application projections reach canonical
+operations through one protocol-independent execution boundary. Phase 5 adds a
+startup-only capability-pack catalog around that Registry; it does not add a
+second execution or policy path:
 
 ```text
 legacy stdio projection       production SDK adapter (stdio / authenticated HTTP)
              \                       compact / direct                         /
+              -> frozen selected capability catalog
               -> ActionRegistry.execute(action_id, request)
                    -> runtime availability
                    -> request-effective ActionEffects
@@ -45,6 +48,15 @@ credential/secret use, and replay safety. A descriptor declares the maximum;
 an input-aware resolver narrows it before policy. Resolver uncertainty applies
 the maximum with an explanation. Availability is evaluated before both policy
 and execution.
+
+High-level capability packs are separate from `ActionDescriptor.pack`, which
+remains the stable first segment of `ActionId`. The standard built-in catalog
+owns all 174 actions once across `core`, `web`, `infra`, `reporting`, `purple`,
+and `intelligence`; a checked ownership artifact preserves that accounting.
+Manifest providers contribute descriptors only through startup assembly, the
+selected catalog and Registry freeze before serving, and invalid installed
+entry points fail explicitly. External actions are modern-only and are never
+implicitly added to the frozen legacy or default 174-action direct surface.
 
 `AuthorizationIntent` is protocol-independent and distinct from a grant. It
 records the current workspace and scope digest plus the requested exact targets
@@ -78,6 +90,8 @@ MCP client
                    |-- uses $SYNAPSE_PYTHON, active VIRTUAL_ENV, or .venv/bin/python
                    |-- app/
                    |   |-- actions/ (174 canonical descriptors and Registry)
+                   |   |-- capability_packs/ (manifest contract, ownership,
+                   |   |                       discovery, frozen assembly)
                    |   |-- context.py (revision-aware budgeted compiler)
                    |   `-- facade/ (compact/direct services, catalog, resources)
                    |-- transport/modern/ (official-SDK stdio/HTTP adapter,

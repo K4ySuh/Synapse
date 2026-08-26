@@ -24,6 +24,18 @@ durable dispatch and continuation truth.
 
 ### Added
 
+- **Phase 5A deterministic capability-pack assembly.** Added immutable
+  provider-neutral manifests, one-time external entry-point discovery,
+  dependency/application compatibility validation, exact single action
+  ownership, a checked 174-action ownership map, read-only catalog resource
+  contract, isolated 42-action core assembly, and frozen post-start Registry
+  lifecycle. Native and generated descriptors now return provider values
+  instead of mutating the global Registry on import. The standard catalog keeps
+  all 174 IDs and frozen order across six high-level operational packs; pack
+  identity remains separate from the 40 canonical action namespaces, external
+  actions remain modern-only and unselected by default, and every selected
+  action still crosses the same Registry policy/effect/execution path.
+
 - **Phase 4 acceptance and State Store v2 adoption.** Genuinely new workspaces
   now initialize workspace, scope, targets, revision, change log, and audit
   transactionally in SQLite-v2 before an atomic selector install; interrupted
