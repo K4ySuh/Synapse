@@ -478,6 +478,9 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                         (self.workspace_id,),
                     )
                 )
+                from .work_items import context_work_items
+
+                work_items = context_work_items(connection, self.workspace_id)
                 changes = tuple(
                     {
                         "revision": int(row[0]),
@@ -523,6 +526,7 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
             actions=actions,
             dispatches=dispatches,
             tasks=tasks,
+            work_items=work_items,
             authority=authority,
             changes=changes,
         )

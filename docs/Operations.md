@@ -700,6 +700,65 @@ queries but have no transactional change log, so every delta request also
 requires a full refresh. The transitional singular `target` and `purpose`
 inputs remain accepted aliases for `targets` and `intent`.
 
+### Shared operational work
+
+Use operational work items only when an objective benefits from durable
+assignment, dependency tracking, handoff, or parallel specialist work. Simple
+single-agent reads and actions can continue directly.
+
+```text
+tasks.control(
+  operation="work.create",
+  workspaceId="<activated-v2-workspace>",
+  payload={
+    "objective": "Bounded offline endpoint analysis",
+    "role": "web",
+    "targets": ["example.com"],
+    "requiredPacks": ["web"],
+    "completionContract": {"result": "candidate and gap summary"}
+  }
+)
+
+tasks.control(
+  operation="work.claim",
+  workspaceId="<workspace>",
+  workItemId="<work-item>",
+  expectedVersion=<current-version>,
+  worker="web-specialist",
+  leaseSeconds=300
+)
+```
+
+Mutating calls require the returned `claimId` and current `expectedVersion`.
+Use `work.heartbeat` to renew a lease, `work.update` to record concise progress
+and workspace references, and `work.handoff`, `work.release`, `work.block`, or
+`work.complete` to end the claim explicitly. A version conflict returns
+`currentVersion` and `currentWorkspaceRevision`; inspect and retry only after
+reviewing the intervening state.
+
+After client/agent loss, call `work.recover` and then inspect before reclaiming.
+Recovery expires stale leases but does not cancel, resume, or replay any linked
+dispatch/job. `executionReviewRequired=true` and `activeOrUnknownExecution`
+mean the next claimant must inspect canonical job/dispatch/evidence truth first.
+For specialist resume, call:
+
+```text
+context.query(
+  workspaceId="<workspace>",
+  workItemId="<work-item>",
+  claimId="<active-claim>",
+  maxTokens=6000
+)
+```
+
+The compiler derives the work item's target boundary and last-seen/base
+revision when omitted, prioritizes work/dependency/handoff state, and retains
+normal safety, contradiction, fact, candidate, gap, action/job, evidence-link,
+omission, and continuation behavior. Worker labels and work-item IDs never
+grant scope or execution authority. Work-item operations return
+`work_items_require_sqlite_v2` on JSON-v1 rather than creating a second task
+board or migrating implicitly.
+
 Use `workspace.summary` to scan workspace-level progress and
 `workspace.create_finding` to record operator-reviewed issues. Ingestion returns
 `scopeStatus` (`in_scope`, `out_of_scope`, or `scope_unset`) and a reason so

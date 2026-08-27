@@ -14,7 +14,11 @@ from ..connections import StateConnection, immediate_transaction
 from ..errors import StateIntegrityError
 
 
-MIGRATION_NAMES = ("0001_initial.sql", "0002_runtime_adoption.sql")
+MIGRATION_NAMES = (
+    "0001_initial.sql",
+    "0002_runtime_adoption.sql",
+    "0003_operational_work_items.sql",
+)
 
 
 def migration_text(name: str = MIGRATION_NAMES[0]) -> str:

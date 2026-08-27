@@ -12,6 +12,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from synapse_mcp.app.context import ContextQueryInput
+from synapse_mcp.app.work_items import WorkItemExecutionInput
 
 
 def _camel_case(value: str) -> str:
@@ -76,6 +77,7 @@ class ActionExecutionInput(FacadeModel):
     action_id: str
     arguments: dict[str, JsonValue] = Field(default_factory=dict)
     idempotency_key: str | None = Field(default=None, min_length=1, max_length=256)
+    work_item: WorkItemExecutionInput | None = None
 
 
 ReviewKind = Literal[
@@ -117,7 +119,23 @@ class ReportsRenderInput(FacadeModel):
     idempotency_key: str | None = Field(default=None, min_length=1, max_length=256)
 
 
-TaskOperation = Literal["list", "inspect", "cancel", "resume"]
+TaskOperation = Literal[
+    "list",
+    "inspect",
+    "cancel",
+    "resume",
+    "work.create",
+    "work.list",
+    "work.inspect",
+    "work.claim",
+    "work.heartbeat",
+    "work.update",
+    "work.handoff",
+    "work.release",
+    "work.complete",
+    "work.block",
+    "work.recover",
+]
 
 
 class TasksControlInput(FacadeModel):
@@ -128,6 +146,12 @@ class TasksControlInput(FacadeModel):
     limit: int = Field(default=20, ge=1, le=100)
     active_only: bool = False
     include_result: bool = False
+    work_item_id: str | None = None
+    claim_id: str | None = None
+    expected_version: int | None = Field(default=None, ge=1)
+    worker: str = Field(default="", max_length=256)
+    lease_seconds: int = Field(default=300, ge=15, le=86400)
+    payload: dict[str, JsonValue] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def require_operation_identity(self) -> "TasksControlInput":
@@ -139,6 +163,8 @@ class TasksControlInput(FacadeModel):
             raise ValueError("tasks.control inspect requires jobId or operationHandle")
         if self.operation == "inspect" and self.job_id and self.operation_handle:
             raise ValueError("tasks.control inspect accepts only one operation identity")
+        if self.operation == "work.inspect" and not self.work_item_id:
+            raise ValueError("tasks.control work.inspect requires workItemId")
         return self
 
 
@@ -258,6 +284,7 @@ class FacadeCallContext:
     authority_session_id: str = ""
     selected_grant_id: str = ""
     correlation_id: str = ""
+    agent_run_id: str = ""
 
     def __post_init__(self) -> None:
         if not self.principal_id.strip():
@@ -321,20 +348,26 @@ def local_success_envelope(
 
 
 def compact_json_schema(model: type[BaseModel]) -> dict[str, Any]:
-    """Remove non-semantic titles while preserving all validation keywords."""
+    """Remove schema annotations while preserving every validation keyword."""
 
-    def strip_titles(value: Any) -> Any:
+    return compact_schema(json_schema(model))
+
+
+def compact_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Strip non-validating JSON Schema annotations from a compact contract."""
+
+    def strip_annotations(value: Any) -> Any:
         if isinstance(value, dict):
             return {
-                key: strip_titles(child)
+                key: strip_annotations(child)
                 for key, child in value.items()
-                if key != "title"
+                if key not in {"default", "description", "title"}
             }
         if isinstance(value, list):
-            return [strip_titles(child) for child in value]
+            return [strip_annotations(child) for child in value]
         return value
 
-    return strip_titles(json_schema(model))
+    return strip_annotations(schema)
 
 
 _OUTCOME_KINDS = (

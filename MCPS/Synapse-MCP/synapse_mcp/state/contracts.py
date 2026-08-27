@@ -106,6 +106,7 @@ class ContextRepositorySnapshot:
     actions: Sequence[JsonObject] = field(default_factory=tuple)
     dispatches: Sequence[JsonObject] = field(default_factory=tuple)
     tasks: Sequence[JsonObject] = field(default_factory=tuple)
+    work_items: Sequence[JsonObject] = field(default_factory=tuple)
     authority: JsonObject = field(default_factory=dict)
     changes: Sequence[JsonObject] = field(default_factory=tuple)
 
@@ -119,6 +120,26 @@ class WorkspaceRepository(Protocol):
     def snapshot(self) -> dict[str, Any]: ...
 
     def context_snapshot(self, *, since_revision: int | None = None) -> ContextRepositorySnapshot: ...
+
+
+class WorkItemRepository(Protocol):
+    """Application-facing repository contract for durable coordination state."""
+
+    workspace_id: str
+
+    def create(self, value: JsonObject, *, principal_id: str, now: Any = None) -> dict[str, Any]: ...
+
+    def inspect(self, work_item_id: str) -> dict[str, Any]: ...
+
+    def list(
+        self,
+        *,
+        statuses: Sequence[str] = (),
+        role: str = "",
+        worker: str = "",
+        parent_work_item_id: str = "",
+        limit: int = 50,
+    ) -> list[dict[str, Any]]: ...
 
 
 class EvidenceRepository(Protocol):

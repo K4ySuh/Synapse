@@ -52,6 +52,11 @@ BUNDLE_TABLES = (
     "tasks",
     "task_events",
     "task_dispatch_links",
+    "work_items",
+    "work_item_dependencies",
+    "work_item_claims",
+    "work_item_references",
+    "work_item_events",
     "execution_result_links",
     "reconciliations",
     "authority_runtime_payloads",
@@ -129,6 +134,7 @@ class StateBundleService:
             with repository.connection_factory.connect() as connection:
                 apply_migrations(connection)
                 with immediate_transaction(connection):
+                    connection.execute("PRAGMA defer_foreign_keys=ON")
                     for table in BUNDLE_TABLES:
                         for row in payload["tables"].get(table, []):
                             self._insert_row(connection, table, row)

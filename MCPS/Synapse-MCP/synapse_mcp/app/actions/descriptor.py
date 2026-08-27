@@ -41,6 +41,8 @@ class ExecutionContext:
     idempotency_key: str = ""
     request_state_id: str = ""
     continuation_dispatch_id: str = ""
+    work_item_id: str = ""
+    work_item_claim_id: str = ""
     authorization_receipt: object | None = None
 
 

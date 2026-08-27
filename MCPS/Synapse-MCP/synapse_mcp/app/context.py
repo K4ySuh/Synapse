@@ -23,6 +23,7 @@ COUNTER_ID = "utf8_bytes_v1"
 _TERMINAL_TASK_STATES = frozenset({"completed", "failed", "cancelled", "succeeded", "unknown"})
 _SEVERITY_PRIORITY = {"critical": 100, "high": 80, "medium": 60, "low": 40, "info": 20}
 _SECTION_ORDER = (
+    "workItems",
     "confirmedFacts",
     "coverageGaps",
     "activeTasks",
@@ -57,9 +58,14 @@ class ContextQueryInput(ContextModel):
     include_evidence_summaries: bool = False
     target: str | None = Field(default=None, description="Deprecated alias for targets.")
     purpose: str | None = Field(default=None, description="Deprecated alias for intent.")
+    work_item_id: str | None = Field(default=None, min_length=1)
+    claim_id: str | None = Field(default=None, min_length=1)
+    claimant: str | None = Field(default=None, min_length=1)
 
     @model_validator(mode="after")
     def normalize_aliases(self) -> "ContextQueryInput":
+        if self.claim_id and not self.work_item_id:
+            raise ValueError("claimId requires workItemId")
         intent = str(self.intent or self.purpose or "next_step_planning").strip()
         if not intent:
             raise ValueError("intent must not be empty")
@@ -184,6 +190,7 @@ class ContextQueryResult(ContextModel):
     coverage_gaps: list[ContextItem]
     recent_actions: list[ContextItem]
     active_tasks: list[ContextItem]
+    work_items: list[ContextItem]
     recommendations: list[ContextRecommendation]
     resource_links: list[ContextResourceLink]
     omissions: list[ContextOmission]
@@ -558,7 +565,7 @@ class ContextCompiler:
             return True
         identities = {
             str(record.get(name) or "")
-            for name in ("targetId", "entityId", "findingId", "relationId", "evidenceId", "artifactId", "actionId", "dispatchId", "taskId")
+            for name in ("targetId", "entityId", "findingId", "relationId", "evidenceId", "artifactId", "actionId", "dispatchId", "taskId", "workItemId")
         }
         return bool((changed or set()) & identities)
 
@@ -703,6 +710,41 @@ class ContextCompiler:
                 )
         actions = [self._action_item(item, snapshot.revision) for item in (*snapshot.actions, *snapshot.dispatches) if self._row_changed(item, changed, query.since_revision)]
         tasks = [self._task_item(item, snapshot.revision) for item in snapshot.tasks if str(item.get("state") or "").lower() not in _TERMINAL_TASK_STATES and self._row_changed(item, changed, query.since_revision)]
+        selected_work_ids: set[str] = set()
+        if query.work_item_id:
+            selected = next(
+                (item for item in snapshot.work_items if str(item.get("workItemId") or "") == query.work_item_id),
+                None,
+            )
+            if selected is not None:
+                selected_work_ids.add(query.work_item_id)
+                parent = str(selected.get("parentWorkItemId") or "")
+                if parent:
+                    selected_work_ids.add(parent)
+                selected_work_ids.update(
+                    str(item.get("workItemId") or "")
+                    for item in selected.get("dependencies", [])
+                    if isinstance(item, Mapping)
+                )
+        work_items = []
+        if query.work_item_id or query.claimant:
+            for item in snapshot.work_items:
+                identity = str(item.get("workItemId") or "")
+                claims = item.get("claims") if isinstance(item.get("claims"), Sequence) else ()
+                claimant_match = bool(
+                    query.claimant
+                    and any(
+                        isinstance(claim, Mapping)
+                        and str(claim.get("worker") or "") == query.claimant
+                        and str(claim.get("state") or "") == "active"
+                        for claim in claims
+                    )
+                )
+                if identity not in selected_work_ids and not claimant_match:
+                    continue
+                if identity != query.work_item_id and not self._row_changed(item, changed, query.since_revision):
+                    continue
+                work_items.append(self._work_item(item, snapshot.revision))
         recommendations = [
             ContextRecommendation(
                 recommendation_id=f"recommend:{item.item_id}",
@@ -738,6 +780,7 @@ class ContextCompiler:
                 )
             )
         return {
+            "workItems": sorted(work_items, key=_item_sort),
             "confirmedFacts": sorted(facts, key=_item_sort),
             "coverageGaps": sorted(gaps, key=_item_sort),
             "activeTasks": sorted(tasks, key=_item_sort),
@@ -776,6 +819,50 @@ class ContextCompiler:
             priority=80,
             changed_revision=int(record.get("updatedRevision") or revision),
             attributes={"taskRevision": int(record.get("taskRevision") or 0)},
+        )
+
+    @staticmethod
+    def _work_item(record: Mapping[str, Any], revision: int) -> ContextItem:
+        references = record.get("references") if isinstance(record.get("references"), Sequence) else ()
+        evidence_references = [
+            str(item.get("id") or "")
+            for item in references
+            if isinstance(item, Mapping) and str(item.get("type") or "") == "evidence"
+        ]
+        targets = record.get("targets") if isinstance(record.get("targets"), Sequence) else ()
+        return ContextItem(
+            item_id=str(record.get("workItemId") or "work-item"),
+            kind="work_item",
+            target=str(targets[0]) if targets else None,
+            summary=str(record.get("objective") or "Operational work item"),
+            lifecycle=str(record.get("status") or "planned"),
+            priority=100,
+            evidence_references=evidence_references,
+            changed_revision=int(record.get("currentWorkspaceRevision") or revision),
+            attributes={
+                "role": str(record.get("role") or ""),
+                "parentWorkItemId": record.get("parentWorkItemId"),
+                "dependencies": list(record.get("dependencies") or []),
+                "requiredPacks": list(record.get("requiredPacks") or []),
+                "selectedPacks": list(record.get("selectedPacks") or []),
+                "targets": list(targets),
+                "contextQuery": dict(record.get("contextQuery") or {}),
+                "completionContract": dict(record.get("completionContract") or {}),
+                "progressSummary": str(record.get("progressSummary") or ""),
+                "resultSummary": str(record.get("resultSummary") or ""),
+                "blockerReason": str(record.get("blockerReason") or ""),
+                "handoffReason": str(record.get("handoffReason") or ""),
+                "nextRecommendedWork": str(record.get("nextRecommendedWork") or ""),
+                "unresolvedGaps": list(record.get("unresolvedGaps") or []),
+                "claims": list(record.get("claims") or []),
+                "references": list(references),
+                "activeOrUnknownExecution": list(record.get("activeOrUnknownExecution") or []),
+                "handoffs": list(record.get("handoffs") or []),
+                "baseWorkspaceRevision": int(record.get("baseWorkspaceRevision") or 0),
+                "lastSeenWorkspaceRevision": int(record.get("lastSeenWorkspaceRevision") or 0),
+                "version": int(record.get("version") or 0),
+                "automaticReplay": False,
+            },
         )
 
     def _pack(
@@ -829,6 +916,7 @@ class ContextCompiler:
                 coverage_gaps=list(included["coverageGaps"]),
                 recent_actions=list(included["recentActions"]),
                 active_tasks=list(included["activeTasks"]),
+                work_items=list(included["workItems"]),
                 recommendations=list(included["recommendations"]),
                 resource_links=list(included["resourceLinks"]),
                 omissions=omissions(),

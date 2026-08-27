@@ -32,10 +32,12 @@ from synapse_mcp.app.actions import (
 from synapse_mcp.app.capability_packs.loader import AssembledCapabilityPacks
 from synapse_mcp.app.actions.registry import ActionRegistry
 from synapse_mcp.app.context import ContextCompiler, ContextQueryError, ContextTrust
+from synapse_mcp.app.work_items import WorkItemExecutionInput, WorkItemService
 from synapse_mcp.core import workspace
 from synapse_mcp.core.atomic_io import atomic_write_text, file_lock
 from synapse_mcp.policy.repository import AuthorityRepositoryError, WorkspaceAuthorityRepository
 from synapse_mcp.state.selector import repository_bundle
+from synapse_mcp.state.errors import StateStoreError
 
 from .catalog import ActionCatalogService, effect_summary
 from .contracts import (
@@ -162,6 +164,7 @@ class _PendingOperation:
     authority_session_id: str
     correlation_id: str
     idempotency_key: str
+    work_item: dict[str, Any] | None = None
     state: str = "input_required"
 
 
@@ -187,6 +190,7 @@ class OperationHandleService:
         context: FacadeCallContext,
         correlation_id: str,
         idempotency_key: str,
+        work_item: WorkItemExecutionInput | None = None,
     ) -> str:
         operation = _PendingOperation(
             handle=f"operation-{secrets.token_urlsafe(24)}",
@@ -198,6 +202,7 @@ class OperationHandleService:
             authority_session_id=context.authority_session_id,
             correlation_id=correlation_id,
             idempotency_key=idempotency_key,
+            work_item=(work_item.model_dump(mode="json", by_alias=True) if work_item else None),
         )
         if self._state_path is None:
             existing = self._by_request_state.get(request_state_id)
@@ -315,6 +320,7 @@ class OperationHandleService:
             "authoritySessionId": operation.authority_session_id,
             "correlationId": operation.correlation_id,
             "idempotencyKey": operation.idempotency_key,
+            "workItem": operation.work_item,
             "state": operation.state,
         }
 
@@ -332,6 +338,7 @@ class OperationHandleService:
             authority_session_id=str(value["authoritySessionId"]),
             correlation_id=str(value["correlationId"]),
             idempotency_key=str(value["idempotencyKey"]),
+            work_item=dict(value["workItem"]) if isinstance(value.get("workItem"), dict) else None,
             state=str(value.get("state") or "input_required"),
         )
 
@@ -345,10 +352,12 @@ class ActionExecutionService:
         registry: ActionRegistry = REGISTRY,
         resources: ResourceReferenceService | None = None,
         operations: OperationHandleService | None = None,
+        work_items: WorkItemService | None = None,
     ) -> None:
         self.registry = registry
         self.resources = resources or ResourceReferenceService()
         self.operations = operations or OperationHandleService()
+        self.work_items = work_items or WorkItemService()
 
     def run(
         self,
@@ -362,6 +371,7 @@ class ActionExecutionService:
         request_state_id: str = "",
         correlation_id: str = "",
         binding: dict[str, Any] | None = None,
+        work_item: WorkItemExecutionInput | None = None,
     ) -> FacadeEnvelope:
         trace_id = correlation_id or _trace_id(context)
         try:
@@ -476,10 +486,13 @@ class ActionExecutionService:
                 selected_grant_id=str(trusted.get("grantId") or context.selected_grant_id),
                 idempotency_key=effective_key,
                 request_state_id=request_state_id,
+                work_item_id=work_item.work_item_id if work_item else "",
+                work_item_claim_id=work_item.claim_id if work_item else "",
             ),
         )
+        resolved_effects = self.registry.resolve_effects(action_id, request)
         if passive_only:
-            denied = passive_gate_reasons(descriptor.effects)
+            denied = passive_gate_reasons(resolved_effects)
             if denied:
                 return FacadeEnvelope(
                     operation=operation,
@@ -493,6 +506,25 @@ class ActionExecutionService:
                     },
                     trace_id=trace_id,
                 )
+        if work_item is not None:
+            try:
+                self.work_items.link_execution(
+                    work_item,
+                    context=context,
+                    action_id=action_id,
+                    replay_safety=resolved_effects.replay_safety.value,
+                    idempotency_key=effective_key,
+                )
+            except (StateStoreError, ValidationError) as exc:
+                return _validation_envelope(
+                    operation,
+                    context,
+                    str(exc),
+                    action_id=action_id,
+                    reason_code=getattr(exc, "reason_code", "work_item_execution_link_invalid"),
+                    trace_id=trace_id,
+                    diagnostics=getattr(exc, "details", {}),
+                )
         try:
             outcome = self.registry.execute(action_id, request)
         except Exception as exc:
@@ -501,7 +533,7 @@ class ActionExecutionService:
                 legacy_code=-32000,
                 reason_code="facade_dispatch_unknown",
             )
-        return self._envelope(
+        envelope = self._envelope(
             operation=operation,
             action_id=action_id,
             outcome=outcome,
@@ -510,8 +542,37 @@ class ActionExecutionService:
             context=context,
             trace_id=trace_id,
             idempotency_key=effective_key,
-            effects=self.registry.resolve_effects(action_id, request),
+            effects=resolved_effects,
+            work_item=work_item,
         )
+        if work_item is not None:
+            try:
+                self.work_items.link_execution(
+                    work_item,
+                    context=context,
+                    action_id=action_id,
+                    replay_safety=resolved_effects.replay_safety.value,
+                    idempotency_key=effective_key,
+                    result=envelope.result,
+                    outcome_kind=envelope.outcome_kind,
+                    operation_handle=envelope.operation_handle or "",
+                )
+            except (StateStoreError, ValidationError) as exc:
+                return FacadeEnvelope(
+                    operation=operation,
+                    action_id=action_id,
+                    outcome_kind="execution_unknown",
+                    summary=f"{action_id}: execution completed but work-item result linkage is uncertain.",
+                    diagnostics={
+                        "reasonCode": "work_item_result_link_unknown",
+                        "linkageReason": getattr(exc, "reason_code", type(exc).__name__),
+                        "priorOutcomeKind": envelope.outcome_kind,
+                        "workItemId": work_item.work_item_id,
+                        "effects": effect_summary(resolved_effects).model_dump(mode="json", by_alias=True),
+                    },
+                    trace_id=trace_id,
+                )
+        return envelope
 
     def resume(
         self,
@@ -546,6 +607,7 @@ class ActionExecutionService:
             request_state_id=operation.request_state_id,
             correlation_id=operation.correlation_id,
             binding=binding,
+            work_item=(WorkItemExecutionInput.model_validate(operation.work_item) if operation.work_item else None),
         )
         if envelope.outcome_kind == "approval_required" and not envelope.operation_handle:
             reason = str(envelope.diagnostics.get("reasonCode") or "operation_resume_failed")
@@ -573,6 +635,7 @@ class ActionExecutionService:
         trace_id: str,
         idempotency_key: str,
         effects: ActionEffects,
+        work_item: WorkItemExecutionInput | None,
     ) -> FacadeEnvelope:
         effect_data = effect_summary(effects).model_dump(mode="json", by_alias=True)
         if isinstance(outcome, Success):
@@ -613,6 +676,7 @@ class ActionExecutionService:
                     context=context,
                     correlation_id=trace_id,
                     idempotency_key=idempotency_key,
+                    work_item=work_item,
                 )
             requirement = details.get("requirement")
             requested = requirement if isinstance(requirement, dict) else {"review": "operator_authority"}
@@ -665,13 +729,16 @@ class CompactFacadeService:
         capability_packs: AssembledCapabilityPacks = CAPABILITY_PACKS,
         resources: ResourceReferenceService | None = None,
         operations: OperationHandleService | None = None,
+        work_items: WorkItemService | None = None,
     ) -> None:
         self.resources = resources or ResourceReferenceService()
         self.catalog = ActionCatalogService(registry, capability_packs)
+        self.work_items = work_items or WorkItemService()
         self.execution = ActionExecutionService(
             registry=registry,
             resources=self.resources,
             operations=operations,
+            work_items=self.work_items,
         )
 
     def invoke(
@@ -711,6 +778,21 @@ class CompactFacadeService:
                     reason_code="context_workspace_mismatch",
                 )
             try:
+                if value.work_item_id:
+                    item = self.work_items.inspect_for_context(
+                        value.work_item_id,
+                        claim_id=value.claim_id or "",
+                        context=context,
+                        workspace_id=value.workspace_id,
+                    )
+                    query_data = value.model_dump(mode="json", by_alias=True, exclude_none=True)
+                    if value.since_revision is None:
+                        query_data["sinceRevision"] = int(
+                            item.get("lastSeenWorkspaceRevision") or item.get("baseWorkspaceRevision") or 0
+                        )
+                    if not value.targets:
+                        query_data["targets"] = list(item.get("targets") or [])
+                    value = ContextQueryInput.model_validate(query_data)
                 repository = repository_bundle(value.workspace_id, workspace.WORKSPACES_DIR).workspace
                 trace_id = _trace_id(context)
 
@@ -728,12 +810,13 @@ class CompactFacadeService:
                         authority_session_id=context.authority_session_id,
                     ),
                 )
-            except ContextQueryError as exc:
+            except (ContextQueryError, StateStoreError) as exc:
                 return _validation_envelope(
                     operation,
                     context,
                     str(exc),
                     reason_code=exc.reason_code,
+                    diagnostics=getattr(exc, "details", {}),
                 )
             return self._local_success(operation, context, result, trace_id=trace_id)
         if isinstance(value, CapabilitiesSearchInput):
@@ -756,6 +839,7 @@ class CompactFacadeService:
                 context=context,
                 passive_only=operation == "actions.run_passive",
                 idempotency_key=value.idempotency_key,
+                work_item=value.work_item,
             )
         if isinstance(value, ReviewsApplyInput):
             return self.execution.run(
@@ -816,6 +900,36 @@ class CompactFacadeService:
         )
 
     def _tasks(self, value: TasksControlInput, *, context: FacadeCallContext) -> FacadeEnvelope:
+        if value.operation.startswith("work."):
+            try:
+                result = self.work_items.execute(
+                    value.operation,
+                    context=context,
+                    workspace_id=str(value.workspace_id or context.workspace_id),
+                    work_item_id=str(value.work_item_id or ""),
+                    claim_id=str(value.claim_id or ""),
+                    expected_version=value.expected_version,
+                    worker=value.worker,
+                    lease_seconds=value.lease_seconds,
+                    payload=value.payload,
+                )
+            except ValidationError as exc:
+                return _validation_envelope(
+                    "tasks.control",
+                    context,
+                    "tasks.control work-item input validation failed.",
+                    reason_code="work_item_input_invalid",
+                    diagnostics=_model_error_diagnostics(exc),
+                )
+            except StateStoreError as exc:
+                return _validation_envelope(
+                    "tasks.control",
+                    context,
+                    str(exc),
+                    reason_code=exc.reason_code,
+                    diagnostics=exc.details,
+                )
+            return self._local_success("tasks.control", context, result)
         if value.operation == "resume":
             return self.execution.resume(
                 str(value.operation_handle),

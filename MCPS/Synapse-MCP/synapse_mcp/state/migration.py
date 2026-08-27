@@ -88,6 +88,11 @@ _TABLE_STAGES = {
         "tasks",
         "task_events",
         "task_dispatch_links",
+        "work_items",
+        "work_item_dependencies",
+        "work_item_claims",
+        "work_item_references",
+        "work_item_events",
         "execution_result_links",
         "reconciliations",
         "authority_runtime_payloads",
@@ -132,6 +137,11 @@ _PRIMARY_KEYS = {
     "checkpoint_leases": ("workspace_id",),
     "authority_runtime_payloads": ("workspace_id", "record_kind", "record_id"),
     "task_dispatch_links": ("workspace_id", "task_id", "dispatch_id"),
+    "work_items": ("work_item_id",),
+    "work_item_dependencies": ("workspace_id", "work_item_id", "depends_on_work_item_id"),
+    "work_item_claims": ("claim_id",),
+    "work_item_references": ("workspace_id", "work_item_id", "reference_type", "reference_id"),
+    "work_item_events": ("work_item_event_id",),
     "execution_result_links": ("result_link_id",),
 }
 

@@ -24,6 +24,7 @@ from .contracts import (
     OperationAnnotations,
     ResolvedArtifact,
     compact_json_schema,
+    compact_schema,
     concise_json_object_schema,
     dynamic_json_object_schema,
     facade_envelope_schema,
@@ -41,32 +42,32 @@ class SurfaceMode(str, Enum):
 _COMPACT_DETAILS = {
     "engagement.open": (
         "Open engagement",
-        "Initialize one authorized Synapse engagement and its local workspace state.",
+        "Initialize an engagement workspace.",
         OperationAnnotations(read_only=False, destructive=False, open_world=False, idempotent=False),
     ),
     "engagement.inspect": (
         "Inspect engagement",
-        "Return a bounded summary of one engagement workspace.",
+        "Return a workspace summary.",
         OperationAnnotations(read_only=True, destructive=False, open_world=False, idempotent=True),
     ),
     "context.query": (
         "Query target context",
-        "Compile bounded target context from normalized local workspace state.",
+        "Compile bounded workspace context.",
         OperationAnnotations(read_only=True, destructive=False, open_world=False, idempotent=True),
     ),
     "capabilities.search": (
         "Search capabilities",
-        "Search actions with deterministic filters.",
+        "Search canonical actions.",
         OperationAnnotations(read_only=True, destructive=False, open_world=False, idempotent=True),
     ),
     "actions.describe": (
         "Describe action",
-        "Return exact schemas, effects, policy metadata, and safe examples for one action.",
+        "Describe a canonical action.",
         OperationAnnotations(read_only=True, destructive=False, open_world=False, idempotent=True),
     ),
     "actions.run_passive": (
         "Run passive action",
-        "Run one action only when its canonical maximum effects pass the passive gate.",
+        "Run a passive-gated action.",
         OperationAnnotations(
             read_only=False,
             destructive=False,
@@ -78,7 +79,7 @@ _COMPACT_DETAILS = {
     ),
     "actions.run_active": (
         "Run action",
-        "Run one action through canonical scope, authority, execution, and ledger policy.",
+        "Run an authority-gated action.",
         OperationAnnotations(
             read_only=False,
             destructive=True,
@@ -90,12 +91,12 @@ _COMPACT_DETAILS = {
     ),
     "reviews.apply": (
         "Apply reviewed decision",
-        "Apply one bounded operator-review operation through its canonical action.",
+        "Apply an operator review.",
         OperationAnnotations(read_only=False, destructive=False, open_world=False, idempotent=False),
     ),
     "artifacts.inspect": (
         "Inspect artifact",
-        "Resolve one opaque workspace- and principal-bound artifact reference.",
+        "Inspect a bound artifact.",
         OperationAnnotations(
             read_only=True,
             destructive=False,
@@ -106,7 +107,7 @@ _COMPACT_DETAILS = {
     ),
     "reports.render": (
         "Render report",
-        "Render a local workspace report and return opaque references for generated files.",
+        "Render a local report.",
         OperationAnnotations(
             read_only=False,
             destructive=False,
@@ -116,8 +117,8 @@ _COMPACT_DETAILS = {
         ),
     ),
     "tasks.control": (
-        "Control task",
-        "List, inspect, cancel, or resume existing Synapse jobs and operations.",
+        "Control work",
+        "Control jobs, handles, and work.",
         OperationAnnotations(
             read_only=False,
             destructive=True,
@@ -154,38 +155,38 @@ class CompactProjection:
         result_schemas = {
             "engagement.open": self._selected_output_schema(
                 "project.start",
-                boundary="Unavailable when the selected catalog excludes project.start.",
+                boundary="Unavailable without project.start.",
             ),
             "engagement.inspect": self._selected_output_schema(
                 "workspace.summary",
-                boundary="Unavailable when the selected catalog excludes workspace.summary.",
+                boundary="Unavailable without workspace.summary.",
             ),
             "context.query": concise_json_object_schema(
                 compact_json_schema(ContextQueryResult),
-                boundary="Closed ContextQueryResult; nested values are validated by the application model.",
+                boundary="Closed application-validated context.",
             ),
             "capabilities.search": concise_json_object_schema(compact_json_schema(CatalogPage)),
             "actions.describe": concise_json_object_schema(compact_json_schema(ActionDescription)),
             "actions.run_passive": dynamic_json_object_schema(
-                boundary="Result is the validated output of the actionId selected at runtime.",
+                boundary="Runtime-selected validated action output.",
                 properties=("background", "job", "status", "result", "error"),
             ),
             "actions.run_active": dynamic_json_object_schema(
-                boundary="Result is the validated output of the actionId selected at runtime.",
+                boundary="Runtime-selected validated action output.",
                 properties=("background", "job", "status", "result", "error"),
             ),
             "reviews.apply": dynamic_json_object_schema(
-                boundary="Result is one of the five canonical review-action outputs selected by review.",
+                boundary="Runtime-selected review output.",
                 properties=("workspaceId", "target", "finding", "observation", "decision"),
             ),
             "artifacts.inspect": concise_json_object_schema(compact_json_schema(ResolvedArtifact)),
             "reports.render": self._selected_output_schema(
                 "documentation.render_workspace_report",
-                boundary="Unavailable when the selected catalog excludes the reporting pack.",
+                boundary="Unavailable without reporting.",
             ),
             "tasks.control": dynamic_json_object_schema(
-                boundary="Result is a canonical job or opaque-operation state selected by operation.",
-                properties=("jobs", "job", "count", "state", "operationHandle", "status"),
+                boundary="Job, operation-handle, or operational work-item state.",
+                properties=("jobs", "job", "workItems", "workItemId", "count", "state", "operationHandle", "status"),
             ),
         }
         return tuple(
@@ -194,10 +195,12 @@ class CompactProjection:
                 title=_COMPACT_DETAILS[name][0],
                 description=_COMPACT_DETAILS[name][1],
                 input_schema=compact_json_schema(COMPACT_INPUT_MODELS[name]),
-                output_schema=facade_envelope_schema(
-                    name,
-                    result_schemas[name],
-                    compact=True,
+                output_schema=compact_schema(
+                    facade_envelope_schema(
+                        name,
+                        result_schemas[name],
+                        compact=True,
+                    )
                 ),
                 annotations=_COMPACT_DETAILS[name][2],
             )

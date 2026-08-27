@@ -128,6 +128,33 @@ trusted workspace, principal, and authority session. `target`/`purpose` remain
 temporary aliases, while frozen legacy `workspace.prepare_target_context`
 retains its original schema and behavior.
 
+## Operational Work Items
+
+Activated SQLite-v2 workspaces expose shared operational objectives through the
+existing compact `tasks.control` seam:
+
+```text
+work.create -> work.claim -> work.heartbeat/work.update
+            -> work.handoff/work.release/work.block/work.complete
+work.list / work.inspect / work.recover
+```
+
+Common control fields are `workspaceId`, `workItemId`, `claimId`,
+`expectedVersion`, `worker`, `leaseSeconds`, and typed `payload`. Work items are
+not background jobs or authority grants. Claims bind trusted principal/session
+context, while the worker label is coordination-only. An expired claim can be
+recovered or reclaimed, but linked running/unknown dispatches and jobs remain
+reconciliation-required and `automaticReplay` is always false.
+
+Pass `workItemId` and `claimId` through the optional `workItem` object on
+`actions.run_passive` or `actions.run_active` to record action/effect/result
+lineage. The action still crosses the same Registry, scope, Authority Engine,
+dispatch, and output validation path. Use `context.query(workItemId=...,
+claimId=...)` to recover bounded objective, dependency, delta, reference,
+handoff, completion-contract, and gap context. Existing JSON-v1 workspaces keep
+their compatibility behavior but must be explicitly migrated/activated before
+using operational work items.
+
 ## Runtime Python
 
 Run this MCP through `MCPS/Synapse-MCP/bin/synapse-mcp`. The launcher sources

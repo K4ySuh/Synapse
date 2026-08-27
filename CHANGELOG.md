@@ -24,6 +24,21 @@ durable dispatch and continuation truth.
 
 ### Added
 
+- **Phase 5C shared operational work items.** Added SQLite-v2-backed objectives,
+  parent/dependency state, atomic exclusive or non-exclusive claims, heartbeat
+  leases, optimistic versions, progress/result/blocker/handoff records, typed
+  workspace references, stale-claim recovery, and canonical bundle support.
+  `tasks.control` retains job/operation-handle behavior and adds `work.*`
+  lifecycle operations while compact stays at eleven operations, 23,297
+  application bytes, and at most 24,639 official-SDK wire bytes. Compact schema
+  annotations are omitted without changing runtime validation or defaults.
+  Work-item-aware `context.query` returns bounded specialist
+  recovery state, and optional action linkage records Registry/effect/authority/
+  dispatch/job/result lineage. Coordination identity grants no authority;
+  expired claims never replay active or unknown execution. Existing JSON-v1
+  workspaces remain compatible and require explicit v2 activation for work-item
+  mutations.
+
 - **Phase 5A deterministic capability-pack assembly.** Added immutable
   provider-neutral manifests, one-time external entry-point discovery,
   dependency/application compatibility validation, exact single action

@@ -35,7 +35,8 @@ legacy stdio projection       production SDK adapter (stdio / authenticated HTTP
 
 The compact facade has exactly eleven stable application operations. Its
 modern `context.query` operation enters the transport-independent Context
-Compiler directly; executable operations still enter the Registry. The direct
+Compiler directly, while `tasks.control` also reaches the application-level
+work-item service; executable operations still enter the Registry. The direct
 projection is generated in selected Registry order. The Phase 3C
 official-SDK adapter publishes exactly one selected projection. Startup surface
 selection is trusted configuration and is independent from wire negotiation,
@@ -62,8 +63,9 @@ The production modern launcher selects packs before importing the action
 package. Default selection loads all built-ins; explicit `core` selection uses
 the protocol-free core dispatcher and projects 42 direct actions while keeping
 the compact facade at eleven operations. Search, description, and execution all
-receive that same selected Registry. Coordination labels and future work-item
-identity do not participate in pack selection or authority.
+receive that same selected Registry. Coordination labels and work-item identity
+are attribution and filtering metadata; they do not participate in pack
+selection, effects, scope, or authority.
 
 `AuthorizationIntent` is protocol-independent and distinct from a grant. It
 records the current workspace and scope digest plus the requested exact targets
@@ -100,6 +102,7 @@ MCP client
                    |   |-- capability_packs/ (manifest contract, ownership,
                    |   |                       discovery, frozen assembly)
                    |   |-- context.py (revision-aware budgeted compiler)
+                   |   |-- work_items.py (operational coordination service)
                    |   `-- facade/ (compact/direct services, catalog, resources)
                    |-- transport/modern/ (official-SDK stdio/HTTP adapter,
                    |                     identity, keyring, HTTP security)
@@ -266,6 +269,14 @@ domain rows, CAS revision, change log, and audit together. Background workers
 open connections per operation; dead running/finalizing processes become
 reconciliation-required truth and are never redispatched automatically.
 
+Migration `0003` adds operational work items, dependencies, atomic claim leases,
+typed references, and append-only handoff/recovery events. Work items are
+objectives, not jobs: lease expiry can make an objective reclaimable but never
+cancels or replays a job/dispatch. Claim identity binds hashes of trusted
+principal/session/optional agent-run context; worker labels remain
+non-authoritative. Work-item changes share the workspace revision/change/audit
+transaction and canonical state bundles.
+
 ADR-0005 fixes one database and artifact namespace per workspace, with
 credential secrets kept outside SQLite and protocol rollback separated from
 state-engine rollback. The deterministic migrator inventories JSON-v1 sources,
@@ -295,6 +306,14 @@ returns that measured minimum instead of dropping safety warnings. Large
 evidence bodies are never embedded. Full queries return CAS-backed links, while
 future or pruned delta cursors fail or require an explicit full refresh. The
 legacy `workspace.prepare_target_context` action does not use this compiler.
+
+When `context.query` selects a work item, the compiler prioritizes its objective,
+role, parent/dependencies, selected workspace delta, completion contract,
+progress/handoff/gaps, references, and active-or-unknown execution. The facade
+validates an optional claim binding before compiling. Linked action execution
+still crosses the unchanged Registry and Authority Engine; work-item metadata is
+recorded before/after execution for attribution and recovery but cannot alter the
+sealed authorization intent. Recovery always exposes `automaticReplay=false`.
 
 The modern HTTP boundary authenticates one high-entropy bearer token by
 server-held digest, then resolves principal/workspace to a server-held authority

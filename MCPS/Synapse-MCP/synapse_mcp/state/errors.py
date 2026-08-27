@@ -11,9 +11,16 @@ from typing import Any, Mapping
 class StateStoreError(RuntimeError):
     """Base failure with a stable machine-readable reason code."""
 
-    def __init__(self, reason_code: str, message: str) -> None:
+    def __init__(
+        self,
+        reason_code: str,
+        message: str,
+        *,
+        details: Mapping[str, Any] | None = None,
+    ) -> None:
         super().__init__(message)
         self.reason_code = reason_code
+        self.details = dict(details or {})
 
 
 class StateReadinessError(StateStoreError):
@@ -36,8 +43,7 @@ class StateCommitUnknownError(StateStoreError):
     retryable = False
 
     def __init__(self, reason_code: str, message: str, *, details: Mapping[str, Any] | None = None) -> None:
-        super().__init__(reason_code, message)
-        self.details = dict(details or {})
+        super().__init__(reason_code, message, details=details)
 
 
 class StateIntegrityError(StateStoreError):

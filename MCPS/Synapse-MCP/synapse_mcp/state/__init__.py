@@ -17,6 +17,7 @@ from .contracts import (
     VerticalSlice,
     WorkspaceRecord,
     WorkspaceRepositoryBundle,
+    WorkItemRepository,
 )
 from .errors import (
     ArtifactCollisionError,
@@ -42,6 +43,7 @@ from .migration import (
 from .selector import assert_json_v1_write_allowed, repository_bundle, selected_store_version
 from .sqlite_store import SQLiteWorkspaceRepository
 from .runtime import ActivatedWorkspaceRepository, activated_repository, opaque_matches, opaque_ref
+from .work_items import SQLiteWorkItemRepository
 
 
 __all__ = [
@@ -69,6 +71,8 @@ __all__ = [
     "VerticalSlice",
     "WorkspaceRecord",
     "WorkspaceRepositoryBundle",
+    "WorkItemRepository",
+    "SQLiteWorkItemRepository",
     "online_backup",
     "BUNDLE_FORMAT",
     "BUNDLE_TABLES",

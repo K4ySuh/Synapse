@@ -124,3 +124,63 @@ Compatibility result: the default/frozen surfaces, action and alias identity,
 schemas, output contracts, authority path, workspace truth, compact fixtures,
 and core-only import boundary are unchanged. The adversarial checkpoint is
 closed; Task 5C is the next explicit implementation task.
+
+## Task 5C — multi-agent operational coordination
+
+Status: implemented on 2026-08-27; compatibility gates passed.
+
+Delivered:
+
+- application-level operational work items distinct from background jobs and
+  supervised operation handles, with objectives, role/pack hints, target/context
+  boundaries, completion contracts, progress/results, blockers, gaps, and
+  workspace revision/version truth;
+- SQLite-v2 migration/repository contracts for dependencies, exclusive or
+  explicitly non-exclusive claims, heartbeat leases, references, and durable
+  handoff/recovery events, including bundle export/import and in-place upgrade
+  from the prior two-migration schema;
+- atomic process-safe claim CAS, stale-version diagnostics, trusted
+  principal/session/optional agent-run binding, dependency unlock, and restart
+  reconstruction;
+- recovery that expires stale claims while preserving active/unknown execution
+  and explicitly never cancels or replays it;
+- backward-compatible `tasks.control` `work.*` operations and work-item-aware
+  `context.query` recovery, with eleven compact operations and a 23,297-byte
+  application descriptor under the 24,834-byte ceiling;
+- non-authoritative work-item linkage through the unchanged action Registry,
+  effects, scope, Authority Engine, dispatch/job, result, evidence/artifact, and
+  workspace revision path.
+
+Focused verification:
+
+```text
+17 Phase 5C work-item tests passed
+49 Phase 3B/4D/5C facade and context tests passed
+24 Phase 4 migration/runtime adoption tests passed
+726 core tests passed (JSON-v1 and SQLite-v2 paths)
+2 custom adapter template tests passed
+16 official-SDK modern tests passed
+58 Phase 4 storage/context acceptance tests passed
+legacy stdio exact transport smoke: pass; external target traffic disabled
+action inventory current: 174 actions
+action output contracts current: 168 retained actions
+capability-pack ownership current: 174 actions, 6 packs
+compact application descriptor: 23,297 bytes; 11 operations
+largest official-SDK compact wire: 24,639 bytes
+compile and git diff checks: pass
+```
+
+Optional environment result: the committed-private modern identity binding,
+request-state keyring, and persistent state directory were not provisioned in
+this clone, so `bin/check-setup` reported modern runtime setup unavailable. The
+self-provisioned isolated `bin/test-modern` gate passed. MCP Inspector was also
+unavailable to the Phase 4 runner; its exact built-in legacy stdio smoke passed.
+
+Compatibility result: frozen legacy and default direct action identity remain
+174 actions, compact remains eleven operations, existing job and operation-
+handle control remains available, and JSON-v1 remains the explicit compatibility
+and migration engine. JSON-v1 work-item mutations fail closed instead of
+creating parallel coordination truth.
+
+Task 5C stops here. The required clean-worktree Phase 5C adversarial review is
+the next checkpoint; Task 5D does not begin before that review closes.

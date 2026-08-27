@@ -387,6 +387,9 @@ frozen and therefore does not publish these output schemas.
 
 The application surfaces are under `synapse_mcp/app/`:
 
+- `work_items.py` owns strict create/claim/heartbeat/update/block/handoff/
+  release/complete/list/inspect/recover contracts, trusted coordination
+  binding, and action-link application behavior without planning or authority;
 - `context.py` owns the modern compact Context Compiler, its strict query and
   result models, deterministic UTF-8 budget counter, packing rules, lifecycle
   classification, safety warnings, delta behavior, and bound artifact links;
@@ -406,9 +409,14 @@ The application surfaces are under `synapse_mcp/app/`:
 - `projections.py` fixes the eleven-operation compact order and generates the
   selected direct surface plus static annotations from descriptor truth.
 
-The current compact application descriptor payload is 23,482 bytes under
-deterministic compact JSON. Its largest supported official-SDK projection is
-24,824 bytes, below the 24,834-byte ceiling.
+The Phase 5C compact application descriptor payload is 23,297 bytes under
+deterministic compact JSON and the largest official-SDK wire projection is
+24,639 bytes, both below the 24,834-byte ceiling; the surface remains eleven
+operations. Compact schemas omit non-validating title/default/description
+annotations while preserving runtime defaults and every validation keyword.
+`tasks.control` preserves background jobs and operation handles while adding
+`work.*` discriminators; detailed payloads are validated by the typed
+application service.
 `synapse_mcp/transport/modern/` projects either surface through
 official SDK 2.0.0 over stdio or authenticated Streamable HTTP. `config.py`
 owns fail-closed startup policy and keyrings, `identity.py` owns principal and
