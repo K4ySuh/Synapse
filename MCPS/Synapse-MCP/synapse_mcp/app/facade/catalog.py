@@ -258,6 +258,10 @@ class ActionCatalogService:
         registry: ActionRegistry = REGISTRY,
         capability_packs: AssembledCapabilityPacks = CAPABILITY_PACKS,
     ) -> None:
+        if registry is not capability_packs.registry:
+            raise ValueError(
+                "action catalog Registry must be the selected capability-pack Registry"
+            )
         self.registry = registry
         self._inventory = {str(item["actionId"]): item for item in action_inventory()}
         self.capability_packs = capability_packs

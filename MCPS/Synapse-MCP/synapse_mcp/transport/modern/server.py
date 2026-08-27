@@ -15,10 +15,7 @@ from uuid import uuid4
 
 from synapse_mcp import __version__
 from synapse_mcp.app.actions import CAPABILITY_PACKS
-from synapse_mcp.app.capability_packs.loader import (
-    AssembledCapabilityPacks,
-    assemble_capability_packs,
-)
+from synapse_mcp.app.capability_packs.loader import AssembledCapabilityPacks
 from synapse_mcp.app.capability_packs.service import (
     CAPABILITY_PACK_CATALOG_URI,
     CAPABILITY_PACK_RESOURCE_TEMPLATE,
@@ -38,7 +35,12 @@ from synapse_mcp.app.facade.services import (
     OperationHandleService,
 )
 
-from .config import ModernAdapterConfig, is_loopback_host, load_rotation_keyring
+from .config import (
+    ModernAdapterConfig,
+    ModernConfigurationError,
+    is_loopback_host,
+    load_rotation_keyring,
+)
 from .http_security import AuthenticatedHTTPMiddleware
 from .identity import (
     CURRENT_HTTP_PRINCIPAL,
@@ -357,9 +359,11 @@ def build_runtime(
 ) -> ModernAdapterRuntime:
     selected_global = tuple(str(item.id) for item in CAPABILITY_PACKS.manifests)
     if config.capability_packs and config.capability_packs != selected_global:
-        capability_packs = assemble_capability_packs(config.capability_packs)
-    else:
-        capability_packs = CAPABILITY_PACKS
+        raise ModernConfigurationError(
+            "capability-pack selection must be sealed before application import and "
+            "must match the process Registry"
+        )
+    capability_packs = CAPABILITY_PACKS
     registry = capability_packs.registry
 
     # Retained descriptors are canonical application actions. A real core-only

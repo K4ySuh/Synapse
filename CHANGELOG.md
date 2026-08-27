@@ -251,6 +251,14 @@ durable dispatch and continuation truth.
 
 ### Fixed
 
+- **Phase 5B adversarial capability boundary.** Capability manifests and
+  built-in ownership maps are now deeply immutable at their declared sequence
+  and mapping boundaries. Installed manifests fail startup on invalid global
+  dependency graphs or duplicate action/resource ownership even when
+  unselected; caller-supplied external manifests cannot claim built-in origin;
+  malformed providers return typed pack errors; assembled catalogs must match
+  their exact frozen Registry; and modern runtime construction cannot create a
+  second, conflicting process Registry after startup selection.
 - **Phase 4 adversarial operability corrections.** Canonical State Store
   bundles now capture revision and relational truth from one WAL snapshot and
   verify the digest of artifact bytes copied into the bundle. Activated writes

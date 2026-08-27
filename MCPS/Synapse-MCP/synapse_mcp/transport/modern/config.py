@@ -111,15 +111,17 @@ class ModernAdapterConfig:
         if surface is SurfaceMode.LEGACY:
             raise ModernConfigurationError("the production modern adapter cannot select the frozen legacy surface")
         object.__setattr__(self, "surface", surface)
-        if len(self.capability_packs) != len(set(self.capability_packs)):
-            raise ModernConfigurationError("capability-pack selection must be unique")
+        selected_packs = tuple(self.capability_packs)
         invalid_packs = [
             value
-            for value in self.capability_packs
+            for value in selected_packs
             if not isinstance(value, str) or not re.fullmatch(r"[a-z][a-z0-9_]*", value)
         ]
         if invalid_packs:
             raise ModernConfigurationError(f"invalid capability-pack selection: {invalid_packs}")
+        if len(selected_packs) != len(set(selected_packs)):
+            raise ModernConfigurationError("capability-pack selection must be unique")
+        object.__setattr__(self, "capability_packs", selected_packs)
         if self.transport not in {"stdio", "streamable-http"}:
             raise ModernConfigurationError(f"unknown modern transport: {self.transport}")
         if not self.server_name.strip() or not self.audience.strip():

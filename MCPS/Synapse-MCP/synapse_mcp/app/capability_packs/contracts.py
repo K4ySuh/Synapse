@@ -53,6 +53,11 @@ class CapabilityResource:
     media_type: str = "application/json"
 
     def __post_init__(self) -> None:
+        if not all(
+            isinstance(value, str)
+            for value in (self.uri, self.title, self.summary, self.media_type)
+        ):
+            raise ValueError("capability resource fields must be strings")
         if not self.uri.startswith("synapse://"):
             raise ValueError("capability resource URI must use the synapse scheme")
         if not self.title.strip() or not self.summary.strip() or not self.media_type.strip():
@@ -67,6 +72,8 @@ class CapabilityAvailability:
     summary: str
 
     def __post_init__(self) -> None:
+        if not isinstance(self.kind, str) or not isinstance(self.summary, str):
+            raise ValueError("pack availability fields must be strings")
         if self.kind not in {"always", "runtime"}:
             raise ValueError(f"unknown pack availability declaration: {self.kind}")
         if not self.summary.strip():
@@ -116,27 +123,53 @@ class CapabilityPackManifest:
 
         if not isinstance(self.id, CapabilityPackId):
             raise ValueError("manifest id must be a CapabilityPackId")
+        if not isinstance(self.title, str) or not isinstance(self.summary, str):
+            raise ValueError(f"{self.id}: title and summary must be strings")
         if not self.title.strip() or not self.summary.strip():
             raise ValueError(f"{self.id}: title and summary are required")
-        if self.contract_version != 1:
+        if type(self.contract_version) is not int or self.contract_version != 1:
             raise ValueError(f"{self.id}: unsupported capability-pack contract version")
         if not isinstance(self.origin, CapabilityPackOrigin):
             raise ValueError(f"{self.id}: invalid origin")
+        if not isinstance(self.distribution_id, str):
+            raise ValueError(f"{self.id}: distribution identity must be a string")
         if not self.distribution_id.strip():
             raise ValueError(f"{self.id}: distribution identity is required")
         if not callable(self.descriptor_provider):
             raise ValueError(f"{self.id}: descriptor provider must be callable")
+        if not isinstance(self.action_ids, tuple):
+            raise ValueError(f"{self.id}: action ids must be an immutable tuple")
         if not self.action_ids:
             raise ValueError(f"{self.id}: at least one action id is required")
+        for action_id in self.action_ids:
+            if not isinstance(action_id, str):
+                raise ValueError(f"{self.id}: action ids must be strings")
+            ActionId.parse(action_id)
         if len(self.action_ids) != len(set(self.action_ids)):
             raise ValueError(f"{self.id}: action ids must be unique")
-        for action_id in self.action_ids:
-            ActionId.parse(action_id)
+        if not isinstance(self.dependencies, tuple) or not all(
+            isinstance(item, CapabilityPackId) for item in self.dependencies
+        ):
+            raise ValueError(f"{self.id}: dependencies must be an immutable CapabilityPackId tuple")
         dependency_ids = tuple(str(item) for item in self.dependencies)
         if len(dependency_ids) != len(set(dependency_ids)) or str(self.id) in dependency_ids:
             raise ValueError(f"{self.id}: dependencies must be unique and cannot include self")
+        if not isinstance(self.resources, tuple) or not all(
+            isinstance(item, CapabilityResource) for item in self.resources
+        ):
+            raise ValueError(f"{self.id}: resources must be an immutable CapabilityResource tuple")
         if len(self.resources) != len({item.uri for item in self.resources}):
             raise ValueError(f"{self.id}: resource URIs must be unique")
+        if not isinstance(self.availability, tuple) or not all(
+            isinstance(item, CapabilityAvailability) for item in self.availability
+        ):
+            raise ValueError(
+                f"{self.id}: availability must be an immutable CapabilityAvailability tuple"
+            )
+        if not isinstance(self.application_min, str) or not isinstance(
+            self.application_max_exclusive, str
+        ):
+            raise ValueError(f"{self.id}: application compatibility versions must be strings")
         minimum = version_key(self.application_min)
         maximum = version_key(self.application_max_exclusive)
         if minimum >= maximum:

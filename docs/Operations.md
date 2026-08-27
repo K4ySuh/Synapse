@@ -219,8 +219,10 @@ before `--transport`:
 
 Repeat `--capability-pack` for another explicit selection; dependencies are
 included and the final order is deterministic. Selection is sealed before the
-action package loads and cannot be changed through MCP input. The legacy
-launcher always keeps its frozen 174 tools. In core-only mode,
+action package loads and cannot be changed through MCP input. Runtime
+construction rejects any later configuration that would assemble a second
+Registry in the same process. The legacy launcher always keeps its frozen 174
+tools. In core-only mode,
 `modern-direct` lists 42 actions and `modern-compact` remains eleven operations;
 search, describe, and run reject unselected actions.
 

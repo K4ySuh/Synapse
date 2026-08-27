@@ -167,27 +167,26 @@ class Phase5ACapabilityPackTests(unittest.TestCase):
                 discover_external=False,
             )
 
-        incomplete = replace(
-            core,
-            descriptor_provider=lambda: core.descriptor_provider()[:-1],
+        incomplete_descriptor = replace(
+            source,
+            id=source.id.parse("external.incomplete"),
+            pack="external",
+            legacy_aliases=(),
         )
-        with self.assertRaisesRegex(CapabilityPackValidationError, "does not match"):
-            self._assemble_invalid_manifest(incomplete)
-
-    @staticmethod
-    def _assemble_invalid_manifest(manifest: CapabilityPackManifest) -> None:
-        external = replace(
-            manifest,
+        incomplete = replace(
+            duplicate_action,
             id=CapabilityPackId("incomplete"),
-            origin=CapabilityPackOrigin.EXTERNAL,
             distribution_id="fictional-incomplete",
+            descriptor_provider=lambda: (incomplete_descriptor,),
+            action_ids=("external.declared",),
             dependencies=(),
         )
-        assemble_capability_packs(
-            ("incomplete",),
-            external_manifests=(external,),
-            discover_external=False,
-        )
+        with self.assertRaisesRegex(CapabilityPackValidationError, "does not match"):
+            assemble_capability_packs(
+                ("incomplete",),
+                external_manifests=(incomplete,),
+                discover_external=False,
+            )
 
     def test_incompatible_invalid_and_broken_installed_packs_fail_explicitly(self) -> None:
         core = builtin_manifests()[0]
@@ -206,13 +205,22 @@ class Phase5ACapabilityPackTests(unittest.TestCase):
                 external_manifests=(incompatible,),
                 discover_external=False,
             )
+        source = REGISTRY.get("workspace.summary")
+        invalid_descriptor = replace(
+            source,
+            id=source.id.parse("external.invalid"),
+            pack="external",
+            legacy_aliases=(),
+        )
         invalid_provider = replace(
             core,
             id=CapabilityPackId("invalid_provider"),
             origin=CapabilityPackOrigin.EXTERNAL,
             distribution_id="fictional-invalid",
-            descriptor_provider=lambda: list(core.descriptor_provider()),
+            descriptor_provider=lambda: [invalid_descriptor],
+            action_ids=("external.invalid",),
             dependencies=(),
+            resources=(),
         )
         with self.assertRaisesRegex(CapabilityPackValidationError, "must return a tuple"):
             assemble_capability_packs(

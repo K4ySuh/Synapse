@@ -19,14 +19,21 @@ def select_startup_capability_packs(pack_ids: tuple[str, ...]) -> None:
     global _startup_selection
     if _assembly_started:
         raise RuntimeError("capability-pack selection is already sealed")
-    if not pack_ids or len(pack_ids) != len(set(pack_ids)):
+    selected = tuple(pack_ids)
+    if not selected:
         raise ValueError("capability-pack selection must be non-empty and unique")
-    invalid = [value for value in pack_ids if not _PACK_ID_PATTERN.fullmatch(value)]
+    invalid = [
+        value
+        for value in selected
+        if not isinstance(value, str) or not _PACK_ID_PATTERN.fullmatch(value)
+    ]
     if invalid:
         raise ValueError(f"invalid capability-pack selection: {invalid}")
-    if _startup_selection is not None and _startup_selection != pack_ids:
+    if len(selected) != len(set(selected)):
+        raise ValueError("capability-pack selection must be non-empty and unique")
+    if _startup_selection is not None and _startup_selection != selected:
         raise RuntimeError("capability-pack selection was already configured")
-    _startup_selection = pack_ids
+    _startup_selection = selected
 
 
 def consume_startup_capability_packs() -> tuple[str, ...] | None:

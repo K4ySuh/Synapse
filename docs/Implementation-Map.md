@@ -375,8 +375,10 @@ The high-level capability lifecycle is under
 
 `REGISTRY` remains the frozen assembled compatibility facade for the process's
 startup selection. With no explicit modern selection it contains the standard
-six built-ins; `--capability-pack core` assembles 42 actions. Isolated tests and
-explicit startup profiles build a fresh selected Registry through the same
+six built-ins; `--capability-pack core` assembles 42 actions. Production startup
+profiles seal that selection before application import, and runtime construction
+refuses a later mismatched selection instead of creating a second process
+Registry. Isolated tests can still build a fresh Registry through the same
 validation path.
 
 `REGISTRY.contract_schema(action_id)` exposes the canonical `inputSchema` and

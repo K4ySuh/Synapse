@@ -10,6 +10,7 @@ from importlib import metadata
 from typing import Any, Iterable
 
 from synapse_mcp import __version__
+from synapse_mcp.app.actions.descriptor import ActionDescriptor
 from synapse_mcp.app.actions.inventory import action_inventory
 from synapse_mcp.app.actions.registry import ActionRegistry, PolicyEvaluator
 
@@ -32,6 +33,44 @@ class AssembledCapabilityPacks:
     registry: ActionRegistry
     manifests: tuple[CapabilityPackManifest, ...]
     action_owners: tuple[tuple[str, str], ...]
+
+    def __post_init__(self) -> None:
+        if not self.registry.frozen:
+            raise CapabilityPackValidationError("assembled capability-pack Registry must be frozen")
+        if not isinstance(self.manifests, tuple) or not all(
+            isinstance(item, CapabilityPackManifest) for item in self.manifests
+        ):
+            raise CapabilityPackValidationError("assembled manifests must be an immutable manifest tuple")
+        manifest_ids = tuple(str(item.id) for item in self.manifests)
+        if not manifest_ids or len(manifest_ids) != len(set(manifest_ids)):
+            raise CapabilityPackValidationError("assembled manifests must have unique pack ids")
+        if not isinstance(self.action_owners, tuple) or not all(
+            isinstance(item, tuple)
+            and len(item) == 2
+            and all(isinstance(value, str) for value in item)
+            for item in self.action_owners
+        ):
+            raise CapabilityPackValidationError(
+                "assembled action ownership must be an immutable pair tuple"
+            )
+        descriptor_ids = tuple(str(item.id) for item in self.registry.descriptors())
+        owner_ids = tuple(action_id for action_id, _owner in self.action_owners)
+        if owner_ids != descriptor_ids or len(owner_ids) != len(set(owner_ids)):
+            raise CapabilityPackValidationError(
+                "assembled action ownership must exactly match Registry order"
+            )
+        declared: dict[str, str] = {}
+        for manifest in self.manifests:
+            for action_id in manifest.action_ids:
+                if action_id in declared:
+                    raise CapabilityPackValidationError(
+                        f"assembled action {action_id} has multiple manifest owners"
+                    )
+                declared[action_id] = str(manifest.id)
+        if dict(self.action_owners) != declared:
+            raise CapabilityPackValidationError(
+                "assembled action ownership must exactly match selected manifest declarations"
+            )
 
     def pack(self, pack_id: CapabilityPackId | str) -> CapabilityPackManifest:
         selected = str(CapabilityPackId.parse(pack_id))
@@ -160,6 +199,53 @@ def _ordered_selection(
     )
 
 
+def _validate_manifest_graph(manifests: dict[str, CapabilityPackManifest]) -> None:
+    """Reject invalid installed ownership and dependencies before selection."""
+
+    action_owners: dict[str, str] = {}
+    resource_owners: dict[str, str] = {}
+    for pack_id, manifest in manifests.items():
+        for dependency in manifest.dependencies:
+            dependency_id = str(dependency)
+            if dependency_id not in manifests:
+                raise CapabilityPackValidationError(
+                    f"unknown capability pack dependency: {pack_id} requires {dependency_id}"
+                )
+        for action_id in manifest.action_ids:
+            previous = action_owners.get(action_id)
+            if previous is not None:
+                raise CapabilityPackValidationError(
+                    f"action {action_id} is owned by both {previous} and {pack_id}"
+                )
+            action_owners[action_id] = pack_id
+        for resource in manifest.resources:
+            previous = resource_owners.get(resource.uri)
+            if previous is not None:
+                raise CapabilityPackValidationError(
+                    f"resource {resource.uri} is contributed by both {previous} and {pack_id}"
+                )
+            resource_owners[resource.uri] = pack_id
+
+    visited: set[str] = set()
+    visiting: set[str] = set()
+
+    def visit(pack_id: str) -> None:
+        if pack_id in visited:
+            return
+        if pack_id in visiting:
+            raise CapabilityPackValidationError(
+                f"capability-pack dependency cycle includes {pack_id}"
+            )
+        visiting.add(pack_id)
+        for dependency in manifests[pack_id].dependencies:
+            visit(str(dependency))
+        visiting.remove(pack_id)
+        visited.add(pack_id)
+
+    for pack_id in manifests:
+        visit(pack_id)
+
+
 def assemble_capability_packs(
     selection: Iterable[CapabilityPackId | str] | None = None,
     *,
@@ -178,6 +264,15 @@ def assemble_capability_packs(
         raise CapabilityPackValidationError("assembly target must be a fresh mutable registry")
 
     installed = tuple(external_manifests or ())
+    for manifest in installed:
+        if not isinstance(manifest, CapabilityPackManifest):
+            raise CapabilityPackValidationError(
+                "external capability-pack contributions must be manifests"
+            )
+        if manifest.origin is not CapabilityPackOrigin.EXTERNAL:
+            raise CapabilityPackValidationError(
+                f"{manifest.id}: caller-supplied external manifest must declare external origin"
+            )
     if discover_external:
         installed = (*installed, *discover_external_manifests())
     all_manifests = (*builtin_manifests(), *installed)
@@ -192,6 +287,7 @@ def assemble_capability_packs(
                 f"[{manifest.application_min}, {manifest.application_max_exclusive})"
             )
         by_id[pack_id] = manifest
+    _validate_manifest_graph(by_id)
 
     requested_values = BUILTIN_PACK_ORDER if selection is None else tuple(selection)
     requested = tuple(str(CapabilityPackId.parse(item)) for item in requested_values)
@@ -210,6 +306,10 @@ def assemble_capability_packs(
             ) from exc
         if not isinstance(descriptors, tuple):
             raise CapabilityPackValidationError(f"{manifest.id}: descriptor provider must return a tuple")
+        if not all(isinstance(descriptor, ActionDescriptor) for descriptor in descriptors):
+            raise CapabilityPackValidationError(
+                f"{manifest.id}: descriptor provider returned a non-ActionDescriptor contribution"
+            )
         provided_ids = tuple(str(descriptor.id) for descriptor in descriptors)
         if provided_ids != manifest.action_ids:
             raise CapabilityPackValidationError(

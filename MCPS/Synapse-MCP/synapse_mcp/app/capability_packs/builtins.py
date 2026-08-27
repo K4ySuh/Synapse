@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from types import MappingProxyType
+from typing import Mapping
 
 from synapse_mcp.app.actions.descriptor import ActionDescriptor
 from synapse_mcp.app.actions.inventory import action_inventory
@@ -19,7 +21,7 @@ from .contracts import (
 )
 
 
-BUILTIN_NAMESPACE_OWNERS: dict[str, tuple[str, ...]] = {
+BUILTIN_NAMESPACE_OWNERS: Mapping[str, tuple[str, ...]] = MappingProxyType({
     "core": (
         "adapters",
         "cache",
@@ -60,7 +62,7 @@ BUILTIN_NAMESPACE_OWNERS: dict[str, tuple[str, ...]] = {
     "reporting": ("documentation",),
     "purple": ("purple_team", "social"),
     "intelligence": ("cve", "shodan"),
-}
+})
 
 BUILTIN_PACK_ORDER = ("core", "web", "infra", "reporting", "purple", "intelligence")
 
@@ -93,7 +95,7 @@ _PACK_DETAILS = {
 
 
 @lru_cache(maxsize=1)
-def builtin_action_owners() -> dict[str, str]:
+def builtin_action_owners() -> Mapping[str, str]:
     namespace_owner = {
         namespace: pack_id
         for pack_id, namespaces in BUILTIN_NAMESPACE_OWNERS.items()
@@ -107,10 +109,12 @@ def builtin_action_owners() -> dict[str, str]:
             f"built-in capability ownership is incomplete: missing={sorted(missing)}, "
             f"orphaned={sorted(orphaned)}"
         )
-    return {
-        str(entry["actionId"]): namespace_owner[str(entry["pack"])]
-        for entry in action_inventory()
-    }
+    return MappingProxyType(
+        {
+            str(entry["actionId"]): namespace_owner[str(entry["pack"])]
+            for entry in action_inventory()
+        }
+    )
 
 
 def _native_descriptors(pack_id: str) -> tuple[ActionDescriptor, ...]:
