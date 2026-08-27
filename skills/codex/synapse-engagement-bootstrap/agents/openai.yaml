@@ -1,0 +1,10 @@
+interface:
+  display_name: "Synapse Engagement Bootstrap"
+  short_description: "Bootstrap authorized Synapse state"
+  default_prompt: "Use $synapse-engagement-bootstrap to recover or initialize exact authorized workspace and scope state."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "synapse"
+      description: "Local Synapse MCP server for workspace, scope, dumps, evidence, and context."

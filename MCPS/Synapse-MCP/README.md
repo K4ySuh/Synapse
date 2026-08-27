@@ -155,6 +155,17 @@ handoff, completion-contract, and gap context. Existing JSON-v1 workspaces keep
 their compatibility behavior but must be explicitly migrated/activated before
 using operational work items.
 
+## Codex Operating Playbooks
+
+The repository's [`skills/codex/`](../../skills/codex) package adds a router,
+coordinator, and bounded bootstrap, perimeter, web, access-control, CVE, and
+reporting playbooks over the compact application contract. The package uses
+live capability search/description rather than embedding this README's tool
+inventory or action schemas. It treats work claims and role/skill selection as
+coordination only: exact scope and server-held execution authority remain MCP
+application decisions. Run `bin/validate-codex-skills --check` from the
+repository root after editing the package.
+
 ## Runtime Python
 
 Run this MCP through `MCPS/Synapse-MCP/bin/synapse-mcp`. The launcher sources

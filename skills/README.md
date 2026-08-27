@@ -2,14 +2,25 @@
 
 Skills that teach an AI agent to drive Synapse correctly — safe operation of,
 and development against, the local-first MCP control plane. They are grouped by
-the agent runtime that consumes them. The two runtimes carry the same intent in
-their native skill format:
+the agent runtime that consumes them:
 
 - **[`claude/`](claude)** — Claude Code skills.
   - `synapse-ops` — running an authorized engagement through Synapse.
   - `synapse-dev` — reviewing, spec'ing, and modifying the Synapse codebase.
 - **[`codex/`](codex)** — Codex skills (each also ships `agents/openai.yaml`).
-  - `operate-synapse` — engagement operation; mirrors `synapse-ops`.
+  - `operate-synapse` — route simple work or select a bounded playbook.
+  - `synapse-coordinate-engagement` — coordinate independent specialists and
+    converge durable results.
+  - `synapse-engagement-bootstrap` — recover or initialize authorized
+    engagement state.
+  - `synapse-perimeter-triage` — perform passive-first perimeter and
+    infrastructure triage.
+  - `synapse-web-assessment` — model web applications and triage candidates.
+  - `synapse-access-control` — model actor/object/function/property access.
+  - `synapse-cve-validation` — correlate versioned components and plan bounded
+    CVE validation.
+  - `synapse-reporting` — render coherent internal reports from workspace
+    truth.
   - `synapse-developing` — codebase work; mirrors `synapse-dev`.
 
 Both runtimes expect the Synapse MCP server to be registered as `synapse` — see
@@ -35,5 +46,22 @@ by name when a task matches the description.
 ## Codex
 
 Each Codex skill is a `SKILL.md` plus `agents/openai.yaml` that declares the
-required `synapse` MCP tool. Install it wherever your Codex configuration loads
-skills from, then reference it by name (for example `$operate-synapse`).
+required `synapse` MCP tool. Install the complete `skills/codex/` package in a
+Codex skill directory so specialist links can resolve the two shared references
+owned by `operate-synapse`. Then invoke `$operate-synapse`; use a specialist
+skill directly only when its bounded role is already clear.
+
+The operating skills contain methodology, not a copy of Synapse's action
+catalog or schemas. They search and describe the selected live Registry at run
+time. Work claims, role names, and skill selection are coordination metadata;
+they do not grant scope or execution authority.
+
+Validate an authored or updated checkout before installation:
+
+```sh
+bin/validate-codex-skills --check
+```
+
+The validator covers the eight operating skills, their interface metadata and
+shared links, and rejects copied contracts or terminology that contradicts the
+server-held authority and candidate/finding boundaries.

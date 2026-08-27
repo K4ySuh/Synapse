@@ -1,0 +1,10 @@
+interface:
+  display_name: "Synapse Perimeter Triage"
+  short_description: "Triage authorized perimeter context"
+  default_prompt: "Use $synapse-perimeter-triage to perform bounded passive-first perimeter analysis for the claimed work item."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "synapse"
+      description: "Local Synapse MCP server with infrastructure and intelligence capability packs."

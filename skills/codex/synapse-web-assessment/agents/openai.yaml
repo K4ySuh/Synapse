@@ -1,0 +1,10 @@
+interface:
+  display_name: "Synapse Web Assessment"
+  short_description: "Assess authorized web application context"
+  default_prompt: "Use $synapse-web-assessment to analyze the claimed web objective from passive evidence and plan only bounded approved validation."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "synapse"
+      description: "Local Synapse MCP server with web assessment capabilities and workspace evidence."

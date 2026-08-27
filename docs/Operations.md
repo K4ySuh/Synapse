@@ -759,6 +759,31 @@ grant scope or execution authority. Work-item operations return
 `work_items_require_sqlite_v2` on JSON-v1 rather than creating a second task
 board or migrating implicitly.
 
+### Codex operating playbooks
+
+Install the complete [`skills/codex/`](../skills/codex) package so the router,
+coordinator, specialists, and shared references remain together. Start with
+`$operate-synapse`. It handles a simple context read or short bounded operation
+directly and selects `$synapse-coordinate-engagement` only when independent or
+dependency-bound objectives justify durable specialist work.
+
+The coordinator creates work items with one objective/output, bounded targets
+and context, role/capability-pack hints, dependencies, completion evidence,
+stop/block conditions, and a handoff. Specialists claim before work, recover
+context from `context.query`, inspect active or unknown execution before any
+repeat, discover current actions from the live selected Registry, and persist
+facts, candidates, gaps, evidence, and progress. Reporting waits for declared
+dependencies or labels the result explicitly partial.
+
+Skill, role, worker, work-item, and `confirm=true` values never assert
+execution authority. Scope is checked independently and authority-aware calls
+are evaluated only against server-held grants; uncovered work blocks on
+`approval_required`. Validate the package after changes:
+
+```sh
+bin/validate-codex-skills --check
+```
+
 Use `workspace.summary` to scan workspace-level progress and
 `workspace.create_finding` to record operator-reviewed issues. Ingestion returns
 `scopeStatus` (`in_scope`, `out_of_scope`, or `scope_unset`) and a reason so

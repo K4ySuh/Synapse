@@ -1,0 +1,232 @@
+#!/usr/bin/env python3
+# Copyright 2026 Javier Roldán Ortiz
+# SPDX-License-Identifier: Apache-2.0
+
+"""Validate the authored Phase 5D Codex operating-skill package."""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+import re
+import sys
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SKILL_ROOT = ROOT / "skills" / "codex"
+SHARED_REFERENCES = SKILL_ROOT / "operate-synapse" / "references"
+
+OPERATIONAL_SKILLS = {
+    "operate-synapse": ("router", "core"),
+    "synapse-coordinate-engagement": ("coordinator", "core"),
+    "synapse-engagement-bootstrap": ("bootstrap", "core"),
+    "synapse-perimeter-triage": ("perimeter", "infra"),
+    "synapse-web-assessment": ("web", "web"),
+    "synapse-access-control": ("access-control", "web"),
+    "synapse-cve-validation": ("cve", "intelligence"),
+    "synapse-reporting": ("reporting", "reporting"),
+}
+
+COMPACT_OPERATIONS = frozenset(
+    {
+        "actions.describe",
+        "actions.run_active",
+        "actions.run_passive",
+        "capabilities.search",
+        "context.query",
+        "tasks.control",
+    }
+)
+
+FORBIDDEN_COPY_MARKERS = (
+    "action_inventory",
+    "inputSchema",
+    "outputSchema",
+    "TOOL_SCHEMAS",
+    '"additionalProperties"',
+    '"properties"',
+)
+
+CONTRADICTORY_PATTERNS = (
+    (re.compile(r"\bscope (?:grants|provides) (?:execution )?authority\b", re.I), "scope cannot grant authority"),
+    (
+        re.compile(r"\b(?:claim|worker label|role) (?:grants|provides) authority\b", re.I),
+        "coordination identity cannot grant authority",
+    ),
+    (re.compile(r"\bconfirm=true (?:grants|provides) authority\b", re.I), "confirm=true cannot grant authority"),
+    (
+        re.compile(r"\bhigh_level is (?:redacted|sanitized|client-safe)\b", re.I),
+        "high_level is internal, not a redaction boundary",
+    ),
+    (
+        re.compile(r"\bscanner output is (?:a )?(?:confirmed )?finding\b", re.I),
+        "scanner output remains a candidate pending review",
+    ),
+)
+
+
+def _frontmatter(path: Path) -> tuple[dict[str, str], dict[str, str], str]:
+    text = path.read_text(encoding="utf-8")
+    if not text.startswith("---\n"):
+        raise ValueError("missing YAML frontmatter")
+    try:
+        raw, body = text[4:].split("\n---\n", 1)
+    except ValueError as exc:
+        raise ValueError("unterminated YAML frontmatter") from exc
+    top: dict[str, str] = {}
+    metadata: dict[str, str] = {}
+    in_metadata = False
+    for line in raw.splitlines():
+        if line == "metadata:":
+            in_metadata = True
+            continue
+        if in_metadata and line.startswith("  "):
+            key, separator, value = line.strip().partition(":")
+            if separator:
+                metadata[key] = value.strip().strip('"')
+            continue
+        in_metadata = False
+        key, separator, value = line.partition(":")
+        if separator:
+            top[key] = value.strip().strip('"')
+    return top, metadata, body
+
+
+def _yaml_value(text: str, key: str) -> str:
+    match = re.search(rf'^\s*{re.escape(key)}:\s*"([^"]*)"\s*$', text, flags=re.MULTILINE)
+    return match.group(1) if match else ""
+
+
+def _validate_links(path: Path, text: str, failures: list[str]) -> None:
+    for target in re.findall(r"\[[^\]]+\]\(([^)]+)\)", text):
+        if target.startswith(("http://", "https://", "#")):
+            continue
+        local = (path.parent / target.split("#", 1)[0]).resolve()
+        if not local.is_file():
+            failures.append(f"{path.relative_to(ROOT)}: missing reference {target}")
+
+
+def _validate_skill(name: str, expected_role: str, expected_pack: str, failures: list[str]) -> None:
+    directory = SKILL_ROOT / name
+    skill_path = directory / "SKILL.md"
+    interface_path = directory / "agents" / "openai.yaml"
+    if not skill_path.is_file():
+        failures.append(f"{name}: missing SKILL.md")
+        return
+    if not interface_path.is_file():
+        failures.append(f"{name}: missing agents/openai.yaml")
+        return
+    try:
+        frontmatter, metadata, body = _frontmatter(skill_path)
+    except ValueError as exc:
+        failures.append(f"{name}: {exc}")
+        return
+    if frontmatter.get("name") != name:
+        failures.append(f"{name}: frontmatter name is stale")
+    description = frontmatter.get("description", "")
+    if not description or len(description) > 1024:
+        failures.append(f"{name}: description is missing or too long")
+    if metadata.get("synapse-role") != expected_role:
+        failures.append(f"{name}: expected role {expected_role!r}")
+    if metadata.get("synapse-pack") != expected_pack:
+        failures.append(f"{name}: expected pack {expected_pack!r}")
+    if "[TODO:" in skill_path.read_text(encoding="utf-8"):
+        failures.append(f"{name}: unfinished scaffold marker")
+    _validate_links(skill_path, body, failures)
+
+    interface = interface_path.read_text(encoding="utf-8")
+    short = _yaml_value(interface, "short_description")
+    default_prompt = _yaml_value(interface, "default_prompt")
+    if not 25 <= len(short) <= 64:
+        failures.append(f"{name}: short_description must be 25-64 characters")
+    if f"${name}" not in default_prompt:
+        failures.append(f"{name}: default_prompt must name ${name}")
+    if not re.search(r'^\s*value:\s*"synapse"\s*$', interface, flags=re.MULTILINE):
+        failures.append(f"{name}: Synapse MCP dependency is missing")
+
+    combined = skill_path.read_text(encoding="utf-8") + "\n" + interface
+    for marker in FORBIDDEN_COPY_MARKERS:
+        if marker in combined:
+            failures.append(f"{name}: copied schema/catalog marker {marker!r}")
+    copied_actions = {
+        value
+        for value in re.findall(r"`([a-z][a-z0-9_]+\.[a-z][a-z0-9_.]+)`", combined)
+        if value not in COMPACT_OPERATIONS
+    }
+    if copied_actions:
+        failures.append(f"{name}: copied canonical action IDs {sorted(copied_actions)!r}")
+    for pattern, reason in CONTRADICTORY_PATTERNS:
+        if pattern.search(combined):
+            failures.append(f"{name}: contradictory terminology ({reason})")
+
+    if name != "operate-synapse":
+        expected_invariants = "../operate-synapse/references/operational-invariants.md"
+        if expected_invariants not in body:
+            failures.append(f"{name}: shared operational invariants are not referenced")
+        expected_workflow = "../operate-synapse/references/specialist-workflow.md"
+        if expected_workflow not in body:
+            failures.append(f"{name}: shared specialist workflow is not referenced")
+
+
+def validate() -> list[str]:
+    failures: list[str] = []
+    for name, (role, pack) in OPERATIONAL_SKILLS.items():
+        _validate_skill(name, role, pack, failures)
+
+    references = sorted(path.name for path in SHARED_REFERENCES.glob("*.md"))
+    if references != ["operational-invariants.md", "specialist-workflow.md"]:
+        failures.append("operate-synapse: shared reference inventory is stale")
+    shared_text = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted(SHARED_REFERENCES.glob("*.md"))
+    )
+    invariants = " ".join(
+        (SHARED_REFERENCES / "operational-invariants.md").read_text(encoding="utf-8").split()
+    ).lower()
+    for required in (
+        "does not grant execution authority",
+        "coordination metadata, not authority",
+        "never repeat an active or outcome-unknown action",
+        "candidate until validated and reviewed",
+        "not redacted or client-safe",
+    ):
+        if required not in invariants:
+            failures.append(f"operational-invariants.md: missing policy phrase {required!r}")
+    for marker in FORBIDDEN_COPY_MARKERS:
+        if marker in shared_text:
+            failures.append(f"operate-synapse references: copied schema/catalog marker {marker!r}")
+    for pattern, reason in CONTRADICTORY_PATTERNS:
+        if pattern.search(shared_text):
+            failures.append(f"operate-synapse references: contradictory terminology ({reason})")
+
+    router = (SKILL_ROOT / "operate-synapse" / "SKILL.md").read_text(encoding="utf-8")
+    for name in OPERATIONAL_SKILLS:
+        if name != "operate-synapse" and f"${name}" not in router:
+            failures.append(f"operate-synapse: missing route to ${name}")
+
+    for path in SKILL_ROOT.rglob("*.json"):
+        if any(part in OPERATIONAL_SKILLS for part in path.parts):
+            failures.append(f"{path.relative_to(ROOT)}: JSON artifacts are forbidden in operational skills")
+    return sorted(set(failures))
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check", action="store_true", help="Fail when the authored skill package is stale or unsafe.")
+    args = parser.parse_args()
+    if not args.check:
+        parser.error("--check is required")
+    failures = validate()
+    if failures:
+        for failure in failures:
+            print(f"FAIL {failure}", file=sys.stderr)
+        return 1
+    print(
+        "Codex operating skills are current: "
+        f"{len(OPERATIONAL_SKILLS)} skills, 2 shared references"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,10 @@
+interface:
+  display_name: "Synapse Access Control"
+  short_description: "Model authorized access-control behavior"
+  default_prompt: "Use $synapse-access-control to build a grounded actor/object matrix and plan bounded authorized comparisons."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "synapse"
+      description: "Local Synapse MCP server for access-control models, auth context, evidence, and guarded replay."

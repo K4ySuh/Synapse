@@ -315,6 +315,17 @@ still crosses the unchanged Registry and Authority Engine; work-item metadata is
 recorded before/after execution for attribution and recovery but cannot alter the
 sealed authorization intent. Recovery always exposes `automaticReplay=false`.
 
+Phase 5D Codex playbooks live under `skills/codex/`, outside the server and
+protocol-independent application boundary. They are client-side methodology
+over `context.query`, capability search/description, bounded action execution,
+and `tasks.control`; they do not own action schemas, grant authority, implement
+provider-specific behavior, or become engagement truth. A router keeps simple
+work direct, while the coordinator and six role playbooks use SQLite-v2 work
+items only where decomposition or dependencies add value. Shared references
+centralize recovery, passive/active, candidate/finding, evidence, and handoff
+invariants without duplicating the Registry catalog. Workspace entities,
+evidence, jobs, work items, scope, and authority remain canonical.
+
 The modern HTTP boundary authenticates one high-entropy bearer token by
 server-held digest, then resolves principal/workspace to a server-held authority
 binding. Host and Origin checks, forwarded-header trust, and TLS termination are

@@ -24,6 +24,18 @@ durable dispatch and continuation truth.
 
 ### Added
 
+- **Phase 5D Codex multi-agent playbooks.** Added an eight-skill Codex operating
+  package with a simple-work router, bounded engagement coordinator, and
+  bootstrap, perimeter, web, access-control, CVE, and reporting specialists.
+  Shared methodology requires canonical workspace/job/work-item recovery, live
+  Registry discovery, passive-first execution, server-held scope/authority,
+  conservative candidate/finding semantics, evidence-backed progress, and
+  explicit completion or blocking. Added a deterministic package validator for
+  stale metadata, missing links, copied schemas/catalogs, and contradictory
+  terminology plus fictional end-to-end coordination scenarios. The package
+  adds no MCP operation, action contract, provider-specific behavior, or
+  engagement data.
+
 - **Phase 5C shared operational work items.** Added SQLite-v2-backed objectives,
   parent/dependency state, atomic exclusive or non-exclusive claims, heartbeat
   leases, optimistic versions, progress/result/blocker/handoff records, typed

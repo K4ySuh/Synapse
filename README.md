@@ -58,9 +58,10 @@ Agent guidance:
   exposed by the Synapse MCP prompt.
 - [skills/](skills): agent skills for operating and developing Synapse,
   grouped by runtime — [skills/claude/](skills/claude) (`synapse-ops`,
-  `synapse-dev`) and [skills/codex/](skills/codex) (`operate-synapse`,
-  `synapse-developing`). See [skills/README.md](skills/README.md) for install
-  steps.
+  `synapse-dev`) and [skills/codex/](skills/codex) (router, coordinator,
+  bootstrap, perimeter, web, access-control, CVE, reporting, and development
+  playbooks). See [skills/README.md](skills/README.md) for install and
+  validation steps.
 
 ## Why Synapse Exists
 
@@ -140,6 +141,16 @@ application descriptor is 23,297 bytes and the largest supported official-SDK
 wire projection is 24,639 bytes, both under the 24,834-byte ceiling. Compact
 schemas omit non-validating title/default/description annotations; runtime
 defaults and validation remain unchanged.
+
+Phase 5D adds a Codex-native operating package around that durable coordination
+contract: one router, one coordinator, and six bounded bootstrap/perimeter/web/
+access-control/CVE/reporting playbooks. Shared invariants require workspace
+recovery, live capability discovery, passive/active separation, canonical
+scope and server-held authority, conservative candidate semantics, explicit
+completion/blocking, and evidence-backed handoff. The playbooks contain no
+copied action catalog or schemas and add no provider-specific server behavior.
+`bin/validate-codex-skills --check` detects stale metadata, missing shared
+references, copied contracts, and contradictory authority/reporting language.
 
 Phase 3C completes the production official-SDK adapter over the
 protocol-independent modern application surfaces. Phase 3D is complete under

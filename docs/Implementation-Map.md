@@ -417,6 +417,24 @@ annotations while preserving runtime defaults and every validation keyword.
 `tasks.control` preserves background jobs and operation handles while adding
 `work.*` discriminators; detailed payloads are validated by the typed
 application service.
+
+The Phase 5D Codex methodology package is under `skills/codex/`:
+
+- `operate-synapse/` owns the router plus the shared operational-invariant and
+  specialist-workflow references;
+- `synapse-coordinate-engagement/` owns decomposition, bounded work-item
+  contracts, recovery, and convergence;
+- the bootstrap, perimeter, web, access-control, CVE, and reporting directories
+  own their narrow role methodology and Codex `agents/openai.yaml` metadata;
+- `bin/validate-codex-skills --check` verifies all eight operating skills,
+  shared links and metadata, and rejects copied Registry schemas/catalogs or
+  contradictory authority, reporting, and candidate/finding terminology;
+- `tests/test_phase5d_codex_skills.py` exercises fictional direct routing,
+  three-specialist coordination, collision rerouting, job recovery, authority
+  blocking, evidence handoff, convergence, and validator failures.
+
+These files do not add an application operation or alter the compact/direct
+surfaces. Live capability discovery remains the only action-catalog source.
 `synapse_mcp/transport/modern/` projects either surface through
 official SDK 2.0.0 over stdio or authenticated Streamable HTTP. `config.py`
 owns fail-closed startup policy and keyrings, `identity.py` owns principal and

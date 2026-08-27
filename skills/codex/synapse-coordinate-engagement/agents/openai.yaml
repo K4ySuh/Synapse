@@ -1,0 +1,10 @@
+interface:
+  display_name: "Synapse Coordinate Engagement"
+  short_description: "Coordinate bounded Synapse specialists"
+  default_prompt: "Use $synapse-coordinate-engagement to decompose an authorized engagement into bounded specialist work and converge workspace truth."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "synapse"
+      description: "Local Synapse MCP server for work-item coordination and workspace truth."

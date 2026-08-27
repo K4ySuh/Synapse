@@ -1,0 +1,10 @@
+interface:
+  display_name: "Synapse Reporting"
+  short_description: "Render coherent internal Synapse reports"
+  default_prompt: "Use $synapse-reporting to verify dependencies and render a coherent internal report with explicit gaps."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "synapse"
+      description: "Local Synapse MCP server with workspace reporting and artifact capabilities."

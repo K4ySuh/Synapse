@@ -182,5 +182,67 @@ handle control remains available, and JSON-v1 remains the explicit compatibility
 and migration engine. JSON-v1 work-item mutations fail closed instead of
 creating parallel coordination truth.
 
-Task 5C stops here. The required clean-worktree Phase 5C adversarial review is
-the next checkpoint; Task 5D does not begin before that review closes.
+Task 5C stops here. On 2026-08-27 the operator explicitly deferred the
+adversarial review to the complete Phase 5 implementation and authorized Task
+5D to proceed from the clean committed Phase 5C checkpoint.
+
+## Task 5D — Codex multi-agent Synapse playbooks
+
+Status: implemented on 2026-08-27; compatibility gates passed, with adversarial
+review deferred by the operator to the complete Phase 5 review.
+
+Delivered:
+
+- a Codex-native `$operate-synapse` router that recovers durable state and
+  handles simple context reads or bounded operations without unnecessary
+  decomposition;
+- `$synapse-coordinate-engagement` for bounded independent/dependency work,
+  claim collision rerouting, durable blocker recovery, and convergence from
+  workspace truth instead of agent transcripts;
+- bootstrap, perimeter, web, access-control, CVE, and reporting specialist
+  skills with Codex `agents/openai.yaml` metadata and live Synapse MCP
+  dependencies;
+- shared operational invariants and a claim/context/recovery/progress/handoff
+  specialist workflow, referenced by every role instead of copied into eight
+  divergent prompts;
+- live capability search/description as the action-catalog boundary, with no
+  copied action schemas, provider-specific app behavior, real engagement data,
+  reasoning traces, or prose-based authority;
+- `bin/validate-codex-skills --check` for required skill/role/pack metadata,
+  interface prompts, MCP dependencies, shared references, stale links, copied
+  schemas/catalogs, and contradictory authority/reporting/candidate language;
+- fictional scenario coverage for direct single-agent context, three bounded
+  specialists, exclusive-claim rerouting, active-job polling without rerun,
+  missing-authority blocking, evidence-visible reporting dependencies, and
+  final completed/candidate/finding/contradiction/gap convergence.
+
+Focused verification:
+
+```text
+8 Phase 5D Codex skill and fictional coordination scenarios passed
+8 operating skills passed the skill-creator structural validator
+Codex operating skills current: 8 skills, 2 shared references
+734 core tests passed (JSON-v1 and SQLite-v2 paths)
+2 custom adapter template tests passed
+16 official-SDK modern tests passed
+58 Phase 4 storage/context acceptance tests passed
+legacy stdio exact transport smoke: pass; external target traffic disabled
+action inventory current: 174 actions
+action output contracts current: 168 retained actions
+capability-pack ownership current: 174 actions, 6 packs
+surface fixtures current: legacy 99,337 bytes; compact 23,297 bytes
+compile and git diff checks: pass
+```
+
+Optional environment result: MCP Inspector was unavailable to the Phase 4
+runner, whose exact built-in legacy stdio smoke passed instead.
+
+Compatibility result: Phase 5D changes client-side Codex methodology and
+documentation only. It adds no compact/direct operation, action ID/schema,
+provider implementation, authority path, workspace entity, or generated
+surface fixture. SQLite-v2 workspace state, jobs, work items, evidence, scope,
+and server-held authority remain canonical.
+
+Task 5D stops here. Per the operator's direction, its adversarial review is
+deferred and will be performed as part of the complete Phase 5 implementation
+review; this checkpoint does not claim that review has passed.
