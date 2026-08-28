@@ -124,19 +124,20 @@ class ToolWrapperTests(unittest.TestCase):
             self.assertEqual(response["error"]["code"], -32000)
             self.assertIn("Main prompt file not found", response["error"]["message"])
 
-    def test_main_prompt_falls_back_for_package_console_without_root(self) -> None:
+    def test_main_prompt_uses_package_guidance_outside_repository_cwd(self) -> None:
         with TemporaryDirectory() as tmp:
-            missing = Path(tmp) / "missing.md"
+            packaged = Path(stdio_server.__file__).resolve().parents[1] / "operational_prompt.md"
             old_cwd = Path.cwd()
             try:
                 os.chdir(tmp)
-                with patch.object(stdio_server, "PROMPT_PATH", missing), patch.dict(os.environ, {}, clear=True):
+                with patch.object(stdio_server, "PROMPT_PATH", packaged), patch.dict(os.environ, {}, clear=True):
                     prompt = stdio_server.read_main_prompt()
             finally:
                 os.chdir(old_cwd)
 
         self.assertIn("Synapse is a local-first MCP control plane", prompt)
-        self.assertIn("SYNAPSE_PROMPT_PATH", prompt)
+        self.assertIn("Lease expiry makes a claim reclaimable", prompt)
+        self.assertNotIn("repository-development", prompt)
 
     def test_implementation_map_documents_every_registered_adapter(self) -> None:
         from synapse_mcp.core.adapters import default_registry

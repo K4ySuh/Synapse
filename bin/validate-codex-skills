@@ -2,7 +2,7 @@
 # Copyright 2026 Javier Roldán Ortiz
 # SPDX-License-Identifier: Apache-2.0
 
-"""Validate the authored Phase 5D Codex operating-skill package."""
+"""Validate a repository or installed Codex operating-skill package."""
 
 from __future__ import annotations
 
@@ -211,11 +211,21 @@ def validate() -> list[str]:
 
 
 def main() -> int:
+    global ROOT, SKILL_ROOT, SHARED_REFERENCES
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="Fail when the authored skill package is stale or unsafe.")
+    parser.add_argument(
+        "--skills-root",
+        type=Path,
+        help="Validate this installed skills/codex directory instead of the repository package.",
+    )
     args = parser.parse_args()
     if not args.check:
         parser.error("--check is required")
+    if args.skills_root is not None:
+        SKILL_ROOT = args.skills_root.expanduser().resolve()
+        ROOT = SKILL_ROOT.parent
+        SHARED_REFERENCES = SKILL_ROOT / "operate-synapse" / "references"
     failures = validate()
     if failures:
         for failure in failures:

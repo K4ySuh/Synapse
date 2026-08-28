@@ -74,8 +74,15 @@ else
     printf 'OK   shared environment file: %s\n' "$ENV_FILE"
 fi
 if [ ! -f "$ROOT_DIR/AGENTS.md" ]; then
-    printf 'MISS agent instructions: %s\n' "$ROOT_DIR/AGENTS.md"
+    printf 'MISS repository instructions: %s\n' "$ROOT_DIR/AGENTS.md"
     legacy_ready=1
+fi
+OPERATIONAL_PROMPT="$ROOT_DIR/MCPS/Synapse-MCP/synapse_mcp/operational_prompt.md"
+if [ ! -f "$OPERATIONAL_PROMPT" ]; then
+    printf 'MISS packaged operational prompt: %s\n' "$OPERATIONAL_PROMPT"
+    legacy_ready=1
+else
+    printf 'OK   packaged operational prompt: %s\n' "$OPERATIONAL_PROMPT"
 fi
 
 if SYNAPSE_PYTHON_RESOLVED=$("$ROOT_DIR/bin/resolve-synapse-python" 2>&1); then

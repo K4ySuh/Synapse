@@ -4,20 +4,23 @@ set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 ROOT_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 BURP_LAUNCHER="$ROOT_DIR/MCPS/Burp-Mcp/bin/portswigger-burp-mcp"
-PROFILE=modern-compact
+PROFILE=standard
 
 usage() {
     cat <<'EOF'
-Usage: bin/print-mcp-config [--modern-compact | --legacy]
+Usage: bin/print-mcp-config [--standard | --core-only | --modern-direct | --legacy]
 
-Print the recommended Codex MCP configuration. modern-compact is the default;
-legacy prints the frozen rollback profile.
+Print a Codex MCP configuration. Standard modern-compact is the default;
+core-only selects the 42-action core pack, modern-direct is diagnostic, and
+legacy is the frozen rollback profile.
 EOF
 }
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
-        --modern-compact) PROFILE=modern-compact ;;
+        --standard|--modern-compact) PROFILE=standard ;;
+        --core-only) PROFILE=core-only ;;
+        --modern-direct) PROFILE=modern-direct ;;
         --legacy) PROFILE=legacy ;;
         --help|-h) usage; exit 0 ;;
         *) printf 'Unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
@@ -33,11 +36,21 @@ cat <<EOF
 # Shodan keys are runtime-only. Never put SHODAN_API_KEY in this file.
 EOF
 
-if [ "$PROFILE" = modern-compact ]; then
+if [ "$PROFILE" != legacy ]; then
     SYNAPSE_RUNTIME=$("$ROOT_DIR/bin/resolve-synapse-python" --require-modern)
+    SURFACE=modern-compact
+    PACK_ARGUMENT=""
+    PROFILE_NOTE="standard six-pack selection"
+    if [ "$PROFILE" = core-only ]; then
+        PACK_ARGUMENT='  "--capability-pack", "core",'
+        PROFILE_NOTE="42-action core-only selection"
+    elif [ "$PROFILE" = modern-direct ]; then
+        SURFACE=modern-direct
+        PROFILE_NOTE="174-action direct diagnostic selection"
+    fi
     cat <<EOF
 #
-# Phase 3D default: the eleven-operation modern-compact stdio surface.
+# Phase 5 Codex profile: $PROFILE_NOTE on the $SURFACE stdio surface.
 # Provision the private 0600 identity binding and request-state keyring before
 # starting this server. Authority Grants remain server-held; Codex approval of
 # an MCP invocation does not grant Synapse execution authority.
@@ -46,7 +59,8 @@ if [ "$PROFILE" = modern-compact ]; then
 command = "$SYNAPSE_RUNTIME"
 args = [
   "-m", "synapse_mcp.transport.modern",
-  "--surface", "modern-compact",
+  "--surface", "$SURFACE",
+$PACK_ARGUMENT
   "--transport", "stdio",
   "--server-name", "synapse",
   "--audience", "synapse",

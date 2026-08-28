@@ -1,7 +1,7 @@
 # Synapse Layer Playbooks & Tool Surface
 
 Grounded in the repo's `docs/Architecture.md`, `docs/Operations.md`, `docs/Reporting-Model.md`,
-the committed `AGENTS.md`, and the registered tool names in
+the packaged `synapse_mcp/operational_prompt.md`, and the registered tool names in
 `synapse_mcp/transport/stdio_server.py`. Read the relevant section before driving that layer.
 All active actions follow the two-gate approval flow in SKILL.md. Active tool wrappers default to
 background `jobs.*` execution.

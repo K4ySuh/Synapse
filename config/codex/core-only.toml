@@ -1,0 +1,22 @@
+# Installed-package 42-action core selection. Replace every /private or /operator path.
+[mcp_servers.synapse]
+command = "/absolute/path/to/venv/bin/synapse-mcp-modern"
+args = [
+  "--surface", "modern-compact",
+  "--capability-pack", "core",
+  "--transport", "stdio",
+  "--server-name", "synapse-core",
+  "--audience", "synapse-core",
+  "--identity-bindings", "/private/path/identity-bindings.json",
+  "--stdio-principal", "local-operator",
+  "--request-state-keyring", "/private/path/request-state-keyring.json",
+  "--state-dir", "/operator/path/Synapse/DATA/modern-adapter/core-state"
+]
+required = true
+default_tools_approval_mode = "approve"
+startup_timeout_sec = 20
+tool_timeout_sec = 120
+
+[mcp_servers.synapse.env]
+SYNAPSE_ROOT = "/operator/path/Synapse"
+SYNAPSE_DATA_DIR = "/operator/path/Synapse/DATA"

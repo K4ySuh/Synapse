@@ -1,0 +1,9 @@
+# Frozen rollback/bootstrap profile for an installed package.
+[mcp_servers.synapse]
+command = "/absolute/path/to/venv/bin/synapse-mcp"
+args = []
+startup_timeout_sec = 10
+
+[mcp_servers.synapse.env]
+SYNAPSE_ROOT = "/operator/path/Synapse"
+SYNAPSE_DATA_DIR = "/operator/path/Synapse/DATA"

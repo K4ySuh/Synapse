@@ -326,6 +326,15 @@ centralize recovery, passive/active, candidate/finding, evidence, and handoff
 invariants without duplicating the Registry catalog. Workspace entities,
 evidence, jobs, work items, scope, and authority remain canonical.
 
+Phase 5E keeps that client methodology outside application behavior while
+making it distributable. Root and nested `AGENTS.md` files now govern only the
+repository paths in which they appear. Legacy prompt/resource calls read the
+separate package-owned `synapse_mcp/operational_prompt.md` under both repository
+and installed launches. Wheels and sdists carry the Codex skills and config
+templates as integration data under `share/synapse-mcp/codex/`; core startup
+does not import that integration. Modern server instructions remain a compact
+transport projection so the accepted eleven-operation wire ceiling is unchanged.
+
 The modern HTTP boundary authenticates one high-entropy bearer token by
 server-held digest, then resolves principal/workspace to a server-held authority
 binding. Host and Origin checks, forwarded-header trust, and TLS termination are

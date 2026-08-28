@@ -54,8 +54,9 @@ Core project references:
 
 Agent guidance:
 
-- [AGENTS.md](AGENTS.md): durable Synapse operating policy used by Codex and
-  exposed by the Synapse MCP prompt.
+- [AGENTS.md](AGENTS.md): concise repository-wide development policy, with
+  scoped nested instructions under the MCP package. Runtime guidance is the
+  separate packaged `synapse_mcp/operational_prompt.md`.
 - [skills/](skills): agent skills for operating and developing Synapse,
   grouped by runtime — [skills/claude/](skills/claude) (`synapse-ops`,
   `synapse-dev`) and [skills/codex/](skills/codex) (router, coordinator,
@@ -151,6 +152,14 @@ completion/blocking, and evidence-backed handoff. The playbooks contain no
 copied action catalog or schemas and add no provider-specific server behavior.
 `bin/validate-codex-skills --check` detects stale metadata, missing shared
 references, copied contracts, and contradictory authority/reporting language.
+
+Phase 5E separates the 94-line repository policy from a 5,941-byte packaged
+operational prompt, adds scoped MCP/policy/state/adapter/test instructions, and
+ships Codex configs plus the complete skill/reference tree in wheel and sdist
+artifacts. `bin/print-mcp-config` supports standard, core-only, direct
+diagnostic, and legacy rollback profiles; `synapse-codex-assets` locates the
+installed integration. See the
+[Phase 5 distribution guide](docs/modernization/phase-5-distribution.md).
 
 Phase 3C completes the production official-SDK adapter over the
 protocol-independent modern application surfaces. Phase 3D is complete under
@@ -446,12 +455,13 @@ Recommended optional tooling:
 4. Print the MCP client config without running checks:
 
    ```bash
-   bin/print-mcp-config
+   bin/print-mcp-config --standard
    ```
 
-Codex should use the modern compact command emitted by
-`bin/print-mcp-config`; use `bin/print-mcp-config --legacy` only for rollback or
-bootstrap compatibility. Runtime selection consistently honors
+Codex should normally use the standard modern compact command emitted by
+`bin/print-mcp-config`. Use `--core-only` for the 42-action core selection,
+`--modern-direct` for diagnostic compatibility, and `--legacy` only for
+rollback/bootstrap compatibility. Runtime selection consistently honors
 `SYNAPSE_PYTHON`, an active `VIRTUAL_ENV`, then the repository `.venv`, and
 fails instead of printing a nonexistent interpreter.
 Runtime data stays under `SYNAPSE_ROOT/DATA` by default. Shodan API keys are

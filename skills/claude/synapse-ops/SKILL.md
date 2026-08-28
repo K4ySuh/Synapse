@@ -25,9 +25,9 @@ action.
 This skill is durable, target-neutral operating policy. **Never store engagement-specific
 hosts, credentials, routes, parameters, or client names here or in any reusable artifact** —
 those facts live in scope, workspace state, evidence, fingerprints, target context, or
-operator notes. (When the Synapse MCP is running, the repo's `AGENTS.md` is exposed as the main
-prompt and carries this same policy; this skill makes the policy available on surfaces and
-sessions where that prompt is not auto-loaded.)
+operator notes. Synapse exposes its concise packaged `operational_prompt.md` as the main MCP
+prompt; this fuller skill keeps layer methodology available on surfaces and sessions where
+on-demand skills are supported.
 
 ## The operating model
 

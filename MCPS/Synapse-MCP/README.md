@@ -166,6 +166,12 @@ coordination only: exact scope and server-held execution authority remain MCP
 application decisions. Run `bin/validate-codex-skills --check` from the
 repository root after editing the package.
 
+Wheel and sdist builds also install the complete skill/reference tree and four
+Codex config templates as integration data. Use `synapse-codex-assets
+--skills-dir`, `--config standard|core-only|modern-direct|legacy`, or `--verify`
+after installation. `bin/validate-phase5-distribution` performs the isolated
+archive build/install and standard/core cold-start gate.
+
 ## Runtime Python
 
 Run this MCP through `MCPS/Synapse-MCP/bin/synapse-mcp`. The launcher sources
@@ -176,11 +182,12 @@ candidate exists. Browser authentication depends on that venv
 path so Playwright/Selenium come from the console or project environment
 instead of distro Python packages.
 
-When invoking the installed `synapse-mcp` package console script directly,
-set `SYNAPSE_ROOT` or `SYNAPSE_PROMPT_PATH` if you want the full repository
-`AGENTS.md` operating policy. If no root or prompt is configured, the server
-keeps MCP prompt/resource calls functional with a packaged target-neutral
-fallback prompt; the repository launcher remains the preferred Beta runtime.
+Repository and installed `synapse-mcp` launches return the same package-owned
+`synapse_mcp/operational_prompt.md` through `synapse-main` and
+`synapse://prompt/main`. Root and nested `AGENTS.md` files are development
+policy and are never selected by current-working-directory discovery. Set
+`SYNAPSE_ROOT` to the operator-owned runtime root; use `SYNAPSE_PROMPT_PATH`
+only for an explicit target-neutral override. A missing override is an error.
 
 ## Exposed Tools
 

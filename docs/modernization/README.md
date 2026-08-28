@@ -61,6 +61,9 @@ tests, and the shared [changelog](../../CHANGELOG.md).
 
 - [Implementation status](phase-5-status.md) — ordered 5A–5F progress and
   focused gate evidence
+- [Codex distribution and instruction architecture](phase-5-distribution.md) —
+  scoped repository policy, packaged operational prompt, installed skills, and
+  standard/core/direct configuration
 - [Capability-pack ownership map](capability-pack-ownership.json) — checked
   single-owner assignment for all 174 built-in actions
 - [ADR-0010](adr/ADR-0010-capability-pack-lifecycle.md) — deterministic,

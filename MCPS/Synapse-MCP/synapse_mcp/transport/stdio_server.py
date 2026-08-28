@@ -3031,56 +3031,15 @@ RESOURCES = [
 
 PROMPTS = [{"name": MAIN_PROMPT_NAME, "description": "Shared Synapse operating prompt.", "arguments": []}]
 
-PACKAGED_MAIN_PROMPT = """# Synapse Agent Instructions
-
-Synapse is a local-first MCP control plane for authorized, human-in-the-loop
-security assessment workflows. Use it to manage scope, workspace state,
-evidence, credential references, passive analysis, guarded adapters, background
-jobs, and internal reports.
-
-Work only on authorized targets. Treat scope and execution approval as separate
-gates: active traffic, credential mutation, browser authentication,
-command-backed scanners, third-party OSINT calls, and destructive local cleanup
-require explicit operator approval for the exact action.
-
-Prefer passive and local analysis before active testing. Keep candidates,
-findings, gaps, recommendations, and evidence distinct. Do not promote scanner
-output or passive observations to confirmed findings without operator review.
-Do not put secrets in prompts, commands, evidence, notes, or final responses;
-use credential IDs and redacted credential metadata.
-
-Repository launches normally expose the full AGENTS.md policy. Set
-SYNAPSE_PROMPT_PATH to an explicit prompt file when running the packaged
-console script from outside the repository.
-"""
-
-
 def json_line(obj: dict[str, Any]) -> str:
     return json.dumps(obj, separators=(",", ":"))
-
-
-def _cwd_repo_prompt_path() -> Path | None:
-    cwd = Path.cwd()
-    for base in (cwd, *cwd.parents):
-        if (base / "MCPS" / "Synapse-MCP").is_dir() and (base / "AGENTS.md").is_file():
-            return base / "AGENTS.md"
-    return None
 
 
 def read_main_prompt() -> str:
     try:
         return PROMPT_PATH.read_text(encoding="utf-8")
     except FileNotFoundError as exc:
-        if os.environ.get("SYNAPSE_PROMPT_PATH") or os.environ.get("SYNAPSE_ROOT"):
-            raise McpError(-32000, f"Main prompt file not found: {PROMPT_PATH}") from exc
-
-    repo_prompt = _cwd_repo_prompt_path()
-    if repo_prompt and repo_prompt != PROMPT_PATH:
-        try:
-            return repo_prompt.read_text(encoding="utf-8")
-        except FileNotFoundError:
-            pass
-    return PACKAGED_MAIN_PROMPT
+        raise McpError(-32000, f"Main prompt file not found: {PROMPT_PATH}") from exc
 
 
 def _tool_schema(name: str) -> dict[str, Any] | None:

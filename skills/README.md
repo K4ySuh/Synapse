@@ -62,6 +62,30 @@ Validate an authored or updated checkout before installation:
 bin/validate-codex-skills --check
 ```
 
+Wheel and sdist installations ship the same Codex tree and configuration
+examples. Locate or verify the installed assets with:
+
+```sh
+synapse-codex-assets --skills-dir
+synapse-codex-assets --verify
+synapse-codex-assets --config standard
+```
+
+Copy the entire returned directory, not individual specialists, so both shared
+references remain resolvable. For a repository-local Codex install, copy its
+contents into `.agents/skills/`:
+
+```sh
+SYNAPSE_SKILL_SOURCE="$(synapse-codex-assets --skills-dir)"
+mkdir -p .agents/skills
+cp -R "$SYNAPSE_SKILL_SOURCE"/. .agents/skills/
+```
+
+See the [official Codex skill documentation](https://developers.openai.com/codex/skills)
+for the other supported scopes. Standard uses modern compact with all built-in
+packs; the other installed templates cover core-only compact, direct diagnostic,
+and frozen legacy rollback.
+
 The validator covers the eight operating skills, their interface metadata and
 shared links, and rejects copied contracts or terminology that contradicts the
 server-held authority and candidate/finding boundaries.

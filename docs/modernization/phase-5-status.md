@@ -246,3 +246,71 @@ and server-held authority remain canonical.
 Task 5D stops here. Per the operator's direction, its adversarial review is
 deferred and will be performed as part of the complete Phase 5 implementation
 review; this checkpoint does not claim that review has passed.
+
+## Task 5E — operational instructions and Codex distribution
+
+Status: implemented on 2026-08-28; focused packaging and compatibility gates
+passed, with full Phase 5 adversarial review still deferred to Task 5F.
+
+Delivered:
+
+- a 94-line root repository policy containing stable identity, architecture
+  invariants, primary commands, change hygiene, safety, and scoped-instruction
+  links instead of the former 640-line combined development/operations manual;
+- nested MCP, policy, state, adapter, and test instructions that carry local
+  implementation, migration, authority, fixture, and packaging constraints;
+- a provider-neutral 5,941-byte package-owned operational prompt covering
+  recovery, compact context and live capability discovery, work-item handoff,
+  passive/active separation, scope/authority, evidence/candidate/finding
+  semantics, timeout recovery, and completion reporting;
+- identical repository and installed-package prompt sourcing with an explicit
+  fail-closed `SYNAPSE_PROMPT_PATH` override and unchanged legacy prompt/resource
+  discovery shapes;
+- wheel/sdist Codex integration data containing all operating skills, shared
+  references, the separate development skill, and standard/core-only/direct/
+  legacy configuration templates;
+- `synapse-codex-assets` for installed asset discovery/verification and
+  `bin/print-mcp-config` selection for the four repository profiles;
+- an offline `bin/validate-phase5-distribution` gate that builds and installs
+  wheel and sdist outside the checkout, validates exact prompt/skill/config
+  contents, and constructs installed standard and core-only official-SDK
+  runtimes without Codex integration imports.
+
+Focused verification:
+
+```text
+7 Phase 5E instruction/prompt/config/distribution regressions passed
+3 legacy configured/package prompt wrapper regressions passed
+8 operating skills and 2 shared references passed from installed wheel/sdist trees
+wheel and sdist isolated build/install gate: pass
+standard installed modern runtime start: 174 actions
+core-only installed modern runtime start: 42 actions; no Codex integration import
+root instructions: 94 lines, 5,150 bytes
+operational prompt: 5,941 bytes (78.5% below the Phase 4 root prompt)
+741 core tests passed (JSON-v1 and SQLite-v2 paths)
+2 custom adapter template tests passed
+16 official-SDK modern tests passed
+58 Phase 4 storage/context acceptance tests passed
+legacy stdio exact transport smoke: pass; external target traffic disabled
+action inventory current: 174 actions
+action output contracts current: 168 retained actions
+capability-pack ownership current: 174 actions, 6 packs
+surface fixtures current: legacy 99,337 bytes; compact 23,297 bytes
+compile and git diff checks: pass
+```
+
+Optional environment result: the repository's private modern identity binding,
+request-state keyring, and persistent state directory are not provisioned, so
+the default `bin/check-setup` reports `MODERN NOT READY`. Legacy and State Store
+v2 readiness pass. The distribution gate self-provisions isolated private
+material and passes both installed modern runtime starts. MCP Inspector remains
+unavailable to the Phase 4 runner; its exact built-in legacy stdio smoke passed.
+
+Compatibility result: no action ID/schema, compact/direct operation, Registry,
+effect, authority, workspace entity, migration, execution, or report behavior
+changed. Modern server instructions and compact wire fixtures are unchanged.
+Frozen legacy prompt/resource list shapes remain exact; the main prompt content
+now comes from package data instead of repository development policy.
+
+Task 5E stops here. Task 5F operational acceptance, the deferred complete-phase
+adversarial review, final handoff/evidence, and rollback closure are next.

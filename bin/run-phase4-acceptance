@@ -456,7 +456,9 @@ def _legacy_protocol(data_root: Path) -> dict[str, Any]:
             "SYNAPSE_DATA_DIR": str(data_root),
             "SYNAPSE_DUMP_DIR": str(data_root / "workspaces"),
             "SYNAPSE_REPORTS_DIR": str(data_root / "reports"),
-            "SYNAPSE_PROMPT_PATH": str(ROOT / "AGENTS.md"),
+            "SYNAPSE_PROMPT_PATH": str(
+                ROOT / "MCPS" / "Synapse-MCP" / "synapse_mcp" / "operational_prompt.md"
+            ),
             "PYTHONPATH": str(PACKAGE),
             "PYTHONDONTWRITEBYTECODE": "1",
         }
@@ -526,7 +528,9 @@ def _inspector_probe(data_root: Path, scratch: Path) -> dict[str, Any]:
         "SYNAPSE_DATA_DIR": str(data_root),
         "SYNAPSE_DUMP_DIR": str(data_root / "workspaces"),
         "SYNAPSE_REPORTS_DIR": str(data_root / "reports"),
-        "SYNAPSE_PROMPT_PATH": str(ROOT / "AGENTS.md"),
+        "SYNAPSE_PROMPT_PATH": str(
+            ROOT / "MCPS" / "Synapse-MCP" / "synapse_mcp" / "operational_prompt.md"
+        ),
         "PYTHONPATH": str(PACKAGE),
         "PYTHONDONTWRITEBYTECODE": "1",
     }

@@ -24,6 +24,18 @@ durable dispatch and continuation truth.
 
 ### Added
 
+- **Phase 5E operational instructions and Codex distribution.** Split the
+  former 640-line combined root manual into a 94-line repository policy plus
+  scoped MCP, authority, state, adapter, and test instructions. Repository and
+  installed MCP launches now serve the same 5,941-byte package-owned operational
+  prompt while preserving legacy prompt/resource discovery shapes and explicit
+  prompt overrides. Wheel and sdist artifacts include the complete Codex
+  skill/reference tree and standard, core-only, modern-direct, and legacy config
+  templates; `synapse-codex-assets` locates/validates installed assets and an
+  offline distribution gate proves both archive installs plus 174-action
+  standard and 42-action core-only installed runtime startup. Codex integration
+  files remain outside core application behavior.
+
 - **Phase 5D Codex multi-agent playbooks.** Added an eight-skill Codex operating
   package with a simple-work router, bounded engagement coordinator, and
   bootstrap, perimeter, web, access-control, CVE, and reporting specialists.

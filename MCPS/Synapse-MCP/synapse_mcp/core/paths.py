@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 
+PACKAGE_DIR = Path(__file__).resolve().parents[1]
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -33,7 +34,11 @@ DUMP_DIR = _configured_path("SYNAPSE_DUMP_DIR", DATA_DIR / "workspaces", relativ
 # not inside DATA/workspaces, so they are easy to find and share and are never
 # duplicated in workspace state. Gitignored like other engagement output.
 REPORTS_DIR = _configured_path("SYNAPSE_REPORTS_DIR", SYNAPSE_ROOT / "reports", relative_to=SYNAPSE_ROOT)
-PROMPT_PATH = _configured_path("SYNAPSE_PROMPT_PATH", SYNAPSE_ROOT / "AGENTS.md", relative_to=SYNAPSE_ROOT)
+PROMPT_PATH = _configured_path(
+    "SYNAPSE_PROMPT_PATH",
+    PACKAGE_DIR / "operational_prompt.md",
+    relative_to=SYNAPSE_ROOT,
+)
 
 _require_within(DATA_DIR, SYNAPSE_ROOT, name="SYNAPSE_DATA_DIR", parent_name="SYNAPSE_ROOT")
 _require_within(DUMP_DIR, DATA_DIR, name="SYNAPSE_DUMP_DIR", parent_name="SYNAPSE_DATA_DIR")

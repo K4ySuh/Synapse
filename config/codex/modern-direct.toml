@@ -1,0 +1,21 @@
+# Installed-package diagnostic direct profile. Replace every /private or /operator path.
+[mcp_servers.synapse]
+command = "/absolute/path/to/venv/bin/synapse-mcp-modern"
+args = [
+  "--surface", "modern-direct",
+  "--transport", "stdio",
+  "--server-name", "synapse-direct",
+  "--audience", "synapse-direct",
+  "--identity-bindings", "/private/path/identity-bindings.json",
+  "--stdio-principal", "local-operator",
+  "--request-state-keyring", "/private/path/request-state-keyring.json",
+  "--state-dir", "/operator/path/Synapse/DATA/modern-adapter/direct-state"
+]
+required = true
+default_tools_approval_mode = "approve"
+startup_timeout_sec = 20
+tool_timeout_sec = 120
+
+[mcp_servers.synapse.env]
+SYNAPSE_ROOT = "/operator/path/Synapse"
+SYNAPSE_DATA_DIR = "/operator/path/Synapse/DATA"

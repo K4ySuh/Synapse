@@ -47,7 +47,7 @@ config/synapse.env
 |-- SYNAPSE_MCP_STATUS_TOOL_TIMEOUT_SECONDS jobs.status/finalizer deadline
 |-- SYNAPSE_MCP_TOOL_WORKERS                tool executor worker count (default 4, for timeout recovery)
 |-- SYNAPSE_PYTHON           defaults to active VIRTUAL_ENV, then $SYNAPSE_ROOT/.venv/bin/python
-|-- SYNAPSE_PROMPT_PATH      defaults to $SYNAPSE_ROOT/AGENTS.md
+|-- SYNAPSE_PROMPT_PATH      defaults to package-owned synapse_mcp/operational_prompt.md
 |-- SYNAPSE_DATA_DIR         defaults to $SYNAPSE_ROOT/DATA
 |-- SYNAPSE_DUMP_DIR         defaults to $SYNAPSE_DATA_DIR/workspaces
 `-- SYNAPSE_REPORTS_DIR      defaults to $SYNAPSE_ROOT/reports
@@ -61,14 +61,16 @@ working directory.
 
 `bin/check-setup` validates required Synapse prerequisites, confirms the
 Synapse MCP starts, reports optional Burp MCP readiness as warnings, and prints
-client config. `bin/print-mcp-config` prints modern compact Codex config without
-running the checks; `--legacy` selects rollback, and an enabled Burp block is
-emitted only when the optional launcher is present.
+client config. `bin/print-mcp-config` prints standard modern compact Codex config
+without running the checks; `--core-only`, `--modern-direct`, and `--legacy`
+select the other documented profiles, and an enabled Burp block is emitted only
+when the optional launcher is present. Installed artifacts expose equivalent
+templates and skills through `synapse-codex-assets`.
 `bin/check-state-v2-readiness` reports the actual stdlib and maintained-fallback
 SQLite runtimes through the transport-independent `synapse_mcp/state/readiness.py`
 contract and fails below SQLite 3.51.3. `synapse_mcp/state/` now also owns
 repository contracts and selection, JSON-v1 compatibility adapters, verified
-SQLite connection/transaction helpers, migrations `0001` and `0002`, workspace
+SQLite connection/transaction helpers, migrations `0001` through `0003`, workspace
 and task revisions, the activated transactional runtime repository, bounded WAL
 checkpoint/status and online backup, and the workspace-local SHA-256 artifact
 store. `state/runtime.py` owns activated workspace, entity/relation, evidence,
@@ -91,7 +93,15 @@ profiles without dual-write.
 ## Data Layout
 
 ```text
-AGENTS.md                         shared AI-client and MCP prompt
+AGENTS.md                         concise repository-wide development policy
+MCPS/Synapse-MCP/AGENTS.md        MCP application/transport/package policy
+MCPS/Synapse-MCP/synapse_mcp/
+|-- operational_prompt.md         packaged runtime MCP guidance
+|-- policy/AGENTS.md              scoped authority development policy
+|-- state/AGENTS.md               scoped storage/migration policy
+`-- adapters/AGENTS.md            scoped adapter policy
+MCPS/Synapse-MCP/tests/AGENTS.md  scoped fixture/verification policy
+config/codex/                     installed-package Codex config templates
 
 DATA/
 |-- scope/scope.json              global authorized hosts, patterns, CIDRs, and notes
@@ -435,6 +445,18 @@ The Phase 5D Codex methodology package is under `skills/codex/`:
 
 These files do not add an application operation or alter the compact/direct
 surfaces. Live capability discovery remains the only action-catalog source.
+
+Phase 5E adds the separate 5,941-byte package operational prompt, keeps the
+root repository policy at 94 lines, and packages Codex integration data without
+importing it from application startup. `synapse_mcp/integrations/codex.py`
+locates and validates installed skills/configs; `bin/validate-phase5-distribution`
+builds and installs a wheel and sdist outside the checkout, validates prompt and
+skill/reference equality, and constructs installed standard 174-action and
+core-only 42-action official-SDK runtimes. `tests/test_phase5e_distribution.py`
+guards instruction
+scope, prompt content/source/size, legacy prompt shape, config selection,
+provider-neutral imports, and distribution metadata.
+
 `synapse_mcp/transport/modern/` projects either surface through
 official SDK 2.0.0 over stdio or authenticated Streamable HTTP. `config.py`
 owns fail-closed startup policy and keyrings, `identity.py` owns principal and
@@ -474,9 +496,9 @@ initialize              advertises tools, resources, prompts, logging
 tools/list              returns tool schemas
 tools/call              dispatches into core modules and adapters
 resources/list          exposes local state resources
-resources/read          reads state resources and AGENTS.md
+resources/read          reads state resources and the packaged operational prompt
 prompts/list            exposes synapse-main
-prompts/get             returns AGENTS.md as a user prompt message
+prompts/get             returns the packaged operational prompt as a user message
 ```
 
 Exposed resources:
@@ -525,8 +547,10 @@ core/paths.py
 Resolves repository-local paths from environment variables:
 `SYNAPSE_ROOT`, `SYNAPSE_DATA_DIR`, `SYNAPSE_DUMP_DIR`,
 `SYNAPSE_REPORTS_DIR`, and
-`SYNAPSE_PROMPT_PATH`. Relative runtime paths resolve from the relevant
-configured root rather than from the process working directory.
+`SYNAPSE_PROMPT_PATH`. The prompt defaults to package data independently of the
+runtime root; an explicit relative override resolves from `SYNAPSE_ROOT`.
+Other relative runtime paths resolve from the relevant configured root rather
+than from the process working directory.
 
 ```text
 core/background_jobs.py

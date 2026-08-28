@@ -52,6 +52,7 @@ synapse-mcp-modern = "synapse_mcp.transport.modern.__main__:main"
 synapse-mcp-modern-spike = "synapse_mcp.transport.modern_spike:main"
 synapse-authority = "synapse_mcp.policy.operator_cli:main"
 synapse-state = "synapse_mcp.state.cli:main"
+synapse-codex-assets = "synapse_mcp.integrations.codex:main"
 
 [tool.setuptools.packages.find]
 where = ["MCPS/Synapse-MCP"]
@@ -59,12 +60,35 @@ include = ["synapse_mcp*"]
 
 [tool.setuptools.package-data]
 synapse_mcp = [
+    "operational_prompt.md",
     "app/actions/action_inventory.json",
     "app/actions/output_contracts.json",
     "state/migrations/*.sql",
     "core/documentation/html_templates/*.html",
     "core/documentation/html_templates/*.md",
 ]
+
+[tool.setuptools.data-files]
+"share/synapse-mcp/codex/config" = ["config/codex/*.toml"]
+"share/synapse-mcp/codex/skills/operate-synapse" = ["skills/codex/operate-synapse/SKILL.md"]
+"share/synapse-mcp/codex/skills/operate-synapse/agents" = ["skills/codex/operate-synapse/agents/openai.yaml"]
+"share/synapse-mcp/codex/skills/operate-synapse/references" = ["skills/codex/operate-synapse/references/*.md"]
+"share/synapse-mcp/codex/skills/synapse-coordinate-engagement" = ["skills/codex/synapse-coordinate-engagement/SKILL.md"]
+"share/synapse-mcp/codex/skills/synapse-coordinate-engagement/agents" = ["skills/codex/synapse-coordinate-engagement/agents/openai.yaml"]
+"share/synapse-mcp/codex/skills/synapse-engagement-bootstrap" = ["skills/codex/synapse-engagement-bootstrap/SKILL.md"]
+"share/synapse-mcp/codex/skills/synapse-engagement-bootstrap/agents" = ["skills/codex/synapse-engagement-bootstrap/agents/openai.yaml"]
+"share/synapse-mcp/codex/skills/synapse-perimeter-triage" = ["skills/codex/synapse-perimeter-triage/SKILL.md"]
+"share/synapse-mcp/codex/skills/synapse-perimeter-triage/agents" = ["skills/codex/synapse-perimeter-triage/agents/openai.yaml"]
+"share/synapse-mcp/codex/skills/synapse-web-assessment" = ["skills/codex/synapse-web-assessment/SKILL.md"]
+"share/synapse-mcp/codex/skills/synapse-web-assessment/agents" = ["skills/codex/synapse-web-assessment/agents/openai.yaml"]
+"share/synapse-mcp/codex/skills/synapse-access-control" = ["skills/codex/synapse-access-control/SKILL.md"]
+"share/synapse-mcp/codex/skills/synapse-access-control/agents" = ["skills/codex/synapse-access-control/agents/openai.yaml"]
+"share/synapse-mcp/codex/skills/synapse-cve-validation" = ["skills/codex/synapse-cve-validation/SKILL.md"]
+"share/synapse-mcp/codex/skills/synapse-cve-validation/agents" = ["skills/codex/synapse-cve-validation/agents/openai.yaml"]
+"share/synapse-mcp/codex/skills/synapse-reporting" = ["skills/codex/synapse-reporting/SKILL.md"]
+"share/synapse-mcp/codex/skills/synapse-reporting/agents" = ["skills/codex/synapse-reporting/agents/openai.yaml"]
+"share/synapse-mcp/codex/skills/synapse-developing" = ["skills/codex/synapse-developing/SKILL.md"]
+"share/synapse-mcp/codex/skills/synapse-developing/agents" = ["skills/codex/synapse-developing/agents/openai.yaml"]
 
 [tool.synapse]
 core-test-command = "bin/test --core"

@@ -26,12 +26,12 @@ runnable. MCP clients should launch:
 MCPS/Synapse-MCP/bin/synapse-mcp
 ```
 
-The installed `synapse-mcp` package console script can start the server too,
-but the repository launcher is preferred for Beta use because it anchors
-`SYNAPSE_ROOT`, `SYNAPSE_PYTHON`, runtime data, and the full `AGENTS.md`
-operating prompt. If you invoke the installed console script directly, set
-`SYNAPSE_ROOT` or `SYNAPSE_PROMPT_PATH`; otherwise Synapse serves a packaged
-target-neutral fallback prompt so MCP prompt/resource calls still work.
+The installed `synapse-mcp` package console script can start the server too.
+Repository and installed launches serve the same package-owned
+`synapse_mcp/operational_prompt.md`; the root `AGENTS.md` and nested files are
+repository-development policy, not runtime engagement guidance. Set
+`SYNAPSE_ROOT` to an operator-owned runtime root. Use `SYNAPSE_PROMPT_PATH` only
+for an intentional target-neutral override; a missing override fails closed.
 
 Do not point the MCP client directly at system `python3` for Synapse when
 browser authentication is needed. System package builds of Playwright can be
@@ -86,16 +86,17 @@ when validating a full active-adapter workstation.
 To print only the MCP config:
 
 ```bash
-bin/print-mcp-config
+bin/print-mcp-config --standard
 ```
 
-`bin/print-mcp-config` prints only the recommended Codex configuration by
-default. Phase 3D selects `modern-compact` stdio. Use `--legacy` to print the
-frozen rollback/bootstrap profile. No other agent client is part of the current
-setup, operation, or Phase 3 acceptance contract. Do not commit local MCP
-configuration files because they contain absolute paths.
+`bin/print-mcp-config` prints the standard `modern-compact` Codex configuration
+by default. `--core-only` keeps compact but selects the independently loadable
+42-action core pack, `--modern-direct` prints the 174-action diagnostic profile,
+and `--legacy` prints frozen rollback/bootstrap. No other agent client is part
+of Phase 5 implementation or acceptance. Do not commit generated local MCP
+configuration because it contains absolute paths.
 
-### Codex modern compact profile
+### Codex MCP profiles
 
 The generated profile assumes the pinned modern runtime is installed and the
 private identity binding and request-state keyring described below have been
@@ -131,6 +132,31 @@ reach Synapse. It does not create scope, select a grant, issue a step-up, or
 authorize execution; those decisions remain server-held. Use a narrower Codex
 host policy if desired, but ensure the eleven trusted Synapse operations can
 be invoked.
+
+Modern startup loads all six built-in packs in standard mode. The equivalent
+repository commands are:
+
+```bash
+bin/print-mcp-config --standard
+bin/print-mcp-config --core-only
+bin/print-mcp-config --modern-direct
+bin/print-mcp-config --legacy
+```
+
+For a wheel or sdist installation, use the installed console launcher and
+shipped templates:
+
+```bash
+synapse-codex-assets --config standard
+synapse-codex-assets --config core-only
+synapse-codex-assets --config modern-direct
+synapse-codex-assets --verify
+```
+
+Replace every placeholder executable, private identity/keyring, and
+operator-owned data path. Standard and core-only remain eleven compact
+operations; only their selected action catalog differs. Direct is diagnostic,
+not the recommended default.
 
 For loopback or remotely terminated Streamable HTTP, start the server
 separately and let Codex read the bearer token from the environment:
@@ -762,10 +788,13 @@ board or migrating implicitly.
 ### Codex operating playbooks
 
 Install the complete [`skills/codex/`](../skills/codex) package so the router,
-coordinator, specialists, and shared references remain together. Start with
-`$operate-synapse`. It handles a simple context read or short bounded operation
-directly and selects `$synapse-coordinate-engagement` only when independent or
-dependency-bound objectives justify durable specialist work.
+coordinator, specialists, and shared references remain together. A built wheel
+or sdist installs the same tree; locate it with
+`synapse-codex-assets --skills-dir` and copy the whole directory into a Codex
+skill location. Start with `$operate-synapse`. It handles a simple context read
+or short bounded operation directly and selects
+`$synapse-coordinate-engagement` only when independent or dependency-bound
+objectives justify durable specialist work.
 
 The coordinator creates work items with one objective/output, bounded targets
 and context, role/capability-pack hints, dependencies, completion evidence,
@@ -782,7 +811,16 @@ are evaluated only against server-held grants; uncovered work blocks on
 
 ```sh
 bin/validate-codex-skills --check
+bin/validate-phase5-distribution
 ```
+
+One coordinator and multiple specialists share the same Synapse workspace and
+trusted principal/session while using distinct work-item coordination
+identities. The coordinator creates bounded objectives/dependencies;
+specialists atomically claim, query context since their last revision, link
+evidence and results, then complete, block, or hand off. Role and claim values
+never grant authority. A replacement specialist inspects linked dispatches and
+jobs after lease expiry and does not replay active or unknown execution.
 
 Use `workspace.summary` to scan workspace-level progress and
 `workspace.create_finding` to record operator-reviewed issues. Ingestion returns
