@@ -1,0 +1,407 @@
+{
+  "capturedAt": "2026-08-30T10:21:56.304564Z",
+  "classification": "phase5_operational_acceptance",
+  "client": "provider-neutral",
+  "evidenceSha256": "eac34b30705b1990ed0d0423f561fd5cf8554e46ab5f7443fae52daa40771253",
+  "externalTargetTraffic": "disabled",
+  "fixture": {
+    "committedSecrets": false,
+    "fictional": true,
+    "privateTemporaryRoots": true,
+    "rawClientStreamsCommitted": false,
+    "repetitions": 3,
+    "targets": [
+      "app.acme-demo.test"
+    ]
+  },
+  "historicClassifications": {
+    "genericConformance": {
+      "acceptanceDependency": false,
+      "classification": "partial_fail",
+      "newlyRerun": false
+    },
+    "phase3CodexBaseline": {
+      "classification": "objective_driven_codex_benchmark",
+      "newlyRerun": false,
+      "overall": "pass",
+      "repetitionsPerClient": 3
+    }
+  },
+  "instructions": {
+    "operationalPromptBytes": 6289,
+    "operationalPromptReductionFromPhase4": 0.7724,
+    "rootBytes": 5150,
+    "rootLines": 94
+  },
+  "objectiveDriven": false,
+  "operationalCorpus": {
+    "classification": "deterministic_phase5_operational_corpus",
+    "objectiveDriven": false,
+    "repetitions": 3,
+    "result": "pass",
+    "runs": [
+      {
+        "authority": {
+          "coveredApprovalInterruptions": 0,
+          "coveredOutcome": "success",
+          "externalTargetTraffic": 0,
+          "uncoveredOutcome": "approval_required"
+        },
+        "contention": {
+          "contenders": 2,
+          "loserReason": "work_item_version_conflict",
+          "winners": 1
+        },
+        "coordinatedWorkflow": {
+          "candidateCount": 1,
+          "completedChildCount": 5,
+          "concurrentClaims": 4,
+          "contradictionCount": 5,
+          "findingCount": 1,
+          "gapCount": 2,
+          "reportStatus": "completed",
+          "result": "pass",
+          "specialistContextBytes": [
+            3367,
+            3333,
+            3372,
+            3389
+          ],
+          "specialistCount": 4
+        },
+        "directWorkflow": {
+          "contextBytes": 5932,
+          "deltaBaseRevision": 5,
+          "deltaRevision": 49,
+          "directInspection": true,
+          "explicitGapCount": 2,
+          "reportRendered": true,
+          "result": "pass"
+        },
+        "evidence": {
+          "distinctSpecialistEvidence": [
+            "evidence-phase5-access",
+            "evidence-phase5-web"
+          ],
+          "reportDependencyCount": 4
+        },
+        "recovery": {
+          "activeOrUnknownExecution": 1,
+          "automaticReplay": false,
+          "recoveredWorkItemIds": [
+            "work-phase5-recovery"
+          ],
+          "staleClaimReason": "work_item_claim_inactive"
+        },
+        "repetition": 1,
+        "workspace": {
+          "duplicateActionsOrJobs": 0,
+          "finalRevision": 49,
+          "lostUpdates": 0,
+          "startingRevision": 5
+        }
+      },
+      {
+        "authority": {
+          "coveredApprovalInterruptions": 0,
+          "coveredOutcome": "success",
+          "externalTargetTraffic": 0,
+          "uncoveredOutcome": "approval_required"
+        },
+        "contention": {
+          "contenders": 2,
+          "loserReason": "work_item_version_conflict",
+          "winners": 1
+        },
+        "coordinatedWorkflow": {
+          "candidateCount": 1,
+          "completedChildCount": 5,
+          "concurrentClaims": 4,
+          "contradictionCount": 5,
+          "findingCount": 1,
+          "gapCount": 2,
+          "reportStatus": "completed",
+          "result": "pass",
+          "specialistContextBytes": [
+            3367,
+            3333,
+            3372,
+            3389
+          ],
+          "specialistCount": 4
+        },
+        "directWorkflow": {
+          "contextBytes": 5932,
+          "deltaBaseRevision": 5,
+          "deltaRevision": 49,
+          "directInspection": true,
+          "explicitGapCount": 2,
+          "reportRendered": true,
+          "result": "pass"
+        },
+        "evidence": {
+          "distinctSpecialistEvidence": [
+            "evidence-phase5-access",
+            "evidence-phase5-web"
+          ],
+          "reportDependencyCount": 4
+        },
+        "recovery": {
+          "activeOrUnknownExecution": 1,
+          "automaticReplay": false,
+          "recoveredWorkItemIds": [
+            "work-phase5-recovery"
+          ],
+          "staleClaimReason": "work_item_claim_inactive"
+        },
+        "repetition": 2,
+        "workspace": {
+          "duplicateActionsOrJobs": 0,
+          "finalRevision": 49,
+          "lostUpdates": 0,
+          "startingRevision": 5
+        }
+      },
+      {
+        "authority": {
+          "coveredApprovalInterruptions": 0,
+          "coveredOutcome": "success",
+          "externalTargetTraffic": 0,
+          "uncoveredOutcome": "approval_required"
+        },
+        "contention": {
+          "contenders": 2,
+          "loserReason": "work_item_version_conflict",
+          "winners": 1
+        },
+        "coordinatedWorkflow": {
+          "candidateCount": 1,
+          "completedChildCount": 5,
+          "concurrentClaims": 4,
+          "contradictionCount": 5,
+          "findingCount": 1,
+          "gapCount": 2,
+          "reportStatus": "completed",
+          "result": "pass",
+          "specialistContextBytes": [
+            3367,
+            3333,
+            3372,
+            3389
+          ],
+          "specialistCount": 4
+        },
+        "directWorkflow": {
+          "contextBytes": 5932,
+          "deltaBaseRevision": 5,
+          "deltaRevision": 49,
+          "directInspection": true,
+          "explicitGapCount": 2,
+          "reportRendered": true,
+          "result": "pass"
+        },
+        "evidence": {
+          "distinctSpecialistEvidence": [
+            "evidence-phase5-access",
+            "evidence-phase5-web"
+          ],
+          "reportDependencyCount": 4
+        },
+        "recovery": {
+          "activeOrUnknownExecution": 1,
+          "automaticReplay": false,
+          "recoveredWorkItemIds": [
+            "work-phase5-recovery"
+          ],
+          "staleClaimReason": "work_item_claim_inactive"
+        },
+        "repetition": 3,
+        "workspace": {
+          "duplicateActionsOrJobs": 0,
+          "finalRevision": 49,
+          "lostUpdates": 0,
+          "startingRevision": 5
+        }
+      }
+    ]
+  },
+  "optionalDiagnostics": {
+    "liveCodexMultiAgent": {
+      "acceptanceDependency": false,
+      "command": "bin/run-phase5-codex-benchmark --run",
+      "defaultRepetitions": 1,
+      "result": "not_run"
+    }
+  },
+  "residuals": [
+    "Generic MCP conformance remains the retained Phase 3 partial_fail classification and was not rerun.",
+    "MCP Inspector is optional and remains outside Phase 5 acceptance.",
+    "Live multi-agent model behavior is an optional client diagnostic, not a Phase 5 acceptance claim."
+  ],
+  "result": "pass",
+  "retention": {
+    "internalAgentLoop": false,
+    "jsonV1Retained": true,
+    "legacyRetained": true,
+    "modernCompactDefault": true,
+    "modernDirectRetained": true,
+    "providerSpecificCoreBehavior": false
+  },
+  "schemaVersion": 1,
+  "tests": {
+    "command": "python -m unittest discover MCPS/Synapse-MCP/tests -p test_phase5*.py",
+    "count": 66,
+    "result": "pass"
+  },
+  "verdicts": {
+    "authorityExecutionLinkage": {
+      "coveredOutcomes": [
+        "success",
+        "success",
+        "success"
+      ],
+      "externalTargetTraffic": 0,
+      "result": "pass",
+      "uncoveredOutcomes": [
+        "approval_required",
+        "approval_required",
+        "approval_required"
+      ]
+    },
+    "capabilityPackAssemblyCompatibility": {
+      "measurements": {
+        "coreOnly": {
+          "actionCount": 42,
+          "compactToolCount": 11,
+          "directToolCount": 42,
+          "packCount": 1
+        },
+        "freshProcessRepetitions": 3,
+        "registryOrderSha256": "8cfd128d2b4d49ec7e4957f8b9f06eb5733f5f3ef304981946e633403ad948ed",
+        "result": "pass",
+        "standard": {
+          "actionCount": 174,
+          "ownershipCount": 174,
+          "packCount": 6
+        }
+      },
+      "result": "pass"
+    },
+    "compactSurfaceContextBudgets": {
+      "result": "pass",
+      "specialistContextBytes": [
+        [
+          3367,
+          3333,
+          3372,
+          3389
+        ],
+        [
+          3367,
+          3333,
+          3372,
+          3389
+        ],
+        [
+          3367,
+          3333,
+          3372,
+          3389
+        ]
+      ],
+      "surface": {
+        "application": {
+          "compact": {
+            "compactUtf8Bytes": 23297,
+            "sha256": "cf96e6ed720b35b3d0a0b20bfca80bf76fb1e240795888cfdab0a85a23a4895c",
+            "toolCount": 11
+          },
+          "direct": {
+            "compactUtf8Bytes": 1504261,
+            "sha256": "d1ba8a6aec82039d109e2fae7bd26bcd88582dc2b8f395d2d9d98ec28dc71355",
+            "toolCount": 174
+          },
+          "legacy": {
+            "compactUtf8Bytes": 99337,
+            "sha256": "5f61dc5bcb5821b4d67fca12eaa2b0b1a369c4b4294fbcd43cb9b1fcaee18bb4",
+            "toolCount": 174
+          }
+        },
+        "maximumBytes": 24834,
+        "maximumCompactWireBytes": 24639,
+        "result": "pass",
+        "wire": {
+          "2024-11-05": {
+            "compactUtf8Bytes": 24639,
+            "fixture": "sdk-modern-compact-2024-11-05-tools.json",
+            "sha256": "702d048480d6697bb8029205a1ee533dc46ed48960f5b42cca9c57cfda9471a6",
+            "toolCount": 11
+          },
+          "2025-03-26": {
+            "compactUtf8Bytes": 24639,
+            "fixture": "sdk-modern-compact-2024-11-05-tools.json",
+            "sha256": "702d048480d6697bb8029205a1ee533dc46ed48960f5b42cca9c57cfda9471a6",
+            "toolCount": 11
+          },
+          "2025-06-18": {
+            "compactUtf8Bytes": 24639,
+            "fixture": "sdk-modern-compact-2024-11-05-tools.json",
+            "sha256": "702d048480d6697bb8029205a1ee533dc46ed48960f5b42cca9c57cfda9471a6",
+            "toolCount": 11
+          },
+          "2025-11-25": {
+            "compactUtf8Bytes": 24639,
+            "fixture": "sdk-modern-compact-2024-11-05-tools.json",
+            "sha256": "702d048480d6697bb8029205a1ee533dc46ed48960f5b42cca9c57cfda9471a6",
+            "toolCount": 11
+          },
+          "2026-07-28": {
+            "compactUtf8Bytes": 24001,
+            "fixture": "sdk-modern-compact-2026-07-28-tools.json",
+            "sha256": "a052d67e3e408c05dc1338d163fc1c65a8fe4b80817eca7f6fdc31f5b4063780",
+            "toolCount": 11
+          }
+        },
+        "withinCeiling": true
+      }
+    },
+    "directOperationalWorkflow": {
+      "deterministicOperationalPasses": 3,
+      "result": "pass"
+    },
+    "legacyRollbackIntegrity": {
+      "jsonV1AdapterRetained": true,
+      "launcherRetained": true,
+      "legacyCompactBytes": 99337,
+      "legacyToolCount": 174,
+      "phase4Acceptance": "pass",
+      "result": "pass",
+      "stateRollbackBoundary": "rollback_v2_data_loss_risk"
+    },
+    "multiClientCoordinationWorkflow": {
+      "deterministicOperationalPasses": 3,
+      "duplicateActionsOrJobs": 0,
+      "result": "pass"
+    },
+    "multiClientStateConcurrency": {
+      "automaticReplays": 0,
+      "exclusiveClaimWinners": [
+        1,
+        1,
+        1
+      ],
+      "lostUpdates": 0,
+      "repetitions": 3,
+      "result": "pass"
+    },
+    "packagingColdStart": {
+      "distribution": {
+        "command": "bin/validate-phase5-distribution",
+        "result": "pass",
+        "summary": "distribution gate: pass (synapse_mcp-0.6.0b0-py3-none-any.whl; synapse_mcp-0.6.0b0.tar.gz)\nroot instructions: 94 lines\noperational prompt: 6289 bytes\ninstalled Codex assets: 8 operating skills, 2 shared references, 4 configs\ninstalled modern runtime starts: standard 174 actions; core-only 42 actions"
+      },
+      "freshProcessPackAssembly": 3,
+      "result": "pass"
+    }
+  }
+}

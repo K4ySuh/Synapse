@@ -24,10 +24,28 @@ durable dispatch and continuation truth.
 
 ### Added
 
+- **Phase 5F provider-neutral operational acceptance.** Added an offline
+  deterministic corpus and aggregate eight-verdict acceptance runner for pack assembly,
+  multi-process work-item concurrency, authority/execution linkage,
+  compact/context budgets, direct and coordinated operational workflows,
+  installed cold start, and legacy rollback. Concurrent processes model
+  separately connected operators/accounts without consuming a single model
+  subscription. The objective-driven Codex runner is an optional one-repetition
+  diagnostic, pins the coordinator and specialists to Luna/low with low
+  verbosity, disabled reasoning summaries, and capped retained tool output,
+  guards higher-usage overrides, and checkpoints clean repetitions. Older live
+  Codex benchmark runners now share the Luna/low one-repetition defaults while
+  their checked historical Sol evidence remains unchanged.
+  Fixtures are fictional/private, external traffic is disabled, committed
+  evidence is sanitized, and generic conformance retains its prior
+  classification. The deferred complete-phase adversarial review passed across
+  authority/claim attacks, recovery without replay, evidence atomicity,
+  compatibility surfaces, packaging, and rollback boundaries.
+
 - **Phase 5E operational instructions and Codex distribution.** Split the
   former 640-line combined root manual into a 94-line repository policy plus
   scoped MCP, authority, state, adapter, and test instructions. Repository and
-  installed MCP launches now serve the same 5,941-byte package-owned operational
+  installed MCP launches now serve the same 6,289-byte package-owned operational
   prompt while preserving legacy prompt/resource discovery shapes and explicit
   prompt overrides. Wheel and sdist artifacts include the complete Codex
   skill/reference tree and standard, core-only, modern-direct, and legacy config

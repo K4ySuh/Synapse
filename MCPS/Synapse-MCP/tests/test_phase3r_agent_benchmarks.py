@@ -34,6 +34,46 @@ class Phase3RAgentBenchmarkTests(unittest.TestCase):
                 relative,
             )
 
+    def test_live_runners_default_to_the_low_usage_codex_profile(self) -> None:
+        for runner in (self.objective, self.smoke):
+            self.assertEqual(runner["DEFAULT_CODEX_MODEL"], "gpt-5.6-luna")
+            self.assertEqual(runner["DEFAULT_REASONING_EFFORT"], "low")
+            self.assertEqual(runner["DEFAULT_REPETITIONS"], 1)
+
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with patch.dict(
+                self.objective["_codex_command"].__globals__,
+                {"_modern_python": lambda: "/fixture/python"},
+            ):
+                objective = self.objective["_codex_command"](
+                    root,
+                    root / "schema.json",
+                    root / "final.json",
+                    self.objective["DEFAULT_CODEX_MODEL"],
+                )
+            with patch.dict(
+                self.smoke["_codex_command"].__globals__,
+                {"_modern_python": lambda: "/fixture/python"},
+            ):
+                smoke = self.smoke["_codex_command"](
+                    root,
+                    model=self.smoke["DEFAULT_CODEX_MODEL"],
+                    schema_path=root / "schema.json",
+                    result_path=root / "final.json",
+                    prompt="fixture objective",
+                )
+        for command in (objective, smoke):
+            overrides = [
+                command[index + 1]
+                for index, value in enumerate(command[:-1])
+                if value == "--config"
+            ]
+            self.assertIn('model_reasoning_effort="low"', overrides)
+            self.assertIn('model_reasoning_summary="none"', overrides)
+            self.assertIn('model_verbosity="low"', overrides)
+            self.assertIn("tool_output_token_limit=4096", overrides)
+
     def test_objective_acceptance_allows_catalog_selected_canonical_paths(self) -> None:
         calls = []
         for action_id in (
@@ -180,6 +220,8 @@ class Phase3RAgentBenchmarkTests(unittest.TestCase):
             )
             emitted = json.loads(output.read_text(encoding="utf-8"))
         self.assertEqual(emitted["preflight"], expected["preflight"])
+        self.assertNotIn("reasoningEffort", emitted["runs"][0])
+        self.assertNotIn("cachedInputTokens", emitted["runs"][0])
 
     def test_live_gate_refuses_an_unavailable_codex_without_starting_work(self) -> None:
         globals_ = self.objective["_live_gate"].__globals__

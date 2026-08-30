@@ -64,6 +64,13 @@ tests, and the shared [changelog](../../CHANGELOG.md).
 - [Codex distribution and instruction architecture](phase-5-distribution.md) —
   scoped repository policy, packaged operational prompt, installed skills, and
   standard/core/direct configuration
+- [Operational benchmark method](phase-5-benchmark-method.md) — fictional
+  provider-neutral deterministic corpus, bounded Luna/low optional live client
+  diagnostic, thresholds, evidence hygiene, and retained baselines
+- [Phase 5 handoff](phase-5-handoff.md) — acceptance, operating boundary,
+  compatibility, residuals, and rollback closure
+- [Machine-readable Phase 5 evidence](evidence/phase-5/) — sanitized
+  provider-neutral aggregate acceptance results
 - [Capability-pack ownership map](capability-pack-ownership.json) — checked
   single-owner assignment for all 174 built-in actions
 - [ADR-0010](adr/ADR-0010-capability-pack-lifecycle.md) — deterministic,
@@ -83,6 +90,7 @@ tests, and the shared [changelog](../../CHANGELOG.md).
 | [ADR-0008](adr/ADR-0008-action-identity-and-packs.md) | Action identity and pack scheme | Proposed |
 | [ADR-0009](adr/ADR-0009-registry-v2-correction-gate.md) | Registry v2 correction gate | Accepted |
 | [ADR-0010](adr/ADR-0010-capability-pack-lifecycle.md) | Deterministic high-level capability-pack lifecycle | Accepted |
+| [ADR-0011](adr/ADR-0011-operational-work-items-and-claim-leases.md) | Durable operational work items and claim leases | Accepted |
 
 ## Cross-cutting pattern
 

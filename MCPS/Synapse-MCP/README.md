@@ -172,6 +172,13 @@ Codex config templates as integration data. Use `synapse-codex-assets
 after installation. `bin/validate-phase5-distribution` performs the isolated
 archive build/install and standard/core cold-start gate.
 
+Phase 5 operational closure is exercised from the repository root with
+`bin/run-phase5-acceptance`. It uses fresh fictional local SQLite-v2 workspaces,
+real concurrent processes, and disabled external target traffic, then writes
+sanitized aggregate evidence. `bin/run-phase5-codex-benchmark --run` remains an
+explicit one-repetition client diagnostic and is not an acceptance dependency;
+its coordinator and specialists default to the bounded Luna/low profile.
+
 ## Runtime Python
 
 Run this MCP through `MCPS/Synapse-MCP/bin/synapse-mcp`. The launcher sources

@@ -33,7 +33,11 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 PACKAGE_DIR = ROOT_DIR / "MCPS" / "Synapse-MCP"
 TEST_DIR = PACKAGE_DIR / "tests"
 DEFAULT_OUTPUT = ROOT_DIR / "DATA" / "phase3d-codex"
-DEFAULT_CODEX_MODEL = "gpt-5.6-sol"
+DEFAULT_CODEX_MODEL = "gpt-5.6-luna"
+DEFAULT_REASONING_EFFORT = "low"
+REASONING_EFFORTS = ("minimal", "low", "medium", "high", "xhigh")
+DEFAULT_REPETITIONS = 1
+TOOL_OUTPUT_TOKEN_LIMIT = 4096
 WORKSPACE_ID = "benchmark"
 TARGET = "app.acme-demo.test"
 MCP_PRINCIPAL = "phase3d-codex"
@@ -526,6 +530,7 @@ def _codex_command(
     result_path: Path,
     prompt: str,
     servers: dict[str, tuple[str, str]] | None = None,
+    reasoning_effort: str = DEFAULT_REASONING_EFFORT,
 ) -> list[str]:
     server_env = (
         "{"
@@ -562,6 +567,14 @@ def _codex_command(
         "read-only",
         "--model",
         model,
+        "--config",
+        f"model_reasoning_effort={json.dumps(reasoning_effort)}",
+        "--config",
+        'model_reasoning_summary="none"',
+        "--config",
+        'model_verbosity="low"',
+        "--config",
+        f"tool_output_token_limit={TOOL_OUTPUT_TOKEN_LIMIT}",
         "--cd",
         str(ROOT_DIR),
         "--output-schema",
@@ -640,6 +653,7 @@ def _run_client_case(
     repetition: int,
     case: str,
     model: str,
+    reasoning_effort: str = DEFAULT_REASONING_EFFORT,
     operation_handle: str = "",
     resource_ref: str = "",
 ) -> dict[str, Any]:
@@ -674,6 +688,7 @@ def _run_client_case(
         result_path=result_path,
         prompt=prompt,
         servers=servers,
+        reasoning_effort=reasoning_effort,
     )
     result = _run(command)
     elapsed = time.perf_counter() - started
@@ -929,6 +944,7 @@ def _live_gate(
     repetitions: int,
     codex_model: str,
     output: Path,
+    reasoning_effort: str = DEFAULT_REASONING_EFFORT,
     evidence_output: Path | None = None,
 ) -> dict[str, Any]:
     output.mkdir(parents=True, exist_ok=True)
@@ -947,6 +963,7 @@ def _live_gate(
                 repetition=repetition,
                 case="safety",
                 model=model,
+                reasoning_effort=reasoning_effort,
             )
             safety_verification = _call_internal("verify", safety_root)
             safety_traffic = _traffic_count(safety_root)
@@ -960,6 +977,7 @@ def _live_gate(
                 repetition=repetition,
                 case="read",
                 model=model,
+                reasoning_effort=reasoning_effort,
             )
             read_traffic = _traffic_count(read_root)
         with TemporaryDirectory(prefix="synapse-phase3d-codex-active-") as active_temporary:
@@ -972,6 +990,7 @@ def _live_gate(
                 repetition=repetition,
                 case="approval",
                 model=model,
+                reasoning_effort=reasoning_effort,
             )
             handle = str(approval["final"].get("operationHandle") or "")
             binding = _run_client_case(
@@ -980,6 +999,7 @@ def _live_gate(
                 repetition=repetition,
                 case="binding",
                 model=model,
+                reasoning_effort=reasoning_effort,
                 operation_handle=handle,
                 resource_ref=active_resource_ref,
             )
@@ -992,6 +1012,7 @@ def _live_gate(
                 repetition=repetition,
                 case="resume",
                 model=model,
+                reasoning_effort=reasoning_effort,
                 operation_handle=handle,
             )
             verification = _call_internal("verify", active_root)
@@ -1007,6 +1028,7 @@ def _live_gate(
                 {
                     "client": client,
                     "model": model,
+                    "reasoningEffort": reasoning_effort,
                     "repetition": repetition,
                     "fixtures": {
                         "safety": safety_fixture,
@@ -1035,6 +1057,8 @@ def _live_gate(
         "surface": "modern-compact",
         "transport": "stdio",
         "repetitions": repetitions,
+        "model": model,
+        "reasoningEffort": reasoning_effort,
         "preflight": {"codex": preflight},
         "experimentalFeaturesEnabled": False,
         "externalTargetTraffic": "disabled",
@@ -1064,9 +1088,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--preflight", action="store_true", help="Print stable client capability evidence only")
     parser.add_argument("--run", action="store_true", help="Run the live read and supervised-resume gate")
-    parser.add_argument("--repetitions", type=int, default=3)
+    parser.add_argument("--repetitions", type=int, default=DEFAULT_REPETITIONS)
     parser.add_argument("--model", help="Compatibility alias for --codex-model")
     parser.add_argument("--codex-model", default=DEFAULT_CODEX_MODEL)
+    parser.add_argument(
+        "--reasoning-effort",
+        choices=REASONING_EFFORTS,
+        default=DEFAULT_REASONING_EFFORT,
+    )
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--evidence-output", type=Path)
     parser.add_argument(
@@ -1089,6 +1118,7 @@ def main() -> int:
             repetitions=args.repetitions,
             codex_model=codex_model,
             output=args.output.expanduser().resolve(),
+            reasoning_effort=args.reasoning_effort,
             evidence_output=(
                 args.evidence_output.expanduser().resolve()
                 if args.evidence_output is not None
@@ -1098,7 +1128,23 @@ def main() -> int:
         print(json.dumps(document, indent=2, sort_keys=True))
         return 0
     if args.preflight:
-        print(json.dumps({"codex": _codex_preflight()}, indent=2, sort_keys=True))
+        print(
+            json.dumps(
+                {
+                    "codex": _codex_preflight(),
+                    "benchmarkConfiguration": {
+                        "model": codex_model,
+                        "reasoningEffort": args.reasoning_effort,
+                        "repetitions": args.repetitions,
+                        "modelVerbosity": "low",
+                        "reasoningSummary": "none",
+                        "toolOutputTokenLimit": TOOL_OUTPUT_TOKEN_LIMIT,
+                    },
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
         return 0
     parser.error("select --preflight or --run")
     return 2

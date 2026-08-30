@@ -50,16 +50,18 @@ zero schema retries, three approval interruptions, three successful resumes,
 and three successful dispatches. Response status remained null because the
 CORS fixture used `httpBackend=disabled` and `disableTraffic=true`.
 
-Reproduce it with:
+Run the current resource-bounded diagnostic with:
 
 ```bash
 bin/run-phase3d-codex --preflight
-bin/run-phase3d-codex --run --repetitions 3
+bin/run-phase3d-codex --run
 ```
 
 Raw JSONL and opaque handles remain under `DATA/phase3d-codex/`. Sanitized
 machine evidence is committed as
 [`codex-closure-results.json`](evidence/phase-3/codex-closure-results.json).
+The runner now defaults to one Luna/low repetition; the checked three-run Sol
+result above remains historical evidence and is not regenerated or relabeled.
 
 ## Supporting gates and accepted residuals
 

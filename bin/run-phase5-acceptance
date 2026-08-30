@@ -1,0 +1,424 @@
+#!/usr/bin/env python3
+# Copyright 2026 Javier Roldán Ortiz
+# SPDX-License-Identifier: Apache-2.0
+
+"""Run the reproducible Phase 5 operational acceptance and handoff gate."""
+
+from __future__ import annotations
+
+import argparse
+from datetime import datetime, timezone
+from hashlib import sha256
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+from tempfile import TemporaryDirectory
+from typing import Any
+
+
+ROOT = Path(__file__).resolve().parents[1]
+PACKAGE = ROOT / "MCPS" / "Synapse-MCP"
+TESTS = PACKAGE / "tests"
+DEFAULT_EVIDENCE = ROOT / "docs" / "modernization" / "evidence" / "phase-5" / "acceptance-results.json"
+PHASE3_EVIDENCE = ROOT / "docs" / "modernization" / "evidence" / "phase-3"
+PHASE4_EVIDENCE = ROOT / "docs" / "modernization" / "evidence" / "phase-4" / "acceptance-results.json"
+LEGACY_FIXTURE = TESTS / "fixtures" / "legacy_contracts" / "tools_list.json"
+REPETITIONS = 3
+COMPACT_MAXIMUM_BYTES = 24_834
+
+
+class AcceptanceFailure(RuntimeError):
+    """A Phase 5 acceptance prerequisite or invariant failed."""
+
+
+def _ensure_selected_runtime() -> None:
+    resolver = ROOT / "bin" / "resolve-synapse-python"
+    selected = subprocess.run(
+        [str(resolver), "--require-modern"],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if selected.returncode:
+        raise AcceptanceFailure(selected.stderr.strip() or selected.stdout.strip())
+    executable = selected.stdout.strip()
+    if (
+        executable
+        and Path(sys.executable) != Path(executable)
+        and os.environ.get("SYNAPSE_PHASE5_RUNTIME_SELECTED") != "1"
+    ):
+        environment = dict(os.environ)
+        environment["SYNAPSE_PHASE5_RUNTIME_SELECTED"] = "1"
+        os.execve(executable, [executable, str(Path(__file__).resolve()), *sys.argv[1:]], environment)
+
+
+_ensure_selected_runtime()
+
+sys.path.insert(0, str(PACKAGE))
+sys.path.insert(0, str(TESTS))
+
+from phase5_acceptance_support import canonical_json_bytes, run_operational_repetition  # noqa: E402
+from synapse_mcp.app.capability_packs import assemble_capability_packs  # noqa: E402
+from synapse_mcp.app.facade import CompactProjection, DirectProjection  # noqa: E402
+from synapse_mcp.transport.stdio_server import TOOL_SCHEMAS  # noqa: E402
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _run(command: list[str], *, timeout: int = 900) -> subprocess.CompletedProcess[str]:
+    environment = dict(os.environ)
+    environment.update(
+        {
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONPATH": os.pathsep.join((str(PACKAGE), str(TESTS))),
+        }
+    )
+    try:
+        return subprocess.run(
+            command,
+            cwd=ROOT,
+            env=environment,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise AcceptanceFailure(f"command timed out: {' '.join(command)}") from exc
+
+
+def _phase5_tests() -> dict[str, Any]:
+    command = [
+        sys.executable,
+        "-m",
+        "unittest",
+        "discover",
+        str(TESTS),
+        "-p",
+        "test_phase5*.py",
+    ]
+    completed = _run(command)
+    combined = completed.stdout + completed.stderr
+    matched = re.search(r"Ran (\d+) tests?", combined)
+    count = int(matched.group(1)) if matched else 0
+    if completed.returncode:
+        raise AcceptanceFailure(f"Phase 5 tests failed:\n{combined[-4000:]}")
+    return {
+        "result": "pass",
+        "count": count,
+        "command": "python -m unittest discover MCPS/Synapse-MCP/tests -p test_phase5*.py",
+    }
+
+
+def _distribution_gate() -> dict[str, Any]:
+    completed = _run([str(ROOT / "bin" / "validate-phase5-distribution")])
+    if completed.returncode:
+        raise AcceptanceFailure(f"Phase 5 distribution gate failed:\n{completed.stdout}{completed.stderr}")
+    return {
+        "result": "pass",
+        "command": "bin/validate-phase5-distribution",
+        "summary": completed.stdout.strip(),
+    }
+
+
+def _surface_measurements() -> dict[str, Any]:
+    completed = _run([str(ROOT / "bin" / "measure-phase3-surfaces"), "--json"])
+    if completed.returncode:
+        raise AcceptanceFailure(f"surface measurement failed:\n{completed.stdout}{completed.stderr}")
+    document = json.loads(completed.stdout)
+    application = document["applicationProjection"]["surfaces"]
+    compact = application["modern-compact"]
+    direct = application["modern-direct"]
+    legacy = application["legacy"]
+    wire = document["officialSdkWire"]["surfaces"]["modern-compact"]["revisions"]
+    maximum_wire = max(int(item["compactUtf8Bytes"]) for item in wire.values())
+    if compact["toolCount"] != 11 or maximum_wire > COMPACT_MAXIMUM_BYTES:
+        raise AcceptanceFailure("modern-compact operation count or wire ceiling changed")
+    return {
+        "result": "pass",
+        "maximumBytes": COMPACT_MAXIMUM_BYTES,
+        "application": {
+            "compact": {
+                "toolCount": compact["toolCount"],
+                "compactUtf8Bytes": compact["compactUtf8Bytes"],
+                "sha256": compact["sha256"],
+            },
+            "direct": {
+                "toolCount": direct["toolCount"],
+                "compactUtf8Bytes": direct["compactUtf8Bytes"],
+                "sha256": direct["sha256"],
+            },
+            "legacy": {
+                "toolCount": legacy["toolCount"],
+                "compactUtf8Bytes": legacy["compactUtf8Bytes"],
+                "sha256": legacy["sha256"],
+            },
+        },
+        "wire": wire,
+        "maximumCompactWireBytes": maximum_wire,
+        "withinCeiling": maximum_wire <= COMPACT_MAXIMUM_BYTES,
+    }
+
+
+def _pack_gate() -> dict[str, Any]:
+    standard = assemble_capability_packs(discover_external=False)
+    core = assemble_capability_packs(("core",), discover_external=False)
+    standard_ids = [str(item.id) for item in standard.registry.descriptors()]
+    core_ids = [str(item.id) for item in core.registry.descriptors()]
+    ownership = dict(standard.action_owners)
+    if len(standard_ids) != 174 or len(core_ids) != 42 or len(ownership) != 174:
+        raise AcceptanceFailure("capability-pack action or ownership counts changed")
+    script = (
+        "import hashlib,json; "
+        "from synapse_mcp.app.capability_packs import assemble_capability_packs; "
+        "a=assemble_capability_packs(discover_external=False); "
+        "ids=[str(item.id) for item in a.registry.descriptors()]; "
+        "print(hashlib.sha256(json.dumps(ids,separators=(',',':')).encode()).hexdigest())"
+    )
+    fresh_digests = []
+    for _ in range(REPETITIONS):
+        completed = _run([sys.executable, "-c", script], timeout=120)
+        if completed.returncode:
+            raise AcceptanceFailure(f"fresh-process pack assembly failed: {completed.stderr}")
+        fresh_digests.append(completed.stdout.strip())
+    if len(set(fresh_digests)) != 1:
+        raise AcceptanceFailure("fresh-process Registry assembly was not deterministic")
+    return {
+        "result": "pass",
+        "standard": {
+            "packCount": len(standard.manifests),
+            "actionCount": len(standard_ids),
+            "ownershipCount": len(ownership),
+        },
+        "coreOnly": {
+            "packCount": len(core.manifests),
+            "actionCount": len(core_ids),
+            "compactToolCount": len(CompactProjection(registry=core.registry, capability_packs=core).operations()),
+            "directToolCount": len(DirectProjection(registry=core.registry).operations()),
+        },
+        "freshProcessRepetitions": REPETITIONS,
+        "registryOrderSha256": fresh_digests[0],
+    }
+
+
+def _operational_corpus() -> dict[str, Any]:
+    runs: list[dict[str, Any]] = []
+    for repetition in range(1, REPETITIONS + 1):
+        with TemporaryDirectory(prefix=f"synapse-phase5-acceptance-{repetition}-") as temporary:
+            runs.append(run_operational_repetition(Path(temporary), repetition))
+    if any(run["directWorkflow"]["result"] != "pass" for run in runs):
+        raise AcceptanceFailure("single-agent operational corpus failed")
+    if any(run["coordinatedWorkflow"]["result"] != "pass" for run in runs):
+        raise AcceptanceFailure("multi-agent operational corpus failed")
+    if any(run["contention"]["winners"] != 1 for run in runs):
+        raise AcceptanceFailure("exclusive work-item contention produced an invalid winner count")
+    if any(run["recovery"]["automaticReplay"] for run in runs):
+        raise AcceptanceFailure("work-item recovery attempted automatic execution replay")
+    return {
+        "result": "pass",
+        "classification": "deterministic_phase5_operational_corpus",
+        "objectiveDriven": False,
+        "repetitions": REPETITIONS,
+        "runs": runs,
+    }
+
+
+def _rollback_gate() -> dict[str, Any]:
+    fixture = json.loads(LEGACY_FIXTURE.read_text(encoding="utf-8"))["result"]["tools"]
+    phase4 = json.loads(PHASE4_EVIDENCE.read_text(encoding="utf-8"))
+    if list(TOOL_SCHEMAS) != fixture:
+        raise AcceptanceFailure("frozen legacy tools/list fixture drifted")
+    if phase4.get("result") != "pass":
+        raise AcceptanceFailure("canonical Phase 4 acceptance evidence is not passing")
+    return {
+        "result": "pass",
+        "legacyToolCount": len(TOOL_SCHEMAS),
+        "legacyCompactBytes": len(json.dumps(list(TOOL_SCHEMAS), separators=(",", ":")).encode()),
+        "launcherRetained": (PACKAGE / "bin" / "synapse-mcp").is_file(),
+        "jsonV1AdapterRetained": (PACKAGE / "synapse_mcp" / "state" / "json_v1.py").is_file(),
+        "phase4Acceptance": "pass",
+        "stateRollbackBoundary": phase4["migrationRecovery"]["rollbackRefusalReason"],
+    }
+
+
+def _instruction_measurements() -> dict[str, Any]:
+    root_instructions = (ROOT / "AGENTS.md").read_bytes()
+    operational_prompt = (PACKAGE / "synapse_mcp" / "operational_prompt.md").read_bytes()
+    return {
+        "rootLines": len(root_instructions.decode().splitlines()),
+        "rootBytes": len(root_instructions),
+        "operationalPromptBytes": len(operational_prompt),
+        "operationalPromptReductionFromPhase4": round(1 - len(operational_prompt) / 27_633, 4),
+    }
+
+
+def _historic_classifications() -> dict[str, Any]:
+    conformance = json.loads((PHASE3_EVIDENCE / "conformance-results.json").read_text(encoding="utf-8"))
+    baseline = json.loads((PHASE3_EVIDENCE / "agent-benchmark-results.json").read_text(encoding="utf-8"))
+    return {
+        "genericConformance": {
+            "classification": conformance.get("overall"),
+            "newlyRerun": False,
+            "acceptanceDependency": False,
+        },
+        "phase3CodexBaseline": {
+            "classification": baseline.get("classification"),
+            "overall": baseline.get("overall"),
+            "repetitionsPerClient": baseline.get("repetitionsPerClient"),
+            "newlyRerun": False,
+        },
+    }
+
+
+def _aggregate_result(
+    tests: dict[str, Any],
+    distribution: dict[str, Any],
+) -> str:
+    required = (tests["result"], distribution["result"])
+    return "pass" if all(result == "pass" for result in required) else "partial"
+
+
+def run(
+    *,
+    include_tests: bool,
+    include_distribution: bool,
+) -> dict[str, Any]:
+    tests = _phase5_tests() if include_tests else {"result": "skipped", "count": 0}
+    distribution = _distribution_gate() if include_distribution else {"result": "skipped"}
+    packs = _pack_gate()
+    surfaces = _surface_measurements()
+    operational = _operational_corpus()
+    rollback = _rollback_gate()
+    instructions = _instruction_measurements()
+    overall = _aggregate_result(tests, distribution)
+    verdicts = {
+        "capabilityPackAssemblyCompatibility": {
+            "result": "pass",
+            "measurements": packs,
+        },
+        "multiClientStateConcurrency": {
+            "result": "pass",
+            "repetitions": operational["repetitions"],
+            "exclusiveClaimWinners": [run["contention"]["winners"] for run in operational["runs"]],
+            "lostUpdates": sum(run["workspace"]["lostUpdates"] for run in operational["runs"]),
+            "automaticReplays": sum(run["recovery"]["automaticReplay"] for run in operational["runs"]),
+        },
+        "authorityExecutionLinkage": {
+            "result": "pass",
+            "coveredOutcomes": [run["authority"]["coveredOutcome"] for run in operational["runs"]],
+            "uncoveredOutcomes": [run["authority"]["uncoveredOutcome"] for run in operational["runs"]],
+            "externalTargetTraffic": 0,
+        },
+        "compactSurfaceContextBudgets": {
+            "result": "pass",
+            "surface": surfaces,
+            "specialistContextBytes": [
+                run["coordinatedWorkflow"]["specialistContextBytes"]
+                for run in operational["runs"]
+            ],
+        },
+        "directOperationalWorkflow": {
+            "result": "pass",
+            "deterministicOperationalPasses": sum(
+                run["directWorkflow"]["result"] == "pass"
+                for run in operational["runs"]
+            ),
+        },
+        "multiClientCoordinationWorkflow": {
+            "result": "pass",
+            "deterministicOperationalPasses": sum(
+                run["coordinatedWorkflow"]["result"] == "pass"
+                for run in operational["runs"]
+            ),
+            "duplicateActionsOrJobs": sum(
+                run["workspace"]["duplicateActionsOrJobs"] for run in operational["runs"]
+            ),
+        },
+        "packagingColdStart": {
+            "result": distribution["result"],
+            "distribution": distribution,
+            "freshProcessPackAssembly": packs["freshProcessRepetitions"],
+        },
+        "legacyRollbackIntegrity": rollback,
+    }
+    document = {
+        "schemaVersion": 1,
+        "classification": "phase5_operational_acceptance",
+        "capturedAt": _utc_now(),
+        "result": overall,
+        "client": "provider-neutral",
+        "objectiveDriven": False,
+        "externalTargetTraffic": "disabled",
+        "fixture": {
+            "fictional": True,
+            "privateTemporaryRoots": True,
+            "targets": ["app.acme-demo.test"],
+            "repetitions": REPETITIONS,
+            "committedSecrets": False,
+            "rawClientStreamsCommitted": False,
+        },
+        "verdicts": verdicts,
+        "operationalCorpus": operational,
+        "tests": tests,
+        "instructions": instructions,
+        "historicClassifications": _historic_classifications(),
+        "optionalDiagnostics": {
+            "liveCodexMultiAgent": {
+                "acceptanceDependency": False,
+                "command": "bin/run-phase5-codex-benchmark --run",
+                "defaultRepetitions": 1,
+                "result": "not_run",
+            }
+        },
+        "retention": {
+            "modernCompactDefault": True,
+            "modernDirectRetained": True,
+            "legacyRetained": True,
+            "jsonV1Retained": True,
+            "providerSpecificCoreBehavior": False,
+            "internalAgentLoop": False,
+        },
+        "residuals": [
+            "Generic MCP conformance remains the retained Phase 3 partial_fail classification and was not rerun.",
+            "MCP Inspector is optional and remains outside Phase 5 acceptance.",
+            "Live multi-agent model behavior is an optional client diagnostic, not a Phase 5 acceptance claim.",
+        ],
+    }
+    serialized = canonical_json_bytes(document)
+    if str(ROOT).encode() in serialized or b"phase5-acceptance-secret" in serialized:
+        raise AcceptanceFailure("acceptance evidence contains a local path or secret sentinel")
+    document["evidenceSha256"] = sha256(serialized).hexdigest()
+    return document
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--evidence-output", type=Path, default=DEFAULT_EVIDENCE)
+    parser.add_argument("--skip-tests", action="store_true")
+    parser.add_argument("--skip-distribution", action="store_true")
+    args = parser.parse_args()
+    try:
+        result = run(
+            include_tests=not args.skip_tests,
+            include_distribution=not args.skip_distribution,
+        )
+        output = args.evidence_output.expanduser().resolve()
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    except (AcceptanceFailure, OSError, ValueError, json.JSONDecodeError) as exc:
+        print(json.dumps({"result": "fail", "error": str(exc)}, sort_keys=True), file=sys.stderr)
+        return 1
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 0 if result["result"] == "pass" else 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

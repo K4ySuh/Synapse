@@ -188,11 +188,14 @@ Run the exact Phase 3D client gate with:
 
 ```bash
 bin/run-phase3d-codex --preflight
-bin/run-phase3d-codex --run --repetitions 3
+bin/run-phase3d-codex --run
 ```
 
 The gate uses only a fictional disabled-traffic fixture and writes raw output
-under `DATA/phase3d-codex/`. See the
+under `DATA/phase3d-codex/`. It now defaults to one Luna/low repetition with
+low verbosity, no reasoning summary, and bounded retained tool output. The
+checked historical three-run Sol evidence is retained without regeneration.
+See the
 [Phase 3 handoff](modernization/phase-3-handoff.md) for accepted results and
 rollback.
 
@@ -814,9 +817,37 @@ bin/validate-codex-skills --check
 bin/validate-phase5-distribution
 ```
 
-One coordinator and multiple specialists share the same Synapse workspace and
-trusted principal/session while using distinct work-item coordination
-identities. The coordinator creates bounded objectives/dependencies;
+### Phase 5 operational acceptance
+
+Run the complete provider-neutral gate from the repository root:
+
+```sh
+bin/run-phase5-acceptance
+```
+
+The runner creates private fictional `benchmark` workspaces for
+`app.acme-demo.test`; a process guard disables external target traffic and no
+credentials or third-party providers are configured. Real concurrent processes
+exercise the same durable coordination contract used by separately connected
+operators/accounts. Sanitized aggregate evidence is written under
+`docs/modernization/evidence/phase-5/`.
+
+Use `bin/run-phase5-codex-benchmark --run` only when an operator specifically
+needs a one-repetition live Codex client diagnostic. It is not an acceptance
+dependency, and its raw streams remain under gitignored
+`DATA/phase5-codex-benchmark/`. The default profile pins the coordinator and
+spawned specialists to `gpt-5.6-luna` with low reasoning/verbosity, disables
+reasoning summaries, and caps retained tool output. Multiple repetitions or a
+non-default model/effort require `--allow-high-usage`; resume a matching clean
+checkpoint instead of rerunning it. The Phase 3 live runners use the same
+low-usage defaults and one repetition while their historical checked Sol
+evidence remains unchanged. See the
+[benchmark method](modernization/phase-5-benchmark-method.md) for thresholds and
+the [handoff](modernization/phase-5-handoff.md) for rollback.
+
+Each connection is independently bound to server-held principal/session state.
+Authorized clients may share a Synapse workspace while using distinct work-item
+coordination identities. The coordinator creates bounded objectives/dependencies;
 specialists atomically claim, query context since their last revision, link
 evidence and results, then complete, block, or hand off. Role and claim values
 never grant authority. A replacement specialist inspects linked dispatches and

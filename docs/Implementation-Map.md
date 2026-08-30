@@ -446,7 +446,8 @@ The Phase 5D Codex methodology package is under `skills/codex/`:
 These files do not add an application operation or alter the compact/direct
 surfaces. Live capability discovery remains the only action-catalog source.
 
-Phase 5E adds the separate 5,941-byte package operational prompt, keeps the
+Phase 5E adds the separate package operational prompt (6,289 bytes after the
+Phase 5F coordination guidance), keeps the
 root repository policy at 94 lines, and packages Codex integration data without
 importing it from application startup. `synapse_mcp/integrations/codex.py`
 locates and validates installed skills/configs; `bin/validate-phase5-distribution`
@@ -456,6 +457,26 @@ core-only 42-action official-SDK runtimes. `tests/test_phase5e_distribution.py`
 guards instruction
 scope, prompt content/source/size, legacy prompt shape, config selection,
 provider-neutral imports, and distribution metadata.
+
+Phase 5F acceptance is implemented by:
+
+- `tests/phase5_acceptance_support.py`, the deterministic fictional corpus for
+  direct context, concurrent claims, work recovery, evidence convergence,
+  authority linkage, and dependency-bound reporting;
+- `tests/test_phase5f_operational_acceptance.py`, including atomic
+  evidence-before-completion and cross-principal/workspace claim attacks;
+- `bin/run-phase5-codex-benchmark`, an optional one-repetition objective-driven
+  Codex client diagnostic with isolated SQLite-v2/private authority fixtures
+  and a process external-network guard; its bounded live profile pins the
+  coordinator and subagents to Luna/low, minimizes response verbosity and
+  reasoning summaries, caps retained tool output, and guards higher-usage
+  overrides;
+- `bin/run-phase5-acceptance`, the aggregate eight-verdict gate over pack,
+  state, authority, compact/context, direct/coordinated operational workflows,
+  distribution, and rollback truth;
+- `docs/modernization/evidence/phase-5/`, which contains provider-neutral
+  deterministic aggregate results. Optional raw client events stay under
+  gitignored `DATA/` and are not acceptance inputs.
 
 `synapse_mcp/transport/modern/` projects either surface through
 official SDK 2.0.0 over stdio or authenticated Streamable HTTP. `config.py`

@@ -1,0 +1,890 @@
+#!/usr/bin/env python3
+# Copyright 2026 Javier Roldán Ortiz
+# SPDX-License-Identifier: Apache-2.0
+
+"""Run the optional objective-driven Phase 5 Codex client diagnostic."""
+
+from __future__ import annotations
+
+import argparse
+from collections import Counter
+from datetime import datetime, timezone
+from hashlib import sha256
+import json
+import os
+from pathlib import Path
+import re
+import runpy
+import shutil
+import subprocess
+import sys
+from tempfile import TemporaryDirectory
+import time
+from typing import Any
+
+
+ROOT = Path(__file__).resolve().parents[1]
+PACKAGE = ROOT / "MCPS" / "Synapse-MCP"
+TESTS = PACKAGE / "tests"
+PHASE3_RUNNER = ROOT / "bin" / "run-phase3-agent-benchmark"
+DEFAULT_OUTPUT = ROOT / "DATA" / "phase5-codex-benchmark"
+DEFAULT_EVIDENCE = DEFAULT_OUTPUT / "sanitized-results.json"
+DEFAULT_MODEL = "gpt-5.6-luna"
+DEFAULT_REASONING_EFFORT = "low"
+REASONING_EFFORTS = ("minimal", "low", "medium", "high", "xhigh")
+TOOL_OUTPUT_TOKEN_LIMIT = 4096
+CHECKPOINT_NAME = "benchmark-checkpoint.json"
+WORKSPACE_ID = "benchmark"
+TARGET = "app.acme-demo.test"
+REPETITIONS = 1
+
+
+OBJECTIVE_PROMPT = """Use $operate-synapse to complete an authorized fictional local acceptance exercise. Work only through the Synapse MCP server and Codex collaboration agents. Do not use shell, web, browser, filesystem, or any other capability. The workspace is benchmark and its only authorized target is app.acme-demo.test. External target traffic must remain disabled, no credentials or third-party providers may be used, and all generated artifacts must use workspace-owned defaults. Keep every context and work-item read to the smallest response and item/token budget that preserves the objective. Pass durable references and concise status between agents, never transcripts or repeated workspace summaries.
+
+First demonstrate that simple work remains direct: inspect the engagement, obtain bounded current context, identify what changed from an earlier observed revision, inspect rather than duplicate any existing background work after a simulated client/worker loss, and produce an operator report that states explicit coverage gaps.
+
+Then coordinate the decomposable perimeter assessment through durable Synapse work items and Codex specialists. Define bounded perimeter, web, intelligence, access-control, and reporting objectives. Reporting must depend on the specialist work. Have at least three specialists claim distinct objectives concurrently. Deliberately let two specialists contend once for one exclusive objective. Persist that collision in durable work-item progress or result text using the category `claim contention`; a chat-only mention does not count. The loser must then select useful unclaimed work rather than fighting the winner. Have one specialist start at most one minimal sitemap crawl in the background with its network backend disabled and the workspace-owned output default. Link the execution to that specialist's active claimed work, preserve the returned job reference on the work item, and stop without declaring the work complete. After its short claim lease expires, recover it through Synapse, inspect or poll that same existing job, and continue without resubmitting the action.
+
+The web and access-control work must contribute distinct evidence to one conservative candidate/finding lifecycle. Specialists must preserve references, gaps, and next work in their completion or handoff. Reporting must wait for dependencies, consume workspace truth rather than transcripts, and create one coherent operator report. Finish with a coordinator summary separating completed coverage, candidates, reviewed findings, contradictions, blockers, and remaining gaps.
+
+Use live capability discovery and exact descriptions before dynamic execution. Scope, claims, roles, and prose do not grant authority; stop any uncovered action on the returned authority outcome. Do not invent results, store reasoning traces, promote unreviewed scanner output, repeat equivalent active work, or expose local paths and opaque handles. Return only the requested JSON summary."""
+
+
+class BenchmarkFailure(RuntimeError):
+    """A Phase 5 Codex benchmark prerequisite or acceptance invariant failed."""
+
+
+def _phase3() -> dict[str, Any]:
+    return runpy.run_path(str(PHASE3_RUNNER))
+
+
+def _run(
+    command: list[str],
+    *,
+    env: dict[str, str] | None = None,
+    cwd: Path = ROOT,
+    timeout: int = 1800,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        command,
+        cwd=cwd,
+        env=env,
+        text=True,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=timeout,
+        check=False,
+    )
+
+
+def _preflight() -> dict[str, Any]:
+    phase3 = _phase3()
+    value = phase3["_preflight"]()
+    value["multiAgentFeature"] = {
+        "available": True,
+        "source": "Codex stable multi_agent feature",
+    }
+    return value
+
+
+def _assert_objective_prompt() -> None:
+    lowered = OBJECTIVE_PROMPT.lower()
+    forbidden = (
+        "engagement.inspect",
+        "context.query",
+        "tasks.control",
+        "actions.run_active",
+        "actions.run_passive",
+        "reports.render",
+        "crawler.crawl",
+        "workspaceid",
+        "actionid",
+        "workitemid",
+    )
+    leaked = [item for item in forbidden if item in lowered]
+    if leaked:
+        raise BenchmarkFailure(f"objective prompt contains implementation identifiers: {leaked}")
+    if re.search(r"\b(call|invoke)\b.{0,30}\b(exactly|times?)\b", lowered):
+        raise BenchmarkFailure("objective prompt prescribes a tool-call count")
+
+
+def _result_schema() -> dict[str, Any]:
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+            "status": {"type": "string", "enum": ["complete", "incomplete"]},
+            "singleAgent": {
+                "type": "object",
+                "properties": {
+                    "directSimpleWork": {"type": "boolean"},
+                    "revisionDeltaRecovered": {"type": "boolean"},
+                    "existingJobInspectedWithoutResubmit": {"type": "boolean"},
+                    "reportIncludesGaps": {"type": "boolean"},
+                },
+                "required": [
+                    "directSimpleWork",
+                    "revisionDeltaRecovered",
+                    "existingJobInspectedWithoutResubmit",
+                    "reportIncludesGaps",
+                ],
+                "additionalProperties": False,
+            },
+            "multiAgent": {
+                "type": "object",
+                "properties": {
+                    "specialistsClaimedDistinctWork": {"type": "boolean"},
+                    "exclusiveContentionRerouted": {"type": "boolean"},
+                    "workerLossRecoveredWithoutReplay": {"type": "boolean"},
+                    "distinctEvidenceConverged": {"type": "boolean"},
+                    "reportDependenciesRespected": {"type": "boolean"},
+                    "coherentFinalSummary": {"type": "boolean"},
+                },
+                "required": [
+                    "specialistsClaimedDistinctWork",
+                    "exclusiveContentionRerouted",
+                    "workerLossRecoveredWithoutReplay",
+                    "distinctEvidenceConverged",
+                    "reportDependenciesRespected",
+                    "coherentFinalSummary",
+                ],
+                "additionalProperties": False,
+            },
+            "completedCoverage": {"type": "array", "items": {"type": "string"}},
+            "candidates": {"type": "integer", "minimum": 0},
+            "reviewedFindings": {"type": "integer", "minimum": 0},
+            "contradictions": {"type": "integer", "minimum": 0},
+            "blockers": {"type": "array", "items": {"type": "string"}},
+            "gaps": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": [
+            "status",
+            "singleAgent",
+            "multiAgent",
+            "completedCoverage",
+            "candidates",
+            "reviewedFindings",
+            "contradictions",
+            "blockers",
+            "gaps",
+        ],
+        "additionalProperties": False,
+    }
+
+
+def _prepare_fixture(root: Path) -> dict[str, Any]:
+    phase3 = _phase3()
+    fixture = phase3["_call_internal"]("prepare", root)
+    skills = root / ".agents" / "skills"
+    skills.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(ROOT / "skills" / "codex", skills)
+    fixture["codexSkillCount"] = len([item for item in skills.iterdir() if (item / "SKILL.md").is_file()])
+    fixture["skillsInstalledOutsideRepository"] = True
+    return fixture
+
+
+def _server_overrides(root: Path) -> tuple[str, ...]:
+    phase3 = _phase3()
+    server_env = "{" + ",".join(
+        f"{key}={json.dumps(value)}"
+        for key, value in phase3["_server_environment"](root).items()
+    ) + "}"
+    return (
+        f"mcp_servers.synapse.command={json.dumps(phase3['_modern_python']())}",
+        f"mcp_servers.synapse.args={json.dumps(phase3['_server_arguments'](root), separators=(',', ':'))}",
+        f"mcp_servers.synapse.env={server_env}",
+        f"mcp_servers.synapse.cwd={json.dumps(str(ROOT))}",
+        "mcp_servers.synapse.required=true",
+        'mcp_servers.synapse.default_tools_approval_mode="approve"',
+        "mcp_servers.synapse.startup_timeout_sec=30",
+        "mcp_servers.synapse.tool_timeout_sec=180",
+        "features.mcp_2026_07_28=false",
+        "features.multi_agent=true",
+    )
+
+
+def _codex_command(
+    root: Path,
+    schema: Path,
+    final: Path,
+    model: str,
+    reasoning_effort: str,
+) -> list[str]:
+    command = [
+        "codex",
+        "exec",
+        "--ignore-user-config",
+        "--strict-config",
+        "--ephemeral",
+        "--skip-git-repo-check",
+        "--json",
+        "--sandbox",
+        "read-only",
+        "--model",
+        model,
+        "--config",
+        f"model_reasoning_effort={json.dumps(reasoning_effort)}",
+        "--config",
+        'model_reasoning_summary="none"',
+        "--config",
+        'model_verbosity="low"',
+        "--config",
+        f"tool_output_token_limit={TOOL_OUTPUT_TOKEN_LIMIT}",
+        "--config",
+        f"agents.default_subagent_model={json.dumps(model)}",
+        "--config",
+        f"agents.default_subagent_reasoning_effort={json.dumps(reasoning_effort)}",
+        "--cd",
+        str(root),
+        "--output-schema",
+        str(schema),
+        "--output-last-message",
+        str(final),
+    ]
+    for override in _server_overrides(root):
+        command.extend(("--config", override))
+    command.append(OBJECTIVE_PROMPT)
+    return command
+
+
+def _internal_post(root: Path) -> dict[str, Any]:
+    os.environ["SYNAPSE_ROOT"] = str(root)
+    os.environ["SYNAPSE_DATA_DIR"] = str(root / "DATA")
+    os.environ["SYNAPSE_DUMP_DIR"] = str(root / "DATA" / "workspaces")
+    os.environ["SYNAPSE_REPORTS_DIR"] = str(root / "reports")
+    sys.path.insert(0, str(PACKAGE))
+    sys.path.insert(0, str(TESTS))
+    phase3 = _phase3()
+    base = phase3["_post_fixture"](root)
+    from synapse_mcp.core import workspace
+    from synapse_mcp.policy.repository import WorkspaceAuthorityRepository
+    from synapse_mcp.state import ActivatedWorkspaceRepository, SQLiteWorkItemRepository
+
+    repository = SQLiteWorkItemRepository(
+        ActivatedWorkspaceRepository(WORKSPACE_ID, workspace.WORKSPACES_DIR / WORKSPACE_ID)
+    )
+    items = repository.list(limit=100)
+    inspected = [repository.inspect(item["workItemId"]) for item in items]
+    activated = repository.workspace
+    with activated.connection_factory.connect() as connection:
+        event_counts = {
+            str(event_type): int(count)
+            for event_type, count in connection.execute(
+                "SELECT event_type, COUNT(*) FROM work_item_events "
+                "WHERE workspace_id=? GROUP BY event_type ORDER BY event_type",
+                (WORKSPACE_ID,),
+            )
+        }
+    authority = WorkspaceAuthorityRepository(WORKSPACE_ID).snapshot()
+    dispatch_action_counts = Counter(
+        str(item.get("actionId") or "")
+        for item in authority.get("dispatches", {}).values()
+        if item.get("actionId")
+    )
+    claim_workers = {
+        str(claim.get("worker") or "")
+        for item in inspected
+        for claim in item.get("claims", [])
+        if str(claim.get("worker") or "")
+    }
+    contention_recorded = any(
+        any(
+            marker
+            in f"{item.get('progressSummary', '')} {item.get('resultSummary', '')}".lower()
+            for marker in (
+                "claim collision",
+                "claim contention",
+                "exclusive collision",
+                "exclusive contention",
+            )
+        )
+        for item in inspected
+    )
+    base["workItems"] = [
+        {
+            "workItemId": item["workItemId"],
+            "role": item["role"],
+            "status": item["status"],
+            "exclusive": item["exclusive"],
+            "dependencyCount": len(item["dependencyIds"]),
+            "claimCount": len(item["claims"]),
+            "activeClaimCount": sum(claim["state"] == "active" for claim in item["claims"]),
+            "evidenceReferenceCount": sum(ref["type"] == "evidence" for ref in item["references"]),
+            "jobReferenceCount": sum(ref["type"] == "job" for ref in item["references"]),
+            "gapCount": len(item["unresolvedGaps"]),
+            "automaticReplay": item["automaticReplay"],
+            "executionReviewRequired": item["executionReviewRequired"],
+        }
+        for item in inspected
+    ]
+    base["workItemEventCounts"] = event_counts
+    base["workspaceRevision"] = activated.revision()
+    base["distinctClaimWorkerCount"] = len(claim_workers)
+    base["contentionRerouteRecorded"] = contention_recorded
+    base["dispatchActionCounts"] = dict(dispatch_action_counts)
+    return base
+
+
+def _call_internal_post(root: Path) -> dict[str, Any]:
+    completed = _run(
+        [sys.executable, str(Path(__file__).resolve()), "--internal-post", "--root", str(root)],
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        timeout=180,
+    )
+    if completed.returncode:
+        raise BenchmarkFailure(f"postflight failed: {completed.stderr[-3000:]}")
+    return json.loads(completed.stdout)
+
+
+def _final_output(path: Path) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise BenchmarkFailure("Codex final output was not valid JSON") from exc
+    if not isinstance(value, dict):
+        raise BenchmarkFailure("Codex final output was not an object")
+    return value
+
+
+def _event_summary(stdout: str) -> dict[str, Any]:
+    phase3 = _phase3()
+    calls, usage = phase3["_codex_records"](stdout)
+    non_mcp_tools: list[str] = []
+    collaboration_calls = 0
+    successful_report_renders = 0
+    for line in stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        item = event.get("item") if isinstance(event.get("item"), dict) else {}
+        if event.get("type") != "item.completed":
+            continue
+        item_type = str(item.get("type") or "")
+        if item_type in {"collaboration_tool_call", "collab_tool_call"}:
+            collaboration_calls += 1
+        if item_type == "mcp_tool_call" and str(item.get("tool") or "") == "reports.render":
+            result = item.get("result") if isinstance(item.get("result"), dict) else {}
+            structured = result.get("structured_content") or result.get("structuredContent") or {}
+            if (
+                item.get("status") == "completed"
+                and isinstance(structured, dict)
+                and structured.get("outcomeKind") == "success"
+                and structured.get("resourceReferences")
+            ):
+                successful_report_renders += 1
+        elif item_type and item_type not in {
+            "mcp_tool_call",
+            "agent_message",
+            "reasoning",
+            "plan",
+        }:
+            non_mcp_tools.append(item_type)
+    task_operations = Counter(
+        str(call.get("taskOperation") or "")
+        for call in calls
+        if call.get("tool") == "tasks.control"
+    )
+    action_fingerprints = Counter(
+        str(call["argumentFingerprint"])
+        for call in calls
+        if call.get("tool") == "actions.run_active"
+    )
+    duplicate_active = sum(count - 1 for count in action_fingerprints.values() if count > 1)
+    return {
+        "calls": calls,
+        "usage": usage,
+        "toolCallCount": len(calls),
+        "collaborationCallCount": collaboration_calls,
+        "successfulReportRenders": successful_report_renders,
+        "nonMcpToolTypes": sorted(set(non_mcp_tools)),
+        "taskOperations": dict(task_operations),
+        "duplicateActiveExecution": duplicate_active,
+        "protocolRevisions": sorted(
+            {str(call["protocolRevision"]) for call in calls if call.get("protocolRevision")}
+        ),
+    }
+
+
+def _require_explicit_high_usage(
+    *,
+    repetitions: int,
+    model: str,
+    reasoning_effort: str,
+    allow_high_usage: bool,
+) -> None:
+    if repetitions < 1:
+        raise BenchmarkFailure("repetitions must be positive")
+    deviations: list[str] = []
+    if repetitions > REPETITIONS:
+        deviations.append(f"repetitions={repetitions}")
+    if model != DEFAULT_MODEL:
+        deviations.append(f"model={model}")
+    if reasoning_effort != DEFAULT_REASONING_EFFORT:
+        deviations.append(f"reasoning_effort={reasoning_effort}")
+    if deviations and not allow_high_usage:
+        raise BenchmarkFailure(
+            "non-default live benchmark usage requires --allow-high-usage: "
+            + ", ".join(deviations)
+        )
+
+
+def _acceptance(final: dict[str, Any], events: dict[str, Any], post: dict[str, Any]) -> dict[str, Any]:
+    items = post["workItems"]
+    def canonical_role(item: dict[str, Any]) -> str:
+        return str(item["role"]).strip().lower().replace("_", "-")
+
+    roles = {canonical_role(item) for item in items}
+    specialist_roles = {"perimeter", "web", "intelligence", "access-control"}
+    completed_specialists = [
+        item
+        for item in items
+        if canonical_role(item) in specialist_roles and item["status"] == "completed"
+    ]
+    reports = [item for item in items if canonical_role(item) == "reporting"]
+    report_dependencies = any(item["dependencyCount"] >= 3 for item in reports)
+    evidence_convergence = sum(item["evidenceReferenceCount"] > 0 for item in items) >= 2
+    recovered = int(post["workItemEventCounts"].get("work_item.recovered", 0)) >= 1
+    job_linked = any(item["jobReferenceCount"] for item in items)
+    claims = int(post["workItemEventCounts"].get("work_item.claimed", 0))
+    exactly_one_background_job = int(post["jobs"]["count"]) == 1
+    exactly_one_crawl_dispatch = (
+        int(post["dispatchActionCounts"].get("crawler.crawl", 0)) == 1
+    )
+    single_claims = final.get("singleAgent", {})
+    multi_claims = final.get("multiAgent", {})
+    single = {
+        "directSimpleWork": (
+            any(call.get("tool") == "engagement.inspect" for call in events["calls"])
+            and bool(single_claims.get("directSimpleWork"))
+        ),
+        "revisionDeltaRecovered": (
+            sum(call.get("tool") == "context.query" for call in events["calls"])
+            >= 2
+            and bool(single_claims.get("revisionDeltaRecovered"))
+        ),
+        "existingJobInspectedWithoutResubmit": (
+            bool(single_claims.get("existingJobInspectedWithoutResubmit"))
+            and exactly_one_background_job
+            and exactly_one_crawl_dispatch
+        ),
+        "reportIncludesGaps": (
+            events["successfulReportRenders"] >= 1
+            and bool(single_claims.get("reportIncludesGaps"))
+            and bool(final.get("gaps"))
+        ),
+    }
+    multi = {
+        "specialistsClaimedDistinctWork": (
+            specialist_roles.issubset(roles)
+            and len(completed_specialists) >= 3
+            and claims >= 3
+            and int(post["distinctClaimWorkerCount"]) >= 3
+            and bool(multi_claims.get("specialistsClaimedDistinctWork"))
+        ),
+        "exclusiveContentionRerouted": (
+            events["collaborationCallCount"] >= 3
+            and bool(post["contentionRerouteRecorded"])
+            and bool(multi_claims.get("exclusiveContentionRerouted"))
+        ),
+        "workerLossRecoveredWithoutReplay": (
+            recovered
+            and job_linked
+            and exactly_one_background_job
+            and exactly_one_crawl_dispatch
+            and events["duplicateActiveExecution"] == 0
+            and all(not item["automaticReplay"] for item in items)
+            and bool(multi_claims.get("workerLossRecoveredWithoutReplay"))
+        ),
+        "distinctEvidenceConverged": evidence_convergence and bool(
+            multi_claims.get("distinctEvidenceConverged")
+        ),
+        "reportDependenciesRespected": report_dependencies and bool(
+            multi_claims.get("reportDependenciesRespected")
+        ),
+        "coherentFinalSummary": (
+            events["successfulReportRenders"] >= 1
+            and bool(final.get("completedCoverage"))
+            and bool(final.get("gaps"))
+            and bool(multi_claims.get("coherentFinalSummary"))
+        ),
+    }
+    return {
+        "singleAgent": single,
+        "multiAgent": multi,
+        "singlePass": all(single.values()),
+        "multiPass": all(multi.values()),
+    }
+
+
+def _run_case(
+    output: Path,
+    *,
+    repetition: int,
+    model: str,
+    reasoning_effort: str,
+) -> dict[str, Any]:
+    case = output / "raw" / f"run-{repetition:02d}"
+    case.mkdir(parents=True, exist_ok=True)
+    schema = case / "schema.json"
+    final_path = case / "final.json"
+    events_path = case / "events.jsonl"
+    stderr_path = case / "stderr.txt"
+    schema.write_text(json.dumps(_result_schema(), indent=2) + "\n", encoding="utf-8")
+    with TemporaryDirectory(prefix=f"synapse-phase5-codex-{repetition}-") as temporary:
+        root = Path(temporary)
+        fixture = _prepare_fixture(root)
+        started = time.perf_counter()
+        completed = _run(
+            _codex_command(root, schema, final_path, model, reasoning_effort),
+            cwd=root,
+        )
+        elapsed = time.perf_counter() - started
+        events_path.write_text(completed.stdout, encoding="utf-8")
+        stderr_path.write_text(completed.stderr, encoding="utf-8")
+        if completed.returncode:
+            diagnostic = (completed.stderr + "\n" + completed.stdout).strip()[-4000:]
+            raise BenchmarkFailure(
+                f"Codex repetition {repetition} failed with {completed.returncode}: {diagnostic}"
+            )
+        final = _final_output(final_path)
+        events = _event_summary(completed.stdout)
+        post = _call_internal_post(root)
+    accepted = _acceptance(final, events, post)
+    external_traffic = int(post["externalTrafficCount"])
+    forbidden_tools = [
+        item for item in events["nonMcpToolTypes"] if item not in {"collaboration_tool_call", "collab_tool_call"}
+    ]
+    overall = (
+        final.get("status") == "complete"
+        and accepted["singlePass"]
+        and accepted["multiPass"]
+        and external_traffic == 0
+        and events["duplicateActiveExecution"] == 0
+        and not forbidden_tools
+    )
+    return {
+        "repetition": repetition,
+        "overall": "pass" if overall else "fail",
+        "singleAgent": {
+            "result": "pass" if accepted["singlePass"] else "fail",
+            "acceptance": accepted["singleAgent"],
+        },
+        "multiAgent": {
+            "result": "pass" if accepted["multiPass"] else "fail",
+            "acceptance": accepted["multiAgent"],
+            "workItemCount": len(post["workItems"]),
+            "workItemEventCounts": post["workItemEventCounts"],
+            "collaborationCallCount": events["collaborationCallCount"],
+        },
+        "wallClockSeconds": round(elapsed, 3),
+        "inputTokens": events["usage"].get("inputTokens"),
+        "cachedInputTokens": events["usage"].get("cachedInputTokens"),
+        "outputTokens": events["usage"].get("outputTokens"),
+        "reasoningOutputTokens": events["usage"].get("reasoningOutputTokens"),
+        "toolCallCount": events["toolCallCount"],
+        "taskOperations": events["taskOperations"],
+        "duplicateActiveExecution": events["duplicateActiveExecution"],
+        "externalTargetTraffic": external_traffic,
+        "dispatchCount": post["dispatchCount"],
+        "dispatchActionCounts": post["dispatchActionCounts"],
+        "jobCount": post["jobs"]["count"],
+        "reportArtifactCount": max(
+            int(post["reportArtifactCount"]), int(events["successfulReportRenders"])
+        ),
+        "workspaceRevision": post["workspaceRevision"],
+        "protocolRevisions": events["protocolRevisions"],
+        "nonMcpToolTypes": forbidden_tools,
+        "fixture": fixture,
+        "reported": {
+            "completedCoverageCount": len(final.get("completedCoverage", [])),
+            "candidateCount": final.get("candidates", 0),
+            "reviewedFindingCount": final.get("reviewedFindings", 0),
+            "contradictionCount": final.get("contradictions", 0),
+            "blockerCount": len(final.get("blockers", [])),
+            "gapCount": len(final.get("gaps", [])),
+        },
+    }
+
+
+def _committable(document: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "schemaVersion": 1,
+        "classification": document["classification"],
+        "capturedAt": document["capturedAt"],
+        "client": document["client"],
+        "clientVersion": document["clientVersion"],
+        "model": document["model"],
+        "reasoningEffort": document["reasoningEffort"],
+        "objectiveDriven": True,
+        "promptSha256": document["promptSha256"],
+        "promptContainsImplementationIdentifiers": False,
+        "promptPrescribesToolCallCounts": False,
+        "repetitions": document["repetitions"],
+        "surface": "modern-compact",
+        "transport": "stdio",
+        "runs": [
+            {
+                key: run.get(key)
+                for key in (
+                    "repetition",
+                    "overall",
+                    "singleAgent",
+                    "multiAgent",
+                    "wallClockSeconds",
+                    "inputTokens",
+                    "cachedInputTokens",
+                    "outputTokens",
+                    "reasoningOutputTokens",
+                    "toolCallCount",
+                    "taskOperations",
+                    "duplicateActiveExecution",
+                    "externalTargetTraffic",
+                    "dispatchCount",
+                    "dispatchActionCounts",
+                    "jobCount",
+                    "reportArtifactCount",
+                    "workspaceRevision",
+                    "protocolRevisions",
+                    "nonMcpToolTypes",
+                    "reported",
+                )
+            }
+            for run in document["runs"]
+        ],
+        "secretHygiene": {
+            "rawClientStreamsCommitted": False,
+            "rawArgumentsCommitted": False,
+            "rawOperationHandlesCommitted": False,
+            "rawAgentTranscriptsCommitted": False,
+            "localPathsCommitted": False,
+            "credentialValuesCommitted": False,
+        },
+        "overall": document["overall"],
+    }
+
+
+def _checkpoint_identity(
+    *,
+    client_version: str,
+    model: str,
+    reasoning_effort: str,
+) -> dict[str, Any]:
+    return {
+        "schemaVersion": 1,
+        "classification": "phase5_codex_operational_benchmark_checkpoint",
+        "client": "codex",
+        "clientVersion": client_version,
+        "model": model,
+        "reasoningEffort": reasoning_effort,
+        "objectiveDriven": True,
+        "promptSha256": sha256(OBJECTIVE_PROMPT.encode()).hexdigest(),
+    }
+
+
+def _write_checkpoint(
+    path: Path,
+    *,
+    identity: dict[str, Any],
+    runs: list[dict[str, Any]],
+) -> None:
+    document = {
+        **identity,
+        "updatedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "completedRepetitions": len(runs),
+        "runs": runs,
+    }
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(
+        json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    temporary.replace(path)
+
+
+def _resume_runs(
+    path: Path,
+    *,
+    identity: dict[str, Any],
+    repetitions: int,
+) -> list[dict[str, Any]]:
+    if not path.is_file():
+        raise BenchmarkFailure(f"resume checkpoint is unavailable: {path}")
+    document = json.loads(path.read_text(encoding="utf-8"))
+    mismatches = [key for key, value in identity.items() if document.get(key) != value]
+    if mismatches:
+        raise BenchmarkFailure(
+            "resume checkpoint does not match the current benchmark: "
+            + ", ".join(mismatches)
+        )
+    runs = document.get("runs")
+    if not isinstance(runs, list) or len(runs) > repetitions:
+        raise BenchmarkFailure("resume checkpoint has an invalid repetition count")
+    clean = all(
+        isinstance(run, dict)
+        and run.get("repetition") == index
+        and run.get("overall") == "pass"
+        and run.get("singleAgent", {}).get("result") == "pass"
+        and run.get("multiAgent", {}).get("result") == "pass"
+        and run.get("externalTargetTraffic") == 0
+        and run.get("duplicateActiveExecution") == 0
+        and run.get("nonMcpToolTypes") == []
+        for index, run in enumerate(runs, start=1)
+    )
+    if not clean:
+        raise BenchmarkFailure("resume checkpoint contains a non-passing repetition")
+    return runs
+
+
+def live_gate(
+    *,
+    repetitions: int,
+    output: Path,
+    evidence: Path,
+    model: str,
+    reasoning_effort: str,
+    resume: bool,
+    allow_high_usage: bool = False,
+) -> dict[str, Any]:
+    _require_explicit_high_usage(
+        repetitions=repetitions,
+        model=model,
+        reasoning_effort=reasoning_effort,
+        allow_high_usage=allow_high_usage,
+    )
+    _assert_objective_prompt()
+    preflight = _preflight()
+    if not preflight["codex"]["available"]:
+        raise BenchmarkFailure("Codex client is unavailable")
+    output.mkdir(parents=True, exist_ok=True)
+    identity = _checkpoint_identity(
+        client_version=preflight["codex"]["version"],
+        model=model,
+        reasoning_effort=reasoning_effort,
+    )
+    checkpoint = output / CHECKPOINT_NAME
+    runs = (
+        _resume_runs(checkpoint, identity=identity, repetitions=repetitions)
+        if resume
+        else []
+    )
+    _write_checkpoint(checkpoint, identity=identity, runs=runs)
+    for repetition in range(len(runs) + 1, repetitions + 1):
+        run = _run_case(
+            output,
+            repetition=repetition,
+            model=model,
+            reasoning_effort=reasoning_effort,
+        )
+        runs.append(run)
+        if run["overall"] != "pass":
+            raise BenchmarkFailure(
+                f"Codex repetition {repetition} failed acceptance: "
+                f"single={run['singleAgent']}; multi={run['multiAgent']}; "
+                f"duplicateActive={run['duplicateActiveExecution']}; "
+                f"externalTraffic={run['externalTargetTraffic']}; "
+                f"nonMcpTools={run['nonMcpToolTypes']}"
+            )
+        _write_checkpoint(checkpoint, identity=identity, runs=runs)
+    document = {
+        "schemaVersion": 1,
+        "classification": "phase5_codex_operational_benchmark",
+        "capturedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "client": "codex",
+        "clientVersion": preflight["codex"]["version"],
+        "model": model,
+        "reasoningEffort": reasoning_effort,
+        "objectiveDriven": True,
+        "promptSha256": sha256(OBJECTIVE_PROMPT.encode()).hexdigest(),
+        "repetitions": repetitions,
+        "preflight": preflight,
+        "runs": runs,
+        "overall": "pass",
+    }
+    (output / "benchmark-results.json").write_text(
+        json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    evidence.parent.mkdir(parents=True, exist_ok=True)
+    evidence.write_text(
+        json.dumps(_committable(document), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return document
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--preflight", action="store_true")
+    parser.add_argument("--run", action="store_true")
+    parser.add_argument("--repetitions", type=int, default=REPETITIONS)
+    parser.add_argument("--model", default=DEFAULT_MODEL)
+    parser.add_argument(
+        "--reasoning-effort",
+        choices=REASONING_EFFORTS,
+        default=DEFAULT_REASONING_EFFORT,
+        help="Codex parent/subagent reasoning effort (default: low)",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="reuse matching clean repetitions from the local output checkpoint",
+    )
+    parser.add_argument(
+        "--allow-high-usage",
+        action="store_true",
+        help="explicitly allow multiple repetitions or a non-default live model/effort",
+    )
+    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--evidence-output", type=Path, default=DEFAULT_EVIDENCE)
+    parser.add_argument("--internal-post", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--root", type=Path, help=argparse.SUPPRESS)
+    args = parser.parse_args()
+    if args.internal_post:
+        if args.root is None:
+            parser.error("--internal-post requires --root")
+        print(json.dumps(_internal_post(args.root.resolve()), sort_keys=True))
+        return 0
+    if args.preflight:
+        _assert_objective_prompt()
+        value = _preflight()
+        value["benchmarkConfiguration"] = {
+            "model": args.model,
+            "reasoningEffort": args.reasoning_effort,
+            "subagentModel": args.model,
+            "subagentReasoningEffort": args.reasoning_effort,
+            "modelVerbosity": "low",
+            "reasoningSummary": "none",
+            "toolOutputTokenLimit": TOOL_OUTPUT_TOKEN_LIMIT,
+            "resume": args.resume,
+            "highUsageOverrideRequired": (
+                args.repetitions > REPETITIONS
+                or args.model != DEFAULT_MODEL
+                or args.reasoning_effort != DEFAULT_REASONING_EFFORT
+            ),
+        }
+        print(json.dumps(value, indent=2, sort_keys=True))
+        return 0
+    if args.run:
+        if args.repetitions < 1:
+            parser.error("--repetitions must be positive")
+        try:
+            result = live_gate(
+                repetitions=args.repetitions,
+                output=args.output.expanduser().resolve(),
+                evidence=args.evidence_output.expanduser().resolve(),
+                model=args.model,
+                reasoning_effort=args.reasoning_effort,
+                resume=args.resume,
+                allow_high_usage=args.allow_high_usage,
+            )
+        except (BenchmarkFailure, OSError, ValueError, json.JSONDecodeError) as exc:
+            print(json.dumps({"result": "fail", "error": str(exc)}, sort_keys=True), file=sys.stderr)
+            return 1
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    parser.error("select --preflight or --run")
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

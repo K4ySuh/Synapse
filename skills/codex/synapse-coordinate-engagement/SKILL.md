@@ -19,6 +19,11 @@ independently or a dependency boundary makes ownership clearer. Execute a
 simple read or short linear action chain directly. Coordination overhead is not
 evidence of progress.
 
+Work items can coordinate separately connected operators or clients over time.
+Do not spawn multiple Codex agents merely to exercise the coordination system;
+spawn specialists only when the current objective has a real concurrency
+benefit and the operator's account/resources make that appropriate.
+
 Never assign two specialists to send the same active traffic unless the
 operator explicitly requests independent validation and canonical authority
 covers each action.
@@ -39,6 +44,15 @@ scope, and authority before creating anything. For each new child item record:
 Create reporting work with explicit dependencies when it must wait for
 specialists. Do not place credentials, raw secrets, chat logs, or reasoning
 traces in work items.
+
+Put create-time coordination metadata in the initial work-create payload:
+the objective, role, targets, required/selected pack hints, context query,
+completion contract, parent, dependency IDs, exclusivity, next work, and known
+gaps. Do not create a minimal item and try to add its role, targets, parent, or
+dependencies with a work update; those relationships are immutable after
+creation. Later updates require the active claim and are only for progress,
+selected packs, canonical references, next work, gaps, and the last-seen
+workspace revision.
 
 ## Coordinate and recover
 

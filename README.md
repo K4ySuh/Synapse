@@ -153,13 +153,24 @@ copied action catalog or schemas and add no provider-specific server behavior.
 `bin/validate-codex-skills --check` detects stale metadata, missing shared
 references, copied contracts, and contradictory authority/reporting language.
 
-Phase 5E separates the 94-line repository policy from a 5,941-byte packaged
+Phase 5E separates the 94-line repository policy from a 6,289-byte packaged
 operational prompt, adds scoped MCP/policy/state/adapter/test instructions, and
 ships Codex configs plus the complete skill/reference tree in wheel and sdist
 artifacts. `bin/print-mcp-config` supports standard, core-only, direct
 diagnostic, and legacy rollback profiles; `synapse-codex-assets` locates the
 installed integration. See the
 [Phase 5 distribution guide](docs/modernization/phase-5-distribution.md).
+
+Phase 5F adds a reproducible fictional, provider-neutral operational corpus.
+`bin/run-phase5-acceptance` reports independent pack, real multi-process
+concurrency, authority/execution, compact/context, direct/coordinated workflow,
+distribution, and legacy rollback verdicts without requiring one model account
+to simulate several agents. A one-repetition live Codex runner remains an
+optional client diagnostic only; it defaults the coordinator and specialists
+to the bounded Luna/low profile and requires an explicit override for higher-
+usage profiles. See the
+[benchmark method](docs/modernization/phase-5-benchmark-method.md) and
+[Phase 5 handoff](docs/modernization/phase-5-handoff.md).
 
 Phase 3C completes the production official-SDK adapter over the
 protocol-independent modern application surfaces. Phase 3D is complete under

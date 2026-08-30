@@ -2,8 +2,8 @@
 
 Phase 5 turns the accepted Registry, authority, modern MCP, State Store v2, and
 Context Compiler foundations into capability-pack discovery and shared
-multi-agent operations. Codex is the only Phase 5 implementation and acceptance
-client; application contracts remain provider-neutral.
+multi-client operations. Codex is the packaged Phase 5 methodology client;
+application contracts and acceptance remain provider-neutral.
 
 ## Task 5A — capability-pack contract
 
@@ -314,3 +314,66 @@ now comes from package data instead of repository development policy.
 
 Task 5E stops here. Task 5F operational acceptance, the deferred complete-phase
 adversarial review, final handoff/evidence, and rollback closure are next.
+
+## Task 5F — provider-neutral operational acceptance and handoff
+
+Status: implemented on 2026-08-29; deterministic closure gate and deferred
+complete-phase adversarial review passed on 2026-08-30.
+
+Delivered:
+
+- a fictional deterministic corpus for direct context/delta work, real
+  multi-process specialist claims, exclusive contention, dependency-gated
+  reporting, distinct evidence convergence, and stale-worker recovery without
+  replay;
+- atomic evidence-before-completion and principal/workspace binding attacks,
+  covered/uncovered authority outcomes, disabled external traffic, and exact
+  action/job duplicate detection;
+- an eight-verdict aggregate gate over capability packs, multi-client state,
+  authority/execution, compact/context budgets, direct/coordinated workflows,
+  installed distribution, and legacy rollback;
+- provider-neutral sanitized evidence and final handoff documentation;
+- an optional one-repetition live Codex diagnostic, bounded to Luna/low for the
+  coordinator and specialists with low verbosity and capped retained tool
+  output, and explicitly excluded from acceptance so one subscription is never
+  required to simulate several independently connected operators/accounts.
+
+Canonical verification:
+
+```text
+Phase 5 acceptance: pass
+66 Phase 5 tests passed
+3 deterministic operational repetitions passed
+exclusive claim winners: 1/1/1; lost updates: 0; automatic replays: 0
+external target connections: 0
+standard/core-only installed cold start: 174/42 actions
+compact surface: 11 operations; 24,639-byte maximum SDK wire
+legacy rollback: 174 tools; Phase 4 acceptance retained pass
+live Codex diagnostic: not run; acceptance dependency false
+```
+
+On 2026-08-30 the live runners were hardened after a local Phase 5 pilot showed
+that one multi-agent repetition can accumulate very large mostly-cached input
+totals. Phase 3 and Phase 5 live defaults now use `gpt-5.6-luna`, low reasoning,
+low verbosity, no reasoning summaries, a 4,096-token per-tool history ceiling,
+and one repetition. Phase 5 applies the same model/effort to spawned specialists
+and requires `--allow-high-usage` for multiple repetitions or a non-default
+profile. No additional live run was consumed for closure; the provider-neutral
+offline acceptance remains canonical and passing.
+
+Final adversarial review result: pass. The review rechecked canonical truth,
+scope/authority separation, principal/workspace claim binding,
+evidence-before-completion atomicity, exclusive contention, lost-worker
+recovery without replay, duplicate execution/job prevention, report dependency
+convergence, external-traffic blocking, committed-evidence hygiene, package
+cold starts, surface/inventory drift, and legacy/JSON-v1 rollback boundaries.
+The complete gates passed with 751 core tests, 2 adapter-template tests, 16
+modern SDK/transport tests, 66 Phase 5 tests, all generated inventories current,
+and no live model run. The retained generic MCP `partial_fail` classification
+and optional MCP Inspector/live-client diagnostics remain explicit residuals,
+not hidden Phase 5 passes.
+
+Compatibility result: no action ID/schema, compact/direct operation, Registry,
+effect, authority, workspace/migration, execution, or report contract changed.
+The acceptance method verifies independent-client concurrency at the canonical
+SQLite-v2/application boundary rather than imposing a provider account model.

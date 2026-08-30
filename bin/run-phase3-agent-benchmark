@@ -39,7 +39,11 @@ TARGET = "app.acme-demo.test"
 MCP_PRINCIPAL = "phase3-agent"
 AUTHORITY_SESSION = "phase3-agent-session"
 GRANT_ID = "phase3-agent-delegated"
-DEFAULT_CODEX_MODEL = "gpt-5.6-sol"
+DEFAULT_CODEX_MODEL = "gpt-5.6-luna"
+DEFAULT_REASONING_EFFORT = "low"
+REASONING_EFFORTS = ("minimal", "low", "medium", "high", "xhigh")
+DEFAULT_REPETITIONS = 1
+TOOL_OUTPUT_TOKEN_LIMIT = 4096
 COMPACT_OPERATIONS = (
     "engagement.open",
     "engagement.inspect",
@@ -543,7 +547,13 @@ def _server_environment(root: Path) -> dict[str, str]:
     }
 
 
-def _codex_command(root: Path, schema: Path, final: Path, model: str) -> list[str]:
+def _codex_command(
+    root: Path,
+    schema: Path,
+    final: Path,
+    model: str,
+    reasoning_effort: str = DEFAULT_REASONING_EFFORT,
+) -> list[str]:
     server_env = "{" + ",".join(
         f"{key}={json.dumps(value)}" for key, value in _server_environment(root).items()
     ) + "}"
@@ -569,6 +579,14 @@ def _codex_command(root: Path, schema: Path, final: Path, model: str) -> list[st
         "read-only",
         "--model",
         model,
+        "--config",
+        f"model_reasoning_effort={json.dumps(reasoning_effort)}",
+        "--config",
+        'model_reasoning_summary="none"',
+        "--config",
+        'model_verbosity="low"',
+        "--config",
+        f"tool_output_token_limit={TOOL_OUTPUT_TOKEN_LIMIT}",
         "--cd",
         str(ROOT_DIR),
         "--output-schema",
@@ -610,7 +628,12 @@ def _json_payload(value: Any) -> Any:
 
 def _codex_records(stdout: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     calls: list[dict[str, Any]] = []
-    usage: dict[str, Any] = {"inputTokens": None, "outputTokens": None}
+    usage: dict[str, Any] = {
+        "inputTokens": None,
+        "cachedInputTokens": None,
+        "outputTokens": None,
+        "reasoningOutputTokens": None,
+    }
     for line in stdout.splitlines():
         try:
             event = json.loads(line)
@@ -626,7 +649,9 @@ def _codex_records(stdout: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
             tokens = event["usage"]
             usage = {
                 "inputTokens": tokens.get("input_tokens"),
+                "cachedInputTokens": tokens.get("cached_input_tokens"),
                 "outputTokens": tokens.get("output_tokens"),
+                "reasoningOutputTokens": tokens.get("reasoning_output_tokens"),
             }
     return calls, usage
 
@@ -829,6 +854,7 @@ def _run_case(
     *,
     repetition: int,
     model: str,
+    reasoning_effort: str = DEFAULT_REASONING_EFFORT,
 ) -> dict[str, Any]:
     case_dir = output / "raw" / "codex" / f"run-{repetition:02d}"
     case_dir.mkdir(parents=True, exist_ok=True)
@@ -837,7 +863,7 @@ def _run_case(
     events = case_dir / "events.jsonl"
     stderr_path = case_dir / "stderr.txt"
     schema.write_text(json.dumps(_result_schema(), indent=2) + "\n", encoding="utf-8")
-    command = _codex_command(root, schema, final_path, model)
+    command = _codex_command(root, schema, final_path, model, reasoning_effort)
     started = time.perf_counter()
     result = _run(command)
     elapsed = time.perf_counter() - started
@@ -899,6 +925,7 @@ def _run_case(
     return {
         "client": "codex",
         "model": model,
+        "reasoningEffort": reasoning_effort,
         "repetition": repetition,
         "surface": "modern-compact",
         "transport": "stdio",
@@ -953,6 +980,7 @@ def _committable_evidence(document: dict[str, Any]) -> dict[str, Any]:
                 for key in (
                     "client",
                     "model",
+                    "reasoningEffort",
                     "repetition",
                     "surface",
                     "transport",
@@ -960,7 +988,9 @@ def _committable_evidence(document: dict[str, Any]) -> dict[str, Any]:
                     "negotiatedRevisions",
                     "wallClockSeconds",
                     "inputTokens",
+                    "cachedInputTokens",
                     "outputTokens",
+                    "reasoningOutputTokens",
                     "toolSelectionSuccess",
                     "schemaRetries",
                     "duplicateCalls",
@@ -977,6 +1007,7 @@ def _committable_evidence(document: dict[str, Any]) -> dict[str, Any]:
                     "overall",
                     "workflowResults",
                 )
+                if key in run
             }
         )
     return {
@@ -1047,6 +1078,7 @@ def _live_gate(
     repetitions: int,
     output: Path,
     codex_model: str,
+    reasoning_effort: str = DEFAULT_REASONING_EFFORT,
     evidence_output: Path | None = None,
 ) -> dict[str, Any]:
     _assert_prompt_is_objective_driven()
@@ -1064,6 +1096,7 @@ def _live_gate(
                 output,
                 repetition=repetition,
                 model=codex_model,
+                reasoning_effort=reasoning_effort,
             )
             run["fixture"] = fixture
             runs.append(run)
@@ -1088,6 +1121,8 @@ def _live_gate(
         "promptPrescribesCallCounts": False,
         "clients": ["codex"],
         "repetitionsPerClient": repetitions,
+        "model": codex_model,
+        "reasoningEffort": reasoning_effort,
         "preflight": preflight,
         "surface": "modern-compact",
         "transport": "stdio",
@@ -1110,8 +1145,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--preflight", action="store_true")
     parser.add_argument("--run", action="store_true")
-    parser.add_argument("--repetitions", type=int, default=3)
+    parser.add_argument("--repetitions", type=int, default=DEFAULT_REPETITIONS)
     parser.add_argument("--codex-model", default=DEFAULT_CODEX_MODEL)
+    parser.add_argument(
+        "--reasoning-effort",
+        choices=REASONING_EFFORTS,
+        default=DEFAULT_REASONING_EFFORT,
+    )
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--evidence-output", type=Path)
     parser.add_argument("--evidence-from", type=Path)
@@ -1142,6 +1182,7 @@ def main() -> int:
             repetitions=args.repetitions,
             output=args.output.expanduser().resolve(),
             codex_model=args.codex_model,
+            reasoning_effort=args.reasoning_effort,
             evidence_output=(
                 args.evidence_output.expanduser().resolve()
                 if args.evidence_output is not None
@@ -1152,7 +1193,16 @@ def main() -> int:
         return 0
     if args.preflight:
         _assert_prompt_is_objective_driven()
-        print(json.dumps(_preflight(), indent=2, sort_keys=True))
+        value = _preflight()
+        value["benchmarkConfiguration"] = {
+            "model": args.codex_model,
+            "reasoningEffort": args.reasoning_effort,
+            "repetitions": args.repetitions,
+            "modelVerbosity": "low",
+            "reasoningSummary": "none",
+            "toolOutputTokenLimit": TOOL_OUTPUT_TOKEN_LIMIT,
+        }
+        print(json.dumps(value, indent=2, sort_keys=True))
         return 0
     parser.error("select --preflight or --run")
     return 2

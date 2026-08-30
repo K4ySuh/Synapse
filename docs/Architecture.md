@@ -335,6 +335,17 @@ templates as integration data under `share/synapse-mcp/codex/`; core startup
 does not import that integration. Modern server instructions remain a compact
 transport projection so the accepted eleven-operation wire ceiling is unchanged.
 
+Phase 5F verifies the boundary without introducing another state or execution
+path. A deterministic corpus drives the public facade and SQLite-v2 repository
+through concurrent claims, evidence-before-completion, stale-worker recovery,
+authority coverage, and dependency-gated reporting. Independent processes stand
+in for separately connected operators/accounts, so acceptance does not require
+one model subscription to simulate multiple agents. A separate one-repetition
+live Codex runner is an optional client diagnostic only and defaults its
+coordinator and specialists to the bounded Luna/low profile. Acceptance does not
+relabel the retained generic MCP conformance result or make a client/provider a
+dependency.
+
 The modern HTTP boundary authenticates one high-entropy bearer token by
 server-held digest, then resolves principal/workspace to a server-held authority
 binding. Host and Origin checks, forwarded-header trust, and TLS termination are

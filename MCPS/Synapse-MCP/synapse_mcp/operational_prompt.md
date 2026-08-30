@@ -22,9 +22,14 @@ Simple reads and bounded local analysis should remain direct. Create or claim a
 work item only when an objective benefits from durable handoff, dependencies,
 parallel specialists, or recovery after client loss. A claim records ownership
 for coordination; it grants no scope, credentials, or execution authority.
+Durable work items do not require one client to spawn multiple agents;
+separately connected clients may claim them when real concurrency is useful.
 
 When using work items:
 
+- put role, targets, pack hints, context, completion contract, parent,
+  dependencies, exclusivity, and known gaps in the create payload because
+  these coordination boundaries are not mutable later;
 - inspect the objective, targets, dependencies, completion contract, and last
   seen revision before acting;
 - claim exclusive work atomically and reroute after a claim collision;

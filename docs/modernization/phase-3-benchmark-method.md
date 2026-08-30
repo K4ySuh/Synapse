@@ -73,6 +73,13 @@ gates 3/3 at negotiated revision `2025-06-18`, with no experimental feature.
 No independent-agent result or universal cross-agent claim is part of this
 closure.
 
+That Sol result is immutable historical evidence. Current live runners default
+to one `gpt-5.6-luna` repetition with low reasoning and verbosity, no reasoning
+summary, and a 4,096-token retained tool-output ceiling. Operators deliberately
+repeating the historical three-run model profile must now pass the model,
+reasoning effort, and repetition options explicitly; a new run is new evidence,
+not a rewrite of the accepted batch.
+
 ## 2026-08-24 closure amendment
 
 Phase 3D closure uses stable production Codex as the sole live model client and
@@ -98,14 +105,15 @@ transport/discovery client. Streamable HTTP and `modern-direct` remain
 supported compatibility profiles, but the adoption decision targets local
 Codex over `modern-compact` stdio.
 
-The amended method is executable with:
+The current low-usage diagnostic is executable with:
 
 ```bash
 bin/run-phase3d-codex --preflight
-bin/run-phase3d-codex --run --repetitions 3
+bin/run-phase3d-codex --run
 ```
 
-The verdict and exact accepted batch are recorded in `phase-3-handoff.md` and
+The historical three-repetition verdict and exact accepted Sol batch are
+recorded in `phase-3-handoff.md` and
 `evidence/phase-3/codex-closure-results.json`.
 
 ## Named implementations
