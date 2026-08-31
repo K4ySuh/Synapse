@@ -21,7 +21,13 @@ WORK_ITEM_STATUSES = frozenset(
 )
 TERMINAL_WORK_ITEM_STATUSES = frozenset({"completed", "failed", "cancelled"})
 ACTIVE_EXECUTION_STATES = frozenset(
-    {"active", "authorized", "dispatched", "pending", "queued", "running", "unknown"}
+    {"planned", "started", "active", "authorized", "dispatched", "pending", "queued", "running", "unknown"}
+)
+RECONCILIATION_ATTEMPT_STATES = frozenset(
+    {"planned", "started", "awaiting_approval", "unknown"}
+)
+EXECUTION_ATTEMPT_STATES = frozenset(
+    {*RECONCILIATION_ATTEMPT_STATES, "succeeded", "failed", "denied"}
 )
 REFERENCE_TYPES = frozenset(
     {
@@ -726,6 +732,323 @@ class SQLiteWorkItemRepository:
             )
             return self._record(connection, work_item_id)
 
+    def bind_execution_attempt(
+        self,
+        work_item_id: str,
+        *,
+        claim_id: str,
+        principal_id: str,
+        authority_session_id: str,
+        agent_run_id: str,
+        action_id: str,
+        replay_safety: str,
+        idempotency_key: str,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Bind one durable attempt before dispatch while its claim is valid."""
+
+        current_time = _utc(now)
+        timestamp = _timestamp(current_time)
+        if not idempotency_key:
+            raise StateStoreError(
+                "work_item_execution_idempotency_required",
+                "A bound work execution requires an idempotency identity.",
+            )
+        key_ref = opaque_ref(idempotency_key)
+        with self.workspace.transaction() as connection:
+            current = self.workspace._workspace_revision(connection)
+            item = self._item_row(connection, work_item_id)
+            self._require_active_status(item, current)
+            self._require_active_claim(
+                connection,
+                work_item_id,
+                claim_id,
+                principal_id,
+                authority_session_id,
+                agent_run_id,
+                current_time,
+            )
+            prior = connection.execute(
+                "SELECT execution_attempt_id, state FROM work_item_execution_attempts "
+                "WHERE workspace_id=? AND work_item_id=? AND action_id=? AND idempotency_key_ref=?",
+                (self.workspace_id, work_item_id, action_id, key_ref),
+            ).fetchone()
+            if prior is not None:
+                raise self._conflict(
+                    "work_item_execution_reconciliation_required",
+                    "This work execution is already bound and cannot be replayed automatically.",
+                    item,
+                    current,
+                    extra={"executionReference": str(prior[0]), "executionState": str(prior[1])},
+                )
+            unresolved = connection.execute(
+                "SELECT execution_attempt_id, state FROM work_item_execution_attempts "
+                "WHERE workspace_id=? AND work_item_id=? AND state IN ('planned','started','awaiting_approval','unknown') "
+                "ORDER BY created_revision, execution_attempt_id LIMIT 1",
+                (self.workspace_id, work_item_id),
+            ).fetchone()
+            if unresolved is not None:
+                raise self._conflict(
+                    "work_item_execution_reconciliation_required",
+                    "Bound work execution requires reconciliation before another dispatch.",
+                    item,
+                    current,
+                    extra={"executionReference": str(unresolved[0]), "executionState": str(unresolved[1])},
+                )
+            legacy_unresolved = next(
+                (
+                    reference
+                    for reference in self._references(connection, work_item_id)
+                    if str(reference.get("executionState") or "") in ACTIVE_EXECUTION_STATES
+                ),
+                None,
+            )
+            if legacy_unresolved is not None:
+                raise self._conflict(
+                    "work_item_execution_reconciliation_required",
+                    "Previously linked execution requires reconciliation before another dispatch.",
+                    item,
+                    current,
+                    extra={
+                        "executionReference": str(legacy_unresolved.get("id") or ""),
+                        "executionState": str(legacy_unresolved.get("executionState") or "unknown"),
+                    },
+                )
+            execution_reference = f"work-execution-{uuid4().hex}"
+            revision = current + 1
+            version = int(item[19]) + 1
+            connection.execute(
+                "INSERT INTO work_item_execution_attempts("
+                "execution_attempt_id, workspace_id, work_item_id, claim_id, action_id, idempotency_key_ref, "
+                "principal_ref, authority_session_ref, agent_run_ref, replay_safety, state, outcome_kind, "
+                "created_revision, updated_revision, created_at, updated_at"
+                ") VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'planned', '', ?, ?, ?, ?)",
+                (
+                    execution_reference,
+                    self.workspace_id,
+                    work_item_id,
+                    claim_id,
+                    action_id,
+                    key_ref,
+                    opaque_ref(principal_id),
+                    opaque_ref(authority_session_id),
+                    opaque_ref(agent_run_id),
+                    replay_safety,
+                    revision,
+                    revision,
+                    timestamp,
+                    timestamp,
+                ),
+            )
+            connection.execute(
+                "UPDATE work_items SET status='running', version=?, current_workspace_revision=?, updated_at=? "
+                "WHERE workspace_id=? AND work_item_id=? AND version=?",
+                (version, revision, timestamp, self.workspace_id, work_item_id, int(item[19])),
+            )
+            self._upsert_reference(
+                connection,
+                work_item_id,
+                {"type": "action", "id": action_id, "state": "planned", "replaySafety": replay_safety},
+                revision=revision,
+                timestamp=timestamp,
+                validate=False,
+            )
+            self._event(
+                connection,
+                work_item_id=work_item_id,
+                event_type="work_item.execution_bound",
+                version=version,
+                actor_ref=_actor_ref(principal_id),
+                revision=revision,
+                payload={
+                    "automaticReplay": False,
+                    "claimId": claim_id,
+                    "executionReference": execution_reference,
+                    "state": "planned",
+                },
+                timestamp=timestamp,
+            )
+            self.workspace._finish_revision(
+                connection,
+                current=current,
+                changes=(("work_item", work_item_id, "link", {"executionReference": execution_reference, "version": version}),),
+                event_type="work_item.execution_bound",
+                summary=f"Bound execution attempt for operational work item {work_item_id}.",
+                payload={
+                    "automaticReplay": False,
+                    "executionReference": execution_reference,
+                    "workItemId": work_item_id,
+                    "version": version,
+                },
+                actor_ref=_actor_ref(principal_id),
+            )
+        result = self.inspect(work_item_id)
+        result["executionReference"] = execution_reference
+        return result
+
+    def start_execution_attempt(
+        self,
+        execution_reference: str,
+        *,
+        principal_id: str,
+        authority_session_id: str,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Mark a bound attempt started immediately before Registry dispatch."""
+
+        current_time = _utc(now)
+        timestamp = _timestamp(current_time)
+        with self.workspace.transaction() as connection:
+            current = self.workspace._workspace_revision(connection)
+            attempt = self._execution_attempt_row(connection, execution_reference)
+            work_item_id = str(attempt[2])
+            item = self._item_row(connection, work_item_id)
+            self._require_execution_binding(attempt, principal_id, authority_session_id)
+            state = str(attempt[10])
+            if state not in {"planned", "awaiting_approval"}:
+                raise self._conflict(
+                    "work_item_execution_reconciliation_required",
+                    "Only a newly bound or explicitly resumed approval attempt may start.",
+                    item,
+                    current,
+                    extra={"executionReference": execution_reference, "executionState": state},
+                )
+            revision = current + 1
+            version = int(item[19]) + 1
+            connection.execute(
+                "UPDATE work_item_execution_attempts SET state='started', outcome_kind='', updated_revision=?, updated_at=? "
+                "WHERE workspace_id=? AND execution_attempt_id=? AND state=?",
+                (revision, timestamp, self.workspace_id, execution_reference, state),
+            )
+            connection.execute(
+                "UPDATE work_items SET status='running', version=?, current_workspace_revision=?, updated_at=? "
+                "WHERE workspace_id=? AND work_item_id=? AND version=?",
+                (version, revision, timestamp, self.workspace_id, work_item_id, int(item[19])),
+            )
+            self._upsert_reference(
+                connection,
+                work_item_id,
+                {"type": "action", "id": str(attempt[4]), "state": "started", "replaySafety": str(attempt[9])},
+                revision=revision,
+                timestamp=timestamp,
+                validate=False,
+            )
+            self._event(
+                connection,
+                work_item_id=work_item_id,
+                event_type="work_item.execution_started",
+                version=version,
+                actor_ref=_actor_ref(principal_id),
+                revision=revision,
+                payload={"automaticReplay": False, "executionReference": execution_reference, "state": "started"},
+                timestamp=timestamp,
+            )
+            self.workspace._finish_revision(
+                connection,
+                current=current,
+                changes=(("work_item", work_item_id, "link", {"executionReference": execution_reference, "version": version}),),
+                event_type="work_item.execution_started",
+                summary=f"Started bound execution for operational work item {work_item_id}.",
+                payload={"executionReference": execution_reference, "workItemId": work_item_id, "version": version},
+                actor_ref=_actor_ref(principal_id),
+            )
+        result = self.inspect(work_item_id)
+        result["executionReference"] = execution_reference
+        return result
+
+    def finalize_execution_attempt(
+        self,
+        execution_reference: str,
+        *,
+        principal_id: str,
+        authority_session_id: str,
+        outcome_kind: str,
+        state: str,
+        references: Sequence[Mapping[str, Any]],
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Finalize by bound attempt identity; the originating lease may be expired."""
+
+        if state not in EXECUTION_ATTEMPT_STATES - {"planned", "started"}:
+            raise StateStoreError("work_item_execution_state_invalid", "Execution finalization state is invalid.")
+        current_time = _utc(now)
+        timestamp = _timestamp(current_time)
+        with self.workspace.transaction() as connection:
+            current = self.workspace._workspace_revision(connection)
+            attempt = self._execution_attempt_row(connection, execution_reference)
+            work_item_id = str(attempt[2])
+            item = self._item_row(connection, work_item_id)
+            self._require_execution_binding(attempt, principal_id, authority_session_id)
+            prior_state = str(attempt[10])
+            if prior_state != "started":
+                raise self._conflict(
+                    "work_item_execution_finalization_conflict",
+                    "Execution attempt is not awaiting result finalization.",
+                    item,
+                    current,
+                    extra={"executionReference": execution_reference, "executionState": prior_state},
+                )
+            revision = current + 1
+            version = int(item[19]) + 1
+            for reference in references:
+                self._upsert_reference(
+                    connection,
+                    work_item_id,
+                    reference,
+                    revision=revision,
+                    timestamp=timestamp,
+                    validate=False,
+                )
+            connection.execute(
+                "UPDATE work_item_execution_attempts SET state=?, outcome_kind=?, updated_revision=?, updated_at=? "
+                "WHERE workspace_id=? AND execution_attempt_id=? AND state='started'",
+                (state, outcome_kind, revision, timestamp, self.workspace_id, execution_reference),
+            )
+            if str(item[5]) in TERMINAL_WORK_ITEM_STATUSES or str(item[5]) == "blocked":
+                status = str(item[5])
+            elif self._active_claim_rows(connection, work_item_id, current_time):
+                status = "running"
+            else:
+                status = self._available_status(connection, work_item_id)
+            connection.execute(
+                "UPDATE work_items SET status=?, version=?, current_workspace_revision=?, updated_at=? "
+                "WHERE workspace_id=? AND work_item_id=? AND version=?",
+                (status, version, revision, timestamp, self.workspace_id, work_item_id, int(item[19])),
+            )
+            self._event(
+                connection,
+                work_item_id=work_item_id,
+                event_type="work_item.execution_finalized",
+                version=version,
+                actor_ref=_actor_ref(principal_id),
+                revision=revision,
+                payload={
+                    "automaticReplay": False,
+                    "executionReference": execution_reference,
+                    "outcomeKind": outcome_kind,
+                    "references": [dict(item) for item in references],
+                    "state": state,
+                },
+                timestamp=timestamp,
+            )
+            self.workspace._finish_revision(
+                connection,
+                current=current,
+                changes=(("work_item", work_item_id, "link", {"executionReference": execution_reference, "version": version}),),
+                event_type="work_item.execution_finalized",
+                summary=f"Finalized bound execution for operational work item {work_item_id}.",
+                payload={
+                    "executionReference": execution_reference,
+                    "outcomeKind": outcome_kind,
+                    "workItemId": work_item_id,
+                    "version": version,
+                },
+                actor_ref=_actor_ref(principal_id),
+            )
+        result = self.inspect(work_item_id)
+        result["executionReference"] = execution_reference
+        return result
+
     def link_execution(
         self,
         work_item_id: str,
@@ -797,7 +1120,7 @@ class SQLiteWorkItemRepository:
             dispatch = connection.execute(
                 "SELECT dispatch_id, action_id, state FROM action_dispatches "
                 "WHERE workspace_id=? AND idempotency_key=? ORDER BY updated_revision DESC LIMIT 1",
-                (self.workspace_id, idempotency_key),
+                (self.workspace_id, opaque_ref(idempotency_key)),
             ).fetchone()
             if dispatch:
                 references.extend(
@@ -844,6 +1167,23 @@ class SQLiteWorkItemRepository:
             )
         ]
         references = self._references(connection, work_item_id)
+        execution_attempts = self._execution_attempts(connection, work_item_id)
+        attempt_action_ids = {item["actionId"] for item in execution_attempts}
+        active_execution = [
+            item
+            for item in references
+            if str(item.get("executionState") or "") in ACTIVE_EXECUTION_STATES
+            and not (item.get("type") == "action" and item.get("id") in attempt_action_ids)
+        ] + [
+            {
+                "type": "execution_attempt",
+                "id": item["executionReference"],
+                "executionState": item["state"],
+                "replaySafety": item["replaySafety"],
+            }
+            for item in execution_attempts
+            if item["state"] in RECONCILIATION_ATTEMPT_STATES
+        ]
         handoffs = [
             {
                 "eventType": row[0],
@@ -891,8 +1231,9 @@ class SQLiteWorkItemRepository:
             "dependencyStates": dependency_states,
             "claims": claims,
             "references": references,
-            "activeOrUnknownExecution": [item for item in references if str(item.get("executionState") or "") in ACTIVE_EXECUTION_STATES],
-            "executionReviewRequired": any(str(item.get("executionState") or "") in ACTIVE_EXECUTION_STATES for item in references),
+            "executionAttempts": execution_attempts,
+            "activeOrUnknownExecution": active_execution,
+            "executionReviewRequired": bool(active_execution),
             "handoffs": handoffs,
             "automaticReplay": False,
         }
@@ -914,6 +1255,68 @@ class SQLiteWorkItemRepository:
                 details={"workItemId": work_item_id},
             )
         return row
+
+    def _execution_attempt_row(self, connection: Any, execution_reference: str) -> Any:
+        row = connection.execute(
+            "SELECT execution_attempt_id, workspace_id, work_item_id, claim_id, action_id, idempotency_key_ref, "
+            "principal_ref, authority_session_ref, agent_run_ref, replay_safety, state, outcome_kind, "
+            "created_revision, updated_revision, created_at, updated_at "
+            "FROM work_item_execution_attempts WHERE workspace_id=? AND execution_attempt_id=?",
+            (self.workspace_id, execution_reference),
+        ).fetchone()
+        if row is None:
+            raise StateStoreError(
+                "work_item_execution_not_found",
+                "Bound work execution was not found in the trusted workspace.",
+                details={"executionReference": execution_reference},
+            )
+        return row
+
+    def _execution_attempts(self, connection: Any, work_item_id: str) -> list[dict[str, Any]]:
+        result: list[dict[str, Any]] = []
+        for row in connection.execute(
+            "SELECT execution_attempt_id, claim_id, action_id, idempotency_key_ref, replay_safety, state, "
+            "outcome_kind, created_revision, updated_revision, created_at, updated_at "
+            "FROM work_item_execution_attempts WHERE workspace_id=? AND work_item_id=? "
+            "ORDER BY created_revision, execution_attempt_id",
+            (self.workspace_id, work_item_id),
+        ):
+            dispatch = connection.execute(
+                "SELECT dispatch_id, state FROM action_dispatches WHERE workspace_id=? AND action_id=? "
+                "AND idempotency_key=? ORDER BY updated_revision DESC, dispatch_id LIMIT 1",
+                (self.workspace_id, str(row[2]), str(row[3])),
+            ).fetchone()
+            result.append(
+                {
+                    "executionReference": str(row[0]),
+                    "claimId": str(row[1]),
+                    "actionId": str(row[2]),
+                    "replaySafety": str(row[4]),
+                    "state": str(row[5]),
+                    "outcomeKind": str(row[6]),
+                    "dispatchId": str(dispatch[0]) if dispatch else "",
+                    "dispatchState": str(dispatch[1]) if dispatch else "",
+                    "createdWorkspaceRevision": int(row[7]),
+                    "updatedWorkspaceRevision": int(row[8]),
+                    "createdAt": str(row[9]),
+                    "updatedAt": str(row[10]),
+                    "automaticReplay": False,
+                }
+            )
+        return result
+
+    @staticmethod
+    def _require_execution_binding(attempt: Any, principal_id: str, authority_session_id: str) -> None:
+        if not opaque_matches(str(attempt[6]), principal_id):
+            raise StateConflictError(
+                "work_item_execution_principal_mismatch",
+                "Bound work execution principal does not match the trusted caller.",
+            )
+        if not opaque_matches(str(attempt[7]), authority_session_id):
+            raise StateConflictError(
+                "work_item_execution_session_mismatch",
+                "Bound work execution authority session does not match the trusted caller.",
+            )
 
     def _require_version(self, item: Any, expected: int, workspace_revision: int) -> None:
         actual = int(item[19])
@@ -1142,11 +1545,25 @@ class SQLiteWorkItemRepository:
         return result
 
     def _active_execution(self, connection: Any, work_item_id: str) -> list[dict[str, Any]]:
-        return [
+        execution_attempts = self._execution_attempts(connection, work_item_id)
+        attempt_action_ids = {item["actionId"] for item in execution_attempts}
+        references = [
             item
             for item in self._references(connection, work_item_id)
             if str(item.get("executionState") or "") in ACTIVE_EXECUTION_STATES
+            and not (item.get("type") == "action" and item.get("id") in attempt_action_ids)
         ]
+        attempts = [
+            {
+                "type": "execution_attempt",
+                "id": item["executionReference"],
+                "executionState": item["state"],
+                "replaySafety": item["replaySafety"],
+            }
+            for item in execution_attempts
+            if item["state"] in RECONCILIATION_ATTEMPT_STATES
+        ]
+        return references + attempts
 
     def _unlock_dependents(self, connection: Any, work_item_id: str, revision: int, timestamp: str) -> list[tuple[str, str, str, Any]]:
         changes: list[tuple[str, str, str, Any]] = []
@@ -1277,6 +1694,26 @@ class _SnapshotWorkItemRepository:
                 ).fetchone()
                 if current:
                     reference["executionState"] = str(current[0])
+        execution_attempts = [
+            {
+                "executionReference": str(item[0]),
+                "claimId": str(item[1]),
+                "actionId": str(item[2]),
+                "replaySafety": str(item[3]),
+                "state": str(item[4]),
+                "outcomeKind": str(item[5]),
+                "createdWorkspaceRevision": int(item[6]),
+                "updatedWorkspaceRevision": int(item[7]),
+                "automaticReplay": False,
+            }
+            for item in connection.execute(
+                "SELECT execution_attempt_id, claim_id, action_id, replay_safety, state, outcome_kind, "
+                "created_revision, updated_revision FROM work_item_execution_attempts "
+                "WHERE workspace_id=? AND work_item_id=? ORDER BY created_revision, execution_attempt_id",
+                (self.workspace_id, work_item_id),
+            )
+        ]
+        attempt_action_ids = {item["actionId"] for item in execution_attempts}
         claims = [
             {
                 "claimId": item[0],
@@ -1329,8 +1766,21 @@ class _SnapshotWorkItemRepository:
             "dependencies": dependencies,
             "claims": claims,
             "references": references,
+            "executionAttempts": execution_attempts,
             "activeOrUnknownExecution": [
-                item for item in references if str(item.get("executionState") or "") in ACTIVE_EXECUTION_STATES
+                item
+                for item in references
+                if str(item.get("executionState") or "") in ACTIVE_EXECUTION_STATES
+                and not (item.get("type") == "action" and item.get("id") in attempt_action_ids)
+            ] + [
+                {
+                    "type": "execution_attempt",
+                    "id": item["executionReference"],
+                    "executionState": item["state"],
+                    "replaySafety": item["replaySafety"],
+                }
+                for item in execution_attempts
+                if item["state"] in RECONCILIATION_ATTEMPT_STATES
             ],
             "handoffs": handoffs,
             "automaticReplay": False,

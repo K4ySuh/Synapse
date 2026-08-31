@@ -55,6 +55,7 @@ BUNDLE_TABLES = (
     "work_items",
     "work_item_dependencies",
     "work_item_claims",
+    "work_item_execution_attempts",
     "work_item_references",
     "work_item_events",
     "execution_result_links",

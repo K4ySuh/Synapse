@@ -141,6 +141,41 @@ class WorkItemRepository(Protocol):
         limit: int = 50,
     ) -> list[dict[str, Any]]: ...
 
+    def bind_execution_attempt(
+        self,
+        work_item_id: str,
+        *,
+        claim_id: str,
+        principal_id: str,
+        authority_session_id: str,
+        agent_run_id: str,
+        action_id: str,
+        replay_safety: str,
+        idempotency_key: str,
+        now: Any = None,
+    ) -> dict[str, Any]: ...
+
+    def start_execution_attempt(
+        self,
+        execution_reference: str,
+        *,
+        principal_id: str,
+        authority_session_id: str,
+        now: Any = None,
+    ) -> dict[str, Any]: ...
+
+    def finalize_execution_attempt(
+        self,
+        execution_reference: str,
+        *,
+        principal_id: str,
+        authority_session_id: str,
+        outcome_kind: str,
+        state: str,
+        references: Sequence[JsonObject],
+        now: Any = None,
+    ) -> dict[str, Any]: ...
+
 
 class EvidenceRepository(Protocol):
     def record(self, event_type: str, summary: str, data: JsonObject | None = None) -> dict[str, Any]: ...

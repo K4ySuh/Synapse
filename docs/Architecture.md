@@ -277,6 +277,17 @@ principal/session/optional agent-run context; worker labels remain
 non-authoritative. Work-item changes share the workspace revision/change/audit
 transaction and canonical state bundles.
 
+Migration `0004` closes the Phase 5 post-dispatch lease race with durable
+work-execution attempts. The facade binds one opaque attempt before Registry
+dispatch while the claim is valid, marks it started immediately before entering
+the Registry, and finalizes the result by attempt identity instead of consulting
+the claim again. Planned, started, approval-pending, and unknown attempts remain
+reconciliation-required and are never automatically replayed. The latest work
+version and execution reference are returned in linked action diagnostics.
+This is work-coordination recovery state; it does not replace the canonical
+Registry, ExecutionPlan, authority reservation, dispatch, result, or evidence
+paths.
+
 ADR-0005 fixes one database and artifact namespace per workspace, with
 credential secrets kept outside SQLite and protocol rollback separated from
 state-engine rollback. The deterministic migrator inventories JSON-v1 sources,
@@ -311,9 +322,11 @@ When `context.query` selects a work item, the compiler prioritizes its objective
 role, parent/dependencies, selected workspace delta, completion contract,
 progress/handoff/gaps, references, and active-or-unknown execution. The facade
 validates an optional claim binding before compiling. Linked action execution
-still crosses the unchanged Registry and Authority Engine; work-item metadata is
-recorded before/after execution for attribution and recovery but cannot alter the
-sealed authorization intent. Recovery always exposes `automaticReplay=false`.
+still crosses the unchanged Registry and Authority Engine; its durable attempt
+is recorded before execution for attribution and recovery but cannot alter the
+sealed authorization intent. Result linkage uses that bound identity, so lease
+expiry after dispatch cannot discard a late result. Recovery always exposes
+`automaticReplay=false`.
 
 Phase 5D Codex playbooks live under `skills/codex/`, outside the server and
 protocol-independent application boundary. They are client-side methodology

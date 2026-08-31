@@ -165,6 +165,7 @@ class _PendingOperation:
     correlation_id: str
     idempotency_key: str
     work_item: dict[str, Any] | None = None
+    execution_reference: str = ""
     state: str = "input_required"
 
 
@@ -191,6 +192,7 @@ class OperationHandleService:
         correlation_id: str,
         idempotency_key: str,
         work_item: WorkItemExecutionInput | None = None,
+        execution_reference: str = "",
     ) -> str:
         operation = _PendingOperation(
             handle=f"operation-{secrets.token_urlsafe(24)}",
@@ -203,6 +205,7 @@ class OperationHandleService:
             correlation_id=correlation_id,
             idempotency_key=idempotency_key,
             work_item=(work_item.model_dump(mode="json", by_alias=True) if work_item else None),
+            execution_reference=execution_reference,
         )
         if self._state_path is None:
             existing = self._by_request_state.get(request_state_id)
@@ -321,6 +324,7 @@ class OperationHandleService:
             "correlationId": operation.correlation_id,
             "idempotencyKey": operation.idempotency_key,
             "workItem": operation.work_item,
+            "executionReference": operation.execution_reference,
             "state": operation.state,
         }
 
@@ -339,6 +343,7 @@ class OperationHandleService:
             correlation_id=str(value["correlationId"]),
             idempotency_key=str(value["idempotencyKey"]),
             work_item=dict(value["workItem"]) if isinstance(value.get("workItem"), dict) else None,
+            execution_reference=str(value.get("executionReference") or ""),
             state=str(value.get("state") or "input_required"),
         )
 
@@ -372,6 +377,7 @@ class ActionExecutionService:
         correlation_id: str = "",
         binding: dict[str, Any] | None = None,
         work_item: WorkItemExecutionInput | None = None,
+        execution_reference: str = "",
     ) -> FacadeEnvelope:
         trace_id = correlation_id or _trace_id(context)
         try:
@@ -506,9 +512,10 @@ class ActionExecutionService:
                     },
                     trace_id=trace_id,
                 )
-        if work_item is not None:
+        work_link: dict[str, Any] | None = None
+        if work_item is not None and not execution_reference:
             try:
-                self.work_items.link_execution(
+                work_link = self.work_items.bind_execution_attempt(
                     work_item,
                     context=context,
                     action_id=action_id,
@@ -524,6 +531,31 @@ class ActionExecutionService:
                     reason_code=getattr(exc, "reason_code", "work_item_execution_link_invalid"),
                     trace_id=trace_id,
                     diagnostics=getattr(exc, "details", {}),
+                )
+            execution_reference = str(work_link.get("executionReference") or "")
+        if work_item is not None:
+            try:
+                work_link = self.work_items.start_execution_attempt(
+                    execution_reference,
+                    context=context,
+                )
+            except (StateStoreError, ValidationError) as exc:
+                return FacadeEnvelope(
+                    operation=operation,
+                    action_id=action_id,
+                    outcome_kind="execution_unknown",
+                    summary=f"{action_id}: bound execution could not enter dispatch safely.",
+                    diagnostics={
+                        "reasonCode": "work_item_execution_start_unknown",
+                        "linkageReason": getattr(exc, "reason_code", type(exc).__name__),
+                        "workItem": self._work_link(
+                            work_item.work_item_id,
+                            execution_reference,
+                            work_link,
+                        ),
+                        "effects": effect_summary(resolved_effects).model_dump(mode="json", by_alias=True),
+                    },
+                    trace_id=trace_id,
                 )
         try:
             outcome = self.registry.execute(action_id, request)
@@ -544,11 +576,12 @@ class ActionExecutionService:
             idempotency_key=effective_key,
             effects=resolved_effects,
             work_item=work_item,
+            execution_reference=execution_reference,
         )
         if work_item is not None:
             try:
-                self.work_items.link_execution(
-                    work_item,
+                work_link = self.work_items.finalize_execution_attempt(
+                    execution_reference,
                     context=context,
                     action_id=action_id,
                     replay_safety=resolved_effects.replay_safety.value,
@@ -567,11 +600,27 @@ class ActionExecutionService:
                         "reasonCode": "work_item_result_link_unknown",
                         "linkageReason": getattr(exc, "reason_code", type(exc).__name__),
                         "priorOutcomeKind": envelope.outcome_kind,
-                        "workItemId": work_item.work_item_id,
+                        "workItem": self._work_link(
+                            work_item.work_item_id,
+                            execution_reference,
+                            work_link,
+                        ),
                         "effects": effect_summary(resolved_effects).model_dump(mode="json", by_alias=True),
                     },
                     trace_id=trace_id,
                 )
+            envelope = envelope.model_copy(
+                update={
+                    "diagnostics": {
+                        **envelope.diagnostics,
+                        "workItem": self._work_link(
+                            work_item.work_item_id,
+                            execution_reference,
+                            work_link,
+                        ),
+                    }
+                }
+            )
         return envelope
 
     def resume(
@@ -608,6 +657,7 @@ class ActionExecutionService:
             correlation_id=operation.correlation_id,
             binding=binding,
             work_item=(WorkItemExecutionInput.model_validate(operation.work_item) if operation.work_item else None),
+            execution_reference=operation.execution_reference,
         )
         if envelope.outcome_kind == "approval_required" and not envelope.operation_handle:
             reason = str(envelope.diagnostics.get("reasonCode") or "operation_resume_failed")
@@ -636,6 +686,7 @@ class ActionExecutionService:
         idempotency_key: str,
         effects: ActionEffects,
         work_item: WorkItemExecutionInput | None,
+        execution_reference: str,
     ) -> FacadeEnvelope:
         effect_data = effect_summary(effects).model_dump(mode="json", by_alias=True)
         if isinstance(outcome, Success):
@@ -677,6 +728,7 @@ class ActionExecutionService:
                     correlation_id=trace_id,
                     idempotency_key=idempotency_key,
                     work_item=work_item,
+                    execution_reference=execution_reference,
                 )
             requirement = details.get("requirement")
             requested = requirement if isinstance(requirement, dict) else {"review": "operator_authority"}
@@ -717,6 +769,21 @@ class ActionExecutionService:
             diagnostics={"reasonCode": "facade_outcome_invalid", "effects": effect_data},
             trace_id=trace_id,
         )
+
+    @staticmethod
+    def _work_link(
+        work_item_id: str,
+        execution_reference: str,
+        record: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        value = record or {}
+        return {
+            "workItemId": work_item_id,
+            "executionReference": execution_reference,
+            "version": int(value.get("version") or 0),
+            "workspaceRevision": int(value.get("currentWorkspaceRevision") or 0),
+            "automaticReplay": False,
+        }
 
 
 class CompactFacadeService:

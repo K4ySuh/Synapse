@@ -76,6 +76,11 @@ tests, and the shared [changelog](../../CHANGELOG.md).
 - [ADR-0010](adr/ADR-0010-capability-pack-lifecycle.md) — deterministic,
   frozen, high-level capability-pack assembly over the one Action Registry
 
+## Phase 6
+
+- [Implementation status](phase-6-status.md) — resumable Task 6A slices and
+  exact focused verification; no Phase 6 closure claim
+
 ## Architecture decisions
 
 | ADR | Decision | Status |

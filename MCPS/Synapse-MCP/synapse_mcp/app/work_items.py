@@ -289,6 +289,92 @@ class WorkItemService:
             now=self.clock(),
         )
 
+    def bind_execution_attempt(
+        self,
+        value: WorkItemExecutionInput,
+        *,
+        context: FacadeCallContext,
+        action_id: str,
+        replay_safety: str,
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        """Create the durable work/run binding before dispatch."""
+
+        trusted_workspace = self._trusted_workspace(context, context.workspace_id)
+        repository = self.repository_factory(trusted_workspace)
+        return repository.bind_execution_attempt(
+            value.work_item_id,
+            claim_id=value.claim_id,
+            principal_id=context.principal_id,
+            authority_session_id=context.authority_session_id,
+            agent_run_id=context.agent_run_id,
+            action_id=action_id,
+            replay_safety=replay_safety,
+            idempotency_key=idempotency_key,
+            now=self.clock(),
+        )
+
+    def start_execution_attempt(
+        self,
+        execution_reference: str,
+        *,
+        context: FacadeCallContext,
+    ) -> dict[str, Any]:
+        """Move an already-bound attempt to the conservative started state."""
+
+        trusted_workspace = self._trusted_workspace(context, context.workspace_id)
+        repository = self.repository_factory(trusted_workspace)
+        return repository.start_execution_attempt(
+            execution_reference,
+            principal_id=context.principal_id,
+            authority_session_id=context.authority_session_id,
+            now=self.clock(),
+        )
+
+    def finalize_execution_attempt(
+        self,
+        execution_reference: str,
+        *,
+        context: FacadeCallContext,
+        action_id: str,
+        replay_safety: str,
+        idempotency_key: str,
+        result: Any,
+        outcome_kind: str,
+        operation_handle: str = "",
+    ) -> dict[str, Any]:
+        """Commit result/unknown linkage without consulting the originating lease."""
+
+        trusted_workspace = self._trusted_workspace(context, context.workspace_id)
+        repository = self.repository_factory(trusted_workspace)
+        references: list[dict[str, Any]] = [
+            {"type": "action", "id": action_id, "state": outcome_kind, "replaySafety": replay_safety}
+        ]
+        references.extend(repository.execution_references(idempotency_key=idempotency_key, result=result))
+        if operation_handle:
+            references.append({"type": "operation", "id": operation_handle, "state": outcome_kind})
+        return repository.finalize_execution_attempt(
+            execution_reference,
+            principal_id=context.principal_id,
+            authority_session_id=context.authority_session_id,
+            outcome_kind=outcome_kind,
+            state=self._attempt_state(outcome_kind),
+            references=references,
+            now=self.clock(),
+        )
+
+    @staticmethod
+    def _attempt_state(outcome_kind: str) -> str:
+        if outcome_kind == "success":
+            return "succeeded"
+        if outcome_kind == "approval_required":
+            return "awaiting_approval"
+        if outcome_kind == "execution_unknown":
+            return "unknown"
+        if outcome_kind == "execution_failure":
+            return "failed"
+        return "denied"
+
     @staticmethod
     def _trusted_workspace(context: FacadeCallContext, workspace_id: str) -> str:
         trusted = workspace.normalize_workspace_id(context.workspace_id or workspace_id)

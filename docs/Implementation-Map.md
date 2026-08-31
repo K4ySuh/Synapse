@@ -70,7 +70,7 @@ templates and skills through `synapse-codex-assets`.
 SQLite runtimes through the transport-independent `synapse_mcp/state/readiness.py`
 contract and fails below SQLite 3.51.3. `synapse_mcp/state/` now also owns
 repository contracts and selection, JSON-v1 compatibility adapters, verified
-SQLite connection/transaction helpers, migrations `0001` through `0003`, workspace
+SQLite connection/transaction helpers, migrations `0001` through `0004`, workspace
 and task revisions, the activated transactional runtime repository, bounded WAL
 checkpoint/status and online backup, and the workspace-local SHA-256 artifact
 store. `state/runtime.py` owns activated workspace, entity/relation, evidence,
@@ -399,7 +399,9 @@ The application surfaces are under `synapse_mcp/app/`:
 
 - `work_items.py` owns strict create/claim/heartbeat/update/block/handoff/
   release/complete/list/inspect/recover contracts, trusted coordination
-  binding, and action-link application behavior without planning or authority;
+  binding, and durable pre-dispatch work-execution attempts. Attempt finalizers
+  use the bound opaque identity rather than a still-live claim and return the
+  latest work version without adding a second execution or authority path;
 - `context.py` owns the modern compact Context Compiler, its strict query and
   result models, deterministic UTF-8 budget counter, packing rules, lifecycle
   classification, safety warnings, delta behavior, and bound artifact links;

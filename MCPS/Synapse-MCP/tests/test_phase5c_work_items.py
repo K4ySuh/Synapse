@@ -206,7 +206,12 @@ class Phase5CWorkItemTests(unittest.TestCase):
             self.assertIsNotNone(
                 checked.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='work_items'").fetchone()
             )
-            self.assertEqual(int(checked.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0]), 3)
+            self.assertIsNotNone(
+                checked.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='work_item_execution_attempts'"
+                ).fetchone()
+            )
+            self.assertEqual(int(checked.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0]), 4)
 
     def test_two_processes_race_for_one_exclusive_claim_and_exactly_one_wins(self) -> None:
         self.repository.create(
@@ -507,6 +512,11 @@ class Phase5CWorkItemTests(unittest.TestCase):
         self.assertEqual(action["id"], "workspace.summary")
         self.assertEqual(action["executionState"], "success")
         self.assertEqual(action["replaySafety"], "pure_read")
+        self.assertEqual(result.diagnostics["workItem"]["version"], inspected["version"])
+        self.assertEqual(
+            result.diagnostics["workItem"]["executionReference"],
+            inspected["executionAttempts"][0]["executionReference"],
+        )
         self.assertFalse(inspected["automaticReplay"])
 
     def test_claim_and_worker_label_cannot_satisfy_uncovered_authority(self) -> None:
@@ -552,6 +562,8 @@ class Phase5CWorkItemTests(unittest.TestCase):
         inspected = self.repository.inspect(item["workItemId"])
         action = next(reference for reference in inspected["references"] if reference["type"] == "action")
         self.assertEqual(action["executionState"], "approval_required")
+        self.assertEqual(uncovered.diagnostics["workItem"]["version"], inspected["version"])
+        self.assertEqual(inspected["executionAttempts"][0]["state"], "awaiting_approval")
 
     def test_json_v1_and_cross_workspace_work_item_access_fail_closed(self) -> None:
         workspace.create_workspace("legacy-work", hosts=["legacy.example"], store_version="json-v1")

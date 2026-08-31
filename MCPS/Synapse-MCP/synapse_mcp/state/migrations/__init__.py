@@ -18,6 +18,7 @@ MIGRATION_NAMES = (
     "0001_initial.sql",
     "0002_runtime_adoption.sql",
     "0003_operational_work_items.sql",
+    "0004_work_execution_attempts.sql",
 )
 
 

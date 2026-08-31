@@ -70,6 +70,16 @@ evaluation. Final action/decision/dispatch/job/result references are merged
 back into the work item. An uncertain post-execution link returns
 `execution_unknown` and requires reconciliation.
 
+Phase 6A amends the linkage implementation without changing that authority
+boundary. Migration `0004_work_execution_attempts.sql` binds one opaque attempt
+to the valid claim, trusted principal/session, action, replay class, and hashed
+idempotency identity before dispatch. The facade marks that attempt started
+immediately before Registry entry and finalizes it by attempt identity, so an
+expired claim cannot discard an already-observed result. Planned, started,
+approval-pending, and unknown attempts require reconciliation and block an
+automatic repeat. Linked action responses expose the current work-item version
+and execution reference.
+
 Existing JSON-v1 workspaces remain readable and otherwise compatible, but new
 work-item operations return `work_items_require_sqlite_v2`; Synapse does not
 create a parallel JSON coordination board or migrate an existing workspace
@@ -84,6 +94,8 @@ implicitly.
 - Exclusive claim races have one winner; stale writes return current version
   and workspace revision.
 - Lease expiry and client/process loss never replay linked execution.
+- Result finalization is authorized by an already-bound execution attempt, not
+  by continued ownership of the originating claim lease.
 - Active or unknown state-changing execution remains reconciliation-required.
 - Jobs and operation handles retain their existing lifecycle and control path.
 - Simple single-agent operations do not require work-item decomposition.
@@ -139,8 +151,8 @@ the existing 24,834-byte ceiling.
 
 ## Migration and rollback
 
-Opening an existing two-migration SQLite-v2 workspace applies migration `0003`
-in place without changing its current workspace revision. Bundle import/export
-preserves work-item rows and links. Protocol rollback remains separate from
-state-engine rollback; any post-activation v2 write, including a work-item
-write, keeps the existing rollback refusal boundary.
+Opening an older SQLite-v2 workspace applies migrations `0003` and `0004` in
+place without changing its current workspace revision. Bundle import/export
+preserves work-item rows, links, and bound execution attempts. Protocol rollback
+remains separate from state-engine rollback; any post-activation v2 write,
+including a work-item write, keeps the existing rollback refusal boundary.
