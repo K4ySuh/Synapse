@@ -80,6 +80,19 @@ approval-pending, and unknown attempts require reconciliation and block an
 automatic repeat. Linked action responses expose the current work-item version
 and execution reference.
 
+Migration `0005_work_dependency_policies.sql` also closes dependency deadlock.
+Every existing item receives the explicit compatible `success_required`
+default; failed or cancelled dependencies automatically block downstream work
+with a structured reason. `terminal_required` permits convergence work after
+all dependencies reach any terminal state. A typed CAS operation can cancel or
+replan blocked work without a claim and without manufacturing completion.
+
+Work listing becomes an immutable-creation-order keyset page. Summaries are the
+default, full records require inspect or explicit detail, and effective claim
+expiry is calculated at read time without requiring a recovery mutation.
+`tasks.control(operation="work.contract")` returns the discriminated payload
+contracts and examples without adding a twelfth compact operation.
+
 Existing JSON-v1 workspaces remain readable and otherwise compatible, but new
 work-item operations return `work_items_require_sqlite_v2`; Synapse does not
 create a parallel JSON coordination board or migrate an existing workspace
@@ -98,6 +111,10 @@ implicitly.
   by continued ownership of the originating claim lease.
 - Active or unknown state-changing execution remains reconciliation-required.
 - Jobs and operation handles retain their existing lifecycle and control path.
+- Dependency failure cannot strand success-required work in `planned`, and
+  terminal-required work cannot run before every prerequisite is terminal.
+- Read-time lease expiry never mutates revisions but cannot be presented as an
+  active lease.
 - Simple single-agent operations do not require work-item decomposition.
 - The compact surface remains eleven operations and frozen legacy/direct action
   identity remains unchanged.
@@ -151,8 +168,9 @@ the existing 24,834-byte ceiling.
 
 ## Migration and rollback
 
-Opening an older SQLite-v2 workspace applies migrations `0003` and `0004` in
-place without changing its current workspace revision. Bundle import/export
-preserves work-item rows, links, and bound execution attempts. Protocol rollback
+Opening an older SQLite-v2 workspace applies migrations `0003`, `0004`, and
+`0005` in place without changing its current workspace revision. Bundle
+import/export preserves dependency policy, blocker details, work-item rows,
+links, and bound execution attempts. Protocol rollback
 remains separate from state-engine rollback; any post-activation v2 write,
 including a work-item write, keeps the existing rollback refusal boundary.

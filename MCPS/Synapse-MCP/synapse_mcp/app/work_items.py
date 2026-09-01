@@ -59,6 +59,7 @@ class WorkItemCreateInput(WorkItemModel):
     role: str = Field(default="", max_length=256)
     parent_work_item_id: str | None = Field(default=None, min_length=1, max_length=512)
     dependency_ids: list[str] = Field(default_factory=list, max_length=100)
+    dependency_policy: Literal["success_required", "terminal_required"] = "success_required"
     exclusive: bool = True
     required_packs: list[str] = Field(default_factory=list, max_length=100)
     selected_packs: list[str] = Field(default_factory=list, max_length=100)
@@ -101,6 +102,15 @@ class WorkItemTransitionInput(WorkItemModel):
     status: Literal["completed", "failed", "cancelled"] = "completed"
 
 
+class WorkItemResolveBlockedInput(WorkItemModel):
+    resolution: Literal["cancel", "replan"]
+    reason: str = Field(min_length=1, max_length=4000)
+    dependency_policy: Literal["success_required", "terminal_required"] | None = None
+    objective: str | None = Field(default=None, min_length=1, max_length=4000)
+    next_recommended_work: str | None = Field(default=None, max_length=4000)
+    unresolved_gaps: list[str] | None = Field(default=None, max_length=100)
+
+
 class WorkItemListInput(WorkItemModel):
     statuses: list[
         Literal["planned", "available", "claimed", "running", "blocked", "completed", "failed", "cancelled"]
@@ -109,6 +119,12 @@ class WorkItemListInput(WorkItemModel):
     worker: str = Field(default="", max_length=256)
     parent_work_item_id: str = Field(default="", max_length=512)
     limit: int = Field(default=50, ge=1, le=100)
+    cursor: str | None = Field(default=None, min_length=1, max_length=2048)
+    detail: bool = False
+
+
+class WorkItemEmptyInput(WorkItemModel):
+    pass
 
 
 class WorkItemExecutionInput(WorkItemModel):
@@ -143,6 +159,8 @@ class WorkItemService:
         lease_seconds: int,
         payload: Mapping[str, Any],
     ) -> dict[str, Any]:
+        if operation == "work.contract":
+            return work_operation_contract()
         trusted_workspace = self._trusted_workspace(context, workspace_id)
         repository = self.repository_factory(trusted_workspace)
         now = self.clock()
@@ -152,17 +170,19 @@ class WorkItemService:
             return repository.create(data, principal_id=context.principal_id, now=now)
         if operation == "work.list":
             value = WorkItemListInput.model_validate({**dict(payload), **({"worker": worker} if worker else {})})
-            items = repository.list(
+            return repository.list_page(
                 statuses=value.statuses,
                 role=value.role,
                 worker=value.worker,
                 parent_work_item_id=value.parent_work_item_id,
                 limit=value.limit,
+                cursor=value.cursor,
+                detail=value.detail,
+                now=now,
             )
-            return {"workItems": items, "count": len(items), "workspaceId": trusted_workspace}
         if operation == "work.inspect":
             self._require_work_item_id(work_item_id)
-            return repository.inspect(work_item_id)
+            return repository.inspect(work_item_id, now=now)
         if operation == "work.recover":
             return repository.recover(
                 principal_id=context.principal_id,
@@ -171,6 +191,15 @@ class WorkItemService:
             )
         self._require_work_item_id(work_item_id)
         self._require_version(expected_version)
+        if operation == "work.resolve_blocked":
+            value = WorkItemResolveBlockedInput.model_validate(payload)
+            return repository.resolve_blocked(
+                work_item_id,
+                value.model_dump(mode="json", by_alias=True, exclude_none=True),
+                expected_version=int(expected_version),
+                principal_id=context.principal_id,
+                now=now,
+            )
         if operation == "work.claim":
             value = WorkItemClaimInput.model_validate(
                 {**dict(payload), **({"worker": worker} if worker else {}), "leaseSeconds": lease_seconds}
@@ -410,3 +439,86 @@ class WorkItemService:
     def _require_version(expected_version: int | None) -> None:
         if expected_version is None:
             raise StateStoreError("work_item_version_required", "This mutation requires expectedVersion.")
+
+
+_WORK_PAYLOAD_MODELS: dict[str, type[WorkItemModel]] = {
+    "work.create": WorkItemCreateInput,
+    "work.list": WorkItemListInput,
+    "work.inspect": WorkItemEmptyInput,
+    "work.claim": WorkItemClaimInput,
+    "work.heartbeat": WorkItemEmptyInput,
+    "work.update": WorkItemUpdateInput,
+    "work.handoff": WorkItemTransitionInput,
+    "work.release": WorkItemTransitionInput,
+    "work.complete": WorkItemTransitionInput,
+    "work.block": WorkItemTransitionInput,
+    "work.resolve_blocked": WorkItemResolveBlockedInput,
+    "work.recover": WorkItemEmptyInput,
+}
+
+_WORK_REQUIRED_TOP_LEVEL: dict[str, tuple[str, ...]] = {
+    "work.create": ("operation", "workspaceId"),
+    "work.list": ("operation", "workspaceId"),
+    "work.inspect": ("operation", "workspaceId", "workItemId"),
+    "work.claim": ("operation", "workspaceId", "workItemId", "expectedVersion"),
+    "work.heartbeat": (
+        "operation",
+        "workspaceId",
+        "workItemId",
+        "claimId",
+        "expectedVersion",
+    ),
+    "work.update": ("operation", "workspaceId", "workItemId", "claimId", "expectedVersion"),
+    "work.handoff": ("operation", "workspaceId", "workItemId", "claimId", "expectedVersion"),
+    "work.release": ("operation", "workspaceId", "workItemId", "claimId", "expectedVersion"),
+    "work.complete": ("operation", "workspaceId", "workItemId", "claimId", "expectedVersion"),
+    "work.block": ("operation", "workspaceId", "workItemId", "claimId", "expectedVersion"),
+    "work.resolve_blocked": ("operation", "workspaceId", "workItemId", "expectedVersion"),
+    "work.recover": ("operation", "workspaceId"),
+}
+
+
+def _work_example(operation: str) -> dict[str, JsonValue]:
+    example: dict[str, JsonValue] = {
+        "operation": operation,
+        "workspaceId": "workspace-example",
+    }
+    if "workItemId" in _WORK_REQUIRED_TOP_LEVEL[operation]:
+        example["workItemId"] = "work-example"
+    if "claimId" in _WORK_REQUIRED_TOP_LEVEL[operation]:
+        example["claimId"] = "claim-example"
+    if "expectedVersion" in _WORK_REQUIRED_TOP_LEVEL[operation]:
+        example["expectedVersion"] = 1
+    payloads: dict[str, dict[str, JsonValue]] = {
+        "work.create": {"objective": "Review fictional offline workspace truth"},
+        "work.claim": {"worker": "consumer-example"},
+        "work.update": {"progressSummary": "Reviewed current workspace truth."},
+        "work.complete": {"resultSummary": "Recorded the bounded result."},
+        "work.block": {"reason": "Operator-reviewed prerequisite is missing."},
+        "work.resolve_blocked": {
+            "resolution": "replan",
+            "reason": "Converge after every dependency is terminal.",
+            "dependencyPolicy": "terminal_required",
+        },
+    }
+    if operation in payloads:
+        example["payload"] = payloads[operation]
+    return example
+
+
+def work_operation_contract() -> dict[str, Any]:
+    """Return self-contained payload contracts through the existing task seam."""
+
+    return {
+        "contractVersion": "synapse.work-operations.v1",
+        "transportOperation": "tasks.control",
+        "operations": [
+            {
+                "operation": operation,
+                "requiredTopLevel": list(_WORK_REQUIRED_TOP_LEVEL[operation]),
+                "payloadSchema": model.model_json_schema(mode="validation", by_alias=True),
+                "example": _work_example(operation),
+            }
+            for operation, model in _WORK_PAYLOAD_MODELS.items()
+        ],
+    }

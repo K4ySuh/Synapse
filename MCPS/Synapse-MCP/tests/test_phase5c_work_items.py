@@ -211,7 +211,7 @@ class Phase5CWorkItemTests(unittest.TestCase):
                     "SELECT name FROM sqlite_master WHERE type='table' AND name='work_item_execution_attempts'"
                 ).fetchone()
             )
-            self.assertEqual(int(checked.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0]), 4)
+            self.assertEqual(int(checked.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0]), 5)
 
     def test_two_processes_race_for_one_exclusive_claim_and_exactly_one_wins(self) -> None:
         self.repository.create(
@@ -412,7 +412,8 @@ class Phase5CWorkItemTests(unittest.TestCase):
         )
         failed_child = self.create(workItemId="work-failed-child", dependencyIds=[failed["workItemId"]])
         self.assertEqual(failed_child["dependencyStates"][failed["workItemId"]], "failed")
-        self.assertEqual(failed_child["status"], "planned")
+        self.assertEqual(failed_child["status"], "blocked")
+        self.assertEqual(failed_child["blocker"]["code"], "dependency_success_impossible")
 
     def test_restart_reconstructs_dependencies_claims_leases_and_handoffs(self) -> None:
         parent = self.create(workItemId="work-parent")

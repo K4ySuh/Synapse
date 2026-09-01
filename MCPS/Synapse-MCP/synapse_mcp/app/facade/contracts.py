@@ -124,6 +124,7 @@ TaskOperation = Literal[
     "inspect",
     "cancel",
     "resume",
+    "work.contract",
     "work.create",
     "work.list",
     "work.inspect",
@@ -134,6 +135,7 @@ TaskOperation = Literal[
     "work.release",
     "work.complete",
     "work.block",
+    "work.resolve_blocked",
     "work.recover",
 ]
 

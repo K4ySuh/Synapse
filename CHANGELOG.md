@@ -24,6 +24,18 @@ durable dispatch and continuation truth.
 
 ### Added
 
+- **Phase 6A operational errata closure.** Added explicit
+  `success_required`/`terminal_required` work dependencies, automatic structured
+  blocking for terminally impossible success-only work, typed cancel/replan
+  resolution, stable cursor-paged summary reads, read-time effective lease
+  state, and on-demand discovery of every work payload through the existing
+  `tasks.control` operation. Durable execution-attempt finalization remains
+  lease-independent and returns current CAS versions. Added the deterministic
+  pre-instrumentation performance runner and checked environment baseline for
+  selected-pack cold start, 500-item context, 50-item work listing, and Registry
+  control overhead; the proposed core-only p50 miss remains explicit and
+  matching future runs use the accepted 20% relative ceiling.
+
 - **Phase 5F provider-neutral operational acceptance.** Added an offline
   deterministic corpus and aggregate eight-verdict acceptance runner for pack assembly,
   multi-process work-item concurrency, authority/execution linkage,

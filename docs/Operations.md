@@ -737,6 +737,10 @@ single-agent reads and actions can continue directly.
 
 ```text
 tasks.control(
+  operation="work.contract"
+)
+
+tasks.control(
   operation="work.create",
   workspaceId="<activated-v2-workspace>",
   payload={
@@ -744,6 +748,7 @@ tasks.control(
     "role": "web",
     "targets": ["example.com"],
     "requiredPacks": ["web"],
+    "dependencyPolicy": "success_required",
     "completionContract": {"result": "candidate and gap summary"}
   }
 )
@@ -758,12 +763,34 @@ tasks.control(
 )
 ```
 
+Use `work.contract` in a fresh client session to discover the discriminated
+top-level requirements, payload schemas, and fictional examples for every work
+operation. It requires no workspace selection and adds no top-level compact
+operation.
+
+`success_required` is the compatible dependency default: every dependency must
+complete successfully. If one fails or is cancelled, Synapse blocks the
+downstream item with `blocker.code=dependency_success_impossible`. Use
+`terminal_required` for convergence/reporting work that may start only after
+all dependencies are completed, failed, or cancelled. Resolve blocked work with
+`work.resolve_blocked` and the current `expectedVersion`: choose `cancel`, or
+`replan` with a policy/objective update. Resolution never fabricates a
+`completed` result.
+
 Mutating calls require the returned `claimId` and current `expectedVersion`.
 Use `work.heartbeat` to renew a lease, `work.update` to record concise progress
 and workspace references, and `work.handoff`, `work.release`, `work.block`, or
 `work.complete` to end the claim explicitly. A version conflict returns
 `currentVersion` and `currentWorkspaceRevision`; inspect and retry only after
 reviewing the intervening state.
+
+`work.list` returns summary records by default, with `nextCursor` and
+`hasMore`. Pass that opaque cursor with unchanged filters for the next stable
+page. Use `work.inspect` for one complete record or set `detail=true` only when
+a bounded page genuinely needs claims, references, attempts, and handoffs.
+Expired claims are shown as expired and no longer match worker filters at read
+time even before `work.recover`; `storedStatus` distinguishes that effective
+view from the last canonical mutation.
 
 After client/agent loss, call `work.recover` and then inspect before reclaiming.
 Recovery expires stale leases but does not cancel, resume, or replay any linked
@@ -844,6 +871,20 @@ low-usage defaults and one repetition while their historical checked Sol
 evidence remains unchanged. See the
 [benchmark method](modernization/phase-5-benchmark-method.md) for thresholds and
 the [handoff](modernization/phase-5-handoff.md) for rollback.
+
+### Phase 6A performance baseline
+
+Run the deterministic local performance comparison with:
+
+```sh
+bin/run-phase6-performance --check
+```
+
+The runner uses 500 fictional work items, no provider I/O, 40 warm samples, and
+12 fresh-process cold starts. It reports the absolute ceilings even when a
+matching checked environment is accepted through the 20% relative p95 ceiling.
+See [the Phase 6A baseline](modernization/phase-6-performance-baseline.md) for
+the exact environment and the preserved core-only p50 miss.
 
 Each connection is independently bound to server-held principal/session state.
 Authorized clients may share a Synapse workspace while using distinct work-item

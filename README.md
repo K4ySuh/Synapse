@@ -172,6 +172,18 @@ usage profiles. See the
 [benchmark method](docs/modernization/phase-5-benchmark-method.md) and
 [Phase 5 handoff](docs/modernization/phase-5-handoff.md).
 
+Phase 6A closes the retained work-coordination errata before observed-effect
+instrumentation begins. SQLite-v2 work dependencies now declare
+`success_required` (the compatible default) or `terminal_required`; impossible
+success-only work becomes structurally blocked and can be cancelled or
+replanned through a typed operation. `work.list` returns stable cursor-paged
+summaries by default, computes expired leases at read time, and leaves complete
+records to `work.inspect` or `detail=true`. A fresh client can discover every
+work payload through `tasks.control(operation="work.contract")`, so compact
+remains eleven operations. The deterministic pre-instrumentation performance
+method and checked environment baseline are documented in the
+[Phase 6A performance baseline](docs/modernization/phase-6-performance-baseline.md).
+
 Phase 3C completes the production official-SDK adapter over the
 protocol-independent modern application surfaces. Phase 3D is complete under
 the operator-approved stable-Codex contract. Codex can use protocol-native
@@ -246,6 +258,9 @@ gate evidence are indexed under
 - Finding lifecycle with explicit operator-review state: `candidate`, `confirmed`,
   `false_positive`, `accepted_risk`, `fixed`, with evidence linking and
   report-ready export.
+- Durable work dependencies with success-required or terminal-required
+  convergence, typed blocked-work resolution, stable summary pagination, and
+  on-demand work-operation contract discovery through the existing task seam.
 
 ### Scope, approval, and credential safety
 

@@ -38,12 +38,75 @@ evaluation, dispatch truth, output contracts, the eleven compact operations,
 legacy behavior, and JSON-v1 remain unchanged. Migration `0004` is additive
 for activated SQLite-v2 workspaces. The complete Task 6A gate has not run yet.
 
-## Remaining Task 6A slices
+## Task 6A.2–6A.6 — operational errata and performance baseline
 
-1. `6A.2`: dependency policies and typed blocked-work resolution.
-2. `6A.3`: stable list pagination, summary/detail reads, effective lease state,
-   and work-operation contract discovery.
-3. `6A.4`: documentation-host and Phase 5 measurement errata.
-4. `6A.5`: deterministic performance runner and environment baseline.
-5. `6A.6`: full prescribed gates, final documentation reconciliation, and the
-   first Phase 6 adversarial-review brief.
+Status: implemented and fully verified on 2026-09-01; ready for the Task 6A
+adversarial checkpoint.
+
+Delivered:
+
+- SQLite-v2 migration `0005` gives existing and new work items the explicit
+  compatible `success_required` dependency default, adds
+  `terminal_required`, and stores structured blocker details;
+- terminally impossible success-required work becomes blocked atomically, while
+  terminal-required convergence/reporting work becomes available only after
+  every dependency reaches a terminal state;
+- `work.resolve_blocked` provides CAS-protected cancel or replan resolution and
+  never invents successful completion;
+- default work lists are bounded summaries with filter-bound opaque keyset
+  cursors; inspect and `detail=true` provide full records, and list/inspect
+  calculate effective claim expiry without a recovery mutation;
+- `tasks.control(operation="work.contract")` returns the application-owned
+  discriminated payload schemas and examples without selecting a workspace or
+  adding a twelfth compact operation;
+- Phase 5 documentation now records the exact official-host allowlist defect
+  and distinguishes the historical Phase 5E 5,941-byte prompt from the shipped
+  Phase 5F 6,289-byte prompt without rewriting historical acceptance evidence;
+- `bin/run-phase6-performance` records the pre-instrumentation environment and
+  checks absolute ceilings plus a 20% matching-environment relative p95 bound.
+
+Exact verification:
+
+```text
+16 Phase 6A reliability/work-contract tests passed
+66 retained Phase 5 tests passed
+767 full core tests passed
+16 official-SDK modern adapter tests passed
+2 custom-adapter template tests passed
+Phase 5 operational acceptance passed all 8 verdict groups and 3 repetitions
+Phase 6A performance comparison passed all relative p95 bounds
+174-action inventory current; 168 retained output contracts current
+174 actions have one owner across 6 capability packs
+modern-compact remains 11 operations and 23,336 application bytes
+8 Codex skills and 2 shared references validate
+222 Python files compile; shell syntax, secret-pattern, and diff hygiene pass
+```
+
+The Phase 5 distribution sub-gate used its documented
+`SYNAPSE_BUILD_PYTHON` override because this host splits offline `pip` from the
+system `setuptools`/`wheel` packages. The unmodified gate then built and
+installed both archives and started standard 174-action and core-only 42-action
+runtimes. The historical Phase 5 acceptance artifact was not regenerated.
+
+Compatibility result: the Action Registry remains the one execution path;
+standard/core action counts stay 174/42; compact stays at eleven operations;
+modern-direct, frozen legacy, JSON-v1, Phase 4 migration, and Phase 5 work-item
+callers remain compatible. Migration `0005` is additive only for explicitly
+activated SQLite-v2 workspaces.
+
+Residuals and boundary:
+
+- the checked baseline's core-only cold-start p50 is 792.572 ms and misses the
+  proposed 500 ms absolute ceiling; its 875.567 ms p95 passes. The miss remains
+  visible, while matching future runs enforce the accepted 20% relative p95
+  ceiling;
+- the Registry timing is a pre-instrumentation control, not an observed-effect
+  or effect-validation claim;
+- retained generic MCP conformance is still `partial_fail`; Inspector and live
+  Codex diagnostics remain optional and were not rerun for Task 6A;
+- Task 6A does not change the Phase 5 multi-agent Codex default. That integration
+  change belongs to Task 6B, and Phase 6 is not closed before Task 6J.
+
+The independent review target is
+[the Task 6A adversarial-review brief](phase-6a-adversarial-review.md). The next
+implementation task after that checkpoint is Task 6B.

@@ -26,7 +26,7 @@ reporting. It contains no repository test, changelog, editing, or implementation
 instructions. `SYNAPSE_PROMPT_PATH` remains an explicit operator override; a
 missing override fails instead of silently selecting another file.
 
-Measured against the accepted Phase 4 root prompt:
+Measured at the Phase 5E checkpoint against the accepted Phase 4 root prompt:
 
 | Measure | Phase 4 | Phase 5E |
 | --- | ---: | ---: |
@@ -34,10 +34,15 @@ Measured against the accepted Phase 4 root prompt:
 | Root instruction bytes | 27,633 | 5,150 |
 | MCP operational prompt bytes | 27,633 | 5,941 |
 
-The runtime prompt is 78.5% smaller than the Phase 4 root prompt. Legacy
+The Phase 5E runtime prompt was 78.5% smaller than the Phase 4 root prompt. Legacy
 `prompts/list`, `prompts/get`, `resources/list`, and
 `synapse://prompt/main` shapes are unchanged; only the returned target-neutral
 guidance source changes.
+
+Phase 5F subsequently added coordination/recovery guidance and shipped a
+6,289-byte prompt, or 77.2% below the 27,633-byte Phase 4 source. The Phase 5E
+numbers above remain historical checkpoint evidence; the post-closure erratum
+corrects documents that continued to present 5,941 bytes as current after 5F.
 
 ## Installed Codex assets
 

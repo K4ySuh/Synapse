@@ -79,6 +79,13 @@ synapse-codex-assets --config modern-direct
   identity bindings, request-state keyring, and state paths. Distribution and
   acceptance gates self-provision isolated equivalents.
 
+Post-closure Phase 6A audit identified one exact core documentation-host
+allowlist failure and one stale final prompt measurement. The allowlist now
+recognizes the official documentation host already cited by the benchmark
+method. The Phase 5E checkpoint remains 5,941 bytes/78.5%; the Phase 5F shipped
+prompt is correctly recorded as 6,289 bytes/77.2%. These are explicit errata,
+not retroactive changes to the captured Phase 5 acceptance evidence.
+
 The deferred complete-phase adversarial review passed on 2026-08-30. It found
 no open Phase 5 contract, authority, state, evidence, packaging, or rollback
 inconsistency beyond the explicit residuals above. The review used the offline

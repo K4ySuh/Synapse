@@ -373,6 +373,25 @@ and no live model run. The retained generic MCP `partial_fail` classification
 and optional MCP Inspector/live-client diagnostics remain explicit residuals,
 not hidden Phase 5 passes.
 
+## Post-closure errata recorded by Phase 6A
+
+Phase 6A preserves the historical Phase 5 evidence and records two corrections
+instead of rewriting closure as though the defects never existed:
+
+- the exact `bin/test --core` gate had one reproducible documentation-host
+  allowlist failure because the official `developers.openai.com` documentation
+  host used by the checked benchmark method was absent from the explicit list;
+  Phase 6A adds that exact official documentation host and reruns the core gate;
+- 5,941 bytes and 78.5% were correct for the Phase 5E prompt checkpoint, but
+  Phase 5F expanded the shipped operational prompt to 6,289 bytes. The final
+  Phase 5 current measurement is therefore 6,289 bytes, 77.2% below the
+  27,633-byte Phase 4 source. Phase 5E checkpoint rows remain labeled as
+  historical measurements.
+
+These corrections do not change the Phase 5 action, authority, state, MCP,
+skill, or distribution boundaries. The Phase 6A status carries the new exact
+gate result.
+
 Compatibility result: no action ID/schema, compact/direct operation, Registry,
 effect, authority, workspace/migration, execution, or report contract changed.
 The acceptance method verifies independent-client concurrency at the canonical

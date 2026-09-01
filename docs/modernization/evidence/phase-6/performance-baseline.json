@@ -1,0 +1,98 @@
+{
+  "absoluteCeilingsMilliseconds": {
+    "contextQuery500WorkItems": {
+      "p50": 25.0,
+      "p95": 50.0
+    },
+    "coreOnlyColdStart": {
+      "p50": 500.0,
+      "p95": 900.0
+    },
+    "registryControlOverhead": {
+      "p50": 20.0,
+      "p95": 50.0
+    },
+    "standardColdStart": {
+      "p50": 1250.0,
+      "p95": 2000.0
+    },
+    "workList50Summaries": {
+      "p50": 25.0,
+      "p95": 60.0
+    }
+  },
+  "capturedAt": "2026-09-01T08:12:58.326861Z",
+  "classification": "phase6a_pre_instrumentation_baseline",
+  "environment": {
+    "filesystemClass": "private-local-temporary-directory",
+    "fingerprint": "c1cc8dd7c110ef635111ba116b883b1d309df2fceec2c00990dcd2ca72848d73",
+    "machine": "x86_64",
+    "mcpSdk": "2.0.0",
+    "operatingSystem": "Linux",
+    "python": "3.14.7",
+    "pythonImplementation": "CPython",
+    "sqlite": "3.53.4"
+  },
+  "evaluation": {
+    "absoluteCeilings": {
+      "failures": [
+        "coreOnlyColdStart.p50=792.572ms exceeds 500.000ms"
+      ],
+      "result": "fail"
+    },
+    "acceptedByMatchingRelativeBaseline": false,
+    "failures": [
+      "coreOnlyColdStart.p50=792.572ms exceeds 500.000ms"
+    ],
+    "relativeBaseline": {
+      "comparisons": [],
+      "maximumRegressionPercent": 20.0,
+      "status": "not_requested"
+    },
+    "result": "fail"
+  },
+  "fixture": {
+    "executionBoundary": "ExecutionPlan + policy seam + no-op dispatch + output validation; no provider I/O",
+    "externalTraffic": false,
+    "workItemCount": 500,
+    "workListPageSize": 50
+  },
+  "measurements": {
+    "contextQuery500WorkItems": {
+      "maximumMilliseconds": 32.817,
+      "minimumMilliseconds": 12.225,
+      "p50Milliseconds": 12.814,
+      "p95Milliseconds": 13.2,
+      "sampleCount": 40
+    },
+    "coreOnlyColdStart": {
+      "maximumMilliseconds": 875.567,
+      "minimumMilliseconds": 757.265,
+      "p50Milliseconds": 792.572,
+      "p95Milliseconds": 875.567,
+      "sampleCount": 12
+    },
+    "registryControlOverhead": {
+      "maximumMilliseconds": 0.064,
+      "minimumMilliseconds": 0.029,
+      "p50Milliseconds": 0.032,
+      "p95Milliseconds": 0.051,
+      "sampleCount": 40
+    },
+    "standardColdStart": {
+      "maximumMilliseconds": 1165.226,
+      "minimumMilliseconds": 1076.214,
+      "p50Milliseconds": 1119.739,
+      "p95Milliseconds": 1165.226,
+      "sampleCount": 12
+    },
+    "workList50Summaries": {
+      "maximumMilliseconds": 3.862,
+      "minimumMilliseconds": 3.23,
+      "p50Milliseconds": 3.487,
+      "p95Milliseconds": 3.76,
+      "sampleCount": 40
+    }
+  },
+  "schemaVersion": 1
+}

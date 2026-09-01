@@ -78,8 +78,12 @@ tests, and the shared [changelog](../../CHANGELOG.md).
 
 ## Phase 6
 
-- [Implementation status](phase-6-status.md) — resumable Task 6A slices and
-  exact focused verification; no Phase 6 closure claim
+- [Implementation status](phase-6-status.md) — Task 6A operational-errata
+  closure and exact verification; no Phase 6 closure claim
+- [Phase 6A performance baseline](phase-6-performance-baseline.md) —
+  deterministic method, environment, absolute results, and relative ceiling
+- [Phase 6A adversarial-review brief](phase-6a-adversarial-review.md) — review
+  targets, evidence, compatibility boundary, and residual risks
 
 ## Architecture decisions
 

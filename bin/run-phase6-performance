@@ -1,0 +1,403 @@
+#!/usr/bin/env python3
+# Copyright 2026 Javier Roldán Ortiz
+# SPDX-License-Identifier: Apache-2.0
+
+"""Measure the deterministic Phase 6A pre-instrumentation performance corpus."""
+
+from __future__ import annotations
+
+import argparse
+from datetime import datetime, timezone
+from hashlib import sha256
+from importlib.metadata import PackageNotFoundError, version
+import json
+import os
+from pathlib import Path
+import platform
+import sqlite3
+import statistics
+import subprocess
+import sys
+from tempfile import TemporaryDirectory
+import time
+from typing import Any, Callable
+
+
+ROOT = Path(__file__).resolve().parents[1]
+PACKAGE = ROOT / "MCPS" / "Synapse-MCP"
+DEFAULT_BASELINE = ROOT / "docs" / "modernization" / "evidence" / "phase-6" / "performance-baseline.json"
+DEFAULT_SAMPLES = 40
+DEFAULT_COLD_SAMPLES = 12
+DEFAULT_WORK_ITEMS = 500
+ABSOLUTE_CEILINGS_MS = {
+    "standardColdStart": {"p50": 1_250.0, "p95": 2_000.0},
+    "coreOnlyColdStart": {"p50": 500.0, "p95": 900.0},
+    "contextQuery500WorkItems": {"p50": 25.0, "p95": 50.0},
+    "workList50Summaries": {"p50": 25.0, "p95": 60.0},
+    "registryControlOverhead": {"p50": 20.0, "p95": 50.0},
+}
+
+
+class PerformanceFailure(RuntimeError):
+    """A benchmark prerequisite or accepted ceiling failed."""
+
+
+def _ensure_selected_runtime() -> None:
+    if os.environ.get("SYNAPSE_PHASE6_PERFORMANCE_RUNTIME_SELECTED") == "1":
+        return
+    selected = subprocess.run(
+        [str(ROOT / "bin" / "resolve-synapse-python"), "--require-modern"],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if selected.returncode:
+        raise PerformanceFailure(selected.stderr.strip() or selected.stdout.strip())
+    executable = selected.stdout.strip()
+    if executable and Path(sys.executable) != Path(executable):
+        environment = dict(os.environ)
+        environment["SYNAPSE_PHASE6_PERFORMANCE_RUNTIME_SELECTED"] = "1"
+        os.execve(executable, [executable, str(Path(__file__).resolve()), *sys.argv[1:]], environment)
+
+
+_ensure_selected_runtime()
+
+
+def _package_version(name: str) -> str:
+    try:
+        return version(name)
+    except PackageNotFoundError:
+        return "not-installed"
+
+
+def _percentile(values: list[float], fraction: float) -> float:
+    ordered = sorted(values)
+    index = max(0, min(len(ordered) - 1, int((len(ordered) * fraction) + 0.999999) - 1))
+    return ordered[index]
+
+
+def _measurement(values: list[float]) -> dict[str, Any]:
+    return {
+        "sampleCount": len(values),
+        "p50Milliseconds": round(statistics.median(values), 3),
+        "p95Milliseconds": round(_percentile(values, 0.95), 3),
+        "minimumMilliseconds": round(min(values), 3),
+        "maximumMilliseconds": round(max(values), 3),
+    }
+
+
+def _time_samples(callback: Callable[[int], Any], count: int) -> dict[str, Any]:
+    values: list[float] = []
+    for index in range(count):
+        started = time.perf_counter_ns()
+        callback(index)
+        values.append((time.perf_counter_ns() - started) / 1_000_000)
+    return _measurement(values)
+
+
+def _cold_start(profile: str, count: int) -> dict[str, Any]:
+    selection = "('core',)" if profile == "core" else "None"
+    expected = "42" if profile == "core" else "174"
+    script = (
+        "from synapse_mcp.app.capability_packs import assemble_capability_packs;"
+        f"a=assemble_capability_packs({selection},discover_external=False);"
+        "print(len(a.registry.descriptors()))"
+    )
+    environment = dict(os.environ)
+    environment.update(
+        {
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONPATH": str(PACKAGE),
+        }
+    )
+
+    def run(_index: int) -> None:
+        completed = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=ROOT,
+            env=environment,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=30,
+            check=False,
+        )
+        if completed.returncode or completed.stdout.strip() != expected:
+            raise PerformanceFailure(
+                completed.stderr.strip() or f"{profile} cold start returned {completed.stdout.strip()!r}"
+            )
+
+    return _time_samples(run, count)
+
+
+def _registry_fixture() -> tuple[Callable[[int], Any], str]:
+    from synapse_mcp.app.actions import (
+        ActionDescriptor,
+        ActionEffects,
+        ActionId,
+        ActionOutput,
+        ActionRegistry,
+        ActionRequest,
+        Availability,
+        CredentialAccess,
+        CredentialPolicy,
+        CredentialRequirement,
+        DeadlineTier,
+        ExecutionContext,
+        Idempotency,
+        IdempotencyPolicy,
+        InputContractDocument,
+        PassThroughPolicyEvaluator,
+        RiskClass,
+        ScopePolicy,
+        ScopeRequirement,
+        Success,
+        TaskPolicy,
+        make_input_model,
+    )
+
+    class FixtureOutput(ActionOutput):
+        ok: bool
+
+    input_model = make_input_model(
+        "Phase6APerformanceInput",
+        InputContractDocument(source='{"type":"object","properties":{}}'),
+    )
+
+    class FixtureExecutor:
+        @property
+        def input_model(self):
+            return input_model
+
+        @property
+        def output_model(self):
+            return FixtureOutput
+
+        def __call__(self, request):
+            del request
+            return Success(payload={"ok": True})
+
+    registry = ActionRegistry(policy_evaluator=PassThroughPolicyEvaluator())
+    registry.register(
+        ActionDescriptor(
+            id=ActionId.parse("phase6a.control_fixture"),
+            pack="phase6a",
+            title="Phase 6A control fixture",
+            summary="Measure canonical planning, policy, dispatch, and output validation overhead.",
+            input_model=input_model,
+            output_model=FixtureOutput,
+            effects=ActionEffects(replay_safety=Idempotency.PURE_READ),
+            effect_resolver=None,
+            risk_class=RiskClass.NONE,
+            scope_policy=ScopePolicy(ScopeRequirement.NOT_APPLICABLE),
+            credential_policy=CredentialPolicy(CredentialRequirement.NONE, CredentialAccess.NONE),
+            task_policy=TaskPolicy(
+                deadline_tier=DeadlineTier.FAST,
+                background_capable=False,
+                passive_recordable=False,
+            ),
+            executor=FixtureExecutor(),
+            availability=Availability(available=True),
+            legacy_aliases=("phase6a.control_fixture",),
+            legacy_serializer="transport",
+            implementation_ref="phase6.performance.FixtureExecutor",
+            idempotency_policy=IdempotencyPolicy(Idempotency.PURE_READ),
+        )
+    )
+    registry.freeze()
+
+    def execute(index: int) -> Any:
+        return registry.execute(
+            "phase6a.control_fixture",
+            ActionRequest(
+                input=input_model(),
+                context=ExecutionContext(None, f"phase6a-performance-{index}", 45.0, None),
+            ),
+        )
+
+    return execute, "ExecutionPlan + policy seam + no-op dispatch + output validation; no provider I/O"
+
+
+def _workspace_fixtures(root: Path, work_item_count: int) -> tuple[Callable[[int], Any], Callable[[int], Any]]:
+    os.environ["SYNAPSE_ROOT"] = str(root)
+    from synapse_mcp.app.facade import CompactFacadeService, FacadeCallContext, canonical_facade_bytes
+    from synapse_mcp.app.work_items import WorkItemService
+    from synapse_mcp.core import workspace
+    from synapse_mcp.state import ActivatedWorkspaceRepository, SQLiteWorkItemRepository
+
+    workspace.create_workspace("performance", hosts=["performance.example"])
+    repository = SQLiteWorkItemRepository(
+        ActivatedWorkspaceRepository("performance", workspace.WORKSPACES_DIR / "performance")
+    )
+    fixed_time = datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc)
+    for index in range(work_item_count):
+        repository.create(
+            {
+                "workItemId": f"performance-{index:04d}",
+                "objective": f"Review fictional offline work item {index:04d}",
+            },
+            principal_id="performance:operator",
+            now=fixed_time,
+        )
+    facade = CompactFacadeService(work_items=WorkItemService(clock=lambda: fixed_time))
+    context = FacadeCallContext(
+        principal_id="performance:operator",
+        workspace_id="performance",
+        execution_profile="legacy",
+        correlation_id="phase6a-performance",
+    )
+
+    def context_query(_index: int) -> bytes:
+        envelope = facade.invoke(
+            "context.query",
+            {
+                "workspaceId": "performance",
+                "intent": "recovery",
+                "maxTokens": 2_000_000,
+            },
+            context=context,
+        )
+        if envelope.outcome_kind != "success":
+            raise PerformanceFailure(f"context fixture failed: {envelope.summary}")
+        return canonical_facade_bytes(envelope)
+
+    def work_list(_index: int) -> bytes:
+        envelope = facade.invoke(
+            "tasks.control",
+            {
+                "operation": "work.list",
+                "workspaceId": "performance",
+                "payload": {"limit": 50},
+            },
+            context=context,
+        )
+        if envelope.outcome_kind != "success" or len(envelope.result["workItems"]) != min(50, work_item_count):
+            raise PerformanceFailure(f"work-list fixture failed: {envelope.summary}")
+        return canonical_facade_bytes(envelope)
+
+    context_query(-1)
+    work_list(-1)
+    return context_query, work_list
+
+
+def _environment() -> dict[str, Any]:
+    value = {
+        "python": platform.python_version(),
+        "pythonImplementation": platform.python_implementation(),
+        "sqlite": sqlite3.sqlite_version,
+        "mcpSdk": _package_version("mcp"),
+        "operatingSystem": platform.system(),
+        "machine": platform.machine(),
+        "filesystemClass": "private-local-temporary-directory",
+    }
+    value["fingerprint"] = sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return value
+
+
+def _evaluate(document: dict[str, Any], baseline_path: Path | None) -> dict[str, Any]:
+    absolute_failures: list[str] = []
+    for name, ceilings in ABSOLUTE_CEILINGS_MS.items():
+        measurement = document["measurements"][name]
+        for percentile, ceiling in ceilings.items():
+            actual = float(measurement[f"{percentile}Milliseconds"])
+            if actual > ceiling:
+                absolute_failures.append(f"{name}.{percentile}={actual:.3f}ms exceeds {ceiling:.3f}ms")
+    relative = {"status": "not_requested", "maximumRegressionPercent": 20.0, "comparisons": []}
+    relative_failures: list[str] = []
+    if baseline_path is not None and baseline_path.is_file():
+        baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+        if (
+            baseline.get("environment", {}).get("fingerprint") == document["environment"]["fingerprint"]
+            and baseline.get("fixture") == document.get("fixture")
+        ):
+            relative["status"] = "pass"
+            for name in ABSOLUTE_CEILINGS_MS:
+                prior = float(baseline["measurements"][name]["p95Milliseconds"])
+                current = float(document["measurements"][name]["p95Milliseconds"])
+                regression = 0.0 if prior <= 0 else ((current - prior) / prior) * 100.0
+                relative["comparisons"].append(
+                    {
+                        "measurement": name,
+                        "baselineP95Milliseconds": prior,
+                        "currentP95Milliseconds": current,
+                        "regressionPercent": round(regression, 3),
+                    }
+                )
+                if regression > 20.0:
+                    relative["status"] = "fail"
+                    relative_failures.append(f"{name}.p95 regressed {regression:.1f}% against the matching baseline")
+        else:
+            relative["status"] = "environment_or_fixture_mismatch"
+    accepted_by_relative_baseline = bool(absolute_failures) and relative["status"] == "pass"
+    failures = relative_failures or ([] if accepted_by_relative_baseline else absolute_failures)
+    return {
+        "result": "fail" if failures else "pass",
+        "absoluteCeilings": {
+            "result": "fail" if absolute_failures else "pass",
+            "failures": absolute_failures,
+        },
+        "acceptedByMatchingRelativeBaseline": accepted_by_relative_baseline,
+        "failures": failures,
+        "relativeBaseline": relative,
+    }
+
+
+def run(args: argparse.Namespace) -> dict[str, Any]:
+    environment = _environment()
+    measurements = {
+        "standardColdStart": _cold_start("standard", args.cold_samples),
+        "coreOnlyColdStart": _cold_start("core", args.cold_samples),
+    }
+    with TemporaryDirectory(prefix="synapse-phase6a-performance-") as temporary:
+        context_query, work_list = _workspace_fixtures(Path(temporary), args.work_items)
+        measurements["contextQuery500WorkItems"] = _time_samples(context_query, args.samples)
+        measurements["workList50Summaries"] = _time_samples(work_list, args.samples)
+    execution, execution_boundary = _registry_fixture()
+    execution(-1)
+    measurements["registryControlOverhead"] = _time_samples(execution, args.samples)
+    document: dict[str, Any] = {
+        "schemaVersion": 1,
+        "classification": "phase6a_pre_instrumentation_baseline",
+        "capturedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "fixture": {
+            "externalTraffic": False,
+            "workItemCount": args.work_items,
+            "workListPageSize": 50,
+            "executionBoundary": execution_boundary,
+        },
+        "environment": environment,
+        "absoluteCeilingsMilliseconds": ABSOLUTE_CEILINGS_MS,
+        "measurements": measurements,
+    }
+    document["evaluation"] = _evaluate(document, args.baseline)
+    return document
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--json", action="store_true", help="Emit only the JSON document.")
+    parser.add_argument("--check", action="store_true", help="Fail when an accepted ceiling is exceeded.")
+    parser.add_argument("--samples", type=int, default=DEFAULT_SAMPLES)
+    parser.add_argument("--cold-samples", type=int, default=DEFAULT_COLD_SAMPLES)
+    parser.add_argument("--work-items", type=int, default=DEFAULT_WORK_ITEMS)
+    parser.add_argument("--baseline", type=Path, default=DEFAULT_BASELINE)
+    args = parser.parse_args()
+    if args.samples < 3 or args.cold_samples < 3 or args.work_items < 1:
+        parser.error("samples and cold-samples must be at least 3; work-items must be positive")
+    try:
+        document = run(args)
+    except (OSError, PerformanceFailure, subprocess.TimeoutExpired) as exc:
+        print(f"Phase 6A performance runner failed: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(document, indent=2, sort_keys=True))
+    if not args.json:
+        print(f"Phase 6A performance: {document['evaluation']['result']}", file=sys.stderr)
+    return 1 if args.check and document["evaluation"]["result"] != "pass" else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

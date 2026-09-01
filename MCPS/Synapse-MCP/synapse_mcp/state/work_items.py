@@ -5,8 +5,10 @@
 
 from __future__ import annotations
 
+import base64
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta, timezone
+from hashlib import sha256
 import json
 from typing import Any
 from uuid import uuid4
@@ -20,6 +22,7 @@ WORK_ITEM_STATUSES = frozenset(
     {"planned", "available", "claimed", "running", "blocked", "completed", "failed", "cancelled"}
 )
 TERMINAL_WORK_ITEM_STATUSES = frozenset({"completed", "failed", "cancelled"})
+DEPENDENCY_POLICIES = frozenset({"success_required", "terminal_required"})
 ACTIVE_EXECUTION_STATES = frozenset(
     {"planned", "started", "active", "authorized", "dispatched", "pending", "queued", "running", "unknown"}
 )
@@ -72,6 +75,53 @@ def _actor_ref(principal_id: str) -> str:
     return opaque_ref(principal_id)
 
 
+def _list_fingerprint(
+    *,
+    statuses: Sequence[str],
+    role: str,
+    worker: str,
+    parent_work_item_id: str,
+    detail: bool,
+) -> str:
+    value = {
+        "detail": detail,
+        "parentWorkItemId": parent_work_item_id,
+        "role": role,
+        "statuses": list(statuses),
+        "worker": worker,
+    }
+    return sha256(_json(value).encode("utf-8")).hexdigest()[:16]
+
+
+def _encode_list_cursor(created_revision: int, work_item_id: str, fingerprint: str) -> str:
+    raw = _json(
+        {
+            "createdWorkspaceRevision": created_revision,
+            "filter": fingerprint,
+            "workItemId": work_item_id,
+        }
+    ).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def _decode_list_cursor(cursor: str | None, fingerprint: str) -> tuple[int, str] | None:
+    if not cursor:
+        return None
+    try:
+        padded = cursor + "=" * (-len(cursor) % 4)
+        value = json.loads(base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8"))
+        revision = int(value["createdWorkspaceRevision"])
+        work_item_id = str(value["workItemId"])
+    except (KeyError, TypeError, ValueError, UnicodeError, json.JSONDecodeError) as exc:
+        raise StateStoreError("work_item_cursor_invalid", "Work-item list cursor is invalid.") from exc
+    if value.get("filter") != fingerprint or revision <= 0 or not work_item_id:
+        raise StateStoreError(
+            "work_item_cursor_invalid",
+            "Work-item list cursor does not match the requested filters.",
+        )
+    return revision, work_item_id
+
+
 class SQLiteWorkItemRepository:
     """Atomic work-item transitions over one activated workspace repository."""
 
@@ -91,6 +141,9 @@ class SQLiteWorkItemRepository:
         work_item_id = str(value.get("workItemId") or f"work-{uuid4().hex}")
         dependencies = tuple(dict.fromkeys(str(item) for item in value.get("dependencyIds", []) if str(item)))
         parent_id = str(value.get("parentWorkItemId") or "")
+        dependency_policy = str(value.get("dependencyPolicy") or "success_required")
+        if dependency_policy not in DEPENDENCY_POLICIES:
+            raise StateStoreError("work_item_dependency_policy_invalid", "Work-item dependency policy is invalid.")
         with self.workspace.transaction() as connection:
             current = self.workspace._workspace_revision(connection)
             base_revision = int(value.get("baseWorkspaceRevision", current))
@@ -112,7 +165,8 @@ class SQLiteWorkItemRepository:
                 )
             self._require_related_items(connection, (*dependencies, parent_id) if parent_id else dependencies)
             dependency_states = self._dependency_states(connection, dependencies)
-            status = "available" if all(state == "completed" for state in dependency_states.values()) else "planned"
+            status, blocker = self._dependency_resolution(dependency_policy, dependency_states)
+            blocker_reason = self._dependency_blocker_reason(blocker)
             revision = current + 1
             connection.execute(
                 "INSERT INTO work_items("
@@ -120,8 +174,9 @@ class SQLiteWorkItemRepository:
                 "required_packs_json, selected_packs_json, target_selectors_json, context_query_json, assignee_json, "
                 "completion_contract_json, progress_summary, result_summary, blocker_reason, handoff_reason, "
                 "next_recommended_work, unresolved_gaps_json, version, created_workspace_revision, "
-                "base_workspace_revision, current_workspace_revision, last_seen_workspace_revision, created_at, updated_at"
-                ") VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', '', '', ?, ?, 1, ?, ?, ?, ?, ?, ?)",
+                "base_workspace_revision, current_workspace_revision, last_seen_workspace_revision, created_at, updated_at, "
+                "dependency_policy, blocker_details_json"
+                ") VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', ?, '', ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     work_item_id,
                     self.workspace_id,
@@ -136,6 +191,7 @@ class SQLiteWorkItemRepository:
                     _json(dict(value.get("contextQuery") or {})),
                     _json(dict(value.get("assignee") or {})),
                     _json(dict(value.get("completionContract") or {})),
+                    blocker_reason,
                     str(value.get("nextRecommendedWork") or ""),
                     _json(list(value.get("unresolvedGaps", []))),
                     revision,
@@ -144,6 +200,8 @@ class SQLiteWorkItemRepository:
                     last_seen_revision,
                     timestamp,
                     timestamp,
+                    dependency_policy,
+                    _json(blocker),
                 ),
             )
             connection.executemany(
@@ -158,7 +216,13 @@ class SQLiteWorkItemRepository:
                 version=1,
                 actor_ref=_actor_ref(principal_id),
                 revision=revision,
-                payload={"dependencies": list(dependencies), "parentWorkItemId": parent_id or None, "status": status},
+                payload={
+                    "blocker": blocker,
+                    "dependencies": list(dependencies),
+                    "dependencyPolicy": dependency_policy,
+                    "parentWorkItemId": parent_id or None,
+                    "status": status,
+                },
                 timestamp=timestamp,
             )
             self.workspace._finish_revision(
@@ -172,10 +236,10 @@ class SQLiteWorkItemRepository:
             )
         return self.inspect(work_item_id)
 
-    def inspect(self, work_item_id: str) -> dict[str, Any]:
+    def inspect(self, work_item_id: str, *, now: datetime | None = None) -> dict[str, Any]:
         with self.workspace.connection_factory.connect() as connection:
             apply_migrations(connection)
-            return self._record(connection, work_item_id)
+            return self._record(connection, work_item_id, now=now)
 
     def list(
         self,
@@ -186,12 +250,68 @@ class SQLiteWorkItemRepository:
         parent_work_item_id: str = "",
         limit: int = 50,
     ) -> list[dict[str, Any]]:
+        """Compatibility detail read; facade callers use bounded summary pages."""
+
+        return self.list_page(
+            statuses=statuses,
+            role=role,
+            worker=worker,
+            parent_work_item_id=parent_work_item_id,
+            limit=limit,
+            detail=True,
+        )["workItems"]
+
+    def list_page(
+        self,
+        *,
+        statuses: Sequence[str] = (),
+        role: str = "",
+        worker: str = "",
+        parent_work_item_id: str = "",
+        limit: int = 50,
+        cursor: str | None = None,
+        detail: bool = False,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Return a stable keyset page ordered only by immutable creation identity."""
+
+        current_time = _utc(now)
+        timestamp = _timestamp(current_time)
+        fingerprint = _list_fingerprint(
+            statuses=statuses,
+            role=role,
+            worker=worker,
+            parent_work_item_id=parent_work_item_id,
+            detail=detail,
+        )
+        position = _decode_list_cursor(cursor, fingerprint)
+        effective_status = (
+            "CASE WHEN w.status IN ('claimed','running') AND NOT EXISTS("
+            "SELECT 1 FROM work_item_claims active_claim WHERE active_claim.workspace_id=w.workspace_id "
+            "AND active_claim.work_item_id=w.work_item_id AND active_claim.state='active' "
+            "AND active_claim.lease_expires_at>?) THEN CASE "
+            "WHEN w.dependency_policy='terminal_required' THEN CASE WHEN NOT EXISTS("
+            "SELECT 1 FROM work_item_dependencies d JOIN work_items dependency "
+            "ON dependency.workspace_id=d.workspace_id AND dependency.work_item_id=d.depends_on_work_item_id "
+            "WHERE d.workspace_id=w.workspace_id AND d.work_item_id=w.work_item_id "
+            "AND dependency.status NOT IN ('completed','failed','cancelled')) THEN 'available' ELSE 'planned' END "
+            "WHEN EXISTS(SELECT 1 FROM work_item_dependencies d JOIN work_items dependency "
+            "ON dependency.workspace_id=d.workspace_id AND dependency.work_item_id=d.depends_on_work_item_id "
+            "WHERE d.workspace_id=w.workspace_id AND d.work_item_id=w.work_item_id "
+            "AND dependency.status IN ('failed','cancelled')) THEN 'blocked' "
+            "WHEN NOT EXISTS(SELECT 1 FROM work_item_dependencies d JOIN work_items dependency "
+            "ON dependency.workspace_id=d.workspace_id AND dependency.work_item_id=d.depends_on_work_item_id "
+            "WHERE d.workspace_id=w.workspace_id AND d.work_item_id=w.work_item_id "
+            "AND dependency.status<>'completed') THEN 'available' ELSE 'planned' END "
+            "WHEN w.status='planned' AND w.dependency_policy='success_required' AND EXISTS("
+            "SELECT 1 FROM work_item_dependencies d JOIN work_items dependency "
+            "ON dependency.workspace_id=d.workspace_id AND dependency.work_item_id=d.depends_on_work_item_id "
+            "WHERE d.workspace_id=w.workspace_id AND d.work_item_id=w.work_item_id "
+            "AND dependency.status IN ('failed','cancelled')) THEN 'blocked' "
+            "ELSE w.status END"
+        )
         clauses = ["w.workspace_id=?"]
-        parameters: list[Any] = [self.workspace_id]
-        if statuses:
-            placeholders = ",".join("?" for _item in statuses)
-            clauses.append(f"w.status IN ({placeholders})")
-            parameters.extend(statuses)
+        parameters: list[Any] = [timestamp, self.workspace_id]
         if role:
             clauses.append("w.role=?")
             parameters.append(role)
@@ -201,22 +321,55 @@ class SQLiteWorkItemRepository:
         if worker:
             clauses.append(
                 "EXISTS(SELECT 1 FROM work_item_claims c WHERE c.workspace_id=w.workspace_id "
-                "AND c.work_item_id=w.work_item_id AND c.worker_label=? AND c.state='active')"
+                "AND c.work_item_id=w.work_item_id AND c.worker_label=? AND c.state='active' "
+                "AND c.lease_expires_at>?)"
             )
-            parameters.append(worker)
-        parameters.append(max(1, min(int(limit), 100)))
+            parameters.extend((worker, timestamp))
+        if position is not None:
+            clauses.append("(w.created_workspace_revision<? OR (w.created_workspace_revision=? AND w.work_item_id<?))")
+            parameters.extend((position[0], position[0], position[1]))
+        outer_clause = ""
+        if statuses:
+            placeholders = ",".join("?" for _item in statuses)
+            outer_clause = f" WHERE page.effective_status IN ({placeholders})"
+            parameters.extend(statuses)
+        page_limit = max(1, min(int(limit), 100))
+        parameters.append(page_limit + 1)
         with self.workspace.connection_factory.connect() as connection:
             apply_migrations(connection)
-            identifiers = [
-                str(row[0])
-                for row in connection.execute(
-                    "SELECT w.work_item_id FROM work_items w WHERE "
+            rows = list(
+                connection.execute(
+                    "SELECT page.work_item_id, page.created_workspace_revision FROM (SELECT w.work_item_id, "
+                    "w.created_workspace_revision, " + effective_status + " AS effective_status FROM work_items w WHERE "
                     + " AND ".join(clauses)
-                    + " ORDER BY w.updated_at DESC, w.work_item_id LIMIT ?",
+                    + ") page"
+                    + outer_clause
+                    + " ORDER BY page.created_workspace_revision DESC, page.work_item_id DESC LIMIT ?",
                     tuple(parameters),
                 )
+            )
+            has_more = len(rows) > page_limit
+            selected = rows[:page_limit]
+            items = [
+                self._record(connection, str(row[0]), now=now)
+                if detail
+                else self._summary(connection, str(row[0]), now=current_time)
+                for row in selected
             ]
-            return [self._record(connection, identity) for identity in identifiers]
+            next_cursor = None
+            if has_more and selected:
+                last = selected[-1]
+                next_cursor = _encode_list_cursor(int(last[1]), str(last[0]), fingerprint)
+            revision = self.workspace._workspace_revision(connection)
+            return {
+                "workItems": items,
+                "count": len(items),
+                "hasMore": has_more,
+                "nextCursor": next_cursor,
+                "summary": not detail,
+                "workspaceId": self.workspace_id,
+                "workspaceRevision": revision,
+            }
 
     def claim(
         self,
@@ -243,13 +396,22 @@ class SQLiteWorkItemRepository:
                 raise self._conflict("work_item_terminal", "A terminal work item cannot be claimed.", item, current)
             dependencies = self._dependencies(connection, work_item_id)
             states = self._dependency_states(connection, dependencies)
-            if any(state != "completed" for state in states.values()):
+            dependency_status, dependency_blocker = self._dependency_resolution(str(item[26]), states)
+            if dependency_status == "blocked":
                 raise self._conflict(
-                    "work_item_dependencies_incomplete",
-                    "Work-item dependencies are not complete.",
+                    "work_item_dependencies_impossible",
+                    "A success-required dependency is terminal without successful completion.",
                     item,
                     current,
-                    extra={"dependencies": states},
+                    extra={"blocker": dependency_blocker, "dependencies": states},
+                )
+            if dependency_status != "available":
+                raise self._conflict(
+                    "work_item_dependencies_incomplete",
+                    "Work-item dependencies do not yet satisfy the selected dependency policy.",
+                    item,
+                    current,
+                    extra={"dependencies": states, "dependencyPolicy": str(item[26])},
                 )
             if status == "blocked" and not reclaim_blocked:
                 raise self._conflict(
@@ -293,7 +455,7 @@ class SQLiteWorkItemRepository:
                 ),
             )
             connection.execute(
-                "UPDATE work_items SET status='claimed', blocker_reason='', version=?, "
+                "UPDATE work_items SET status='claimed', blocker_reason='', blocker_details_json='{}', version=?, "
                 "current_workspace_revision=?, updated_at=? WHERE workspace_id=? AND work_item_id=? AND version=?",
                 (version, revision, timestamp, self.workspace_id, work_item_id, int(item[19])),
             )
@@ -548,6 +710,11 @@ class SQLiteWorkItemRepository:
                 reason = str(value.get("reason") or "")
             else:
                 raise StateStoreError("work_item_operation_invalid", "Unknown work-item transition.")
+            blocker = (
+                {"code": "manual_block", "reason": reason}
+                if operation == "block"
+                else {}
+            )
             for reference in references:
                 self._upsert_reference(
                     connection,
@@ -561,7 +728,7 @@ class SQLiteWorkItemRepository:
             gaps = value.get("unresolvedGaps")
             connection.execute(
                 "UPDATE work_items SET status=?, assignee_json=?, progress_summary=?, result_summary=?, blocker_reason=?, "
-                "handoff_reason=?, next_recommended_work=?, unresolved_gaps_json=?, last_seen_workspace_revision=?, "
+                "blocker_details_json=?, handoff_reason=?, next_recommended_work=?, unresolved_gaps_json=?, last_seen_workspace_revision=?, "
                 "version=?, current_workspace_revision=?, updated_at=? WHERE workspace_id=? AND work_item_id=? AND version=?",
                 (
                     status,
@@ -569,6 +736,7 @@ class SQLiteWorkItemRepository:
                     str(value.get("progressSummary", item[13])),
                     str(value.get("resultSummary", item[14])),
                     reason if operation == "block" else "",
+                    _json(blocker),
                     reason if operation == "handoff" else "",
                     str(value.get("nextRecommendedWork", item[17])),
                     _json(list(gaps)) if gaps is not None else str(item[18]),
@@ -614,8 +782,8 @@ class SQLiteWorkItemRepository:
             changes: list[tuple[str, str, str, Any]] = [
                 ("work_item", work_item_id, "update", {"status": status, "version": version})
             ]
-            if status == "completed":
-                changes.extend(self._unlock_dependents(connection, work_item_id, revision, timestamp))
+            if status in TERMINAL_WORK_ITEM_STATUSES:
+                changes.extend(self._reconcile_dependents(connection, work_item_id, revision, timestamp))
             self.workspace._finish_revision(
                 connection,
                 current=current,
@@ -627,6 +795,119 @@ class SQLiteWorkItemRepository:
             )
         return self.inspect(work_item_id)
 
+    def resolve_blocked(
+        self,
+        work_item_id: str,
+        value: Mapping[str, Any],
+        *,
+        expected_version: int,
+        principal_id: str,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Resolve blocked work without inventing successful completion."""
+
+        current_time = _utc(now)
+        timestamp = _timestamp(current_time)
+        resolution = str(value.get("resolution") or "")
+        reason = str(value.get("reason") or "")
+        if resolution not in {"cancel", "replan"} or not reason:
+            raise StateStoreError(
+                "work_item_blocked_resolution_invalid",
+                "Blocked-work resolution requires cancel or replan and a concrete reason.",
+            )
+        with self.workspace.transaction() as connection:
+            current = self.workspace._workspace_revision(connection)
+            item = self._item_row(connection, work_item_id)
+            self._require_version(item, expected_version, current)
+            dependencies = self._dependency_states(connection, self._dependencies(connection, work_item_id))
+            effective_status, effective_blocker = self._dependency_resolution(str(item[26]), dependencies)
+            if str(item[5]) != "blocked" and effective_status != "blocked":
+                raise self._conflict(
+                    "work_item_not_blocked",
+                    "Only blocked work can use blocked-work resolution.",
+                    item,
+                    current,
+                )
+            dependency_policy = str(value.get("dependencyPolicy") or item[26])
+            if dependency_policy not in DEPENDENCY_POLICIES:
+                raise StateStoreError("work_item_dependency_policy_invalid", "Work-item dependency policy is invalid.")
+            if resolution == "cancel":
+                status = "cancelled"
+            else:
+                status, unresolved_blocker = self._dependency_resolution(dependency_policy, dependencies)
+                if status == "blocked":
+                    raise self._conflict(
+                        "work_item_replan_impossible",
+                        "The replanned dependency policy remains terminally impossible.",
+                        item,
+                        current,
+                        extra={"blocker": unresolved_blocker, "dependencies": dependencies},
+                    )
+            revision = current + 1
+            version = int(item[19]) + 1
+            gaps = value.get("unresolvedGaps")
+            connection.execute(
+                "UPDATE work_items SET status=?, objective=?, dependency_policy=?, blocker_reason='', "
+                "blocker_details_json='{}', next_recommended_work=?, unresolved_gaps_json=?, version=?, "
+                "current_workspace_revision=?, updated_at=? WHERE workspace_id=? AND work_item_id=? AND version=?",
+                (
+                    status,
+                    str(value.get("objective") or item[3]),
+                    dependency_policy,
+                    str(value.get("nextRecommendedWork", item[17])),
+                    _json(list(gaps)) if gaps is not None else str(item[18]),
+                    version,
+                    revision,
+                    timestamp,
+                    self.workspace_id,
+                    work_item_id,
+                    int(item[19]),
+                ),
+            )
+            connection.execute(
+                "UPDATE work_item_claims SET state='superseded', released_at=?, updated_at=? "
+                "WHERE workspace_id=? AND work_item_id=? AND state='active'",
+                (timestamp, timestamp, self.workspace_id, work_item_id),
+            )
+            self._event(
+                connection,
+                work_item_id=work_item_id,
+                event_type="work_item.blocked_resolved",
+                version=version,
+                actor_ref=_actor_ref(principal_id),
+                revision=revision,
+                payload={
+                    "dependencyPolicy": dependency_policy,
+                    "priorBlocker": _decode(item[27]) or effective_blocker,
+                    "reason": reason,
+                    "resolution": resolution,
+                    "status": status,
+                },
+                timestamp=timestamp,
+            )
+            changes: list[tuple[str, str, str, Any]] = [
+                ("work_item", work_item_id, "update", {"resolution": resolution, "status": status, "version": version})
+            ]
+            if status == "cancelled":
+                changes.extend(self._reconcile_dependents(connection, work_item_id, revision, timestamp))
+            self.workspace._finish_revision(
+                connection,
+                current=current,
+                changes=tuple(changes),
+                event_type="work_item.blocked_resolved",
+                summary=f"Resolved blocked operational work item {work_item_id} as {status}.",
+                payload={
+                    "dependencyPolicy": dependency_policy,
+                    "reason": reason,
+                    "resolution": resolution,
+                    "status": status,
+                    "workItemId": work_item_id,
+                    "version": version,
+                },
+                actor_ref=_actor_ref(principal_id),
+            )
+        return self.inspect(work_item_id, now=current_time)
+
     def recover(
         self,
         *,
@@ -637,6 +918,7 @@ class SQLiteWorkItemRepository:
         current_time = _utc(now)
         timestamp = _timestamp(current_time)
         recovered: list[str] = []
+        recovered_versions: dict[str, int] = {}
         with self.workspace.transaction() as connection:
             current = self.workspace._workspace_revision(connection)
             parameters: list[Any] = [self.workspace_id, timestamp]
@@ -653,7 +935,11 @@ class SQLiteWorkItemRepository:
                 )
             ]
             if not stale_ids:
-                return {"recoveredWorkItemIds": [], "workspaceRevision": current}
+                return {
+                    "recoveredWorkItemIds": [],
+                    "workItemVersions": {},
+                    "workspaceRevision": current,
+                }
             revision = current + 1
             changes: list[tuple[str, str, str, Any]] = []
             for identity in stale_ids:
@@ -664,11 +950,16 @@ class SQLiteWorkItemRepository:
                     continue
                 version = int(item[19]) + 1
                 status = str(item[5]) if live_claims else self._available_status(connection, identity)
+                dependency_states = self._dependency_states(connection, self._dependencies(connection, identity))
+                _derived_status, blocker = self._dependency_resolution(str(item[26]), dependency_states)
                 connection.execute(
-                    "UPDATE work_items SET status=?, version=?, current_workspace_revision=?, updated_at=? "
+                    "UPDATE work_items SET status=?, blocker_reason=?, blocker_details_json=?, version=?, "
+                    "current_workspace_revision=?, updated_at=? "
                     "WHERE workspace_id=? AND work_item_id=? AND version=?",
                     (
                         status,
+                        self._dependency_blocker_reason(blocker) if status == "blocked" else "",
+                        _json(blocker if status == "blocked" else {}),
                         version,
                         revision,
                         timestamp,
@@ -695,9 +986,14 @@ class SQLiteWorkItemRepository:
                     timestamp=timestamp,
                 )
                 recovered.append(identity)
+                recovered_versions[identity] = version
                 changes.append(("work_item", identity, "update", {"recovered": True, "version": version}))
             if not changes:
-                return {"recoveredWorkItemIds": [], "workspaceRevision": current}
+                return {
+                    "recoveredWorkItemIds": [],
+                    "workItemVersions": {},
+                    "workspaceRevision": current,
+                }
             self.workspace._finish_revision(
                 connection,
                 current=current,
@@ -707,7 +1003,11 @@ class SQLiteWorkItemRepository:
                 payload={"automaticReplay": False, "workItemIds": recovered},
                 actor_ref=_actor_ref(principal_id),
             )
-        return {"recoveredWorkItemIds": recovered, "workspaceRevision": revision}
+        return {
+            "recoveredWorkItemIds": recovered,
+            "workItemVersions": recovered_versions,
+            "workspaceRevision": revision,
+        }
 
     def validate_claim(
         self,
@@ -1145,14 +1445,28 @@ class SQLiteWorkItemRepository:
             references.append({"type": "artifact", "id": artifact_id})
         return _dedupe_references(references)
 
-    def _record(self, connection: Any, work_item_id: str) -> dict[str, Any]:
+    def _record(
+        self,
+        connection: Any,
+        work_item_id: str,
+        *,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
         item = self._item_row(connection, work_item_id)
         dependencies = self._dependencies(connection, work_item_id)
         dependency_states = self._dependency_states(connection, dependencies)
+        read_time = _utc(now) if now is not None else None
         claims = [
             {
                 "claimId": row[0],
-                "state": row[1],
+                "state": (
+                    "expired"
+                    if read_time is not None
+                    and str(row[1]) == "active"
+                    and _parse_timestamp(str(row[6])) <= read_time
+                    else row[1]
+                ),
+                "storedState": row[1],
                 "worker": row[2],
                 "claimRevision": int(row[3]),
                 "claimVersion": int(row[4]),
@@ -1200,13 +1514,37 @@ class SQLiteWorkItemRepository:
                 (self.workspace_id, work_item_id),
             )
         ]
+        stored_status = str(item[5])
+        dependency_status, derived_blocker = self._dependency_resolution(str(item[26]), dependency_states)
+        active_claims = [claim for claim in claims if claim["state"] == "active"]
+        expired_claims = [
+            claim
+            for claim in claims
+            if claim["state"] == "expired" and claim["storedState"] == "active"
+        ]
+        effective_status = stored_status
+        if stored_status in {"planned", "available", "claimed", "running"}:
+            if dependency_status == "blocked":
+                effective_status = "blocked"
+            elif stored_status == "planned":
+                effective_status = dependency_status
+            elif stored_status in {"claimed", "running"} and read_time is not None and not active_claims:
+                effective_status = dependency_status
+        blocker = _decode(item[27])
+        if effective_status == "blocked" and not blocker:
+            blocker = derived_blocker
+        blocker_reason = str(item[15])
+        if effective_status == "blocked" and not blocker_reason:
+            blocker_reason = self._dependency_blocker_reason(blocker)
+        effective_lease_state = "active" if active_claims else "expired" if expired_claims else "none"
         return {
             "workItemId": item[0],
             "workspaceId": item[1],
             "parentWorkItemId": item[2],
             "objective": item[3],
             "role": item[4],
-            "status": item[5],
+            "status": effective_status,
+            "storedStatus": stored_status,
             "exclusive": bool(item[6]),
             "requiredPacks": _decode(item[7]),
             "selectedPacks": _decode(item[8]),
@@ -1216,7 +1554,8 @@ class SQLiteWorkItemRepository:
             "completionContract": _decode(item[12]),
             "progressSummary": item[13],
             "resultSummary": item[14],
-            "blockerReason": item[15],
+            "blockerReason": blocker_reason,
+            "blocker": blocker,
             "handoffReason": item[16],
             "nextRecommendedWork": item[17],
             "unresolvedGaps": _decode(item[18]),
@@ -1227,8 +1566,10 @@ class SQLiteWorkItemRepository:
             "lastSeenWorkspaceRevision": int(item[23]),
             "createdAt": item[24],
             "updatedAt": item[25],
+            "dependencyPolicy": item[26],
             "dependencyIds": dependencies,
             "dependencyStates": dependency_states,
+            "effectiveLeaseState": effective_lease_state,
             "claims": claims,
             "references": references,
             "executionAttempts": execution_attempts,
@@ -1238,13 +1579,39 @@ class SQLiteWorkItemRepository:
             "automaticReplay": False,
         }
 
+    def _summary(self, connection: Any, work_item_id: str, *, now: datetime) -> dict[str, Any]:
+        record = self._record(connection, work_item_id, now=now)
+        dependency_states = dict(record["dependencyStates"])
+        return {
+            "workItemId": record["workItemId"],
+            "parentWorkItemId": record["parentWorkItemId"],
+            "objective": record["objective"],
+            "role": record["role"],
+            "status": record["status"],
+            "storedStatus": record["storedStatus"],
+            "dependencyPolicy": record["dependencyPolicy"],
+            "blockerReason": record["blockerReason"],
+            "blocker": record["blocker"],
+            "dependencyCount": len(dependency_states),
+            "pendingDependencyCount": sum(
+                state not in TERMINAL_WORK_ITEM_STATUSES for state in dependency_states.values()
+            ),
+            "activeClaimCount": sum(claim["state"] == "active" for claim in record["claims"]),
+            "effectiveLeaseState": record["effectiveLeaseState"],
+            "executionReviewRequired": record["executionReviewRequired"],
+            "version": record["version"],
+            "currentWorkspaceRevision": record["currentWorkspaceRevision"],
+            "updatedAt": record["updatedAt"],
+        }
+
     def _item_row(self, connection: Any, work_item_id: str) -> Any:
         row = connection.execute(
             "SELECT work_item_id, workspace_id, parent_work_item_id, objective, role, status, exclusive_claim, "
             "required_packs_json, selected_packs_json, target_selectors_json, context_query_json, assignee_json, "
             "completion_contract_json, progress_summary, result_summary, blocker_reason, handoff_reason, "
             "next_recommended_work, unresolved_gaps_json, version, created_workspace_revision, base_workspace_revision, "
-            "current_workspace_revision, last_seen_workspace_revision, created_at, updated_at "
+            "current_workspace_revision, last_seen_workspace_revision, created_at, updated_at, dependency_policy, "
+            "blocker_details_json "
             "FROM work_items WHERE workspace_id=? AND work_item_id=?",
             (self.workspace_id, work_item_id),
         ).fetchone()
@@ -1392,9 +1759,48 @@ class SQLiteWorkItemRepository:
             result[identity] = str(row[0]) if row else "missing"
         return result
 
+    @staticmethod
+    def _dependency_resolution(
+        policy: str,
+        states: Mapping[str, str],
+    ) -> tuple[str, dict[str, Any]]:
+        if policy == "terminal_required":
+            status = (
+                "available"
+                if all(state in TERMINAL_WORK_ITEM_STATUSES for state in states.values())
+                else "planned"
+            )
+            return status, {}
+        impossible = {
+            identity: state
+            for identity, state in states.items()
+            if state in {"failed", "cancelled"}
+        }
+        if impossible:
+            return (
+                "blocked",
+                {
+                    "code": "dependency_success_impossible",
+                    "dependencyPolicy": "success_required",
+                    "dependencies": impossible,
+                },
+            )
+        return (
+            "available" if all(state == "completed" for state in states.values()) else "planned",
+            {},
+        )
+
+    @staticmethod
+    def _dependency_blocker_reason(blocker: Mapping[str, Any]) -> str:
+        if blocker.get("code") == "dependency_success_impossible":
+            return "A success-required dependency ended without successful completion."
+        return ""
+
     def _available_status(self, connection: Any, work_item_id: str) -> str:
+        item = self._item_row(connection, work_item_id)
         states = self._dependency_states(connection, self._dependencies(connection, work_item_id))
-        return "available" if all(state == "completed" for state in states.values()) else "planned"
+        status, _blocker = self._dependency_resolution(str(item[26]), states)
+        return status
 
     def _expire_claims(self, connection: Any, work_item_id: str, now: datetime, timestamp: str) -> None:
         connection.execute(
@@ -1565,7 +1971,13 @@ class SQLiteWorkItemRepository:
         ]
         return references + attempts
 
-    def _unlock_dependents(self, connection: Any, work_item_id: str, revision: int, timestamp: str) -> list[tuple[str, str, str, Any]]:
+    def _reconcile_dependents(
+        self,
+        connection: Any,
+        work_item_id: str,
+        revision: int,
+        timestamp: str,
+    ) -> list[tuple[str, str, str, Any]]:
         changes: list[tuple[str, str, str, Any]] = []
         downstream = [
             str(row[0])
@@ -1577,25 +1989,50 @@ class SQLiteWorkItemRepository:
         ]
         for identity in downstream:
             item = self._item_row(connection, identity)
-            if str(item[5]) != "planned" or self._available_status(connection, identity) != "available":
+            if str(item[5]) != "planned":
+                continue
+            dependency_states = self._dependency_states(connection, self._dependencies(connection, identity))
+            status, blocker = self._dependency_resolution(str(item[26]), dependency_states)
+            if status == "planned":
                 continue
             version = int(item[19]) + 1
             connection.execute(
-                "UPDATE work_items SET status='available', version=?, current_workspace_revision=?, updated_at=? "
+                "UPDATE work_items SET status=?, blocker_reason=?, blocker_details_json=?, version=?, "
+                "current_workspace_revision=?, updated_at=? "
                 "WHERE workspace_id=? AND work_item_id=? AND status='planned' AND version=?",
-                (version, revision, timestamp, self.workspace_id, identity, int(item[19])),
+                (
+                    status,
+                    self._dependency_blocker_reason(blocker),
+                    _json(blocker),
+                    version,
+                    revision,
+                    timestamp,
+                    self.workspace_id,
+                    identity,
+                    int(item[19]),
+                ),
             )
             self._event(
                 connection,
                 work_item_id=identity,
-                event_type="work_item.dependencies_completed",
+                event_type=(
+                    "work_item.dependencies_completed"
+                    if status == "available"
+                    else "work_item.dependency_blocked"
+                ),
                 version=version,
                 actor_ref="synapse-runtime",
                 revision=revision,
-                payload={"completedDependencyId": work_item_id, "status": "available"},
+                payload={
+                    "blocker": blocker,
+                    "dependencyId": work_item_id,
+                    "dependencyPolicy": str(item[26]),
+                    "dependencyStates": dependency_states,
+                    "status": status,
+                },
                 timestamp=timestamp,
             )
-            changes.append(("work_item", identity, "update", {"status": "available", "version": version}))
+            changes.append(("work_item", identity, "update", {"status": status, "version": version}))
         return changes
 
     def _event(
@@ -1653,7 +2090,8 @@ class _SnapshotWorkItemRepository:
             "selected_packs_json, target_selectors_json, context_query_json, assignee_json, completion_contract_json, "
             "progress_summary, result_summary, blocker_reason, handoff_reason, next_recommended_work, unresolved_gaps_json, "
             "version, created_workspace_revision, base_workspace_revision, current_workspace_revision, "
-            "last_seen_workspace_revision, created_at, updated_at FROM work_items WHERE workspace_id=? AND work_item_id=?",
+            "last_seen_workspace_revision, created_at, updated_at, dependency_policy, blocker_details_json "
+            "FROM work_items WHERE workspace_id=? AND work_item_id=?",
             (self.workspace_id, work_item_id),
         ).fetchone()
         dependencies = [
@@ -1737,12 +2175,27 @@ class _SnapshotWorkItemRepository:
                 (self.workspace_id, work_item_id),
             )
         ]
+        dependency_states = {str(item["workItemId"]): str(item["status"]) for item in dependencies}
+        dependency_status, derived_blocker = SQLiteWorkItemRepository._dependency_resolution(
+            str(row[25]),
+            dependency_states,
+        )
+        status = str(row[4])
+        if status == "planned" and dependency_status in {"available", "blocked"}:
+            status = dependency_status
+        blocker = _decode(row[26])
+        if status == "blocked" and not blocker:
+            blocker = derived_blocker
+        blocker_reason = str(row[14])
+        if status == "blocked" and not blocker_reason:
+            blocker_reason = SQLiteWorkItemRepository._dependency_blocker_reason(blocker)
         return {
             "workItemId": row[0],
             "parentWorkItemId": row[1],
             "objective": row[2],
             "role": row[3],
-            "status": row[4],
+            "status": status,
+            "storedStatus": row[4],
             "exclusive": bool(row[5]),
             "requiredPacks": _decode(row[6]),
             "selectedPacks": _decode(row[7]),
@@ -1752,7 +2205,8 @@ class _SnapshotWorkItemRepository:
             "completionContract": _decode(row[11]),
             "progressSummary": row[12],
             "resultSummary": row[13],
-            "blockerReason": row[14],
+            "blockerReason": blocker_reason,
+            "blocker": blocker,
             "handoffReason": row[15],
             "nextRecommendedWork": row[16],
             "unresolvedGaps": _decode(row[17]),
@@ -1763,6 +2217,7 @@ class _SnapshotWorkItemRepository:
             "lastSeenWorkspaceRevision": int(row[22]),
             "createdAt": row[23],
             "updatedAt": row[24],
+            "dependencyPolicy": row[25],
             "dependencies": dependencies,
             "claims": claims,
             "references": references,

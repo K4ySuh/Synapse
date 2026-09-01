@@ -398,7 +398,8 @@ frozen and therefore does not publish these output schemas.
 The application surfaces are under `synapse_mcp/app/`:
 
 - `work_items.py` owns strict create/claim/heartbeat/update/block/handoff/
-  release/complete/list/inspect/recover contracts, trusted coordination
+  release/complete/blocked-resolution/list/inspect/recover contracts, stable
+  summary cursors, on-demand work-operation schemas, trusted coordination
   binding, and durable pre-dispatch work-execution attempts. Attempt finalizers
   use the bound opaque identity rather than a still-live claim and return the
   latest work version without adding a second execution or authority path;
@@ -428,7 +429,18 @@ operations. Compact schemas omit non-validating title/default/description
 annotations while preserving runtime defaults and every validation keyword.
 `tasks.control` preserves background jobs and operation handles while adding
 `work.*` discriminators; detailed payloads are validated by the typed
-application service.
+application service. Phase 6A adds `work.contract` through that same operation,
+so a client can discover every payload without expanding the compact surface.
+Default `work.list` pages are summaries ordered by immutable creation identity;
+full claims, references, attempts, and handoffs remain behind inspect or an
+explicit detail page.
+
+SQLite migration `0005_work_dependency_policies.sql` gives every work item the
+compatible `success_required` default plus structured blocker details.
+`terminal_required` is available for work that may proceed after every
+dependency reaches any terminal state. Terminal transitions reconcile direct
+dependents in the same revision, and typed blocked resolution cancels or
+replans without creating a successful result.
 
 The Phase 5D Codex methodology package is under `skills/codex/`:
 
@@ -479,6 +491,13 @@ Phase 5F acceptance is implemented by:
 - `docs/modernization/evidence/phase-5/`, which contains provider-neutral
   deterministic aggregate results. Optional raw client events stay under
   gitignored `DATA/` and are not acceptance inputs.
+
+Phase 6A performance evidence is produced by `bin/run-phase6-performance`. It
+measures standard/core-only selected-pack cold start, a 500-work-item context
+query, a 50-summary work page, and pre-instrumentation Registry control
+overhead. The sanitized checked environment baseline and its explicit absolute
+core-only p50 miss live under `docs/modernization/evidence/phase-6/`; matching
+future runs enforce the 20% relative p95 ceiling without hiding absolute data.
 
 `synapse_mcp/transport/modern/` projects either surface through
 official SDK 2.0.0 over stdio or authenticated Streamable HTTP. `config.py`

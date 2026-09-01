@@ -288,6 +288,16 @@ This is work-coordination recovery state; it does not replace the canonical
 Registry, ExecutionPlan, authority reservation, dispatch, result, or evidence
 paths.
 
+Migration `0005` adds an explicit dependency policy and structured blocker
+details to the same work-item rows. Existing and new items default to
+`success_required`; a failed or cancelled prerequisite makes that objective
+terminally impossible and atomically blocks it. `terminal_required` objectives
+become available after every prerequisite is completed, failed, or cancelled,
+which permits truthful partial/convergence reporting. Blocked objectives are
+cancelled or replanned through a typed CAS mutation and are never represented
+as fake completion. Dependency transitions, work state, structured reasons,
+workspace revision, change log, and audit remain one transaction.
+
 ADR-0005 fixes one database and artifact namespace per workspace, with
 credential secrets kept outside SQLite and protocol rollback separated from
 state-engine rollback. The deterministic migrator inventories JSON-v1 sources,
@@ -327,6 +337,14 @@ is recorded before execution for attribution and recovery but cannot alter the
 sealed authorization intent. Result linkage uses that bound identity, so lease
 expiry after dispatch cannot discard a late result. Recovery always exposes
 `automaticReplay=false`.
+
+Work reads are distinct from recovery mutations. `work.list` uses immutable
+creation identity for opaque keyset cursors and returns bounded summaries unless
+detail is explicitly requested. List and inspect calculate effective claim
+expiry at the supplied read time without mutating the canonical row; the stored
+status remains available for diagnosis. `work.contract` projects discriminated
+application schemas through `tasks.control` and does not add a compact operation
+or move validation into transport code.
 
 Phase 5D Codex playbooks live under `skills/codex/`, outside the server and
 protocol-independent application boundary. They are client-side methodology

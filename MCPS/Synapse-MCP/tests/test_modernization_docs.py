@@ -35,6 +35,7 @@ ALLOWED_HOSTS = {
     "app.acme-demo.test",
     "127.0.0.1",
     "localhost",
+    "developers.openai.com",
     "modelcontextprotocol.io",
     "github.com",
     "pypi.org",
