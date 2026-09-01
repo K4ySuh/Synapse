@@ -40,8 +40,8 @@ for activated SQLite-v2 workspaces. The complete Task 6A gate has not run yet.
 
 ## Task 6A.2–6A.6 — operational errata and performance baseline
 
-Status: implemented and fully verified on 2026-09-01; ready for the Task 6A
-adversarial checkpoint.
+Status: implemented and independently reviewed on 2026-09-01; Task 6A passed
+after a review-discovered performance-method correction.
 
 Delivered:
 
@@ -62,19 +62,21 @@ Delivered:
 - Phase 5 documentation now records the exact official-host allowlist defect
   and distinguishes the historical Phase 5E 5,941-byte prompt from the shipped
   Phase 5F 6,289-byte prompt without rewriting historical acceptance evidence;
-- `bin/run-phase6-performance` records the pre-instrumentation environment and
-  checks absolute ceilings plus a 20% matching-environment relative p95 bound.
+- `bin/run-phase6-performance` records three batched repetitions and a
+  versioned pre-instrumentation environment/method fingerprint, exposes
+  absolute ceilings, and checks the unchanged 20% matching-method relative p95
+  bound. Failed single-run v1 and unbatched v2 evidence remain historical.
 
 Exact verification:
 
 ```text
-16 Phase 6A reliability/work-contract tests passed
+19 Phase 6A reliability/work-contract/performance-method tests passed
 66 retained Phase 5 tests passed
 767 full core tests passed
 16 official-SDK modern adapter tests passed
 2 custom-adapter template tests passed
 Phase 5 operational acceptance passed all 8 verdict groups and 3 repetitions
-Phase 6A performance comparison passed all relative p95 bounds
+Phase 6A v3 performance comparison passed all relative p95 bounds
 174-action inventory current; 168 retained output contracts current
 174 actions have one owner across 6 capability packs
 modern-compact remains 11 operations and 23,336 application bytes
@@ -96,10 +98,9 @@ activated SQLite-v2 workspaces.
 
 Residuals and boundary:
 
-- the checked baseline's core-only cold-start p50 is 792.572 ms and misses the
-  proposed 500 ms absolute ceiling; its 875.567 ms p95 passes. The miss remains
-  visible, while matching future runs enforce the accepted 20% relative p95
-  ceiling;
+- the accepted v3 capture misses standard cold-start p50 and core-only p50/p95
+  absolute ceilings. Those failures remain visible while matching future runs
+  enforce the accepted 20% relative p95 ceiling;
 - the Registry timing is a pre-instrumentation control, not an observed-effect
   or effect-validation claim;
 - retained generic MCP conformance is still `partial_fail`; Inspector and live
@@ -107,6 +108,6 @@ Residuals and boundary:
 - Task 6A does not change the Phase 5 multi-agent Codex default. That integration
   change belongs to Task 6B, and Phase 6 is not closed before Task 6J.
 
-The independent review target is
+The completed independent review and corrective evidence are in
 [the Task 6A adversarial-review brief](phase-6a-adversarial-review.md). The next
-implementation task after that checkpoint is Task 6B.
+implementation task is Task 6B.

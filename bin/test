@@ -10,6 +10,14 @@ if [ -f "$ENV_FILE" ]; then
     . "$ENV_FILE"
 fi
 SYNAPSE_PYTHON=$("$ROOT_DIR/bin/resolve-synapse-python")
+case "$SYNAPSE_PYTHON" in
+    */*)
+        TEST_PATH=$(dirname "$SYNAPSE_PYTHON"):$PATH
+        ;;
+    *)
+        TEST_PATH=$PATH
+        ;;
+esac
 
 usage() {
     cat <<EOF
@@ -47,6 +55,7 @@ esac
 
 run_core() {
     printf 'Running Synapse MCP tests...\n'
+    PATH="$TEST_PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH="$ROOT_DIR/MCPS/Synapse-MCP" \
     "$SYNAPSE_PYTHON" -m unittest discover "$ROOT_DIR/MCPS/Synapse-MCP/tests" "$@"
@@ -58,6 +67,7 @@ run_template() {
         return 0
     fi
     printf 'Running custom adapter template tests...\n'
+    PATH="$TEST_PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH="$ROOT_DIR/MCPS/Synapse-MCP:$ROOT_DIR/examples/custom_adapter_template" \
     "$SYNAPSE_PYTHON" -m unittest discover "$ROOT_DIR/examples/custom_adapter_template/tests" "$@"

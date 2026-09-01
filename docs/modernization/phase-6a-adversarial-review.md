@@ -2,10 +2,9 @@
 
 ## Checkpoint disposition
 
-Task 6A implementation and its prescribed local gates are complete. This brief
-defines the first Phase 6 independent checkpoint; it is not an adversarial pass
-marker and does not close Phase 6. Review commit `fix(phase6): close operational
-work and recovery errata` before Task 6B changes Codex integration defaults.
+Task 6A implementation and its prescribed local gates are complete. The
+independent checkpoint passed on 2026-09-01 after one review-discovered defect
+was corrected. This verdict closes Task 6A only; it does not close Phase 6.
 
 ## Claims to challenge
 
@@ -48,7 +47,7 @@ bin/test --template                                  2 passed
 Phase 6A unittest discovery                          16 passed
 Phase 5 unittest discovery                           66 passed
 bin/run-phase5-acceptance                            pass, 3 repetitions
-bin/run-phase6-performance --check                   pass
+bin/run-phase6-performance --check                   pass (corrected v3 method)
 bin/generate-action-inventory --check                174 current
 bin/generate-action-output-contracts --check         168 current
 bin/generate-capability-pack-ownership --check       174 / 6 current
@@ -73,11 +72,26 @@ external target, credential, or provider traffic was used.
   provider-specific core behavior;
 - no observed-effect, complete containment, or complete Phase 6 claim.
 
+## Adversarial finding and correction
+
+The original single-run performance gate failed twice from the unchanged
+review tree on the same recorded environment. Warm p95 variance exceeded 20%
+even though the warm absolute ceilings passed, so claim 11 did not initially
+survive review. Median-of-three v2 still amplified scheduler jitter for the
+sub-millisecond Registry and short work-list fixtures.
+
+The corrected v3 method preserves the v1/v2 evidence, runs three complete
+repetitions, batches warm operations while reporting per-operation latency,
+records each repetition, expands the environment fingerprint, and binds
+relative comparison to a versioned fixture. Three focused evaluator tests and
+an immediate exact baseline replay passed. No application behavior or accepted
+20% relative-p95 rule changed.
+
 ## Known residuals
 
-- Core-only cold-start baseline p50 is 792.572 ms against the proposed 500 ms
-  ceiling; p95 is 875.567 ms against 900 ms. The baseline and check output keep
-  the absolute miss visible and use a 20% matching-environment p95 ceiling.
+- The accepted v3 capture misses standard cold-start p50 and core-only p50/p95
+  absolute ceilings. The exact replay continued to expose the core-only p50
+  miss while passing every matching-method relative p95 comparison.
 - The `registryControlOverhead` fixture ends at output validation. It is the
   pre-instrumentation control for later Phase 6 comparison, not the future
   intent/observation/effect-validation measurement.
@@ -87,9 +101,9 @@ external target, credential, or provider traffic was used.
 - Work-operation discovery exposes current v1 application schemas. The broader
   immutable Registry `CapabilityContract` belongs to Task 6F.
 
-## Requested verdict
+## Verdict
 
-Return `pass` only if the eleven claims survive code and evidence review without
-an unrecorded compatibility or safety gap. Otherwise return `fail` with the
-smallest reproducible counterexample, affected invariant, and required follow-up
-task. Do not issue a Phase 6 closure verdict at this checkpoint.
+`pass after corrective action`: claims 1–10 passed code and evidence review;
+claim 11 failed with the reproducible unchanged-tree counterexample above and
+passed after the v3 correction. No unrecorded compatibility or safety gap
+remains at the Task 6A boundary. This is not a Phase 6 closure verdict.

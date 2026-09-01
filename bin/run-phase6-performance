@@ -25,10 +25,17 @@ from typing import Any, Callable
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "MCPS" / "Synapse-MCP"
-DEFAULT_BASELINE = ROOT / "docs" / "modernization" / "evidence" / "phase-6" / "performance-baseline.json"
+DEFAULT_BASELINE = ROOT / "docs" / "modernization" / "evidence" / "phase-6" / "performance-baseline-v3.json"
 DEFAULT_SAMPLES = 40
 DEFAULT_COLD_SAMPLES = 12
 DEFAULT_WORK_ITEMS = 500
+DEFAULT_REPETITIONS = 3
+METHOD_VERSION = 3
+WARM_BATCH_SIZES = {
+    "contextQuery500WorkItems": 4,
+    "workList50Summaries": 10,
+    "registryControlOverhead": 1_000,
+}
 ABSOLUTE_CEILINGS_MS = {
     "standardColdStart": {"p50": 1_250.0, "p95": 2_000.0},
     "coreOnlyColdStart": {"p50": 500.0, "p95": 900.0},
@@ -88,13 +95,54 @@ def _measurement(values: list[float]) -> dict[str, Any]:
     }
 
 
-def _time_samples(callback: Callable[[int], Any], count: int) -> dict[str, Any]:
+def _aggregate_measurements(repetitions: list[dict[str, Any]]) -> dict[str, Any]:
+    """Use the median repetition so one quiet or contended run cannot define the gate."""
+
+    batch_size = int(repetitions[0].get("batchSize", 1))
+    if any(int(item.get("batchSize", 1)) != batch_size for item in repetitions):
+        raise PerformanceFailure("Performance repetitions used inconsistent batch sizes.")
+    sample_count = sum(int(item["sampleCount"]) for item in repetitions)
+    return {
+        "batchSize": batch_size,
+        "repetitionCount": len(repetitions),
+        "sampleCount": sample_count,
+        "samplesPerRepetition": int(repetitions[0]["sampleCount"]),
+        "operationCount": sample_count * batch_size,
+        "p50Milliseconds": round(
+            statistics.median(float(item["p50Milliseconds"]) for item in repetitions),
+            3,
+        ),
+        "p95Milliseconds": round(
+            statistics.median(float(item["p95Milliseconds"]) for item in repetitions),
+            3,
+        ),
+        "minimumMilliseconds": round(
+            min(float(item["minimumMilliseconds"]) for item in repetitions),
+            3,
+        ),
+        "maximumMilliseconds": round(
+            max(float(item["maximumMilliseconds"]) for item in repetitions),
+            3,
+        ),
+        "repetitions": repetitions,
+    }
+
+
+def _time_samples(
+    callback: Callable[[int], Any],
+    count: int,
+    *,
+    batch_size: int = 1,
+) -> dict[str, Any]:
     values: list[float] = []
     for index in range(count):
         started = time.perf_counter_ns()
-        callback(index)
-        values.append((time.perf_counter_ns() - started) / 1_000_000)
-    return _measurement(values)
+        for batch_index in range(batch_size):
+            callback((index * batch_size) + batch_index)
+        values.append(((time.perf_counter_ns() - started) / 1_000_000) / batch_size)
+    measurement = _measurement(values)
+    measurement["batchSize"] = batch_size
+    return measurement
 
 
 def _cold_start(profile: str, count: int) -> dict[str, Any]:
@@ -282,14 +330,56 @@ def _workspace_fixtures(root: Path, work_item_count: int) -> tuple[Callable[[int
     return context_query, work_list
 
 
+def _host_text(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return "unavailable"
+
+
+def _cpu_model() -> str:
+    try:
+        for line in Path("/proc/cpuinfo").read_text(encoding="utf-8").splitlines():
+            if line.lower().startswith("model name"):
+                return line.partition(":")[2].strip() or "unavailable"
+    except OSError:
+        pass
+    return platform.processor() or "unavailable"
+
+
+def _load_class(logical_cpu_count: int) -> str:
+    try:
+        ratio = os.getloadavg()[0] / max(1, logical_cpu_count)
+    except (AttributeError, OSError):
+        return "unavailable"
+    if ratio <= 0.10:
+        return "low"
+    if ratio <= 0.50:
+        return "moderate"
+    return "high"
+
+
 def _environment() -> dict[str, Any]:
+    logical_cpu_count = os.cpu_count() or 1
+    try:
+        affinity_count = len(os.sched_getaffinity(0))
+    except AttributeError:
+        affinity_count = logical_cpu_count
     value = {
         "python": platform.python_version(),
         "pythonImplementation": platform.python_implementation(),
         "sqlite": sqlite3.sqlite_version,
         "mcpSdk": _package_version("mcp"),
         "operatingSystem": platform.system(),
+        "kernelRelease": platform.release(),
         "machine": platform.machine(),
+        "cpuModel": _cpu_model(),
+        "logicalCpuCount": logical_cpu_count,
+        "cpuAffinityCount": affinity_count,
+        "cpuGovernor": _host_text(
+            Path("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor")
+        ),
+        "loadClass": _load_class(logical_cpu_count),
         "filesystemClass": "private-local-temporary-directory",
     }
     value["fingerprint"] = sha256(
@@ -346,21 +436,55 @@ def _evaluate(document: dict[str, Any], baseline_path: Path | None) -> dict[str,
     }
 
 
-def run(args: argparse.Namespace) -> dict[str, Any]:
-    environment = _environment()
+def _run_repetition(
+    args: argparse.Namespace,
+    *,
+    context_query: Callable[[int], Any],
+    work_list: Callable[[int], Any],
+) -> dict[str, dict[str, Any]]:
     measurements = {
         "standardColdStart": _cold_start("standard", args.cold_samples),
         "coreOnlyColdStart": _cold_start("core", args.cold_samples),
+        "contextQuery500WorkItems": _time_samples(
+            context_query,
+            args.samples,
+            batch_size=WARM_BATCH_SIZES["contextQuery500WorkItems"],
+        ),
+        "workList50Summaries": _time_samples(
+            work_list,
+            args.samples,
+            batch_size=WARM_BATCH_SIZES["workList50Summaries"],
+        ),
     }
+    execution, _execution_boundary = _registry_fixture()
+    execution(-1)
+    measurements["registryControlOverhead"] = _time_samples(
+        execution,
+        args.samples,
+        batch_size=WARM_BATCH_SIZES["registryControlOverhead"],
+    )
+    return measurements
+
+
+def run(args: argparse.Namespace) -> dict[str, Any]:
+    environment = _environment()
     with TemporaryDirectory(prefix="synapse-phase6a-performance-") as temporary:
         context_query, work_list = _workspace_fixtures(Path(temporary), args.work_items)
-        measurements["contextQuery500WorkItems"] = _time_samples(context_query, args.samples)
-        measurements["workList50Summaries"] = _time_samples(work_list, args.samples)
-    execution, execution_boundary = _registry_fixture()
-    execution(-1)
-    measurements["registryControlOverhead"] = _time_samples(execution, args.samples)
+        repeated = [
+            _run_repetition(
+                args,
+                context_query=context_query,
+                work_list=work_list,
+            )
+            for _index in range(args.repetitions)
+        ]
+    measurements = {
+        name: _aggregate_measurements([item[name] for item in repeated])
+        for name in ABSOLUTE_CEILINGS_MS
+    }
+    _execution, execution_boundary = _registry_fixture()
     document: dict[str, Any] = {
-        "schemaVersion": 1,
+        "schemaVersion": 3,
         "classification": "phase6a_pre_instrumentation_baseline",
         "capturedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "fixture": {
@@ -368,6 +492,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "workItemCount": args.work_items,
             "workListPageSize": 50,
             "executionBoundary": execution_boundary,
+            "measurementMethod": "median_of_batched_repetition_percentiles",
+            "methodVersion": METHOD_VERSION,
+            "repetitionCount": args.repetitions,
         },
         "environment": environment,
         "absoluteCeilingsMilliseconds": ABSOLUTE_CEILINGS_MS,
@@ -384,10 +511,14 @@ def main() -> int:
     parser.add_argument("--samples", type=int, default=DEFAULT_SAMPLES)
     parser.add_argument("--cold-samples", type=int, default=DEFAULT_COLD_SAMPLES)
     parser.add_argument("--work-items", type=int, default=DEFAULT_WORK_ITEMS)
+    parser.add_argument("--repetitions", type=int, default=DEFAULT_REPETITIONS)
     parser.add_argument("--baseline", type=Path, default=DEFAULT_BASELINE)
     args = parser.parse_args()
-    if args.samples < 3 or args.cold_samples < 3 or args.work_items < 1:
-        parser.error("samples and cold-samples must be at least 3; work-items must be positive")
+    if args.samples < 3 or args.cold_samples < 3 or args.work_items < 1 or args.repetitions < 3:
+        parser.error(
+            "samples and cold-samples must be at least 3; work-items must be positive; "
+            "repetitions must be at least 3"
+        )
     try:
         document = run(args)
     except (OSError, PerformanceFailure, subprocess.TimeoutExpired) as exc:

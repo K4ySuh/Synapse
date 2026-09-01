@@ -34,7 +34,11 @@ durable dispatch and continuation truth.
   pre-instrumentation performance runner and checked environment baseline for
   selected-pack cold start, 500-item context, 50-item work listing, and Registry
   control overhead; the proposed core-only p50 miss remains explicit and
-  matching future runs use the accepted 20% relative ceiling.
+  matching future runs use the accepted 20% relative ceiling. The Task 6A
+  adversarial checkpoint found that a single run was too sensitive to scheduler
+  jitter; the corrected v3 method preserves the failed v1/v2 evidence, takes
+  the median of three batched repetitions, records a fuller environment/method
+  fingerprint, and keeps all absolute misses visible.
 
 - **Phase 5F provider-neutral operational acceptance.** Added an offline
   deterministic corpus and aggregate eight-verdict acceptance runner for pack assembly,

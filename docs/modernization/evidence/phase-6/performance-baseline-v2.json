@@ -1,0 +1,131 @@
+{
+  "absoluteCeilingsMilliseconds": {
+    "contextQuery500WorkItems": {"p50": 25.0, "p95": 50.0},
+    "coreOnlyColdStart": {"p50": 500.0, "p95": 900.0},
+    "registryControlOverhead": {"p50": 20.0, "p95": 50.0},
+    "standardColdStart": {"p50": 1250.0, "p95": 2000.0},
+    "workList50Summaries": {"p50": 25.0, "p95": 60.0}
+  },
+  "capturedAt": "2026-09-01T13:37:10.666483Z",
+  "classification": "phase6a_pre_instrumentation_baseline",
+  "environment": {
+    "cpuAffinityCount": 32,
+    "cpuGovernor": "powersave",
+    "cpuModel": "Intel(R) Core(TM) i9-14900HX",
+    "filesystemClass": "private-local-temporary-directory",
+    "fingerprint": "7ac2eb07c60601a869a17a7ac18db247d44817457befd19690a583809a5f6663",
+    "kernelRelease": "7.1.9-arch1-2",
+    "loadClass": "low",
+    "logicalCpuCount": 32,
+    "machine": "x86_64",
+    "mcpSdk": "2.0.0",
+    "operatingSystem": "Linux",
+    "python": "3.14.7",
+    "pythonImplementation": "CPython",
+    "sqlite": "3.53.4"
+  },
+  "evaluation": {
+    "absoluteCeilings": {
+      "failures": [
+        "standardColdStart.p50=1316.045ms exceeds 1250.000ms",
+        "coreOnlyColdStart.p50=848.624ms exceeds 500.000ms",
+        "coreOnlyColdStart.p95=941.528ms exceeds 900.000ms"
+      ],
+      "result": "fail"
+    },
+    "acceptedByMatchingRelativeBaseline": false,
+    "failures": [
+      "standardColdStart.p50=1316.045ms exceeds 1250.000ms",
+      "coreOnlyColdStart.p50=848.624ms exceeds 500.000ms",
+      "coreOnlyColdStart.p95=941.528ms exceeds 900.000ms"
+    ],
+    "relativeBaseline": {
+      "comparisons": [],
+      "maximumRegressionPercent": 20.0,
+      "status": "not_requested"
+    },
+    "result": "fail"
+  },
+  "fixture": {
+    "executionBoundary": "ExecutionPlan + policy seam + no-op dispatch + output validation; no provider I/O",
+    "externalTraffic": false,
+    "measurementMethod": "median_of_repetition_percentiles",
+    "methodVersion": 2,
+    "repetitionCount": 3,
+    "workItemCount": 500,
+    "workListPageSize": 50
+  },
+  "measurements": {
+    "contextQuery500WorkItems": {
+      "maximumMilliseconds": 60.246,
+      "minimumMilliseconds": 12.76,
+      "p50Milliseconds": 15.6,
+      "p95Milliseconds": 33.572,
+      "repetitionCount": 3,
+      "repetitions": [
+        {"maximumMilliseconds": 43.08, "minimumMilliseconds": 12.76, "p50Milliseconds": 15.6, "p95Milliseconds": 33.572, "sampleCount": 40},
+        {"maximumMilliseconds": 22.558, "minimumMilliseconds": 13.143, "p50Milliseconds": 14.604, "p95Milliseconds": 21.808, "sampleCount": 40},
+        {"maximumMilliseconds": 60.246, "minimumMilliseconds": 12.96, "p50Milliseconds": 16.047, "p95Milliseconds": 33.728, "sampleCount": 40}
+      ],
+      "sampleCount": 120,
+      "samplesPerRepetition": 40
+    },
+    "coreOnlyColdStart": {
+      "maximumMilliseconds": 970.208,
+      "minimumMilliseconds": 785.211,
+      "p50Milliseconds": 848.624,
+      "p95Milliseconds": 941.528,
+      "repetitionCount": 3,
+      "repetitions": [
+        {"maximumMilliseconds": 889.68, "minimumMilliseconds": 785.211, "p50Milliseconds": 856.687, "p95Milliseconds": 889.68, "sampleCount": 12},
+        {"maximumMilliseconds": 941.528, "minimumMilliseconds": 804.989, "p50Milliseconds": 848.624, "p95Milliseconds": 941.528, "sampleCount": 12},
+        {"maximumMilliseconds": 970.208, "minimumMilliseconds": 821.032, "p50Milliseconds": 844.774, "p95Milliseconds": 970.208, "sampleCount": 12}
+      ],
+      "sampleCount": 36,
+      "samplesPerRepetition": 12
+    },
+    "registryControlOverhead": {
+      "maximumMilliseconds": 0.071,
+      "minimumMilliseconds": 0.03,
+      "p50Milliseconds": 0.04,
+      "p95Milliseconds": 0.049,
+      "repetitionCount": 3,
+      "repetitions": [
+        {"maximumMilliseconds": 0.071, "minimumMilliseconds": 0.03, "p50Milliseconds": 0.033, "p95Milliseconds": 0.049, "sampleCount": 40},
+        {"maximumMilliseconds": 0.06, "minimumMilliseconds": 0.031, "p50Milliseconds": 0.04, "p95Milliseconds": 0.05, "sampleCount": 40},
+        {"maximumMilliseconds": 0.05, "minimumMilliseconds": 0.032, "p50Milliseconds": 0.04, "p95Milliseconds": 0.047, "sampleCount": 40}
+      ],
+      "sampleCount": 120,
+      "samplesPerRepetition": 40
+    },
+    "standardColdStart": {
+      "maximumMilliseconds": 1861.503,
+      "minimumMilliseconds": 1256.709,
+      "p50Milliseconds": 1316.045,
+      "p95Milliseconds": 1461.691,
+      "repetitionCount": 3,
+      "repetitions": [
+        {"maximumMilliseconds": 1861.503, "minimumMilliseconds": 1265.227, "p50Milliseconds": 1383.694, "p95Milliseconds": 1861.503, "sampleCount": 12},
+        {"maximumMilliseconds": 1461.691, "minimumMilliseconds": 1256.709, "p50Milliseconds": 1312.673, "p95Milliseconds": 1461.691, "sampleCount": 12},
+        {"maximumMilliseconds": 1365.258, "minimumMilliseconds": 1287.286, "p50Milliseconds": 1316.045, "p95Milliseconds": 1365.258, "sampleCount": 12}
+      ],
+      "sampleCount": 36,
+      "samplesPerRepetition": 12
+    },
+    "workList50Summaries": {
+      "maximumMilliseconds": 5.618,
+      "minimumMilliseconds": 3.249,
+      "p50Milliseconds": 3.61,
+      "p95Milliseconds": 4.885,
+      "repetitionCount": 3,
+      "repetitions": [
+        {"maximumMilliseconds": 4.884, "minimumMilliseconds": 3.327, "p50Milliseconds": 3.563, "p95Milliseconds": 4.661, "sampleCount": 40},
+        {"maximumMilliseconds": 5.59, "minimumMilliseconds": 3.295, "p50Milliseconds": 3.725, "p95Milliseconds": 5.079, "sampleCount": 40},
+        {"maximumMilliseconds": 5.618, "minimumMilliseconds": 3.249, "p50Milliseconds": 3.61, "p95Milliseconds": 4.885, "sampleCount": 40}
+      ],
+      "sampleCount": 120,
+      "samplesPerRepetition": 40
+    }
+  },
+  "schemaVersion": 2
+}

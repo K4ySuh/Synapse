@@ -1,0 +1,112 @@
+{
+  "absoluteCeilingsMilliseconds": {
+    "contextQuery500WorkItems": {"p50": 25.0, "p95": 50.0},
+    "coreOnlyColdStart": {"p50": 500.0, "p95": 900.0},
+    "registryControlOverhead": {"p50": 20.0, "p95": 50.0},
+    "standardColdStart": {"p50": 1250.0, "p95": 2000.0},
+    "workList50Summaries": {"p50": 25.0, "p95": 60.0}
+  },
+  "capturedAt": "2026-09-01T13:41:47.359237Z",
+  "classification": "phase6a_pre_instrumentation_baseline",
+  "environment": {
+    "cpuAffinityCount": 32,
+    "cpuGovernor": "powersave",
+    "cpuModel": "Intel(R) Core(TM) i9-14900HX",
+    "filesystemClass": "private-local-temporary-directory",
+    "fingerprint": "7ac2eb07c60601a869a17a7ac18db247d44817457befd19690a583809a5f6663",
+    "kernelRelease": "7.1.9-arch1-2",
+    "loadClass": "low",
+    "logicalCpuCount": 32,
+    "machine": "x86_64",
+    "mcpSdk": "2.0.0",
+    "operatingSystem": "Linux",
+    "python": "3.14.7",
+    "pythonImplementation": "CPython",
+    "sqlite": "3.53.4"
+  },
+  "evaluation": {
+    "absoluteCeilings": {
+      "failures": [
+        "standardColdStart.p50=1308.130ms exceeds 1250.000ms",
+        "coreOnlyColdStart.p50=854.639ms exceeds 500.000ms",
+        "coreOnlyColdStart.p95=984.972ms exceeds 900.000ms"
+      ],
+      "result": "fail"
+    },
+    "acceptedByMatchingRelativeBaseline": false,
+    "failures": [
+      "standardColdStart.p50=1308.130ms exceeds 1250.000ms",
+      "coreOnlyColdStart.p50=854.639ms exceeds 500.000ms",
+      "coreOnlyColdStart.p95=984.972ms exceeds 900.000ms"
+    ],
+    "relativeBaseline": {"comparisons": [], "maximumRegressionPercent": 20.0, "status": "not_requested"},
+    "result": "fail"
+  },
+  "fixture": {
+    "executionBoundary": "ExecutionPlan + policy seam + no-op dispatch + output validation; no provider I/O",
+    "externalTraffic": false,
+    "measurementMethod": "median_of_batched_repetition_percentiles",
+    "methodVersion": 3,
+    "repetitionCount": 3,
+    "workItemCount": 500,
+    "workListPageSize": 50
+  },
+  "measurements": {
+    "contextQuery500WorkItems": {
+      "batchSize": 4, "maximumMilliseconds": 56.654, "minimumMilliseconds": 13.087,
+      "operationCount": 480, "p50Milliseconds": 14.446, "p95Milliseconds": 22.154,
+      "repetitionCount": 3,
+      "repetitions": [
+        {"batchSize": 4, "maximumMilliseconds": 56.654, "minimumMilliseconds": 13.087, "p50Milliseconds": 14.503, "p95Milliseconds": 50.048, "sampleCount": 40},
+        {"batchSize": 4, "maximumMilliseconds": 22.661, "minimumMilliseconds": 13.548, "p50Milliseconds": 14.268, "p95Milliseconds": 19.906, "sampleCount": 40},
+        {"batchSize": 4, "maximumMilliseconds": 31.399, "minimumMilliseconds": 13.614, "p50Milliseconds": 14.446, "p95Milliseconds": 22.154, "sampleCount": 40}
+      ],
+      "sampleCount": 120, "samplesPerRepetition": 40
+    },
+    "coreOnlyColdStart": {
+      "batchSize": 1, "maximumMilliseconds": 1051.286, "minimumMilliseconds": 791.789,
+      "operationCount": 36, "p50Milliseconds": 854.639, "p95Milliseconds": 984.972,
+      "repetitionCount": 3,
+      "repetitions": [
+        {"batchSize": 1, "maximumMilliseconds": 948.799, "minimumMilliseconds": 791.789, "p50Milliseconds": 861.851, "p95Milliseconds": 948.799, "sampleCount": 12},
+        {"batchSize": 1, "maximumMilliseconds": 984.972, "minimumMilliseconds": 809.676, "p50Milliseconds": 854.639, "p95Milliseconds": 984.972, "sampleCount": 12},
+        {"batchSize": 1, "maximumMilliseconds": 1051.286, "minimumMilliseconds": 798.348, "p50Milliseconds": 852.472, "p95Milliseconds": 1051.286, "sampleCount": 12}
+      ],
+      "sampleCount": 36, "samplesPerRepetition": 12
+    },
+    "registryControlOverhead": {
+      "batchSize": 1000, "maximumMilliseconds": 0.056, "minimumMilliseconds": 0.033,
+      "operationCount": 120000, "p50Milliseconds": 0.036, "p95Milliseconds": 0.038,
+      "repetitionCount": 3,
+      "repetitions": [
+        {"batchSize": 1000, "maximumMilliseconds": 0.04, "minimumMilliseconds": 0.034, "p50Milliseconds": 0.036, "p95Milliseconds": 0.038, "sampleCount": 40},
+        {"batchSize": 1000, "maximumMilliseconds": 0.056, "minimumMilliseconds": 0.034, "p50Milliseconds": 0.036, "p95Milliseconds": 0.043, "sampleCount": 40},
+        {"batchSize": 1000, "maximumMilliseconds": 0.038, "minimumMilliseconds": 0.033, "p50Milliseconds": 0.036, "p95Milliseconds": 0.037, "sampleCount": 40}
+      ],
+      "sampleCount": 120, "samplesPerRepetition": 40
+    },
+    "standardColdStart": {
+      "batchSize": 1, "maximumMilliseconds": 1571.936, "minimumMilliseconds": 1218.412,
+      "operationCount": 36, "p50Milliseconds": 1308.13, "p95Milliseconds": 1469.503,
+      "repetitionCount": 3,
+      "repetitions": [
+        {"batchSize": 1, "maximumMilliseconds": 1347.514, "minimumMilliseconds": 1218.412, "p50Milliseconds": 1270.095, "p95Milliseconds": 1347.514, "sampleCount": 12},
+        {"batchSize": 1, "maximumMilliseconds": 1469.503, "minimumMilliseconds": 1246.214, "p50Milliseconds": 1308.13, "p95Milliseconds": 1469.503, "sampleCount": 12},
+        {"batchSize": 1, "maximumMilliseconds": 1571.936, "minimumMilliseconds": 1245.182, "p50Milliseconds": 1325.062, "p95Milliseconds": 1571.936, "sampleCount": 12}
+      ],
+      "sampleCount": 36, "samplesPerRepetition": 12
+    },
+    "workList50Summaries": {
+      "batchSize": 10, "maximumMilliseconds": 12.608, "minimumMilliseconds": 3.533,
+      "operationCount": 1200, "p50Milliseconds": 3.907, "p95Milliseconds": 7.177,
+      "repetitionCount": 3,
+      "repetitions": [
+        {"batchSize": 10, "maximumMilliseconds": 7.301, "minimumMilliseconds": 3.533, "p50Milliseconds": 3.765, "p95Milliseconds": 7.177, "sampleCount": 40},
+        {"batchSize": 10, "maximumMilliseconds": 12.608, "minimumMilliseconds": 3.703, "p50Milliseconds": 4.078, "p95Milliseconds": 10.998, "sampleCount": 40},
+        {"batchSize": 10, "maximumMilliseconds": 10.688, "minimumMilliseconds": 3.593, "p50Milliseconds": 3.907, "p95Milliseconds": 6.998, "sampleCount": 40}
+      ],
+      "sampleCount": 120, "samplesPerRepetition": 40
+    }
+  },
+  "schemaVersion": 3
+}
