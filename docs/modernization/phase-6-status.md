@@ -1,7 +1,7 @@
 # Phase 6 implementation status
 
 Phase 6 is in progress. This status is intentionally checkpointed in small,
-resumable Task 6A slices; it is not a Phase 6 acceptance or closure claim.
+resumable task slices; it is not a Phase 6 acceptance or closure claim.
 
 ## Task 6A.1 — durable work-execution attempts
 
@@ -84,11 +84,12 @@ modern-compact remains 11 operations and 23,336 application bytes
 222 Python files compile; shell syntax, secret-pattern, and diff hygiene pass
 ```
 
-The Phase 5 distribution sub-gate used its documented
-`SYNAPSE_BUILD_PYTHON` override because this host splits offline `pip` from the
-system `setuptools`/`wheel` packages. The unmodified gate then built and
-installed both archives and started standard 174-action and core-only 42-action
-runtimes. The historical Phase 5 acceptance artifact was not regenerated.
+The Phase 5 distribution sub-gate used its documented build-interpreter
+override because this host splits offline `pip` from the system
+`setuptools`/`wheel` packages. Task 6B closure added the missing explicit,
+build-scoped `SYNAPSE_BUILD_PYTHONPATH` support and reran both archive installs
+plus standard 174-action and core-only 42-action startup. The historical Phase
+5 acceptance artifact was not regenerated.
 
 Compatibility result: the Action Registry remains the one execution path;
 standard/core action counts stay 174/42; compact stays at eleven operations;
@@ -109,8 +110,8 @@ Residuals and boundary:
   change belongs to Task 6B, and Phase 6 is not closed before Task 6J.
 
 The completed independent review and corrective evidence are in
-[the Task 6A adversarial-review brief](phase-6a-adversarial-review.md). The next
-implementation task is Task 6B.
+[the Task 6A adversarial-review brief](phase-6a-adversarial-review.md). Task 6B
+follows below.
 
 ## Task 6B — single-agent Codex default and compatibility profile
 
@@ -164,3 +165,36 @@ The full core and modern gates require loopback socket binding and were run
 outside the default sandbox; the sandbox-only attempt's socket errors were
 environment restrictions, not product failures. The optional live model run
 was not consumed; its preflight passed and acceptance remains offline.
+
+Closure correction on 2026-09-01:
+
+- repository, modernization-index, changelog, and local version-log wording was
+  reconciled with the committed Task 6B state;
+- the offline distribution runner now supports an explicit build-only Python
+  package path when `pip` and `setuptools`/`wheel` live in separate local
+  environments, without leaking that path into installed runtime checks;
+- the timeout-recovery workflow benchmark now scopes every job inventory read
+  to its fixture workspace, so a late worker from another isolated fixture
+  cannot be misclassified as duplicate execution; duplicate records inside the
+  benchmark workspace still fail with bounded job diagnostics;
+- no live Phase 6B trace directory existed, consistent with the recorded
+  preflight-only optional diagnostic.
+
+Closure verification:
+
+```text
+8 Phase 6B tests and 8 Phase 5E distribution/instruction tests passed
+67 retained Phase 5 tests passed
+779 full core tests passed
+16 official-SDK modern adapter tests passed
+2 custom-adapter template tests passed
+Phase 5 operational acceptance passed all 8 verdict groups and 3 repetitions
+Phase 6B wheel/sdist distribution passed: 174/42 standard/core actions
+Action inventory/output contracts/pack ownership current: 174/168/174
+Compact surface current: 11 operations / 23,336 application bytes
+225 Python files compile; shell syntax and diff hygiene pass
+```
+
+Task 6B is complete. The next implementation checkpoint is Task 6C: versioned
+execution lifecycle contracts and durable execution-run state. Phase 6 remains
+open through Task 6J.

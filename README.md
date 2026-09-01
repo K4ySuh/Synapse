@@ -59,10 +59,10 @@ Agent guidance:
   separate packaged `synapse_mcp/operational_prompt.md`.
 - [skills/](skills): agent skills for operating and developing Synapse,
   grouped by runtime — [skills/claude/](skills/claude) (`synapse-ops`,
-  `synapse-dev`) and [skills/codex/](skills/codex) (router, coordinator,
-  bootstrap, perimeter, web, access-control, CVE, reporting, and development
-  playbooks). See [skills/README.md](skills/README.md) for install and
-  validation steps.
+  `synapse-dev`) and [skills/codex/](skills/codex) (the default single-agent
+  operating methods, explicit multi-agent compatibility assets, and separate
+  development guidance). See [skills/README.md](skills/README.md) for install
+  and validation steps.
 
 ## Why Synapse Exists
 

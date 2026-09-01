@@ -468,7 +468,10 @@ def workflow_06_resume_after_simulated_timeout_without_duplicating_work() -> dic
             _background_crawl_arguments(seeded),
         )
         job_id, _ = _submitted_job(submission)
-        jobs_before = call_tool("jobs.list", {}).payload
+        jobs_before = call_tool(
+            "jobs.list",
+            {"workspaceId": seeded.workspace_id},
+        ).payload
         count_before = int(jobs_before.get("count", -1))
         if count_before <= 0:
             raise AssertionError("submitted background job was not listed")
@@ -510,7 +513,7 @@ def workflow_06_resume_after_simulated_timeout_without_duplicating_work() -> dic
 
         recovery_active = call_tool(
             "jobs.list",
-            {"activeOnly": True},
+            {"activeOnly": True, "workspaceId": seeded.workspace_id},
         ).payload
         recovered = call_tool(
             "jobs.status",
@@ -537,12 +540,25 @@ def workflow_06_resume_after_simulated_timeout_without_duplicating_work() -> dic
             raise AssertionError(f"recovered job did not reach terminal state: {terminal}")
         if terminal.get("finalized") is not True:
             raise AssertionError("recovered job did not finalize")
-        jobs_after = call_tool("jobs.list", {}).payload
+        jobs_after = call_tool(
+            "jobs.list",
+            {"workspaceId": seeded.workspace_id},
+        ).payload
         count_after = int(jobs_after.get("count", -1))
         if count_after != count_before:
+            observed_jobs = [
+                {
+                    "jobId": str(job.get("jobId", "")),
+                    "tool": str(job.get("tool", "")),
+                    "workspaceId": str(job.get("workspaceId", "")),
+                    "status": str(job.get("status", "")),
+                }
+                for job in jobs_after.get("jobs", [])
+                if isinstance(job, dict)
+            ]
             raise AssertionError(
                 f"job count changed during timeout recovery: "
-                f"{count_before} -> {count_after}"
+                f"{count_before} -> {count_after}; observed={observed_jobs}"
             )
         matching_jobs = [
             job

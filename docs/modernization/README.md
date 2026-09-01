@@ -78,8 +78,9 @@ tests, and the shared [changelog](../../CHANGELOG.md).
 
 ## Phase 6
 
-- [Implementation status](phase-6-status.md) — Task 6A operational-errata
-  closure and exact verification; no Phase 6 closure claim
+- [Implementation status](phase-6-status.md) — Task 6A operational-errata and
+  Task 6B single-agent-default closure; Task 6C is next and there is no complete
+  Phase 6 closure claim
 - [ADR-0012](adr/ADR-0012-single-agent-codex-default.md) — one Codex agent by
   default over the unchanged multi-consumer control plane
 - [Phase 6A performance baseline](phase-6-performance-baseline.md) —

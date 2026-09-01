@@ -858,6 +858,14 @@ bin/validate-codex-skills --check --profile multi-agent-compat
 bin/validate-phase6b-distribution
 ```
 
+The distribution gate must remain offline. If build prerequisites are split
+between the selected project Python and another local site-packages directory,
+set `SYNAPSE_BUILD_PYTHON` to the project interpreter and
+`SYNAPSE_BUILD_PYTHONPATH` to the directory containing the local
+`setuptools`/`wheel` packages. These overrides apply only to archive build and
+installation subprocesses; installed runtime checks use their isolated target
+plus the selected runtime interpreter.
+
 ### Phase 5 operational acceptance
 
 Run the complete provider-neutral gate from the repository root:

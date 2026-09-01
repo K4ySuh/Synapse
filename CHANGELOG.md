@@ -24,6 +24,17 @@ durable dispatch and continuation truth.
 
 ### Added
 
+- **Phase 6B single-agent Codex default.** The installed default now contains
+  exactly `operate-synapse`, `synapse-web-pentesting`, and
+  `synapse-cve-intelligence`; one Codex agent selects and may sequence those
+  methodologies while recovering from canonical workspace truth. The retained
+  Phase 5 coordinator/specialist assets require the explicit
+  `multi-agent-compat` profile, and development guidance is packaged
+  separately. Profile-aware validation, distribution checks, and the optional
+  bounded Terra/medium live diagnostic preserve the provider-neutral server,
+  eleven-operation compact facade, 174-action standard inventory, 42-action
+  core profile, and modern-direct/legacy compatibility boundaries.
+
 - **Phase 6A operational errata closure.** Added explicit
   `success_required`/`terminal_required` work dependencies, automatic structured
   blocking for terminally impossible success-only work, typed cancel/replan

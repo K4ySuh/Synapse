@@ -73,11 +73,20 @@ def _candidate_pythons() -> list[str]:
     return list(dict.fromkeys(value for value in candidates if value))
 
 
-def _build_python() -> str:
+def _build_environment() -> dict[str, str]:
+    environment = dict(os.environ)
+    build_pythonpath = os.environ.get("SYNAPSE_BUILD_PYTHONPATH", "").strip()
+    if build_pythonpath:
+        environment["PYTHONPATH"] = build_pythonpath
+    return environment
+
+
+def _build_python(environment: dict[str, str]) -> str:
     for candidate in _candidate_pythons():
         try:
             completed = subprocess.run(
                 [candidate, "-c", "import pip, setuptools.build_meta, wheel"],
+                env=environment,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 check=False,
@@ -88,7 +97,7 @@ def _build_python() -> str:
             return candidate
     raise DistributionError(
         "no local Python has the declared offline build prerequisites pip, setuptools, and wheel; "
-        "set SYNAPSE_BUILD_PYTHON"
+        "set SYNAPSE_BUILD_PYTHON and, when packages are split, SYNAPSE_BUILD_PYTHONPATH"
     )
 
 
@@ -138,13 +147,19 @@ def _copy_source(destination: Path) -> None:
     shutil.copytree(ROOT, destination, ignore=ignored)
 
 
-def _build_archives(python: str, source: Path, output: Path) -> tuple[Path, Path]:
+def _build_archives(
+    python: str,
+    source: Path,
+    output: Path,
+    *,
+    environment: dict[str, str],
+) -> tuple[Path, Path]:
     build_code = (
         "import pathlib, setuptools.build_meta as backend, sys; "
         "out=str(pathlib.Path(sys.argv[1]).resolve()); "
         "print(backend.build_wheel(out)); print(backend.build_sdist(out))"
     )
-    _run([python, "-c", build_code, str(output)], cwd=source)
+    _run([python, "-c", build_code, str(output)], cwd=source, env=environment)
     wheels = sorted(output.glob("*.whl"))
     sdists = sorted(output.glob("*.tar.gz"))
     if len(wheels) != 1 or len(sdists) != 1:
@@ -194,7 +209,13 @@ def _assert_archive_contents(wheel: Path, sdist: Path) -> None:
             raise DistributionError(f"sdist is missing {source_suffix}")
 
 
-def _install(python: str, archive: Path, target: Path) -> None:
+def _install(
+    python: str,
+    archive: Path,
+    target: Path,
+    *,
+    environment: dict[str, str],
+) -> None:
     _run(
         [
             python,
@@ -209,6 +230,7 @@ def _install(python: str, archive: Path, target: Path) -> None:
             str(archive),
         ],
         cwd=target.parent,
+        env=environment,
     )
 
 
@@ -319,7 +341,8 @@ print('standard runtime: 174 actions')
 
 
 def main() -> int:
-    build_python = _build_python()
+    build_environment = _build_environment()
+    build_python = _build_python(build_environment)
     modern_python = _modern_python()
     expected_prompt = PROMPT.read_text(encoding="utf-8")
     with TemporaryDirectory(prefix="synapse-phase5e-") as temporary:
@@ -328,7 +351,12 @@ def main() -> int:
         output = temporary_root / "dist"
         output.mkdir()
         _copy_source(source)
-        wheel, sdist = _build_archives(build_python, source, output)
+        wheel, sdist = _build_archives(
+            build_python,
+            source,
+            output,
+            environment=build_environment,
+        )
         _assert_archive_contents(wheel, sdist)
 
         wheel_target = temporary_root / "wheel-install"
@@ -337,8 +365,8 @@ def main() -> int:
         wheel_target.mkdir()
         sdist_target.mkdir()
         outside.mkdir()
-        _install(build_python, wheel, wheel_target)
-        _install(build_python, sdist, sdist_target)
+        _install(build_python, wheel, wheel_target, environment=build_environment)
+        _install(build_python, sdist, sdist_target, environment=build_environment)
         _verify_install(build_python, wheel_target, outside, expected_prompt)
         _verify_install(build_python, sdist_target, outside, expected_prompt)
         _verify_pack_start(modern_python, wheel_target, outside, core_only=False)

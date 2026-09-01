@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import runpy
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from synapse_mcp.integrations import codex
 from synapse_mcp.transport import stdio_server
@@ -173,6 +175,21 @@ assert not any(name.startswith('synapse_mcp.integrations.codex') for name in sys
             check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_distribution_build_pythonpath_override_is_build_scoped(self) -> None:
+        distribution = runpy.run_path(str(ROOT / "bin" / "validate-phase5-distribution"))
+        original_pythonpath = os.environ.get("PYTHONPATH")
+        with patch.dict(
+            os.environ,
+            {
+                "PYTHONPATH": "/fixture/runtime-packages",
+                "SYNAPSE_BUILD_PYTHONPATH": "/fixture/build-packages",
+            },
+            clear=False,
+        ):
+            environment = distribution["_build_environment"]()
+        self.assertEqual(environment["PYTHONPATH"], "/fixture/build-packages")
+        self.assertEqual(os.environ.get("PYTHONPATH"), original_pythonpath)
 
 
 if __name__ == "__main__":
