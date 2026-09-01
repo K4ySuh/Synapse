@@ -1,6 +1,6 @@
 # Synapse Operational Invariants
 
-Apply these invariants to every assessment role.
+Apply these invariants throughout the single-agent engagement.
 
 ## Canonical truth
 
@@ -39,10 +39,19 @@ Apply these invariants to every assessment role.
 ## Evidence and conclusions
 
 - Persist concrete facts, candidates, gaps, decisions, evidence, and useful
-  references. Do not store chain of thought or transcript summaries.
+  references. Do not store chain of thought or conversation summaries.
 - Scanner and heuristic analyzer output remains a candidate until validated and
   reviewed. A finding is lifecycle-managed truth; deterministic passive facts
   may remain pending operator review.
 - Distinguish confirmed work, candidates, findings, contradictions, blockers,
   and unresolved gaps in every convergence summary.
 - Internal `high_level` reporting is concise, not redacted or client-safe.
+
+## Operating topology
+
+- One Codex agent is the default operational unit. It may load Web Pentesting
+  and CVE Intelligence sequentially without inventing a handoff to itself.
+- Work items preserve durable progress and coordinate independent consumers or
+  humans. They are not evidence that parallel agents are needed.
+- Do not spawn sub-agents in the default profile. Multi-agent playbooks are
+  compatibility assets and require explicit operator selection.

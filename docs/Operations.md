@@ -815,24 +815,37 @@ grant scope or execution authority. Work-item operations return
 `work_items_require_sqlite_v2` on JSON-v1 rather than creating a second task
 board or migrating implicitly.
 
-### Codex operating playbooks
+### Codex operating profiles
 
-Install the complete [`skills/codex/`](../skills/codex) package so the router,
-coordinator, specialists, and shared references remain together. A built wheel
-or sdist installs the same tree; locate it with
-`synapse-codex-assets --skills-dir` and copy the whole directory into a Codex
-skill location. Start with `$operate-synapse`. It handles a simple context read
-or short bounded operation directly and selects
-`$synapse-coordinate-engagement` only when independent or dependency-bound
-objectives justify durable specialist work.
+Codex is the currently tested model client. Install the default profile returned
+by `synapse-codex-assets --skills-dir` into a Codex skill location and start
+with `$operate-synapse`. It contains exactly three operating skills:
 
-The coordinator creates work items with one objective/output, bounded targets
-and context, role/capability-pack hints, dependencies, completion evidence,
-stop/block conditions, and a handoff. Specialists claim before work, recover
-context from `context.query`, inspect active or unknown execution before any
-repeat, discover current actions from the live selected Registry, and persist
-facts, candidates, gaps, evidence, and progress. Reporting waits for declared
-dependencies or labels the result explicitly partial.
+- `operate-synapse` for recovery, direct work, durable progress, and method
+  selection;
+- `synapse-web-pentesting` for bootstrap, perimeter/application mapping,
+  authentication, access control, hypotheses, validation, and convergence;
+- `synapse-cve-intelligence` for component normalization, vulnerability and
+  public-PoC intelligence, applicability, and bounded validation planning.
+
+One agent may load Web Pentesting, move to CVE Intelligence, and return while
+preserving revision, execution/evidence references, authority state, and gaps.
+Do not create a work item for a short linear operation or simulate a handoff to
+the same agent. Use work items for durable restart recovery, dependencies,
+long-running responsibility, or coordination with independently connected
+consumers and humans.
+
+The Phase 5 coordinator and specialist assets are retained separately. Install
+them only after the operator explicitly selects the compatibility profile:
+
+```sh
+synapse-codex-assets --skills-profile multi-agent-compat
+synapse-codex-assets --config multi-agent-compat
+```
+
+The development skill is also separate at
+`--skills-profile development`. Neither client profile changes server-core
+behavior.
 
 Skill, role, worker, work-item, and `confirm=true` values never assert
 execution authority. Scope is checked independently and authority-aware calls
@@ -841,7 +854,8 @@ are evaluated only against server-held grants; uncovered work blocks on
 
 ```sh
 bin/validate-codex-skills --check
-bin/validate-phase5-distribution
+bin/validate-codex-skills --check --profile multi-agent-compat
+bin/validate-phase6b-distribution
 ```
 
 ### Phase 5 operational acceptance
@@ -859,18 +873,23 @@ exercise the same durable coordination contract used by separately connected
 operators/accounts. Sanitized aggregate evidence is written under
 `docs/modernization/evidence/phase-5/`.
 
-Use `bin/run-phase5-codex-benchmark --run` only when an operator specifically
-needs a one-repetition live Codex client diagnostic. It is not an acceptance
-dependency, and its raw streams remain under gitignored
-`DATA/phase5-codex-benchmark/`. The default profile pins the coordinator and
-spawned specialists to `gpt-5.6-luna` with low reasoning/verbosity, disables
-reasoning summaries, and caps retained tool output. Multiple repetitions or a
-non-default model/effort require `--allow-high-usage`; resume a matching clean
-checkpoint instead of rerunning it. The Phase 3 live runners use the same
-low-usage defaults and one repetition while their historical checked Sol
-evidence remains unchanged. See the
-[benchmark method](modernization/phase-5-benchmark-method.md) for thresholds and
-the [handoff](modernization/phase-5-handoff.md) for rollback.
+`bin/run-phase6b-codex-diagnostic --run` is the optional live-client check. It
+runs one `gpt-5.6-terra`/medium repetition with sub-agents disabled and verifies
+direct work, Web and CVE skill use in sequence, durable restart recovery,
+non-replay, and report convergence. It is not an acceptance dependency; raw
+events remain under gitignored `DATA/phase6b-codex-diagnostic/`. A different
+model or effort requires `--allow-high-usage`.
+
+The historical Phase 5 multi-agent diagnostic remains available only as:
+
+```sh
+bin/run-phase5-codex-benchmark --run --profile multi-agent-compat
+```
+
+It retains its Luna/low one-repetition guard and is compatibility evidence, not
+the default or a closure dependency. See the
+[Phase 5 benchmark method](modernization/phase-5-benchmark-method.md) and
+[handoff](modernization/phase-5-handoff.md) for historical thresholds.
 
 ### Phase 6A performance baseline
 
@@ -887,12 +906,13 @@ See [the Phase 6A baseline](modernization/phase-6-performance-baseline.md) for
 the exact environment and the preserved core-only p50 miss.
 
 Each connection is independently bound to server-held principal/session state.
-Authorized clients may share a Synapse workspace while using distinct work-item
-coordination identities. The coordinator creates bounded objectives/dependencies;
-specialists atomically claim, query context since their last revision, link
-evidence and results, then complete, block, or hand off. Role and claim values
-never grant authority. A replacement specialist inspects linked dispatches and
-jobs after lease expiry and does not replay active or unknown execution.
+Authorized consumers may share a Synapse workspace while using distinct
+work-item coordination identities. One long-running agent, independent clients,
+or humans can create bounded objectives/dependencies, claim atomically, query
+context since their last revision, link evidence/results, and then complete,
+block, or hand off. Role and claim values never grant authority. A replacement
+consumer inspects linked dispatches and jobs after lease expiry and does not
+replay active or unknown execution.
 
 Use `workspace.summary` to scan workspace-level progress and
 `workspace.create_finding` to record operator-reviewed issues. Ingestion returns

@@ -1,79 +1,60 @@
 # Synapse Agent Skills
 
-Skills that teach an AI agent to drive Synapse correctly — safe operation of,
-and development against, the local-first MCP control plane. They are grouped by
-the agent runtime that consumes them:
+Skills teach an AI client to operate or develop Synapse without copying the
+live Action Registry or moving scope, authority, state, or evidence into client
+prompts.
 
-- **[`claude/`](claude)** — Claude Code skills.
-  - `synapse-ops` — running an authorized engagement through Synapse.
-  - `synapse-dev` — reviewing, spec'ing, and modifying the Synapse codebase.
-- **[`codex/`](codex)** — Codex skills (each also ships `agents/openai.yaml`).
-  - `operate-synapse` — route simple work or select a bounded playbook.
-  - `synapse-coordinate-engagement` — coordinate independent specialists and
-    converge durable results.
-  - `synapse-engagement-bootstrap` — recover or initialize authorized
-    engagement state.
-  - `synapse-perimeter-triage` — perform passive-first perimeter and
-    infrastructure triage.
-  - `synapse-web-assessment` — model web applications and triage candidates.
-  - `synapse-access-control` — model actor/object/function/property access.
-  - `synapse-cve-validation` — correlate versioned components and plan bounded
-    CVE validation.
-  - `synapse-reporting` — render coherent internal reports from workspace
-    truth.
-  - `synapse-developing` — codebase work; mirrors `synapse-dev`.
+## Codex profiles
 
-Both runtimes expect the Synapse MCP server to be registered as `synapse` — see
-the repo [README](../README.md) and [Operations](../docs/Operations.md) for
-setup.
+Codex is the currently tested model client. The package is split into explicit
+profiles under [`codex/`](codex):
 
-## Claude Code
+- `default/` contains exactly three operating skills:
+  - `operate-synapse` recovers workspace truth, keeps simple work direct,
+    maintains durable progress, and selects methodology;
+  - `synapse-web-pentesting` covers bootstrap, perimeter and application
+    mapping, JavaScript, authentication, access control, vulnerability
+    hypotheses, bounded validation, and convergence;
+  - `synapse-cve-intelligence` covers component/version/CPE normalization,
+    authoritative vulnerability intelligence, public-PoC applicability, and
+    bounded validation recommendations.
+- `multi-agent-compat/` preserves the Phase 5 coordinator and seven supporting
+  router/specialist skills. Install it only when the operator explicitly wants
+  that compatibility topology.
+- `development/` contains `synapse-developing`, which is repository guidance
+  rather than an engagement skill.
 
-Copy a skill directory into your skills path — user-wide or project-scoped:
+The default is one Codex agent. Start with `$operate-synapse`, do not spawn
+sub-agents, and load either methodology when needed. The same agent can move
+from Web Pentesting to CVE Intelligence and back while preserving workspace
+revision, execution/evidence references, authority state, candidates, and gaps.
 
-```sh
-# user-wide (available in every session)
-cp -r skills/claude/synapse-ops ~/.claude/skills/synapse-ops
-cp -r skills/claude/synapse-dev ~/.claude/skills/synapse-dev
+Work items are durable multi-consumer coordination records. They support
+restarts, long-running responsibility, dependencies, humans, and independently
+connected clients; their claims and role labels never grant authority.
 
-# or project-scoped (loads only inside this clone)
-cp -r skills/claude/synapse-ops .claude/skills/synapse-ops
-```
+## Install and validate
 
-Claude Code discovers each skill from its `SKILL.md` frontmatter and invokes it
-by name when a task matches the description.
-
-## Codex
-
-Each Codex skill is a `SKILL.md` plus `agents/openai.yaml` that declares the
-required `synapse` MCP tool. Install the complete `skills/codex/` package in a
-Codex skill directory so specialist links can resolve the two shared references
-owned by `operate-synapse`. Then invoke `$operate-synapse`; use a specialist
-skill directly only when its bounded role is already clear.
-
-The operating skills contain methodology, not a copy of Synapse's action
-catalog or schemas. They search and describe the selected live Registry at run
-time. Work claims, role names, and skill selection are coordination metadata;
-they do not grant scope or execution authority.
-
-Validate an authored or updated checkout before installation:
+Each skill contains `SKILL.md` plus `agents/openai.yaml` declaring the local
+`synapse` MCP dependency. Validate authored profiles with:
 
 ```sh
 bin/validate-codex-skills --check
+bin/validate-codex-skills --check --profile multi-agent-compat
 ```
 
-Wheel and sdist installations ship the same Codex tree and configuration
-examples. Locate or verify the installed assets with:
+After installing a wheel or sdist, locate the selected profile with:
 
 ```sh
 synapse-codex-assets --skills-dir
+synapse-codex-assets --skills-profile multi-agent-compat
+synapse-codex-assets --skills-profile development
 synapse-codex-assets --verify
 synapse-codex-assets --config standard
 ```
 
-Copy the entire returned directory, not individual specialists, so both shared
-references remain resolvable. For a repository-local Codex install, copy its
-contents into `.agents/skills/`:
+Copy only the returned profile directory into the Codex skill location. A
+repository-local default install is:
 
 ```sh
 SYNAPSE_SKILL_SOURCE="$(synapse-codex-assets --skills-dir)"
@@ -81,11 +62,13 @@ mkdir -p .agents/skills
 cp -R "$SYNAPSE_SKILL_SOURCE"/. .agents/skills/
 ```
 
-See the [official Codex skill documentation](https://developers.openai.com/codex/skills)
-for the other supported scopes. Standard uses modern compact with all built-in
-packs; the other installed templates cover core-only compact, direct diagnostic,
-and frozen legacy rollback.
+Selecting `multi-agent-compat` requires both its skill directory and the
+explicit client config profile. It does not change Synapse server behavior.
+See the [Codex skill documentation](https://developers.openai.com/codex/skills)
+for other installation scopes.
 
-The validator covers the eight operating skills, their interface metadata and
-shared links, and rejects copied contracts or terminology that contradicts the
-server-held authority and candidate/finding boundaries.
+## Claude Code compatibility
+
+The retained [`claude/`](claude) directory provides `synapse-ops` and
+`synapse-dev`. Phase 6 does not claim Claude acceptance; those assets remain
+compatibility material and still expect the server name `synapse`.

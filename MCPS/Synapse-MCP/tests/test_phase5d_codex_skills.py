@@ -41,6 +41,7 @@ def _load_validator():
         raise RuntimeError("Could not load the Codex skill validator.")
     module = importlib.util.module_from_spec(specification)
     specification.loader.exec_module(module)
+    module._select_profile("multi-agent-compat")
     return module
 
 
@@ -211,7 +212,7 @@ class Phase5DCodexSkillTests(unittest.TestCase):
     def test_validator_rejects_stale_metadata_missing_references_and_copied_contracts(self) -> None:
         validator = _load_validator()
         copied_root = self.root / "skills"
-        shutil.copytree(ROOT / "skills" / "codex", copied_root)
+        shutil.copytree(ROOT / "skills" / "codex" / "multi-agent-compat", copied_root)
         validator.ROOT = self.root
         validator.SKILL_ROOT = copied_root
         validator.SHARED_REFERENCES = copied_root / "operate-synapse" / "references"

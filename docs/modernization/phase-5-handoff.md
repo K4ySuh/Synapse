@@ -27,11 +27,11 @@ pass proves the provider-neutral application/state contracts under concurrent
 independent processes; it does not claim that one subscription can economically
 simulate multiple model agents or that every MCP client is conformant.
 
-`bin/run-phase5-codex-benchmark --run` remains an explicit, one-repetition live
-Codex diagnostic for operators who need it. Its coordinator and specialists
-default to Luna/low with bounded retained tool output; multiple repetitions or
-a non-default profile require `--allow-high-usage`. It is not an acceptance
-dependency.
+Phase 6B supersedes the live default with
+`bin/run-phase6b-codex-diagnostic --run`, a one-agent Terra/medium check. The
+historical `bin/run-phase5-codex-benchmark --run --profile multi-agent-compat`
+runner remains an explicit compatibility diagnostic with Luna/low bounds. No
+live client diagnostic is an acceptance dependency.
 
 ## Operating boundary
 
@@ -78,6 +78,10 @@ synapse-codex-assets --config modern-direct
 - Repository-local modern readiness still requires operator-owned private
   identity bindings, request-state keyring, and state paths. Distribution and
   acceptance gates self-provision isolated equivalents.
+- Phase 6B changes the default Codex methodology to one agent and reclassifies
+  the coordinator/specialist assets as explicit compatibility. The Phase 5
+  offline multi-process evidence remains valid as multi-consumer state and
+  concurrency proof; it is not a claim about default model-agent topology.
 
 Post-closure Phase 6A audit identified one exact core documentation-host
 allowlist failure and one stale final prompt measurement. The allowlist now

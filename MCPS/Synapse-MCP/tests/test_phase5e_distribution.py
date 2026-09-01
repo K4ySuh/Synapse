@@ -40,6 +40,8 @@ class Phase5EDistributionTests(unittest.TestCase):
         prompt_bytes = len(prompt.encode())
         self.assertLess(prompt_bytes, PHASE4_ROOT_PROMPT_BYTES // 4)
         for phrase in (
+            "Operate as one agent by default",
+            "Do not spawn sub-agents",
             "scope",
             "execution authority",
             "revision-aware context",
@@ -107,9 +109,17 @@ class Phase5EDistributionTests(unittest.TestCase):
 
     def test_codex_distribution_assets_and_all_local_references_resolve(self) -> None:
         self.assertEqual(codex.validate_assets(), [])
-        self.assertEqual(codex.codex_skills_dir().resolve(), (ROOT / "skills" / "codex").resolve())
+        self.assertEqual(
+            codex.codex_skills_dir().resolve(),
+            (ROOT / "skills" / "codex" / "default").resolve(),
+        )
+        self.assertEqual(
+            codex.codex_skills_dir("multi-agent-compat").resolve(),
+            (ROOT / "skills" / "codex" / "multi-agent-compat").resolve(),
+        )
         self.assertEqual(codex.codex_config_dir().resolve(), (ROOT / "config" / "codex").resolve())
-        self.assertEqual(len(codex.OPERATING_SKILLS), 8)
+        self.assertEqual(len(codex.OPERATING_SKILLS), 3)
+        self.assertEqual(len(codex.MULTI_AGENT_COMPAT_SKILLS), 8)
         for profile in codex.CONFIG_PROFILES:
             config = (codex.codex_config_dir() / f"{profile}.toml").read_text(encoding="utf-8")
             self.assertIn("[mcp_servers.synapse]", config)
@@ -140,8 +150,9 @@ class Phase5EDistributionTests(unittest.TestCase):
         self.assertIn('"operational_prompt.md"', metadata)
         self.assertIn('[tool.setuptools.data-files]', metadata)
         self.assertIn('"share/synapse-mcp/codex/config"', metadata)
-        for name in codex.OPERATING_SKILLS:
-            self.assertIn(f'codex/skills/{name}', metadata)
+        for profile, skills in codex.PROFILE_SKILLS.items():
+            for name in skills:
+                self.assertIn(f'codex/skills/{profile}/{name}', metadata)
         dependencies = metadata.split("dependencies = [", 1)[1].split("]", 1)[0].lower()
         self.assertNotIn("codex", dependencies)
 

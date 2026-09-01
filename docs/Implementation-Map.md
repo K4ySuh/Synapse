@@ -442,7 +442,8 @@ dependency reaches any terminal state. Terminal transitions reconcile direct
 dependents in the same revision, and typed blocked resolution cancels or
 replans without creating a successful result.
 
-The Phase 5D Codex methodology package is under `skills/codex/`:
+The Phase 5D Codex methodology is retained under
+`skills/codex/multi-agent-compat/`:
 
 - `operate-synapse/` owns the router plus the shared operational-invariant and
   specialist-workflow references;
@@ -459,6 +460,28 @@ The Phase 5D Codex methodology package is under `skills/codex/`:
 
 These files do not add an application operation or alter the compact/direct
 surfaces. Live capability discovery remains the only action-catalog source.
+
+Phase 6B adds the default `skills/codex/default/` profile:
+
+- `operate-synapse/` owns single-agent recovery, direct-work selection,
+  durable progress, skill transitions, and convergence;
+- `synapse-web-pentesting/` absorbs bootstrap, perimeter, application,
+  JavaScript, authentication, access-control, validation, and reporting
+  methodology;
+- `synapse-cve-intelligence/` owns component normalization, authoritative
+  vulnerability and public-PoC intelligence, applicability, and bounded
+  validation recommendations;
+- `skills/codex/development/` packages `synapse-developing` separately;
+- `bin/validate-codex-skills` validates either operating profile without
+  exposing compatibility routes in the default install;
+- `synapse_mcp/integrations/codex.py` and `pyproject.toml` locate/package all
+  three explicit profile roots while keeping default selection at three skills;
+- `bin/run-phase6b-codex-diagnostic` is the optional one-agent Terra/medium
+  diagnostic; the historical Phase 5 runner requires explicit
+  `multi-agent-compat` selection;
+- `tests/test_phase6b_single_agent_default.py` guards routing, methodology,
+  client-only boundaries, distribution selection, and unchanged Registry and
+  compact surfaces.
 
 Phase 5E adds the separate package operational prompt (6,289 bytes after the
 Phase 5F coordination guidance), keeps the
@@ -479,8 +502,8 @@ Phase 5F acceptance is implemented by:
   authority linkage, and dependency-bound reporting;
 - `tests/test_phase5f_operational_acceptance.py`, including atomic
   evidence-before-completion and cross-principal/workspace claim attacks;
-- `bin/run-phase5-codex-benchmark`, an optional one-repetition objective-driven
-  Codex client diagnostic with isolated SQLite-v2/private authority fixtures
+- `bin/run-phase5-codex-benchmark`, an optional explicit-compatibility
+  multi-agent Codex diagnostic with isolated SQLite-v2/private authority fixtures
   and a process external-network guard; its bounded live profile pins the
   coordinator and subagents to Luna/low, minimizes response verbosity and
   reasoning summaries, caps retained tool output, and guards higher-usage

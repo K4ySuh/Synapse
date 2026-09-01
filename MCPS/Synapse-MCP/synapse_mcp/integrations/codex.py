@@ -11,8 +11,14 @@ import re
 import sysconfig
 
 
-CONFIG_PROFILES = ("standard", "core-only", "modern-direct", "legacy")
+CONFIG_PROFILES = ("standard", "core-only", "modern-direct", "legacy", "multi-agent-compat")
+SKILL_PROFILES = ("default", "multi-agent-compat", "development")
 OPERATING_SKILLS = (
+    "operate-synapse",
+    "synapse-web-pentesting",
+    "synapse-cve-intelligence",
+)
+MULTI_AGENT_COMPAT_SKILLS = (
     "operate-synapse",
     "synapse-coordinate-engagement",
     "synapse-engagement-bootstrap",
@@ -22,6 +28,12 @@ OPERATING_SKILLS = (
     "synapse-cve-validation",
     "synapse-reporting",
 )
+DEVELOPMENT_SKILLS = ("synapse-developing",)
+PROFILE_SKILLS = {
+    "default": OPERATING_SKILLS,
+    "multi-agent-compat": MULTI_AGENT_COMPAT_SKILLS,
+    "development": DEVELOPMENT_SKILLS,
+}
 
 
 class CodexAssetError(RuntimeError):
@@ -41,12 +53,14 @@ def _installed_asset_roots() -> tuple[Path, ...]:
     return tuple(dict.fromkeys((target_relative, prefix_relative)))
 
 
-def codex_skills_dir() -> Path:
+def codex_skills_dir(profile: str = "default") -> Path:
+    if profile not in PROFILE_SKILLS:
+        raise CodexAssetError(f"Unknown Codex skill profile: {profile}")
     repository = _repository_root()
     candidates = []
     if repository is not None:
-        candidates.append(repository / "skills" / "codex")
-    candidates.extend(root / "skills" for root in _installed_asset_roots())
+        candidates.append(repository / "skills" / "codex" / profile)
+    candidates.extend(root / "skills" / profile for root in _installed_asset_roots())
     for candidate in candidates:
         if candidate.is_dir():
             return candidate
@@ -68,25 +82,25 @@ def codex_config_dir() -> Path:
 def validate_assets() -> list[str]:
     failures: list[str] = []
     try:
-        skills = codex_skills_dir()
+        skill_roots = {profile: codex_skills_dir(profile) for profile in SKILL_PROFILES}
     except CodexAssetError as exc:
         failures.append(str(exc))
-        skills = None
+        skill_roots = {}
     try:
         configs = codex_config_dir()
     except CodexAssetError as exc:
         failures.append(str(exc))
         configs = None
 
-    if skills is not None:
-        for name in OPERATING_SKILLS:
+    for profile, skills in skill_roots.items():
+        for name in PROFILE_SKILLS[profile]:
             skill = skills / name / "SKILL.md"
             interface = skills / name / "agents" / "openai.yaml"
             if not skill.is_file():
-                failures.append(f"missing skill: {skill}")
+                failures.append(f"missing {profile} skill: {skill}")
                 continue
             if not interface.is_file():
-                failures.append(f"missing interface metadata: {interface}")
+                failures.append(f"missing {profile} interface metadata: {interface}")
             text = skill.read_text(encoding="utf-8")
             for target in re.findall(r"\[[^\]]+\]\(([^)]+)\)", text):
                 if target.startswith(("http://", "https://", "#")):
@@ -106,13 +120,24 @@ def validate_assets() -> list[str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--skills-dir", action="store_true", help="Print the shipped Codex skill directory.")
+    group.add_argument(
+        "--skills-dir",
+        action="store_true",
+        help="Print the default three-skill operating profile directory.",
+    )
+    group.add_argument(
+        "--skills-profile",
+        choices=SKILL_PROFILES,
+        help="Print one explicitly selected shipped Codex skill profile directory.",
+    )
     group.add_argument("--config", choices=CONFIG_PROFILES, help="Print one shipped Codex MCP config example.")
     group.add_argument("--verify", action="store_true", help="Validate shipped skills, references, and configs.")
     args = parser.parse_args()
     try:
         if args.skills_dir:
             print(codex_skills_dir())
+        elif args.skills_profile:
+            print(codex_skills_dir(args.skills_profile))
         elif args.config:
             print((codex_config_dir() / f"{args.config}.toml").read_text(encoding="utf-8"), end="")
         else:
@@ -123,7 +148,9 @@ def main() -> int:
                 return 1
             print(
                 "Codex distribution assets are current: "
-                f"{len(OPERATING_SKILLS)} operating skills, {len(CONFIG_PROFILES)} configs"
+                f"{len(OPERATING_SKILLS)} default operating skills, "
+                f"{len(MULTI_AGENT_COMPAT_SKILLS)} compatibility skills, "
+                f"{len(CONFIG_PROFILES)} configs"
             )
     except (CodexAssetError, OSError) as exc:
         parser.error(str(exc))

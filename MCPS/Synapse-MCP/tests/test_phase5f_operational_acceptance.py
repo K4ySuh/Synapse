@@ -327,7 +327,12 @@ class Phase5FOperationalAcceptanceTests(unittest.TestCase):
 
     def test_packaged_guidance_marks_work_item_boundaries_as_create_time(self) -> None:
         coordinator = (
-            ROOT / "skills" / "codex" / "synapse-coordinate-engagement" / "SKILL.md"
+            ROOT
+            / "skills"
+            / "codex"
+            / "multi-agent-compat"
+            / "synapse-coordinate-engagement"
+            / "SKILL.md"
         ).read_text(encoding="utf-8")
         prompt = (
             ROOT

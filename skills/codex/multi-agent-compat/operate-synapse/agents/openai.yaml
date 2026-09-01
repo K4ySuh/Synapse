@@ -1,0 +1,10 @@
+interface:
+  display_name: "Operate Synapse (Multi-Agent Compat)"
+  short_description: "Route compatible multi-agent operations"
+  default_prompt: "Use $operate-synapse under the explicitly selected multi-agent compatibility profile to route bounded Synapse work."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "synapse"
+      description: "Local Synapse MCP server for controlled assessment operations."

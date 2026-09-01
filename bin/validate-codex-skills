@@ -2,7 +2,7 @@
 # Copyright 2026 Javier Roldán Ortiz
 # SPDX-License-Identifier: Apache-2.0
 
-"""Validate a repository or installed Codex operating-skill package."""
+"""Validate repository or installed Codex skill profiles."""
 
 from __future__ import annotations
 
@@ -13,10 +13,17 @@ import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SKILL_ROOT = ROOT / "skills" / "codex"
+CODEX_ROOT = ROOT / "skills" / "codex"
+PROFILE = "default"
+SKILL_ROOT = CODEX_ROOT / PROFILE
 SHARED_REFERENCES = SKILL_ROOT / "operate-synapse" / "references"
 
-OPERATIONAL_SKILLS = {
+DEFAULT_SKILLS = {
+    "operate-synapse": ("operator", "core"),
+    "synapse-web-pentesting": ("web-pentesting", "web"),
+    "synapse-cve-intelligence": ("cve-intelligence", "intelligence"),
+}
+MULTI_AGENT_COMPAT_SKILLS = {
     "operate-synapse": ("router", "core"),
     "synapse-coordinate-engagement": ("coordinator", "core"),
     "synapse-engagement-bootstrap": ("bootstrap", "core"),
@@ -26,6 +33,11 @@ OPERATIONAL_SKILLS = {
     "synapse-cve-validation": ("cve", "intelligence"),
     "synapse-reporting": ("reporting", "reporting"),
 }
+PROFILE_SKILLS = {
+    "default": DEFAULT_SKILLS,
+    "multi-agent-compat": MULTI_AGENT_COMPAT_SKILLS,
+}
+OPERATIONAL_SKILLS = DEFAULT_SKILLS
 
 COMPACT_OPERATIONS = frozenset(
     {
@@ -37,7 +49,6 @@ COMPACT_OPERATIONS = frozenset(
         "tasks.control",
     }
 )
-
 FORBIDDEN_COPY_MARKERS = (
     "action_inventory",
     "inputSchema",
@@ -46,7 +57,6 @@ FORBIDDEN_COPY_MARKERS = (
     '"additionalProperties"',
     '"properties"',
 )
-
 CONTRADICTORY_PATTERNS = (
     (re.compile(r"\bscope (?:grants|provides) (?:execution )?authority\b", re.I), "scope cannot grant authority"),
     (
@@ -63,6 +73,14 @@ CONTRADICTORY_PATTERNS = (
         "scanner output remains a candidate pending review",
     ),
 )
+
+
+def _select_profile(profile: str, *, root: Path | None = None) -> None:
+    global PROFILE, SKILL_ROOT, SHARED_REFERENCES, OPERATIONAL_SKILLS
+    PROFILE = profile
+    SKILL_ROOT = (root or (CODEX_ROOT / profile)).resolve()
+    SHARED_REFERENCES = SKILL_ROOT / "operate-synapse" / "references"
+    OPERATIONAL_SKILLS = PROFILE_SKILLS[profile]
 
 
 def _frontmatter(path: Path) -> tuple[dict[str, str], dict[str, str], str]:
@@ -97,13 +115,20 @@ def _yaml_value(text: str, key: str) -> str:
     return match.group(1) if match else ""
 
 
+def _display(path: Path) -> str:
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
+
+
 def _validate_links(path: Path, text: str, failures: list[str]) -> None:
     for target in re.findall(r"\[[^\]]+\]\(([^)]+)\)", text):
         if target.startswith(("http://", "https://", "#")):
             continue
         local = (path.parent / target.split("#", 1)[0]).resolve()
         if not local.is_file():
-            failures.append(f"{path.relative_to(ROOT)}: missing reference {target}")
+            failures.append(f"{_display(path)}: missing reference {target}")
 
 
 def _validate_skill(name: str, expected_role: str, expected_pack: str, failures: list[str]) -> None:
@@ -163,76 +188,113 @@ def _validate_skill(name: str, expected_role: str, expected_pack: str, failures:
         expected_invariants = "../operate-synapse/references/operational-invariants.md"
         if expected_invariants not in body:
             failures.append(f"{name}: shared operational invariants are not referenced")
-        expected_workflow = "../operate-synapse/references/specialist-workflow.md"
+        workflow = "single-agent-workflow.md" if PROFILE == "default" else "specialist-workflow.md"
+        expected_workflow = f"../operate-synapse/references/{workflow}"
         if expected_workflow not in body:
-            failures.append(f"{name}: shared specialist workflow is not referenced")
+            failures.append(f"{name}: shared {PROFILE} workflow is not referenced")
+
+
+def _validate_default_topology(failures: list[str]) -> None:
+    router = (SKILL_ROOT / "operate-synapse" / "SKILL.md").read_text(encoding="utf-8")
+    for name in ("synapse-web-pentesting", "synapse-cve-intelligence"):
+        if f"${name}" not in router:
+            failures.append(f"operate-synapse: missing route to ${name}")
+    forbidden_routes = sorted(
+        name for name in MULTI_AGENT_COMPAT_SKILLS if name != "operate-synapse" and f"${name}" in router
+    )
+    if forbidden_routes:
+        failures.append(f"operate-synapse: default routes compatibility skills {forbidden_routes!r}")
+    combined = "\n".join(path.read_text(encoding="utf-8") for path in SKILL_ROOT.rglob("*.*"))
+    if not re.search(r"do not spawn sub-agents", combined, flags=re.I):
+        failures.append("default profile: missing explicit no-sub-agent rule")
 
 
 def validate() -> list[str]:
     failures: list[str] = []
+    expected_names = set(OPERATIONAL_SKILLS)
+    actual_names = (
+        {path.name for path in SKILL_ROOT.iterdir() if path.is_dir() and (path / "SKILL.md").is_file()}
+        if SKILL_ROOT.is_dir()
+        else set()
+    )
+    if actual_names != expected_names:
+        failures.append(
+            f"{PROFILE}: skill inventory mismatch; expected {sorted(expected_names)!r}, "
+            f"found {sorted(actual_names)!r}"
+        )
     for name, (role, pack) in OPERATIONAL_SKILLS.items():
         _validate_skill(name, role, pack, failures)
 
-    references = sorted(path.name for path in SHARED_REFERENCES.glob("*.md"))
-    if references != ["operational-invariants.md", "specialist-workflow.md"]:
-        failures.append("operate-synapse: shared reference inventory is stale")
-    shared_text = "\n".join(
-        path.read_text(encoding="utf-8")
-        for path in sorted(SHARED_REFERENCES.glob("*.md"))
+    expected_references = (
+        ["operational-invariants.md", "single-agent-workflow.md"]
+        if PROFILE == "default"
+        else ["operational-invariants.md", "specialist-workflow.md"]
     )
-    invariants = " ".join(
-        (SHARED_REFERENCES / "operational-invariants.md").read_text(encoding="utf-8").split()
-    ).lower()
-    for required in (
-        "does not grant execution authority",
-        "coordination metadata, not authority",
-        "never repeat an active or outcome-unknown action",
-        "candidate until validated and reviewed",
-        "not redacted or client-safe",
-    ):
-        if required not in invariants:
-            failures.append(f"operational-invariants.md: missing policy phrase {required!r}")
-    for marker in FORBIDDEN_COPY_MARKERS:
-        if marker in shared_text:
-            failures.append(f"operate-synapse references: copied schema/catalog marker {marker!r}")
-    for pattern, reason in CONTRADICTORY_PATTERNS:
-        if pattern.search(shared_text):
-            failures.append(f"operate-synapse references: contradictory terminology ({reason})")
+    references = sorted(path.name for path in SHARED_REFERENCES.glob("*.md"))
+    if references != expected_references:
+        failures.append(f"operate-synapse: shared reference inventory is stale: {references!r}")
+    if SHARED_REFERENCES.is_dir():
+        shared_text = "\n".join(
+            path.read_text(encoding="utf-8") for path in sorted(SHARED_REFERENCES.glob("*.md"))
+        )
+        invariants = " ".join(
+            (SHARED_REFERENCES / "operational-invariants.md").read_text(encoding="utf-8").split()
+        ).lower()
+        for required in (
+            "does not grant execution authority",
+            "coordination metadata, not authority",
+            "never repeat an active or outcome-unknown action",
+            "candidate until validated and reviewed",
+            "not redacted or client-safe",
+        ):
+            if required not in invariants:
+                failures.append(f"operational-invariants.md: missing policy phrase {required!r}")
+        for marker in FORBIDDEN_COPY_MARKERS:
+            if marker in shared_text:
+                failures.append(f"operate-synapse references: copied schema/catalog marker {marker!r}")
+        for pattern, reason in CONTRADICTORY_PATTERNS:
+            if pattern.search(shared_text):
+                failures.append(f"operate-synapse references: contradictory terminology ({reason})")
 
-    router = (SKILL_ROOT / "operate-synapse" / "SKILL.md").read_text(encoding="utf-8")
-    for name in OPERATIONAL_SKILLS:
-        if name != "operate-synapse" and f"${name}" not in router:
-            failures.append(f"operate-synapse: missing route to ${name}")
+    if PROFILE == "default" and SKILL_ROOT.is_dir():
+        _validate_default_topology(failures)
+    elif PROFILE == "multi-agent-compat" and (SKILL_ROOT / "operate-synapse" / "SKILL.md").is_file():
+        router = (SKILL_ROOT / "operate-synapse" / "SKILL.md").read_text(encoding="utf-8")
+        for name in OPERATIONAL_SKILLS:
+            if name != "operate-synapse" and f"${name}" not in router:
+                failures.append(f"operate-synapse: missing route to ${name}")
 
-    for path in SKILL_ROOT.rglob("*.json"):
-        if any(part in OPERATIONAL_SKILLS for part in path.parts):
-            failures.append(f"{path.relative_to(ROOT)}: JSON artifacts are forbidden in operational skills")
+    for path in SKILL_ROOT.rglob("*.json") if SKILL_ROOT.is_dir() else ():
+        failures.append(f"{_display(path)}: JSON artifacts are forbidden in operational skills")
     return sorted(set(failures))
 
 
 def main() -> int:
-    global ROOT, SKILL_ROOT, SHARED_REFERENCES
+    global ROOT
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--check", action="store_true", help="Fail when the authored skill package is stale or unsafe.")
+    parser.add_argument("--check", action="store_true", help="Fail when the selected skill profile is stale or unsafe.")
+    parser.add_argument("--profile", choices=tuple(PROFILE_SKILLS), default="default")
     parser.add_argument(
         "--skills-root",
         type=Path,
-        help="Validate this installed skills/codex directory instead of the repository package.",
+        help="Validate this installed profile directory instead of repository assets.",
     )
     args = parser.parse_args()
     if not args.check:
         parser.error("--check is required")
     if args.skills_root is not None:
-        SKILL_ROOT = args.skills_root.expanduser().resolve()
-        ROOT = SKILL_ROOT.parent
-        SHARED_REFERENCES = SKILL_ROOT / "operate-synapse" / "references"
+        selected_root = args.skills_root.expanduser().resolve()
+        ROOT = selected_root.parent
+        _select_profile(args.profile, root=selected_root)
+    else:
+        _select_profile(args.profile)
     failures = validate()
     if failures:
         for failure in failures:
             print(f"FAIL {failure}", file=sys.stderr)
         return 1
     print(
-        "Codex operating skills are current: "
+        f"Codex {PROFILE} operating skills are current: "
         f"{len(OPERATIONAL_SKILLS)} skills, 2 shared references"
     )
     return 0

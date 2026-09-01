@@ -2,7 +2,7 @@
 # Copyright 2026 Javier Roldán Ortiz
 # SPDX-License-Identifier: Apache-2.0
 
-"""Run the optional objective-driven Phase 5 Codex client diagnostic."""
+"""Run the optional Phase 5 multi-agent compatibility diagnostic."""
 
 from __future__ import annotations
 
@@ -178,7 +178,7 @@ def _prepare_fixture(root: Path) -> dict[str, Any]:
     fixture = phase3["_call_internal"]("prepare", root)
     skills = root / ".agents" / "skills"
     skills.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(ROOT / "skills" / "codex", skills)
+    shutil.copytree(ROOT / "skills" / "codex" / "multi-agent-compat", skills)
     fixture["codexSkillCount"] = len([item for item in skills.iterdir() if (item / "SKILL.md").is_file()])
     fixture["skillsInstalledOutsideRepository"] = True
     return fixture
@@ -816,6 +816,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--preflight", action="store_true")
     parser.add_argument("--run", action="store_true")
+    parser.add_argument(
+        "--profile",
+        choices=("multi-agent-compat",),
+        help="required explicit compatibility-profile selection for a live run",
+    )
     parser.add_argument("--repetitions", type=int, default=REPETITIONS)
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument(
@@ -865,6 +870,8 @@ def main() -> int:
         print(json.dumps(value, indent=2, sort_keys=True))
         return 0
     if args.run:
+        if args.profile != "multi-agent-compat":
+            parser.error("--run requires --profile multi-agent-compat")
         if args.repetitions < 1:
             parser.error("--repetitions must be positive")
         try:

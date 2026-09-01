@@ -111,3 +111,56 @@ Residuals and boundary:
 The completed independent review and corrective evidence are in
 [the Task 6A adversarial-review brief](phase-6a-adversarial-review.md). The next
 implementation task is Task 6B.
+
+## Task 6B — single-agent Codex default and compatibility profile
+
+Status: implemented on 2026-09-01; focused and full compatibility gates passed.
+
+Delivered:
+
+- ADR-0012 establishes one Codex agent as the default operational unit over
+  the unchanged multi-consumer Synapse core;
+- the default profile contains exactly `operate-synapse`,
+  `synapse-web-pentesting`, and `synapse-cve-intelligence`, with Web Pentesting
+  absorbing bootstrap/perimeter/application/authentication/access-control and
+  bounded validation methodology, and CVE Intelligence covering precise
+  component correlation, authoritative/public-PoC intelligence, applicability,
+  and bounded validation planning;
+- the Phase 5 coordinator and specialist skills remain installable under the
+  explicit `multi-agent-compat` profile, while `synapse-developing` is a
+  separate development profile;
+- the root instructions and package-owned operational prompt now require
+  workspace-truth recovery, direct simple work, no default sub-agent spawning,
+  on-demand methodology selection, and multi-consumer terminology;
+- the skill validator and `synapse-codex-assets` expose profile-aware checks and
+  selection; wheel/sdist metadata contains identical default, compatibility,
+  development, and five config-profile assets;
+- the historical Phase 5 live runner requires explicit compatibility selection,
+  and `bin/run-phase6b-codex-diagnostic` provides an optional one-agent
+  Terra/medium diagnostic for direct work, sequential skill use, recovery,
+  non-replay, and report convergence.
+
+Focused verification:
+
+```text
+8 Phase 6B single-agent/default-profile tests passed
+8 Phase 5D compatibility skill tests passed
+7 Phase 5E instruction/distribution tests passed
+9 Phase 5F operational acceptance tests passed
+5 modernization documentation tests passed
+12 authored skill trees passed skill-creator validation
+778 full core tests passed
+16 official-SDK modern adapter tests passed
+Phase 5 offline acceptance passed: 66 tests, 3 repetitions, no external traffic
+Phase 6B wheel/sdist distribution passed: 174/42 standard/core actions
+Action inventory/output contracts/pack ownership current: 174/168/174
+Compact surface unchanged at 11 operations; compatibility profiles validated
+```
+
+Compatibility result: no Action Registry action ID/order, output contract,
+effect, Authority Engine, workspace/state migration, evidence, job, compact,
+direct, legacy, JSON-v1, or provider-neutral application behavior changed.
+The full core and modern gates require loopback socket binding and were run
+outside the default sandbox; the sandbox-only attempt's socket errors were
+environment restrictions, not product failures. The optional live model run
+was not consumed; its preflight passed and acceptance remains offline.

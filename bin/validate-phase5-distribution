@@ -2,7 +2,7 @@
 # Copyright 2026 Javier Roldán Ortiz
 # SPDX-License-Identifier: Apache-2.0
 
-"""Build and install the Phase 5 Codex distribution without network access."""
+"""Build and install the retained Phase 5 plus Phase 6B Codex assets offline."""
 
 from __future__ import annotations
 
@@ -19,7 +19,12 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 PROMPT = ROOT / "MCPS" / "Synapse-MCP" / "synapse_mcp" / "operational_prompt.md"
-OPERATING_SKILLS = (
+DEFAULT_SKILLS = (
+    "operate-synapse",
+    "synapse-web-pentesting",
+    "synapse-cve-intelligence",
+)
+MULTI_AGENT_COMPAT_SKILLS = (
     "operate-synapse",
     "synapse-coordinate-engagement",
     "synapse-engagement-bootstrap",
@@ -29,6 +34,11 @@ OPERATING_SKILLS = (
     "synapse-cve-validation",
     "synapse-reporting",
 )
+SKILL_PROFILES = {
+    "default": DEFAULT_SKILLS,
+    "multi-agent-compat": MULTI_AGENT_COMPAT_SKILLS,
+    "development": ("synapse-developing",),
+}
 
 
 class DistributionError(RuntimeError):
@@ -149,16 +159,22 @@ def _required_archive_suffixes() -> tuple[str, ...]:
         "share/synapse-mcp/codex/config/core-only.toml",
         "share/synapse-mcp/codex/config/modern-direct.toml",
         "share/synapse-mcp/codex/config/legacy.toml",
-        "share/synapse-mcp/codex/skills/operate-synapse/references/operational-invariants.md",
-        "share/synapse-mcp/codex/skills/operate-synapse/references/specialist-workflow.md",
+        "share/synapse-mcp/codex/config/multi-agent-compat.toml",
+        "share/synapse-mcp/codex/skills/default/operate-synapse/references/operational-invariants.md",
+        "share/synapse-mcp/codex/skills/default/operate-synapse/references/single-agent-workflow.md",
+        "share/synapse-mcp/codex/skills/default/synapse-web-pentesting/references/auth-and-access-control.md",
+        "share/synapse-mcp/codex/skills/default/synapse-cve-intelligence/references/source-and-poc-analysis.md",
+        "share/synapse-mcp/codex/skills/multi-agent-compat/operate-synapse/references/operational-invariants.md",
+        "share/synapse-mcp/codex/skills/multi-agent-compat/operate-synapse/references/specialist-workflow.md",
     ]
-    for name in OPERATING_SKILLS:
-        values.extend(
-            (
-                f"share/synapse-mcp/codex/skills/{name}/SKILL.md",
-                f"share/synapse-mcp/codex/skills/{name}/agents/openai.yaml",
+    for profile, skills in SKILL_PROFILES.items():
+        for name in skills:
+            values.extend(
+                (
+                    f"share/synapse-mcp/codex/skills/{profile}/{name}/SKILL.md",
+                    f"share/synapse-mcp/codex/skills/{profile}/{name}/agents/openai.yaml",
+                )
             )
-        )
     return tuple(values)
 
 
@@ -227,17 +243,20 @@ print(len(prompt.encode()))
         env=_installed_env(target, runtime_root),
     )
     installed_skills = target / "share" / "synapse-mcp" / "codex" / "skills"
-    _run(
-        [
-            python,
-            str(ROOT / "bin" / "validate-codex-skills"),
-            "--check",
-            "--skills-root",
-            str(installed_skills),
-        ],
-        cwd=outside,
-        env=_installed_env(target, runtime_root),
-    )
+    for profile in ("default", "multi-agent-compat"):
+        _run(
+            [
+                python,
+                str(ROOT / "bin" / "validate-codex-skills"),
+                "--check",
+                "--profile",
+                profile,
+                "--skills-root",
+                str(installed_skills / profile),
+            ],
+            cwd=outside,
+            env=_installed_env(target, runtime_root),
+        )
 
 
 def _verify_pack_start(python: str, target: Path, outside: Path, *, core_only: bool) -> None:
@@ -329,7 +348,10 @@ def main() -> int:
         print(f"distribution gate: pass ({wheel.name}; {sdist.name})")
         print(f"root instructions: {root_lines} lines")
         print(f"operational prompt: {len(expected_prompt.encode())} bytes")
-        print("installed Codex assets: 8 operating skills, 2 shared references, 4 configs")
+        print(
+            "installed Codex assets: 3 default operating skills; "
+            "8 multi-agent compatibility skills; 1 development skill; 5 configs"
+        )
         print("installed modern runtime starts: standard 174 actions; core-only 42 actions")
     return 0
 

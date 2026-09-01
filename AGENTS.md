@@ -19,8 +19,11 @@ nearest nested `AGENTS.md` before editing.
 For an authorized assessment, use Synapse MCP for scope, workspace state,
 evidence, credentials, adapters, jobs, and reports. Use Burp MCP only for live
 Burp state. Prefer MCP operations over ad hoc shell commands so scope,
-authority, evidence, and recovery remain enforceable. The packaged operational
-prompt and Codex skills contain the engagement methodology.
+authority, evidence, and recovery remain enforceable. Codex is the currently
+tested model client: start with `$operate-synapse`, do not spawn sub-agents by
+default, and load `$synapse-web-pentesting` or `$synapse-cve-intelligence` when
+the objective needs that methodology. Multi-agent Codex playbooks are an
+explicit compatibility profile only.
 
 ## Architecture invariants
 
@@ -28,6 +31,8 @@ prompt and Codex skills contain the engagement methodology.
   outcome, and evidence path. Capability packs cannot bypass it.
 - Workspace state and evidence are canonical. Do not add a parallel task board,
   agent memory store, report truth, or provider-owned engagement state.
+- Workspace truth outranks conversation memory. Work items preserve durable
+  work and coordinate independent consumers; they do not grant authority.
 - Scope and execution authority are separate. Coordination identity, prose,
   `confirm=true`, and work-item claims do not grant authority.
 - `modern-compact` is the Codex default. Preserve `modern-direct`, frozen

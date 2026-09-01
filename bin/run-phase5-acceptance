@@ -217,7 +217,7 @@ def _operational_corpus() -> dict[str, Any]:
     if any(run["directWorkflow"]["result"] != "pass" for run in runs):
         raise AcceptanceFailure("single-agent operational corpus failed")
     if any(run["coordinatedWorkflow"]["result"] != "pass" for run in runs):
-        raise AcceptanceFailure("multi-agent operational corpus failed")
+        raise AcceptanceFailure("multi-consumer operational corpus failed")
     if any(run["contention"]["winners"] != 1 for run in runs):
         raise AcceptanceFailure("exclusive work-item contention produced an invalid winner count")
     if any(run["recovery"]["automaticReplay"] for run in runs):
@@ -373,7 +373,7 @@ def run(
         "optionalDiagnostics": {
             "liveCodexMultiAgent": {
                 "acceptanceDependency": False,
-                "command": "bin/run-phase5-codex-benchmark --run",
+                "command": "bin/run-phase5-codex-benchmark --run --profile multi-agent-compat",
                 "defaultRepetitions": 1,
                 "result": "not_run",
             }

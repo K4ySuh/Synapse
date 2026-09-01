@@ -184,6 +184,17 @@ remains eleven operations. The deterministic pre-instrumentation performance
 method and checked environment baseline are documented in the
 [Phase 6A performance baseline](docs/modernization/phase-6-performance-baseline.md).
 
+Phase 6B makes one Codex agent the default operational unit without changing
+the provider-neutral server. The default installed profile contains
+`operate-synapse`, `synapse-web-pentesting`, and
+`synapse-cve-intelligence`; the same agent may use both methodologies
+sequentially while recovering and converging from workspace truth. The Phase 5
+coordinator and specialist skills remain available only through the explicit
+`multi-agent-compat` profile, and `synapse-developing` is packaged separately.
+Work items are durable multi-consumer coordination records, not an instruction
+to spawn agents and never a source of authority. See
+[ADR-0012](docs/modernization/adr/ADR-0012-single-agent-codex-default.md).
+
 Phase 3C completes the production official-SDK adapter over the
 protocol-independent modern application surfaces. Phase 3D is complete under
 the operator-approved stable-Codex contract. Codex can use protocol-native
@@ -490,6 +501,11 @@ Codex should normally use the standard modern compact command emitted by
 rollback/bootstrap compatibility. Runtime selection consistently honors
 `SYNAPSE_PYTHON`, an active `VIRTUAL_ENV`, then the repository `.venv`, and
 fails instead of printing a nonexistent interpreter.
+
+Install the default three-skill Codex profile returned by
+`synapse-codex-assets --skills-dir` and begin with `$operate-synapse`. The
+separate `--skills-profile multi-agent-compat` tree and matching config are
+explicit opt-ins; they do not change Synapse server behavior.
 Runtime data stays under `SYNAPSE_ROOT/DATA` by default. Shodan API keys are
 never stored in config — set them only at runtime with
 `shodan.session_key.set`.

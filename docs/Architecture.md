@@ -377,6 +377,21 @@ coordinator and specialists to the bounded Luna/low profile. Acceptance does not
 relabel the retained generic MCP conformance result or make a client/provider a
 dependency.
 
+Phase 6B changes only the default Codex integration topology. The default
+profile under `skills/codex/default/` contains one operating router plus Web
+Pentesting and CVE Intelligence methodologies. One agent selects and uses those
+methods sequentially while workspace revision, execution, evidence, candidates,
+and gaps remain canonical. The Phase 5 coordinator/specialist tree is isolated
+under `skills/codex/multi-agent-compat/`, and repository development guidance
+is packaged separately. Profile selection never enters application, policy,
+state, executor, adapter, or transport logic.
+
+Work items are therefore a durable multi-consumer coordination ledger, not an
+agent scheduler or topology declaration. They serve one restarting agent,
+independent processes/clients, and humans equally. The optional Phase 6B live
+diagnostic uses one Codex agent; real offline multi-process tests continue to
+prove concurrency without relabeling processes as model agents.
+
 The modern HTTP boundary authenticates one high-entropy bearer token by
 server-held digest, then resolves principal/workspace to a server-held authority
 binding. Host and Origin checks, forwarded-header trust, and TLS termination are

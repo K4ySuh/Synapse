@@ -155,29 +155,31 @@ handoff, completion-contract, and gap context. Existing JSON-v1 workspaces keep
 their compatibility behavior but must be explicitly migrated/activated before
 using operational work items.
 
-## Codex Operating Playbooks
+## Codex Operating Profiles
 
-The repository's [`skills/codex/`](../../skills/codex) package adds a router,
-coordinator, and bounded bootstrap, perimeter, web, access-control, CVE, and
-reporting playbooks over the compact application contract. The package uses
-live capability search/description rather than embedding this README's tool
-inventory or action schemas. It treats work claims and role/skill selection as
-coordination only: exact scope and server-held execution authority remain MCP
-application decisions. Run `bin/validate-codex-skills --check` from the
-repository root after editing the package.
+The repository's [`skills/codex/`](../../skills/codex) package defaults to one
+Codex agent with `operate-synapse`, `synapse-web-pentesting`, and
+`synapse-cve-intelligence`. These skills use live capability
+search/description rather than embedding this README's inventory or schemas.
+Work claims and skill selection are coordination only: exact scope and
+server-held execution authority remain application decisions. The Phase 5
+coordinator/specialist tree is preserved under the explicit
+`multi-agent-compat` profile, and the development skill is separate.
 
-Wheel and sdist builds also install the complete skill/reference tree and four
-Codex config templates as integration data. Use `synapse-codex-assets
---skills-dir`, `--config standard|core-only|modern-direct|legacy`, or `--verify`
-after installation. `bin/validate-phase5-distribution` performs the isolated
-archive build/install and standard/core cold-start gate.
+Wheel and sdist builds install identical default, compatibility, development,
+and five config-profile assets. Use `synapse-codex-assets --skills-dir`,
+`--skills-profile multi-agent-compat|development`,
+`--config standard|core-only|modern-direct|legacy|multi-agent-compat`, or
+`--verify`. `bin/validate-phase6b-distribution` performs the isolated archive
+build/install and standard/core cold-start gate.
 
 Phase 5 operational closure is exercised from the repository root with
 `bin/run-phase5-acceptance`. It uses fresh fictional local SQLite-v2 workspaces,
 real concurrent processes, and disabled external target traffic, then writes
-sanitized aggregate evidence. `bin/run-phase5-codex-benchmark --run` remains an
-explicit one-repetition client diagnostic and is not an acceptance dependency;
-its coordinator and specialists default to the bounded Luna/low profile.
+sanitized aggregate evidence. `bin/run-phase6b-codex-diagnostic --run` is the
+current optional one-agent Terra/medium client diagnostic and is not an
+acceptance dependency. The historical multi-agent runner remains available
+only with `bin/run-phase5-codex-benchmark --run --profile multi-agent-compat`.
 
 ## Runtime Python
 

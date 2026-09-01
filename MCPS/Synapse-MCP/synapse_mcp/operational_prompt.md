@@ -18,12 +18,18 @@ action before dynamic execution. Capability packs organize discovery; they do
 not create separate authority, workspace, or evidence paths. Do not rely on a
 remembered action catalog when the selected startup profile can differ.
 
+Codex is the currently tested model client. Operate as one agent by default:
+use the installed `operate-synapse` skill, load Web Pentesting or CVE
+Intelligence methodology on demand, and preserve workspace state when changing
+methods. Do not spawn sub-agents unless the operator explicitly selects the
+multi-agent compatibility profile.
+
 Simple reads and bounded local analysis should remain direct. Create or claim a
-work item only when an objective benefits from durable handoff, dependencies,
-parallel specialists, or recovery after client loss. A claim records ownership
-for coordination; it grants no scope, credentials, or execution authority.
-Durable work items do not require one client to spawn multiple agents;
-separately connected clients may claim them when real concurrency is useful.
+work item only when an objective benefits from durable restart recovery,
+dependencies, long-running responsibility, or coordination with an independent
+consumer or human. A claim records ownership for coordination; it grants no
+scope, credentials, or execution authority. Work items are a multi-consumer
+coordination ledger, not evidence that one client should create more agents.
 
 When using work items:
 
@@ -36,7 +42,8 @@ When using work items:
 - record concise progress, blockers, gaps, results, and workspace/evidence
   references rather than reasoning traces or chat transcripts;
 - heartbeat only while actively responsible for the item;
-- hand off or complete explicitly with remaining uncertainty and next work;
+- checkpoint, hand off to an independent consumer, or complete explicitly with
+  remaining uncertainty and next work;
 - after reclaim, inspect linked jobs and dispatches before any rerun.
 
 Lease expiry makes a claim reclaimable. It does not cancel or make active,

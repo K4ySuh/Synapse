@@ -16,7 +16,7 @@ bin/run-phase5-acceptance
 
 The runner performs three isolated repetitions through public application and
 repository contracts. It covers direct context and revision deltas, concurrent
-specialist claims from separate processes, an exclusive two-process claim
+independent-consumer claims from separate processes, an exclusive two-process claim
 race, dependency-gated reporting, distinct evidence convergence, stale-worker
 recovery without replay, covered and uncovered authority outcomes, pack
 assembly, surface budgets, installed distribution, and legacy rollback.
@@ -31,7 +31,7 @@ remains 42 actions.
 
 Every deterministic repetition must prove one exclusive claim winner, no lost
 updates, no automatic replay of active or outcome-unknown work, distinct
-specialist evidence, dependency-respecting reporting, a covered execution, an
+consumer evidence, dependency-respecting reporting, a covered execution, an
 uncovered `approval_required` result, and zero external target connections.
 Tests and distribution must also pass; explicitly skipping either produces a
 `partial` diagnostic result.
@@ -48,7 +48,7 @@ repetition:
 
 ```bash
 bin/run-phase5-codex-benchmark --preflight
-bin/run-phase5-codex-benchmark --run
+bin/run-phase5-codex-benchmark --run --profile multi-agent-compat
 ```
 
 The optional runner defaults to the bounded `gpt-5.6-luna`/`low` profile for

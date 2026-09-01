@@ -80,6 +80,8 @@ tests, and the shared [changelog](../../CHANGELOG.md).
 
 - [Implementation status](phase-6-status.md) — Task 6A operational-errata
   closure and exact verification; no Phase 6 closure claim
+- [ADR-0012](adr/ADR-0012-single-agent-codex-default.md) — one Codex agent by
+  default over the unchanged multi-consumer control plane
 - [Phase 6A performance baseline](phase-6-performance-baseline.md) —
   deterministic method, environment, absolute results, and relative ceiling
 - [Phase 6A adversarial-review brief](phase-6a-adversarial-review.md) — review
@@ -100,6 +102,7 @@ tests, and the shared [changelog](../../CHANGELOG.md).
 | [ADR-0009](adr/ADR-0009-registry-v2-correction-gate.md) | Registry v2 correction gate | Accepted |
 | [ADR-0010](adr/ADR-0010-capability-pack-lifecycle.md) | Deterministic high-level capability-pack lifecycle | Accepted |
 | [ADR-0011](adr/ADR-0011-operational-work-items-and-claim-leases.md) | Durable operational work items and claim leases | Accepted |
+| [ADR-0012](adr/ADR-0012-single-agent-codex-default.md) | Single-agent Codex default over a multi-consumer core | Accepted |
 
 ## Cross-cutting pattern
 

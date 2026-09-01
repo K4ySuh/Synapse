@@ -1,0 +1,10 @@
+interface:
+  display_name: "Operate Synapse"
+  short_description: "Operate Synapse as one durable agent"
+  default_prompt: "Use $operate-synapse to recover workspace truth and complete the objective as one agent with the smallest safe methodology."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "synapse"
+      description: "Local Synapse MCP server for controlled assessment operations."

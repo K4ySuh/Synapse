@@ -323,7 +323,7 @@ complete-phase adversarial review passed on 2026-08-30.
 Delivered:
 
 - a fictional deterministic corpus for direct context/delta work, real
-  multi-process specialist claims, exclusive contention, dependency-gated
+  multi-process consumer claims, exclusive contention, dependency-gated
   reporting, distinct evidence convergence, and stale-worker recovery without
   replay;
 - atomic evidence-before-completion and principal/workspace binding attacks,
