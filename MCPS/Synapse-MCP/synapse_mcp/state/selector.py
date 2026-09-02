@@ -108,6 +108,22 @@ def repository_bundle(workspace_id: str, workspaces_root: Path) -> WorkspaceRepo
     )
 
 
+def execution_lifecycle_repository(
+    workspace_id: str,
+    workspaces_root: Path,
+) -> ActivatedWorkspaceRepository:
+    """Select v2 lifecycle truth without auto-migration or JSON dual-write."""
+
+    normalized_workspace_id = normalize_workspace_id(workspace_id)
+    root = Path(workspaces_root) / normalized_workspace_id
+    if selected_store_version(root) != "sqlite-v2":
+        raise StateSelectionError(
+            "execution_lifecycle_requires_sqlite_v2",
+            "Execution lifecycle mutations require an explicitly activated SQLite-v2 workspace.",
+        )
+    return ActivatedWorkspaceRepository(normalized_workspace_id, root)
+
+
 class _SQLiteEvidenceBoundary:
     """No standalone v2 evidence writes: use the repository revision API."""
 

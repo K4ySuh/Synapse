@@ -43,6 +43,8 @@ class ExecutionContext:
     continuation_dispatch_id: str = ""
     work_item_id: str = ""
     work_item_claim_id: str = ""
+    work_execution_attempt_id: str = ""
+    execution_run_id: str = ""
     authorization_receipt: object | None = None
 
 

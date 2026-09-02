@@ -78,11 +78,14 @@ tests, and the shared [changelog](../../CHANGELOG.md).
 
 ## Phase 6
 
-- [Implementation status](phase-6-status.md) — Task 6A operational-errata and
-  Task 6B single-agent-default closure; Task 6C is next and there is no complete
-  Phase 6 closure claim
+- [Implementation status](phase-6-status.md) — Task 6A operational-errata,
+  Task 6B single-agent-default, and Task 6C execution-lifecycle checkpoints;
+  there is no complete Phase 6 closure claim
 - [ADR-0012](adr/ADR-0012-single-agent-codex-default.md) — one Codex agent by
   default over the unchanged multi-consumer control plane
+- [ADR-0013](adr/ADR-0013-observed-effect-execution-lifecycle.md) — versioned
+  lifecycle identity, observations, and validation over the canonical Registry
+  and Authority path
 - [Phase 6A performance baseline](phase-6-performance-baseline.md) —
   deterministic method, environment, absolute results, and relative ceiling
 - [Phase 6A adversarial-review brief](phase-6a-adversarial-review.md) — review
@@ -104,6 +107,7 @@ tests, and the shared [changelog](../../CHANGELOG.md).
 | [ADR-0010](adr/ADR-0010-capability-pack-lifecycle.md) | Deterministic high-level capability-pack lifecycle | Accepted |
 | [ADR-0011](adr/ADR-0011-operational-work-items-and-claim-leases.md) | Durable operational work items and claim leases | Accepted |
 | [ADR-0012](adr/ADR-0012-single-agent-codex-default.md) | Single-agent Codex default over a multi-consumer core | Accepted |
+| [ADR-0013](adr/ADR-0013-observed-effect-execution-lifecycle.md) | Observed-effect execution lifecycle over the canonical dispatch path | Accepted |
 
 ## Cross-cutting pattern
 

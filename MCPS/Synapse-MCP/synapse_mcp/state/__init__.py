@@ -12,6 +12,7 @@ from .contracts import (
     AuditRecord,
     EntityRecord,
     EvidenceRecord,
+    ExecutionLifecycleRepository,
     RelationRecord,
     TargetRecord,
     VerticalSlice,
@@ -40,7 +41,12 @@ from .migration import (
     canonical_digest,
     canonical_json_bytes,
 )
-from .selector import assert_json_v1_write_allowed, repository_bundle, selected_store_version
+from .selector import (
+    assert_json_v1_write_allowed,
+    execution_lifecycle_repository,
+    repository_bundle,
+    selected_store_version,
+)
 from .sqlite_store import SQLiteWorkspaceRepository
 from .runtime import ActivatedWorkspaceRepository, activated_repository, opaque_matches, opaque_ref
 from .work_items import SQLiteWorkItemRepository
@@ -57,6 +63,7 @@ __all__ = [
     "NewWorkspaceStoreService",
     "EntityRecord",
     "EvidenceRecord",
+    "ExecutionLifecycleRepository",
     "RelationRecord",
     "SQLiteWorkspaceRepository",
     "ActivatedWorkspaceRepository",
@@ -85,6 +92,7 @@ __all__ = [
     "canonical_digest",
     "canonical_json_bytes",
     "repository_bundle",
+    "execution_lifecycle_repository",
     "selected_store_version",
     "assert_json_v1_write_allowed",
     "activated_repository",

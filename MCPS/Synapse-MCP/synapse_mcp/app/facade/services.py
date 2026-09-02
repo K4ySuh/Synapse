@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import json
 from pathlib import Path
 import secrets
@@ -557,6 +557,14 @@ class ActionExecutionService:
                     },
                     trace_id=trace_id,
                 )
+        if execution_reference:
+            request = replace(
+                request,
+                context=replace(
+                    request.context,
+                    work_execution_attempt_id=execution_reference,
+                ),
+            )
         try:
             outcome = self.registry.execute(action_id, request)
         except Exception as exc:

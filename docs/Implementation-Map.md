@@ -70,13 +70,13 @@ templates and skills through `synapse-codex-assets`.
 SQLite runtimes through the transport-independent `synapse_mcp/state/readiness.py`
 contract and fails below SQLite 3.51.3. `synapse_mcp/state/` now also owns
 repository contracts and selection, JSON-v1 compatibility adapters, verified
-SQLite connection/transaction helpers, migrations `0001` through `0004`, workspace
+SQLite connection/transaction helpers, migrations `0001` through `0006`, workspace
 and task revisions, the activated transactional runtime repository, bounded WAL
 checkpoint/status and online backup, and the workspace-local SHA-256 artifact
 store. `state/runtime.py` owns activated workspace, entity/relation, evidence,
-artifact/resource, finding/review, authority/dispatch, task/finalization, and
-audit operations. Its `context_snapshot()` reads compiler inputs and the
-requested change-log interval from one committed WAL snapshot.
+artifact/resource, finding/review, authority/dispatch/execution-lifecycle,
+task/finalization, and audit operations. Its `context_snapshot()` reads compiler
+inputs and the requested change-log interval from one committed WAL snapshot.
 `state/migration.py` owns
 read-only inventory, immutable snapshots, restartable/idempotent v1-to-v2
 stages, verification, guarded activation, and rollback-boundary enforcement.
@@ -544,9 +544,11 @@ The protocol-independent Phase 2 authority model is under
   effects/replay safety, risk, mode, lifecycle, and budgets.
 - `repository.py` owns the storage-neutral repository contract and the locked,
   crash-atomic workspace JSON implementation for grants, request states,
-  reservations, decisions, dispatches, continuations, and reconciliation;
+  reservations, decisions, dispatches, continuations, and reconciliation; on
+  activated SQLite-v2 it also reserves and advances the bound execution run in
+  the same authority transaction;
 - `integration.py` maps typed policy decisions onto Registry outcomes and
-  advances durable dispatch truth around the sole executor seam;
+  advances durable dispatch/run truth around the sole executor seam;
 - `operator_service.py` and `operator_cli.py` expose trusted local management
   without registering model-executable self-granting actions.
 
@@ -606,6 +608,17 @@ single runtime representation shared by Registry policy, migrated executors,
 crawler workers/finalizers, HTTP redirect checks, and planned output writes.
 
 ```text
+core/execution_lifecycle.py
+```
+
+Defines immutable versioned execution intent, authorization, run identity,
+observation source/coverage, normalized observation, discrepancy, and
+effect-validation contracts. It wraps the complete sealed `ExecutionPlan` v1,
+provides the observer protocol and coverage-aware no-op implementation, and
+permits only runtime-observed/runtime-enforced telemetry to determine effect
+truth. It has no MCP, state, executor, or provider dependency.
+
+```text
 core/paths.py
 ```
 
@@ -647,8 +660,9 @@ If a restarted MCP process no longer has the original `Popen` handle for a
 timed-out job, status refresh marks the job `timed_out` without sending signals
 to a PID/process group it does not own.
 
-Every new job record also carries a fingerprinted execution plan and fixed
-finalizer effects. The continuation binding covers job/finalizer identity,
+Every new job record also carries a fingerprinted execution plan, its bound
+execution-run identity when created by SQLite-v2 authority-aware dispatch, and
+fixed finalizer effects. The continuation binding covers job/finalizer identity,
 finalizer data, target/workspace, result and cleanup destinations, and the
 original stdout/stderr/return-code paths. `jobs.status`, listing refresh,
 watchdog completion, and cancel all validate that continuation before using a

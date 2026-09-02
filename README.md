@@ -195,6 +195,18 @@ Work items are durable multi-consumer coordination records, not an instruction
 to spawn agents and never a source of authority. See
 [ADR-0012](docs/modernization/adr/ADR-0012-single-agent-codex-default.md).
 
+Phase 6C adds a versioned observed-effect lifecycle to the existing Registry,
+Authority, dispatch, work-attempt, and background-job path. Activated
+SQLite-v2 workspaces reserve one durable execution run before dispatch and
+reconstruct `authorized`, `dispatch_started`, `observing`,
+`validation_pending`, `outcome_committed`, `execution_unknown`, and
+`not_dispatched` truth after restart. The initial observer deliberately records
+`not_instrumented`/`unobservable` coverage; provider, consumer, and model
+narration cannot establish observed-effect truth. `ExecutionPlan` v1 and
+JSON-v1 compatibility remain intact, and JSON-v1 refuses the new lifecycle
+repository rather than gaining a parallel state path. See
+[ADR-0013](docs/modernization/adr/ADR-0013-observed-effect-execution-lifecycle.md).
+
 Phase 3C completes the production official-SDK adapter over the
 protocol-independent modern application surfaces. Phase 3D is complete under
 the operator-approved stable-Codex contract. Codex can use protocol-native

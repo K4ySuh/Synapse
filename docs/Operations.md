@@ -367,8 +367,9 @@ deterministic hashed mappings. Keep the MCP service stopped during migration,
 verification, and activation. After activation, both legacy and modern protocol
 profiles use SQLite-v2 for workspace state, normalized entities and relations,
 evidence and artifact metadata, findings and reviews, authority and dispatches,
-background tasks and finalization, durable resource references, revisions, and
-audit. Selecting the legacy protocol does not select JSON v1.
+execution runs/observations/validations, background tasks and finalization,
+durable resource references, revisions, and audit. Selecting the legacy
+protocol does not select JSON v1.
 
 The status command includes bounded passive WAL/checkpoint state for activated
 workspaces. One operator may request a bounded manual checkpoint; a lease
@@ -486,11 +487,17 @@ SDK server tracing middleware while retaining a bounded local invocation trace
 ID. Trace identity affects correlation only, never authorization, and
 secret/request-state contents are not logged.
 
-Authority state is private, crash-atomic JSON at:
+For a selector-less JSON-v1 workspace, authority state is private,
+crash-atomic JSON at:
 
 ```text
 DATA/workspaces/<workspace-id>/authority/state.json
 ```
+
+For an activated SQLite-v2 workspace, authority, dispatch, and execution
+lifecycle truth is transactional in `state-v2/state.sqlite3`; do not read or
+modify the database directly. The operator authority commands below select the
+correct repository from workspace state.
 
 Use the local operator entry point, never an MCP action, to manage it:
 
@@ -527,7 +534,8 @@ grant. Revocation and expiry stop the next new dispatch immediately.
 
 Background polling is a zero-budget continuation only after durable dispatch
 and job records agree on workspace, origin action, grant revision, dispatch,
-parent plan, job, handler, effects, outputs, and lifecycle. Expiry or revocation
+execution run, parent plan, job, handler, effects, outputs, and lifecycle.
+Expiry or revocation
 does not erase already-dispatched work. A pre-Phase-2 job returns an adoption
 requirement in an authority-aware profile; use
 `synapse-authority ... adopt-legacy-job <job-id> <grant-id> --session <trusted-session-id>`
@@ -535,6 +543,28 @@ after review.
 Unknown state-changing dispatches are never retried automatically. Reconcile
 them explicitly. An explicit retry is accepted only for an explicitly
 idempotent plan with an idempotency key, and records `priorDispatchId`.
+
+### Execution lifecycle recovery
+
+On activated SQLite-v2 workspaces, every newly authorized dispatch reserves
+exactly one execution run before the executor begins. The run binds the sealed
+plan and authorization fingerprints, grant revision, opaque session and
+idempotency references, optional work execution attempt, and background job.
+Restart recovery distinguishes `authorized`, `dispatch_started`, `observing`,
+`validation_pending`, `outcome_committed`, `execution_unknown`, and
+`not_dispatched` instead of inferring execution from a work-item lease.
+
+Task 6C establishes this durable lifecycle but intentionally does not claim
+effect-boundary coverage. The default observer records `not_instrumented` and
+an `unobservable` verdict. Only `runtime_observed` and `runtime_enforced`
+sources may determine validation truth; provider, consumer, model, and legacy
+reports remain supporting context. A trusted outside-envelope, incomplete, or
+indeterminate verdict moves both dispatch and run to unknown and requires
+review. Never retry an active or unknown run automatically.
+
+Execution lifecycle repository operations require SQLite-v2 and return
+`execution_lifecycle_requires_sqlite_v2` on JSON-v1. This does not migrate the
+workspace, create lifecycle JSON, or change frozen JSON-v1 dispatch behavior.
 
 Reusable target credentials may use exact `targetOrigins` independently of
 exact proxy/provider `providerScopes`. Migrated CORS and crawler requests
@@ -796,6 +826,10 @@ After client/agent loss, call `work.recover` and then inspect before reclaiming.
 Recovery expires stale leases but does not cancel, resume, or replay any linked
 dispatch/job. `executionReviewRequired=true` and `activeOrUnknownExecution`
 mean the next claimant must inspect canonical job/dispatch/evidence truth first.
+Linked attempt details include the opaque `executionRunId`, current
+`executionRunState`, and final `effectValidationId` when available; those
+references do not grant authority.
+
 For specialist resume, call:
 
 ```text

@@ -24,6 +24,19 @@ durable dispatch and continuation truth.
 
 ### Added
 
+- **Phase 6C durable execution lifecycle.** Added versioned immutable execution
+  intent, authorization, run, observation, coverage, discrepancy, and
+  validation contracts around the unchanged `ExecutionPlan` v1 and canonical
+  Registry/Authority dispatch. Ordered SQLite-v2 migration `0006` stores one
+  pre-dispatch run plus append-only observations and validations in the
+  workspace authority transaction; bundles, restart reconstruction, work
+  attempts, supervised resume, and background continuations preserve the run
+  identity. The baseline no-op observer truthfully records
+  `not_instrumented`/`unobservable`, ignores provider/consumer/model narration
+  as validation truth, and forces trusted outside-envelope, incomplete, or
+  indeterminate outcomes to unknown. JSON-v1 retains its established behavior
+  and refuses the v2-only lifecycle repository.
+
 - **Phase 6B single-agent Codex default.** The installed default now contains
   exactly `operate-synapse`, `synapse-web-pentesting`, and
   `synapse-cve-intelligence`; one Codex agent selects and may sequence those

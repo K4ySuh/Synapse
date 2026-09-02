@@ -27,10 +27,11 @@ legacy stdio projection       production SDK adapter (stdio / authenticated HTTP
                    -> profile policy evaluator
                         |-- legacy pass-through
                         `-- locked Authority repository transaction
-                              -> typed decision + dispatch reservation
-                   -> registered executor (same sealed plan + trusted receipt)
-                   -> dispatch result/continuation ledger update
+                              -> typed decision + dispatch/run reservation
+                   -> registered executor (same sealed plan + trusted receipt/run)
                    -> canonical output-model validation
+                   -> observation + effect-validation seam
+                   -> atomic dispatch/run result or execution_unknown update
 ```
 
 The compact facade has exactly eleven stable application operations. Its
@@ -79,15 +80,19 @@ grant.
 Authority-aware profiles load the selected workspace repository for every
 decision. JSON-v1 workspaces retain the crash-atomic private authority file and
 workspace lock. Activated workspaces use one SQLite transaction for authority
-decision, budget consumption, dispatch reservation, repository revision, and
-audit; raw opaque handles are represented by digests. Both stores contain grant
-revision history, exact step-ups, opaque request states,
+decision, budget consumption, dispatch/run reservation, repository revision,
+and audit; raw opaque handles are represented by digests. Both stores contain
+grant revision history, exact step-ups, opaque request states,
 dispatch-total/rate-window/active budgets, audit decisions, dispatch state, job
-continuation bindings, and reconciliation. They contain fingerprints and
-credential references, never request bodies or credential values. The minimum
-dispatch state machine is
+continuation bindings, and reconciliation. SQLite-v2 additionally contains
+versioned execution intent/authorization bindings, append-only observations,
+coverage, and validation verdicts. They contain fingerprints and credential
+references, never request bodies or credential values. The minimum dispatch
+state machine is
 `authorized -> dispatched -> succeeded|failed|unknown` and
 `authorized -> cancelled`; unknown state-changing work is never replayed.
+The bound execution run advances through independently reconstructable
+lifecycle states without becoming a second executor or authority path.
 
 ```text
 MCP client
@@ -108,6 +113,8 @@ MCP client
                    |                     identity, keyring, HTTP security)
                    |-- state/ (Phase 4 SQLite runtime/readiness boundary)
                    |-- core/
+                   |   |-- execution.py
+                   |   |-- execution_lifecycle.py
                    |   |-- paths.py
                    |   |-- errors.py
                    |   |-- scope.py
@@ -297,6 +304,16 @@ which permits truthful partial/convergence reporting. Blocked objectives are
 cancelled or replanned through a typed CAS mutation and are never represented
 as fake completion. Dependency transitions, work state, structured reasons,
 workspace revision, change log, and audit remain one transaction.
+
+Migration `0006` adds one execution run per SQLite-v2 authority dispatch plus
+append-only normalized effect observations and validation verdicts. The run
+binds the unchanged sealed `ExecutionPlan` v1, authorization fingerprint,
+grant/session reference, idempotency identity, optional work attempt, and
+background job lineage before effects begin. Dispatch and run transitions
+commit in the same authority transaction. Only runtime-observed or
+runtime-enforced sources may establish validation truth; the Phase 6C no-op
+observer records an explicit `unobservable` limitation until owned effect
+boundaries are instrumented. JSON-v1 is not extended or dual-written.
 
 ADR-0005 fixes one database and artifact namespace per workspace, with
 credential secrets kept outside SQLite and protocol rollback separated from

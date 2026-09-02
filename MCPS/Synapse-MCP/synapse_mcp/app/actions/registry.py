@@ -16,6 +16,7 @@ from synapse_mcp.core.execution import (
     ExecutionPlanError,
     empty_target_envelope,
 )
+from synapse_mcp.core.execution_lifecycle import ExecutionObserver, NoOpExecutionObserver
 
 from .contracts import ActionInput, ActionOutput
 from .descriptor import ActionDescriptor, ActionRequest
@@ -64,6 +65,9 @@ class PolicyEvaluationResult:
 class ProfilePolicyEvaluator:
     """Preserve legacy behavior while lazily routing authority-aware profiles."""
 
+    def __init__(self, observer: ExecutionObserver | None = None) -> None:
+        self.observer = observer or NoOpExecutionObserver()
+
     def evaluate(
         self,
         descriptor: ActionDescriptor[Any, Any],
@@ -86,11 +90,13 @@ class ProfilePolicyEvaluator:
     def after_dispatch(self, receipt: object, outcome: ActionOutcome[Any]) -> None:
         from synapse_mcp.policy.integration import record_registry_outcome
 
-        record_registry_outcome(receipt, outcome)
+        record_registry_outcome(receipt, outcome, observer=self.observer)
 
     def dispatch_unknown(self, receipt: object) -> None:
         from synapse_mcp.policy.integration import record_registry_unknown
 
+        # A failing or inconsistent injected observer cannot prevent the
+        # canonical dispatch/run pair from becoming conservatively unknown.
         record_registry_unknown(receipt)
 
 
@@ -338,7 +344,11 @@ class ActionRegistry:
                 return evaluation.outcome
             planned_request = replace(
                 planned_request,
-                context=replace(planned_request.context, authorization_receipt=evaluation.receipt),
+                context=replace(
+                    planned_request.context,
+                    authorization_receipt=evaluation.receipt,
+                    execution_run_id=str(getattr(evaluation.receipt, "execution_run_id", "")),
+                ),
             )
             receipt = evaluation.receipt
         else:

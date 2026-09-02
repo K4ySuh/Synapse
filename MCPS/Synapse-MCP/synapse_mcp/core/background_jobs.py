@@ -349,6 +349,34 @@ def snapshot_record(job_id: str) -> dict[str, Any]:
     return json.loads(json.dumps(_read_record(job_id)))
 
 
+def bind_execution_run(job_id: str, execution_run_id: str) -> dict[str, Any]:
+    """Bind one already-authorized run to a durable job without changing authority."""
+
+    if not execution_run_id:
+        raise ExecutionPlanError("execution_run_missing", "Background lifecycle binding requires an execution run.")
+    for _attempt in range(3):
+        record = snapshot_record(job_id)
+        current = str(record.get("executionRunId") or "")
+        if current == execution_run_id:
+            return record
+        if current:
+            raise ExecutionPlanError(
+                "execution_run_job_mismatch",
+                "Background job is already bound to another execution run.",
+            )
+        expected = int(record.get("revision") or 0)
+        record["executionRunId"] = execution_run_id
+        try:
+            _write_record(record, expected_revision=expected)
+            return record
+        except JobRevisionConflict:
+            continue
+    raise ExecutionPlanError(
+        "execution_run_job_binding_busy",
+        "Background job changed while its execution run was being bound.",
+    )
+
+
 def snapshot(job_id: str, include_result: bool = False) -> dict[str, Any]:
     """Return the observational job response without hidden progression."""
 
@@ -462,6 +490,7 @@ def start_command(
     finalizer_data: dict[str, Any] | None = None,
     execution_plan: ExecutionPlan | None = None,
     finalizer_effects: EffectEnvelope | None = None,
+    execution_run_id: str = "",
 ) -> dict[str, Any]:
     timeout_seconds = _clamp_timeout_seconds(timeout_seconds)
     visible_cmd = display_cmd or cmd
@@ -524,6 +553,7 @@ def start_command(
         "executionPlan": {},
         "finalizerEffects": required_finalizer_effects.to_dict(),
         "correlationId": execution_plan.correlation_id,
+        "executionRunId": execution_run_id,
         "run": None,
         "result": None,
         "error": "",

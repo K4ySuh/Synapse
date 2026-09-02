@@ -211,7 +211,7 @@ class Phase5CWorkItemTests(unittest.TestCase):
                     "SELECT name FROM sqlite_master WHERE type='table' AND name='work_item_execution_attempts'"
                 ).fetchone()
             )
-            self.assertEqual(int(checked.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0]), 5)
+            self.assertEqual(int(checked.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0]), 6)
 
     def test_two_processes_race_for_one_exclusive_claim_and_exactly_one_wins(self) -> None:
         self.repository.create(

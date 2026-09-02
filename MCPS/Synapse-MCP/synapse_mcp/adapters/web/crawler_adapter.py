@@ -2645,6 +2645,7 @@ def _start_background_crawl(
             **({"cleanupPlanPath": str(plan_path)} if worker_plan is not None else {}),
         },
         execution_plan=worker_plan,
+        execution_run_id=str(getattr(authorization_receipt, "execution_run_id", "")),
         finalizer_effects=(
             EffectEnvelope(
                 local_writes=("evidence", "jobs", "reports_artifacts", "workspace"),

@@ -17,6 +17,7 @@ from synapse_mcp.app.actions.outcomes import (
 from synapse_mcp.app.actions.registry import PolicyEvaluationResult
 from synapse_mcp.core import evidence
 from synapse_mcp.core import workspace
+from synapse_mcp.core.execution_lifecycle import ExecutionObserver
 
 from .authority import Allow, ApprovalRequired, ScopeDenied
 from .repository import AuthorizationReceipt, AuthorityRepositoryError, WorkspaceAuthorityRepository
@@ -59,6 +60,8 @@ def evaluate_registry_request(descriptor: Any, request: Any, effects: Any) -> Po
             selected_grant_id=context.selected_grant_id,
             idempotency_key=context.idempotency_key,
             request_state_id=context.request_state_id,
+            work_item_id=context.work_item_id,
+            work_execution_attempt_id=context.work_execution_attempt_id,
         )
     except AuthorityRepositoryError as exc:
         _log(
@@ -131,7 +134,12 @@ def mark_registry_dispatched(value: object) -> None:
     )
 
 
-def record_registry_outcome(value: object, outcome: Any) -> None:
+def record_registry_outcome(
+    value: object,
+    outcome: Any,
+    *,
+    observer: ExecutionObserver | None = None,
+) -> None:
     receipt = _receipt(value)
     repository = WorkspaceAuthorityRepository(receipt.workspace_id)
     if receipt.continuation:
@@ -140,8 +148,24 @@ def record_registry_outcome(value: object, outcome: Any) -> None:
             try:
                 current = repository.inspect_dispatch(receipt.dispatch_id)
                 if current["state"] == "dispatched":
-                    repository.transition_dispatch(receipt.dispatch_id, state)
-            except AuthorityRepositoryError:
+                    transitioned = repository.transition_dispatch(
+                        receipt.dispatch_id,
+                        state,
+                        outcome_kind=str(getattr(outcome, "kind", state)),
+                        observer=observer,
+                    )
+                    _require_validated_outcome(transitioned, intended_state=state)
+            except Exception:
+                try:
+                    current = repository.inspect_dispatch(receipt.dispatch_id)
+                    if current["state"] == "dispatched":
+                        repository.transition_dispatch(
+                            receipt.dispatch_id,
+                            "unknown",
+                            outcome_kind="execution_unknown",
+                        )
+                except Exception:
+                    pass
                 raise
         _log(
             "authority.result",
@@ -159,13 +183,30 @@ def record_registry_outcome(value: object, outcome: Any) -> None:
             repository.bind_background_job(receipt, job_id)
             final_state = "dispatched"
         else:
-            repository.transition_dispatch(receipt.dispatch_id, "succeeded")
+            transitioned = repository.transition_dispatch(
+                receipt.dispatch_id,
+                "succeeded",
+                outcome_kind=outcome.kind,
+                observer=observer,
+            )
+            _require_validated_outcome(transitioned, intended_state="succeeded")
             final_state = "succeeded"
     elif isinstance(outcome, ExecutionUnknown):
-        repository.transition_dispatch(receipt.dispatch_id, "unknown")
+        repository.transition_dispatch(
+            receipt.dispatch_id,
+            "unknown",
+            outcome_kind=outcome.kind,
+            observer=observer,
+        )
         final_state = "unknown"
     else:
-        repository.transition_dispatch(receipt.dispatch_id, "failed")
+        transitioned = repository.transition_dispatch(
+            receipt.dispatch_id,
+            "failed",
+            outcome_kind=str(getattr(outcome, "kind", "execution_failure")),
+            observer=observer,
+        )
+        _require_validated_outcome(transitioned, intended_state="failed")
         final_state = "failed"
     _log(
         "authority.result",
@@ -178,7 +219,11 @@ def record_registry_outcome(value: object, outcome: Any) -> None:
     )
 
 
-def record_registry_unknown(value: object) -> None:
+def record_registry_unknown(
+    value: object,
+    *,
+    observer: ExecutionObserver | None = None,
+) -> None:
     receipt = _receipt(value)
     if receipt.continuation:
         return
@@ -186,7 +231,12 @@ def record_registry_unknown(value: object) -> None:
     try:
         current = repository.inspect_dispatch(receipt.dispatch_id)
         if current["state"] == "dispatched":
-            repository.transition_dispatch(receipt.dispatch_id, "unknown")
+            repository.transition_dispatch(
+                receipt.dispatch_id,
+                "unknown",
+                outcome_kind="execution_unknown",
+                observer=observer,
+            )
     finally:
         _log(
             "authority.result",
@@ -203,6 +253,14 @@ def _receipt(value: object) -> AuthorizationReceipt:
     if not isinstance(value, AuthorizationReceipt):
         raise TypeError("Registry authority hook requires an AuthorizationReceipt")
     return value
+
+
+def _require_validated_outcome(dispatch: dict[str, Any], *, intended_state: str) -> None:
+    if intended_state != "unknown" and dispatch.get("state") == "unknown":
+        raise AuthorityRepositoryError(
+            "effect_validation_requires_review",
+            "Observed-effect validation did not permit normal outcome commitment.",
+        )
 
 
 def _approval_failure(reason: str, message: str) -> PolicyEvaluationResult:

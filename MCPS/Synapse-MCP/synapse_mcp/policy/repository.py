@@ -23,6 +23,21 @@ from uuid import uuid4
 from synapse_mcp.core import atomic_io, background_jobs, workspace
 from synapse_mcp.core.errors import McpError
 from synapse_mcp.core.execution import EffectEnvelope, ExecutionPlan
+from synapse_mcp.core.execution_lifecycle import (
+    EffectValidation,
+    EffectValidationVerdict,
+    ExecutionAuthorization,
+    ExecutionIntent,
+    ExecutionObserver,
+    ExecutionRun,
+    ExecutionRunIdentity,
+    ExecutionRunState,
+    NoOpExecutionObserver,
+    NormalizedEffectObservation,
+    ObservationCoverage,
+    ObserverResult,
+    verify_effect_validation_binding,
+)
 from synapse_mcp.state.errors import StateStoreError
 from synapse_mcp.state.runtime import ActivatedWorkspaceRepository, opaque_ref
 from synapse_mcp.state.selector import selected_store_version
@@ -99,6 +114,7 @@ class AuthorizationReceipt:
     dispatch_id: str
     decision_reason: str
     continuation: bool = False
+    execution_run_id: str = ""
 
     def __post_init__(self) -> None:
         required = (
@@ -116,7 +132,7 @@ class AuthorizationReceipt:
             raise ValueError("Authorization receipt requires durable grant and dispatch identity")
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "authoritySource": self.authority_source,
             "profile": self.profile,
             "authoritySessionId": self.authority_session_id,
@@ -129,6 +145,9 @@ class AuthorizationReceipt:
             "decisionReason": self.decision_reason,
             "continuation": self.continuation,
         }
+        if self.execution_run_id:
+            result["executionRunId"] = self.execution_run_id
+        return result
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "AuthorizationReceipt":
@@ -144,6 +163,7 @@ class AuthorizationReceipt:
             dispatch_id=str(value["dispatchId"]),
             decision_reason=str(value["decisionReason"]),
             continuation=bool(value.get("continuation")),
+            execution_run_id=str(value.get("executionRunId") or ""),
         )
 
 
@@ -167,9 +187,41 @@ class AuthorityRepository(Protocol):
         idempotency_key: str = "",
         request_state_id: str = "",
         third_party_provider_ids: tuple[str, ...] = (),
+        work_item_id: str = "",
+        work_execution_attempt_id: str = "",
     ) -> AuthorizationResult: ...
 
-    def transition_dispatch(self, dispatch_id: str, requested: str) -> dict[str, Any]: ...
+    def transition_dispatch(
+        self,
+        dispatch_id: str,
+        requested: str,
+        *,
+        outcome_kind: str = "",
+        observer: ExecutionObserver | None = None,
+    ) -> dict[str, Any]: ...
+
+    def mark_execution_observing(
+        self,
+        receipt: AuthorizationReceipt,
+        *,
+        coverage: tuple[ObservationCoverage, ...] = (),
+    ) -> dict[str, Any]: ...
+
+    def record_execution_observations(
+        self,
+        receipt: AuthorizationReceipt,
+        observations: tuple[NormalizedEffectObservation, ...],
+        *,
+        coverage: tuple[ObservationCoverage, ...] = (),
+    ) -> dict[str, Any]: ...
+
+    def record_effect_validation(
+        self,
+        receipt: AuthorizationReceipt,
+        validation: EffectValidation,
+        *,
+        outcome_kind: str,
+    ) -> dict[str, Any]: ...
 
 
 def _utc_now() -> datetime:
@@ -441,6 +493,8 @@ class WorkspaceAuthorityRepository:
         idempotency_key: str = "",
         request_state_id: str = "",
         third_party_provider_ids: tuple[str, ...] = (),
+        work_item_id: str = "",
+        work_execution_attempt_id: str = "",
     ) -> AuthorizationResult:
         """Reload, evaluate, reserve, audit, and write as one transaction."""
 
@@ -512,6 +566,8 @@ class WorkspaceAuthorityRepository:
                     continuation,
                     request_state_id,
                     now,
+                    work_item_id,
+                    work_execution_attempt_id,
                 )
             else:
                 result = self._record_denial_locked(
@@ -534,7 +590,14 @@ class WorkspaceAuthorityRepository:
             return self.inspect_dispatch(receipt.dispatch_id)
         return self.transition_dispatch(receipt.dispatch_id, "dispatched")
 
-    def transition_dispatch(self, dispatch_id: str, requested: str) -> dict[str, Any]:
+    def transition_dispatch(
+        self,
+        dispatch_id: str,
+        requested: str,
+        *,
+        outcome_kind: str = "",
+        observer: ExecutionObserver | None = None,
+    ) -> dict[str, Any]:
         if requested not in DISPATCH_STATES:
             raise AuthorityRepositoryError("dispatch_state_invalid", f"Unknown dispatch state: {requested}")
         now = self._clock()
@@ -546,10 +609,18 @@ class WorkspaceAuthorityRepository:
                 return json.loads(json.dumps(dispatch))
             if requested not in _TRANSITIONS[current]:
                 raise DispatchTransitionError(dispatch_id, current, requested)
-            dispatch["state"] = requested
+            effective_requested = self._transition_execution_run_locked(
+                state,
+                dispatch,
+                requested,
+                outcome_kind=outcome_kind,
+                observer=observer,
+                now=now,
+            )
+            dispatch["state"] = effective_requested
             dispatch["updatedAt"] = _format_time(now)
             dispatch["revision"] = int(dispatch.get("revision", 0)) + 1
-            if requested in _TERMINAL_DISPATCH_STATES:
+            if effective_requested in _TERMINAL_DISPATCH_STATES:
                 dispatch["completedAt"] = _format_time(now)
                 self._release_active_locked(state, dispatch)
             self._append_decision_locked(
@@ -558,7 +629,7 @@ class WorkspaceAuthorityRepository:
                     "auditId": f"audit-{uuid4().hex}",
                     "at": _format_time(now),
                     "kind": "dispatch_transition",
-                    "reason": requested,
+                    "reason": effective_requested,
                     "actionId": dispatch["actionId"],
                     "planFingerprint": dispatch["planFingerprint"],
                     "grantId": dispatch["grantId"],
@@ -572,6 +643,8 @@ class WorkspaceAuthorityRepository:
     def bind_background_job(self, receipt: AuthorizationReceipt, job_id: str) -> dict[str, Any]:
         """Bind a dispatched ledger entry to the sealed durable job record."""
 
+        if receipt.execution_run_id:
+            background_jobs.bind_execution_run(job_id, receipt.execution_run_id)
         record = background_jobs.snapshot_record(job_id)
         if str(record.get("workspaceId") or "") != self.workspace_id:
             raise AuthorityRepositoryError("job_workspace_mismatch", "Job workspace differs from dispatch workspace.")
@@ -596,7 +669,13 @@ class WorkspaceAuthorityRepository:
             "bindingFingerprint": lineage.binding_fingerprint,
             "effects": EffectEnvelope.from_dict(finalizer_effects).to_dict(),
             "localOutputs": [item.to_dict() for item in job_plan.intent.local_outputs],
+            "executionRunId": str(record.get("executionRunId") or ""),
         }
+        if receipt.execution_run_id and binding["executionRunId"] != receipt.execution_run_id:
+            raise AuthorityRepositoryError(
+                "job_execution_run_mismatch",
+                "Background job does not carry the authorized execution run identity.",
+            )
         if not binding["handler"] or not binding["bindingFingerprint"]:
             raise AuthorityRepositoryError("job_binding_missing", "Background job continuation is not sealed.")
         with self._repository_transaction():
@@ -607,6 +686,12 @@ class WorkspaceAuthorityRepository:
             if dispatch["planFingerprint"] != receipt.plan_fingerprint:
                 raise AuthorityRepositoryError("dispatch_plan_mismatch", "Receipt plan differs from dispatch truth.")
             dispatch["continuation"] = binding
+            execution_run_id = str(dispatch.get("executionRunId") or receipt.execution_run_id or "")
+            if execution_run_id:
+                run = self._execution_run_locked(state, execution_run_id)
+                run = run.bind_job(job_id, updated_at=_format_time(self._clock()))
+                state["executionRuns"][execution_run_id] = run.to_dict()
+                binding["executionRunId"] = execution_run_id
             dispatch["updatedAt"] = _format_time(self._clock())
             dispatch["revision"] = int(dispatch.get("revision", 0)) + 1
             self._commit_locked(state)
@@ -726,6 +811,124 @@ class WorkspaceAuthorityRepository:
         with self._repository_transaction():
             state = self._read_locked()
             return json.loads(json.dumps(self._dispatch_locked(state, dispatch_id)))
+
+    def inspect_execution_run(self, execution_run_id: str) -> dict[str, Any]:
+        if not self._activated:
+            raise AuthorityRepositoryError(
+                "execution_lifecycle_requires_sqlite_v2",
+                "Execution lifecycle truth is available only in an activated SQLite-v2 workspace.",
+            )
+        return self._runtime_repository().inspect_execution_run(execution_run_id)
+
+    def execution_run_for_dispatch(self, dispatch_id: str) -> dict[str, Any]:
+        if not self._activated:
+            raise AuthorityRepositoryError(
+                "execution_lifecycle_requires_sqlite_v2",
+                "Execution lifecycle truth is available only in an activated SQLite-v2 workspace.",
+            )
+        return self._runtime_repository().execution_run_for_dispatch(dispatch_id)
+
+    def mark_execution_observing(
+        self,
+        receipt: AuthorizationReceipt,
+        *,
+        coverage: tuple[ObservationCoverage, ...] = (),
+    ) -> dict[str, Any]:
+        """Persist the observation boundary for one already-dispatched run."""
+
+        self._require_lifecycle_store()
+        with self._repository_transaction():
+            state = self._read_locked()
+            dispatch, run = self._run_for_receipt_locked(state, receipt)
+            if dispatch["state"] != "dispatched":
+                raise AuthorityRepositoryError(
+                    "execution_run_not_dispatched",
+                    "Execution observation requires a dispatched authority reservation.",
+                )
+            run = run.transition(
+                ExecutionRunState.OBSERVING,
+                updated_at=_format_time(self._clock()),
+                coverage=coverage,
+            )
+            state["executionRuns"][receipt.execution_run_id] = run.to_dict()
+            self._commit_locked(state)
+            return run.to_dict()
+
+    def record_execution_observations(
+        self,
+        receipt: AuthorizationReceipt,
+        observations: tuple[NormalizedEffectObservation, ...],
+        *,
+        coverage: tuple[ObservationCoverage, ...] = (),
+    ) -> dict[str, Any]:
+        """Append trusted or supporting observations without changing authority."""
+
+        self._require_lifecycle_store()
+        with self._repository_transaction():
+            state = self._read_locked()
+            dispatch, run = self._run_for_receipt_locked(state, receipt)
+            if dispatch["state"] != "dispatched":
+                raise AuthorityRepositoryError(
+                    "execution_run_not_dispatched",
+                    "Execution observations require a dispatched authority reservation.",
+                )
+            run = run.transition(
+                ExecutionRunState.OBSERVING,
+                updated_at=_format_time(self._clock()),
+                observations=observations,
+                coverage=coverage,
+            )
+            observation_state = state.setdefault("executionObservations", {})
+            for observation in observations:
+                prior = observation_state.get(observation.observation_id)
+                if prior is not None and prior != observation.to_dict():
+                    raise AuthorityRepositoryError(
+                        "execution_observation_immutable_mismatch",
+                        "Append-only execution observation already exists with different content.",
+                    )
+                observation_state[observation.observation_id] = observation.to_dict()
+            state["executionRuns"][receipt.execution_run_id] = run.to_dict()
+            self._commit_locked(state)
+            return run.to_dict()
+
+    def record_effect_validation(
+        self,
+        receipt: AuthorizationReceipt,
+        validation: EffectValidation,
+        *,
+        outcome_kind: str,
+    ) -> dict[str, Any]:
+        """Append one validator verdict before committing the action outcome."""
+
+        self._require_lifecycle_store()
+        with self._repository_transaction():
+            state = self._read_locked()
+            dispatch, run = self._run_for_receipt_locked(state, receipt)
+            if dispatch["state"] != "dispatched":
+                raise AuthorityRepositoryError(
+                    "execution_run_not_dispatched",
+                    "Effect validation requires a dispatched authority reservation.",
+                )
+            validation.verify()
+            self._require_validation_binding_locked(state, run, validation)
+            run = run.transition(
+                ExecutionRunState.VALIDATION_PENDING,
+                updated_at=_format_time(self._clock()),
+                outcome_kind=outcome_kind,
+                coverage=validation.coverage,
+                validation=validation,
+            )
+            validations = state.setdefault("effectValidations", {})
+            prior = validations.get(validation.validation_id)
+            if prior is not None and prior != validation.to_dict():
+                raise AuthorityRepositoryError(
+                    "effect_validation_immutable_mismatch",
+                    "Append-only effect validation already exists with different content.",
+                )
+            validations[validation.validation_id] = validation.to_dict()
+            state["executionRuns"][receipt.execution_run_id] = run.to_dict()
+            self._commit_locked(state)
+            return run.to_dict()
 
     def inspect_request_state(self, request_state_id: str) -> dict[str, Any]:
         request_state_id = self._opaque(request_state_id, "request_state")
@@ -929,6 +1132,197 @@ class WorkspaceAuthorityRepository:
         return dispatch
 
     @staticmethod
+    def _execution_run_locked(state: Mapping[str, Any], execution_run_id: str) -> ExecutionRun:
+        values = state.get("executionRuns")
+        try:
+            raw = values[execution_run_id] if isinstance(values, Mapping) else None
+            if not isinstance(raw, Mapping):
+                raise KeyError(execution_run_id)
+            return ExecutionRun.from_dict(raw)
+        except KeyError as exc:
+            raise AuthorityRepositoryError(
+                "execution_run_not_found",
+                "Authorized dispatch has no matching durable execution run.",
+            ) from exc
+        except (TypeError, ValueError) as exc:
+            raise AuthorityRepositoryError(
+                "execution_run_invalid",
+                "Authorized dispatch execution run is invalid.",
+            ) from exc
+
+    def _require_lifecycle_store(self) -> None:
+        if not self._activated:
+            raise AuthorityRepositoryError(
+                "execution_lifecycle_requires_sqlite_v2",
+                "Execution lifecycle mutations require an activated SQLite-v2 workspace.",
+            )
+
+    def _run_for_receipt_locked(
+        self,
+        state: Mapping[str, Any],
+        receipt: AuthorizationReceipt,
+    ) -> tuple[dict[str, Any], ExecutionRun]:
+        if receipt.workspace_id != self.workspace_id or not receipt.execution_run_id:
+            raise AuthorityRepositoryError(
+                "execution_run_receipt_mismatch",
+                "Authorization receipt does not bind a lifecycle run in this workspace.",
+            )
+        dispatch = self._dispatch_locked(state, receipt.dispatch_id)
+        if (
+            str(dispatch.get("executionRunId") or "") != receipt.execution_run_id
+            or str(dispatch.get("grantId") or "") != receipt.grant_id
+            or int(dispatch.get("grantRevision") or 0) != receipt.grant_revision
+        ):
+            raise AuthorityRepositoryError(
+                "execution_run_receipt_mismatch",
+                "Authorization receipt differs from durable dispatch/run truth.",
+            )
+        return dispatch, self._execution_run_locked(state, receipt.execution_run_id)
+
+    def _transition_execution_run_locked(
+        self,
+        state: dict[str, Any],
+        dispatch: Mapping[str, Any],
+        requested: str,
+        *,
+        outcome_kind: str,
+        observer: ExecutionObserver | None,
+        now: datetime,
+    ) -> str:
+        execution_run_id = str(dispatch.get("executionRunId") or "")
+        if not execution_run_id:
+            return requested
+        run = self._execution_run_locked(state, execution_run_id)
+        timestamp = _format_time(now)
+        if requested == "dispatched":
+            run = run.transition(ExecutionRunState.DISPATCH_STARTED, updated_at=timestamp)
+            state["executionRuns"][execution_run_id] = run.to_dict()
+            return requested
+        if requested == "cancelled":
+            validation = EffectValidation(
+                validation_id=f"validation-{uuid4().hex}",
+                execution_run_id=execution_run_id,
+                verdict=EffectValidationVerdict.NOT_DISPATCHED,
+                authorized_effects=run.intent.execution_plan.effects,
+                observed_effects=EffectEnvelope(),
+                observation_fingerprints=(),
+                coverage=(),
+                discrepancies=(),
+                validated_at=timestamp,
+            ).sealed()
+            run = run.transition(
+                ExecutionRunState.NOT_DISPATCHED,
+                updated_at=timestamp,
+                outcome_kind=outcome_kind or "not_dispatched",
+                validation=validation,
+            )
+            state["executionRuns"][execution_run_id] = run.to_dict()
+            state.setdefault("effectValidations", {})[validation.validation_id] = validation.to_dict()
+            return requested
+        if requested not in _TERMINAL_DISPATCH_STATES:
+            return requested
+        if run.state is ExecutionRunState.VALIDATION_PENDING:
+            validation_values = state.get("effectValidations")
+            raw_validation = (
+                validation_values.get(run.final_validation_id)
+                if isinstance(validation_values, Mapping)
+                else None
+            )
+            if not isinstance(raw_validation, Mapping):
+                raise AuthorityRepositoryError(
+                    "effect_validation_missing",
+                    "Validation-pending execution run has no durable verdict.",
+                )
+            validation = EffectValidation.from_dict(raw_validation)
+            requires_review = validation.verdict in {
+                EffectValidationVerdict.OUTSIDE_ENVELOPE,
+                EffectValidationVerdict.INCOMPLETE,
+                EffectValidationVerdict.INDETERMINATE,
+            }
+            effective_requested = "unknown" if requires_review else requested
+            terminal = (
+                ExecutionRunState.EXECUTION_UNKNOWN
+                if effective_requested == "unknown"
+                else ExecutionRunState.OUTCOME_COMMITTED
+            )
+            run = run.transition(
+                terminal,
+                updated_at=timestamp,
+                outcome_kind=outcome_kind or requested,
+            )
+            state["executionRuns"][execution_run_id] = run.to_dict()
+            return effective_requested
+        selected_observer = observer or NoOpExecutionObserver()
+        result: ObserverResult = selected_observer.finalize(
+            run,
+            outcome_kind=outcome_kind or requested,
+            observed_at=timestamp,
+        )
+        for observation in result.observations:
+            observation.verify()
+            state.setdefault("executionObservations", {})[observation.observation_id] = observation.to_dict()
+        result.validation.verify()
+        state.setdefault("effectValidations", {})[
+            result.validation.validation_id
+        ] = result.validation.to_dict()
+        self._require_validation_binding_locked(state, run, result.validation)
+        run = run.transition(
+            ExecutionRunState.VALIDATION_PENDING,
+            updated_at=timestamp,
+            outcome_kind=outcome_kind or requested,
+            observations=result.observations,
+            coverage=result.validation.coverage,
+            validation=result.validation,
+        )
+        requires_review = result.validation.verdict in {
+            EffectValidationVerdict.OUTSIDE_ENVELOPE,
+            EffectValidationVerdict.INCOMPLETE,
+            EffectValidationVerdict.INDETERMINATE,
+        }
+        effective_requested = "unknown" if requires_review else requested
+        terminal = (
+            ExecutionRunState.EXECUTION_UNKNOWN
+            if effective_requested == "unknown"
+            else ExecutionRunState.OUTCOME_COMMITTED
+        )
+        run = run.transition(
+            terminal,
+            updated_at=timestamp,
+            outcome_kind=outcome_kind or requested,
+        )
+        state["executionRuns"][execution_run_id] = run.to_dict()
+        return effective_requested
+
+    @staticmethod
+    def _require_validation_binding_locked(
+        state: Mapping[str, Any],
+        run: ExecutionRun,
+        validation: EffectValidation,
+    ) -> None:
+        observations: list[NormalizedEffectObservation] = []
+        values = state.get("executionObservations")
+        if isinstance(values, Mapping):
+            try:
+                observations = [
+                    NormalizedEffectObservation.from_dict(value)
+                    for value in values.values()
+                    if isinstance(value, Mapping)
+                    and str(value.get("executionRunId") or "") == run.identity.execution_run_id
+                ]
+            except (KeyError, TypeError, ValueError) as exc:
+                raise AuthorityRepositoryError(
+                    "execution_observation_invalid",
+                    "Durable observations could not be validated against the execution run.",
+                ) from exc
+        try:
+            verify_effect_validation_binding(run, observations, validation)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise AuthorityRepositoryError(
+                "effect_validation_binding_mismatch",
+                "Effect validation could not be reconstructed from durable run truth.",
+            ) from exc
+
+    @staticmethod
     def _pending_request_state_locked(
         state: Mapping[str, Any],
         request_state_id: str,
@@ -1072,6 +1466,11 @@ class WorkspaceAuthorityRepository:
         try:
             job = background_jobs.snapshot_record(lineage.job_id)
             job_plan = ExecutionPlan.from_dict(job["executionPlan"])
+            run_ids = (
+                str(dispatch.get("executionRunId") or ""),
+                str(binding.get("executionRunId") or ""),
+                str(job.get("executionRunId") or ""),
+            )
             if (
                 str(job.get("workspaceId") or "") != self.workspace_id
                 or job_plan.plan_fingerprint != binding["parentPlanFingerprint"]
@@ -1081,6 +1480,7 @@ class WorkspaceAuthorityRepository:
                 )
                 or job_plan.intent.lineage.handler != binding["handler"]
                 or job_plan.intent.lineage.binding_fingerprint != binding["bindingFingerprint"]
+                or (any(run_ids) and len(set(run_ids)) != 1)
             ):
                 return None
             sealed_finalizer_effects = EffectEnvelope.from_dict(binding["effects"])
@@ -1125,11 +1525,15 @@ class WorkspaceAuthorityRepository:
         continuation: ContinuationAuthorization | None,
         request_state_id: str,
         now: datetime,
+        work_item_id: str,
+        work_execution_attempt_id: str,
     ) -> AuthorizationResult:
         if not decision.grant_id or decision.grant_revision < 1:
             raise AuthorityRepositoryError("authority_identity_missing", "Allow lacks durable grant identity.")
         if continuation is not None:
             dispatch_id = continuation.dispatch_id
+            dispatch = self._dispatch_locked(state, dispatch_id)
+            execution_run_id = str(dispatch.get("executionRunId") or "")
             receipt = AuthorizationReceipt(
                 "grant",
                 profile,
@@ -1142,6 +1546,7 @@ class WorkspaceAuthorityRepository:
                 dispatch_id,
                 str(decision.reason),
                 True,
+                execution_run_id,
             )
         else:
             if grant is None:
@@ -1162,6 +1567,7 @@ class WorkspaceAuthorityRepository:
                     "This action is not explicitly idempotent and cannot use automatic retry.",
                 )
             dispatch_id = f"dispatch-{uuid4().hex}"
+            execution_run_id = f"run-{uuid4().hex}" if self._activated else ""
             dispatch = {
                 "dispatchId": dispatch_id,
                 "revision": 1,
@@ -1185,7 +1591,47 @@ class WorkspaceAuthorityRepository:
                 "continuation": None,
                 "reconciliation": None,
             }
+            if execution_run_id:
+                dispatch["executionRunId"] = execution_run_id
             state["dispatches"][dispatch_id] = dispatch
+            if execution_run_id:
+                intent = ExecutionIntent.from_plan(plan)
+                identity = ExecutionRunIdentity(
+                    execution_run_id=execution_run_id,
+                    workspace_id=self.workspace_id,
+                    action_id=plan.action_id,
+                    correlation_id=plan.correlation_id,
+                    dispatch_id=dispatch_id,
+                    intent_id=intent.intent_id,
+                    idempotency_key_ref=opaque_ref(idempotency_key),
+                    work_item_id=work_item_id,
+                    work_execution_attempt_id=work_execution_attempt_id,
+                    created_at=_format_time(now),
+                ).sealed()
+                authorization = ExecutionAuthorization(
+                    execution_run_id=execution_run_id,
+                    dispatch_id=dispatch_id,
+                    plan_fingerprint=plan.plan_fingerprint,
+                    authorization_fingerprint=plan.authorization_fingerprint,
+                    authority_source="grant",
+                    profile=profile,
+                    authority_session_ref=opaque_ref(authority_session_id),
+                    grant_id=decision.grant_id,
+                    grant_revision=decision.grant_revision,
+                    decision_reason=str(decision.reason),
+                    authorized_at=_format_time(now),
+                ).sealed()
+                run = ExecutionRun(
+                    identity=identity,
+                    intent=intent,
+                    authorization=authorization,
+                    state=ExecutionRunState.AUTHORIZED,
+                    updated_at=_format_time(now),
+                ).sealed()
+                run.verify()
+                state.setdefault("executionRuns", {})[execution_run_id] = run.to_dict()
+                state.setdefault("executionObservations", {})
+                state.setdefault("effectValidations", {})
             if request_state_id:
                 request_state = state["requestStates"][request_state_id]
                 request_state["status"] = "consumed"
@@ -1207,6 +1653,7 @@ class WorkspaceAuthorityRepository:
                 dispatch_id,
                 str(decision.reason),
                 False,
+                execution_run_id,
             )
         self._append_decision_locked(
             state,

@@ -17,6 +17,14 @@ import time
 from typing import Any
 from uuid import uuid4
 
+from synapse_mcp.core.execution_lifecycle import (
+    EffectValidation,
+    ExecutionRun,
+    LifecycleContractError,
+    NormalizedEffectObservation,
+    verify_effect_validation_binding,
+)
+
 from .backup import online_backup
 from .connections import StateConnection
 from .contracts import ArtifactRecord, ContextRepositorySnapshot
@@ -1189,6 +1197,69 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
     # transaction holds the write reservation, so grant/budget/dispatch order
     # is the database order, not a process-local observation.
 
+    def inspect_execution_run(self, execution_run_id: str) -> dict[str, Any]:
+        with self.connection_factory.connect() as connection:
+            apply_migrations(connection)
+            row = connection.execute(
+                "SELECT payload_json FROM execution_runs WHERE workspace_id=? AND execution_run_id=?",
+                (self.workspace_id, execution_run_id),
+            ).fetchone()
+        if row is None:
+            raise StateStoreError("execution_run_not_found", "Durable execution run was not found.")
+        try:
+            return ExecutionRun.from_dict(_decode(row[0])).to_dict()
+        except (KeyError, TypeError, ValueError, LifecycleContractError) as exc:
+            raise StateIntegrityError("execution_run_invalid", "Durable execution run is invalid.") from exc
+
+    def execution_run_for_dispatch(self, dispatch_id: str) -> dict[str, Any]:
+        with self.connection_factory.connect() as connection:
+            apply_migrations(connection)
+            rows = list(
+                connection.execute(
+                    "SELECT payload_json FROM execution_runs WHERE workspace_id=? AND dispatch_id=?",
+                    (self.workspace_id, dispatch_id),
+                )
+            )
+        if len(rows) != 1:
+            reason = "execution_run_not_found" if not rows else "execution_run_duplicate"
+            raise StateStoreError(reason, "Dispatch does not resolve to exactly one durable execution run.")
+        try:
+            return ExecutionRun.from_dict(_decode(rows[0][0])).to_dict()
+        except (KeyError, TypeError, ValueError, LifecycleContractError) as exc:
+            raise StateIntegrityError("execution_run_invalid", "Durable execution run is invalid.") from exc
+
+    def execution_observations(self, execution_run_id: str) -> list[dict[str, Any]]:
+        self.inspect_execution_run(execution_run_id)
+        with self.connection_factory.connect() as connection:
+            apply_migrations(connection)
+            rows = list(
+                connection.execute(
+                    "SELECT payload_json FROM execution_observations "
+                    "WHERE workspace_id=? AND execution_run_id=? ORDER BY sequence",
+                    (self.workspace_id, execution_run_id),
+                )
+            )
+        try:
+            return [NormalizedEffectObservation.from_dict(_decode(row[0])).to_dict() for row in rows]
+        except (KeyError, TypeError, ValueError, LifecycleContractError) as exc:
+            raise StateIntegrityError("execution_observation_invalid", "Durable execution observation is invalid.") from exc
+
+    def effect_validations(self, execution_run_id: str) -> list[dict[str, Any]]:
+        self.inspect_execution_run(execution_run_id)
+        with self.connection_factory.connect() as connection:
+            apply_migrations(connection)
+            rows = list(
+                connection.execute(
+                    "SELECT payload_json FROM effect_validations "
+                    "WHERE workspace_id=? AND execution_run_id=? ORDER BY created_revision, validation_id",
+                    (self.workspace_id, execution_run_id),
+                )
+            )
+        try:
+            return [EffectValidation.from_dict(_decode(row[0])).to_dict() for row in rows]
+        except (KeyError, TypeError, ValueError, LifecycleContractError) as exc:
+            raise StateIntegrityError("effect_validation_invalid", "Durable effect validation is invalid.") from exc
+
     def authority_state(self, connection: StateConnection) -> dict[str, Any]:
         revision_row = connection.execute(
             "SELECT revision FROM authority_repository_revisions WHERE workspace_id=?",
@@ -1256,6 +1327,30 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                 (self.workspace_id,),
             )
         }
+        execution_runs = {
+            str(row[0]): _decode(row[1])
+            for row in connection.execute(
+                "SELECT execution_run_id, payload_json FROM execution_runs WHERE workspace_id=? "
+                "ORDER BY created_revision, execution_run_id",
+                (self.workspace_id,),
+            )
+        }
+        execution_observations = {
+            str(row[0]): _decode(row[1])
+            for row in connection.execute(
+                "SELECT observation_id, payload_json FROM execution_observations WHERE workspace_id=? "
+                "ORDER BY created_revision, execution_run_id, sequence",
+                (self.workspace_id,),
+            )
+        }
+        effect_validations = {
+            str(row[0]): _decode(row[1])
+            for row in connection.execute(
+                "SELECT validation_id, payload_json FROM effect_validations WHERE workspace_id=? "
+                "ORDER BY created_revision, validation_id",
+                (self.workspace_id,),
+            )
+        }
         return {
             "schemaVersion": 1,
             "revision": int(revision_row[0]) if revision_row else 0,
@@ -1266,6 +1361,9 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
             "decisions": decisions,
             "dispatches": dispatches,
             "reconciliations": reconciliations,
+            "executionRuns": execution_runs,
+            "executionObservations": execution_observations,
+            "effectValidations": effect_validations,
         }
 
     def save_authority_state(self, connection: StateConnection, state: Mapping[str, Any]) -> int:
@@ -1384,6 +1482,255 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                 (dispatch_id, self.workspace_id, action_id, grant_id, str(item.get("state") or "unknown"), idempotency, _json(item), revision, revision, str(item.get("createdAt") or now), now),
             )
             changes.append(("action_dispatch", str(dispatch_id), "update", {"state": item.get("state")}))
+
+        execution_runs = state.get("executionRuns") if isinstance(state.get("executionRuns"), Mapping) else {}
+        for execution_run_id, raw_item in execution_runs.items():
+            if not isinstance(raw_item, Mapping):
+                continue
+            try:
+                run = ExecutionRun.from_dict(raw_item)
+            except (KeyError, TypeError, ValueError, LifecycleContractError) as exc:
+                raise StateIntegrityError(
+                    "execution_run_invalid",
+                    "Execution run failed lifecycle contract validation.",
+                ) from exc
+            identity = run.identity
+            if execution_run_id != identity.execution_run_id or identity.workspace_id != self.workspace_id:
+                raise StateIntegrityError(
+                    "execution_run_workspace_mismatch",
+                    "Execution run identity does not match its workspace row.",
+                )
+            dispatch = dispatches.get(identity.dispatch_id)
+            if not isinstance(dispatch, Mapping):
+                raise StateIntegrityError(
+                    "execution_run_dispatch_missing",
+                    "Execution run does not reference canonical dispatch truth.",
+                )
+            if (
+                str(dispatch.get("actionId") or "") != identity.action_id
+                or str(dispatch.get("planFingerprint") or "") != run.authorization.plan_fingerprint
+                or str(dispatch.get("authorizationFingerprint") or "") != run.authorization.authorization_fingerprint
+                or str(dispatch.get("grantId") or "") != run.authorization.grant_id
+                or int(dispatch.get("grantRevision") or 0) != run.authorization.grant_revision
+                or str(dispatch.get("profile") or "") != run.authorization.profile
+                or opaque_ref(str(dispatch.get("authoritySessionId") or ""))
+                != run.authorization.authority_session_ref
+                or opaque_ref(str(dispatch.get("idempotencyKey") or ""))
+                != identity.idempotency_key_ref
+            ):
+                raise StateIntegrityError(
+                    "execution_run_authorization_mismatch",
+                    "Execution run authorization differs from canonical dispatch truth.",
+                )
+            if identity.work_execution_attempt_id:
+                work_attempt = connection.execute(
+                    "SELECT work_item_id, action_id, idempotency_key_ref FROM work_item_execution_attempts "
+                    "WHERE workspace_id=? AND execution_attempt_id=?",
+                    (self.workspace_id, identity.work_execution_attempt_id),
+                ).fetchone()
+                if work_attempt is None or (
+                    str(work_attempt[0]) != identity.work_item_id
+                    or str(work_attempt[1]) != identity.action_id
+                    or str(work_attempt[2]) != identity.idempotency_key_ref
+                ):
+                    raise StateIntegrityError(
+                        "execution_run_work_binding_mismatch",
+                        "Execution run does not match its bound work execution attempt.",
+                    )
+            prior = connection.execute(
+                "SELECT dispatch_id, intent_fingerprint, plan_fingerprint, authorization_fingerprint, "
+                "authorization_binding_fingerprint, idempotency_key_ref, created_revision, created_at "
+                "FROM execution_runs WHERE workspace_id=? AND execution_run_id=?",
+                (self.workspace_id, identity.execution_run_id),
+            ).fetchone()
+            immutable = (
+                identity.dispatch_id,
+                run.intent.intent_fingerprint,
+                run.intent.plan_fingerprint,
+                run.intent.authorization_fingerprint,
+                run.authorization.binding_fingerprint,
+                identity.idempotency_key_ref,
+            )
+            if prior is not None and tuple(str(item) for item in prior[:6]) != immutable:
+                raise StateIntegrityError(
+                    "execution_run_immutable_mismatch",
+                    "Immutable execution run binding cannot be changed.",
+                )
+            created_revision = int(prior[6]) if prior is not None else revision
+            created_at = str(prior[7]) if prior is not None else identity.created_at
+            connection.execute(
+                "INSERT INTO execution_runs("
+                "execution_run_id, workspace_id, dispatch_id, action_id, intent_id, intent_version, "
+                "intent_fingerprint, plan_version, plan_fingerprint, authorization_fingerprint, "
+                "authorization_binding_fingerprint, idempotency_key_ref, work_item_id, "
+                "work_execution_attempt_id, parent_execution_run_id, job_id, state, outcome_kind, "
+                "observation_coverage_json, final_validation_id, payload_json, created_revision, "
+                "updated_revision, created_at, updated_at"
+                ") VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(execution_run_id) DO UPDATE SET job_id=excluded.job_id, state=excluded.state, "
+                "outcome_kind=excluded.outcome_kind, observation_coverage_json=excluded.observation_coverage_json, "
+                "final_validation_id=excluded.final_validation_id, payload_json=excluded.payload_json, "
+                "updated_revision=excluded.updated_revision, updated_at=excluded.updated_at",
+                (
+                    identity.execution_run_id,
+                    self.workspace_id,
+                    identity.dispatch_id,
+                    identity.action_id,
+                    identity.intent_id,
+                    run.intent.contract_version,
+                    run.intent.intent_fingerprint,
+                    run.intent.plan_version,
+                    run.intent.plan_fingerprint,
+                    run.intent.authorization_fingerprint,
+                    run.authorization.binding_fingerprint,
+                    identity.idempotency_key_ref,
+                    identity.work_item_id or None,
+                    identity.work_execution_attempt_id or None,
+                    identity.parent_execution_run_id or None,
+                    identity.job_id or None,
+                    str(run.state),
+                    run.outcome_kind,
+                    _json([item.to_dict() for item in run.coverage]),
+                    run.final_validation_id or None,
+                    _json(_secure(run.to_dict())),
+                    created_revision,
+                    revision,
+                    created_at,
+                    run.updated_at,
+                ),
+            )
+            changes.append(("execution_run", identity.execution_run_id, "update", {"state": str(run.state)}))
+
+        observations = (
+            state.get("executionObservations")
+            if isinstance(state.get("executionObservations"), Mapping)
+            else {}
+        )
+        parsed_observations: dict[str, list[NormalizedEffectObservation]] = {}
+        for observation_id, raw_item in observations.items():
+            if not isinstance(raw_item, Mapping):
+                continue
+            try:
+                observation = NormalizedEffectObservation.from_dict(raw_item)
+            except (KeyError, TypeError, ValueError, LifecycleContractError) as exc:
+                raise StateIntegrityError(
+                    "execution_observation_invalid",
+                    "Execution observation failed lifecycle contract validation.",
+                ) from exc
+            if observation_id != observation.observation_id or observation.execution_run_id not in execution_runs:
+                raise StateIntegrityError(
+                    "execution_observation_run_mismatch",
+                    "Execution observation does not match a durable execution run.",
+                )
+            parsed_observations.setdefault(observation.execution_run_id, []).append(observation)
+            prior = connection.execute(
+                "SELECT observation_fingerprint FROM execution_observations "
+                "WHERE workspace_id=? AND observation_id=?",
+                (self.workspace_id, observation.observation_id),
+            ).fetchone()
+            if prior is not None and str(prior[0]) != observation.observation_fingerprint:
+                raise StateIntegrityError(
+                    "execution_observation_immutable_mismatch",
+                    "Append-only execution observation cannot be changed.",
+                )
+            if prior is None:
+                connection.execute(
+                    "INSERT INTO execution_observations("
+                    "observation_id, workspace_id, execution_run_id, sequence, trust_class, effect_class, "
+                    "observation_fingerprint, payload_json, created_revision, created_at"
+                    ") VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        observation.observation_id,
+                        self.workspace_id,
+                        observation.execution_run_id,
+                        observation.sequence,
+                        str(observation.source.trust_class),
+                        observation.effect_class,
+                        observation.observation_fingerprint,
+                        _json(_secure(observation.to_dict())),
+                        revision,
+                        observation.observed_at,
+                    ),
+                )
+                changes.append(("execution_observation", observation.observation_id, "create", {"runId": observation.execution_run_id}))
+
+        validations = state.get("effectValidations") if isinstance(state.get("effectValidations"), Mapping) else {}
+        parsed_validations: dict[str, EffectValidation] = {}
+        for validation_id, raw_item in validations.items():
+            if not isinstance(raw_item, Mapping):
+                continue
+            try:
+                validation = EffectValidation.from_dict(raw_item)
+            except (KeyError, TypeError, ValueError, LifecycleContractError) as exc:
+                raise StateIntegrityError(
+                    "effect_validation_invalid",
+                    "Effect validation failed lifecycle contract validation.",
+                ) from exc
+            if validation_id != validation.validation_id or validation.execution_run_id not in execution_runs:
+                raise StateIntegrityError(
+                    "effect_validation_run_mismatch",
+                    "Effect validation does not match a durable execution run.",
+                )
+            try:
+                run = ExecutionRun.from_dict(execution_runs[validation.execution_run_id])
+                verify_effect_validation_binding(
+                    run,
+                    parsed_observations.get(validation.execution_run_id, []),
+                    validation,
+                )
+            except (KeyError, TypeError, ValueError, LifecycleContractError) as exc:
+                raise StateIntegrityError(
+                    "effect_validation_binding_mismatch",
+                    "Effect validation does not match durable execution-run truth.",
+                ) from exc
+            parsed_validations[validation.validation_id] = validation
+            prior = connection.execute(
+                "SELECT validation_fingerprint FROM effect_validations "
+                "WHERE workspace_id=? AND validation_id=?",
+                (self.workspace_id, validation.validation_id),
+            ).fetchone()
+            if prior is not None and str(prior[0]) != validation.validation_fingerprint:
+                raise StateIntegrityError(
+                    "effect_validation_immutable_mismatch",
+                    "Append-only effect validation cannot be changed.",
+                )
+            if prior is None:
+                connection.execute(
+                    "INSERT INTO effect_validations("
+                    "validation_id, workspace_id, execution_run_id, verdict, validation_fingerprint, "
+                    "payload_json, created_revision, created_at"
+                    ") VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        validation.validation_id,
+                        self.workspace_id,
+                        validation.execution_run_id,
+                        str(validation.verdict),
+                        validation.validation_fingerprint,
+                        _json(_secure(validation.to_dict())),
+                        revision,
+                        validation.validated_at,
+                    ),
+                )
+                changes.append(("effect_validation", validation.validation_id, "create", {"runId": validation.execution_run_id, "verdict": str(validation.verdict)}))
+
+        for execution_run_id, raw_item in execution_runs.items():
+            if not isinstance(raw_item, Mapping):
+                continue
+            run = ExecutionRun.from_dict(raw_item)
+            ordered_ids = tuple(
+                item.observation_id
+                for item in sorted(
+                    parsed_observations.get(str(execution_run_id), []),
+                    key=lambda item: (item.sequence, item.observation_id),
+                )
+            )
+            if run.observation_ids != ordered_ids or (
+                run.final_validation_id and run.final_validation_id not in parsed_validations
+            ):
+                raise StateIntegrityError(
+                    "execution_run_lifecycle_reference_mismatch",
+                    "Execution run observation or validation references do not match append-only truth.",
+                )
 
         reconciliations = state.get("reconciliations") if isinstance(state.get("reconciliations"), Mapping) else {}
         for reconciliation_id, raw_item in reconciliations.items():

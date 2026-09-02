@@ -177,6 +177,20 @@ class WorkItemRepository(Protocol):
     ) -> dict[str, Any]: ...
 
 
+class ExecutionLifecycleRepository(Protocol):
+    """State-store contract for durable observed-effect execution truth."""
+
+    workspace_id: str
+
+    def inspect_execution_run(self, execution_run_id: str) -> dict[str, Any]: ...
+
+    def execution_run_for_dispatch(self, dispatch_id: str) -> dict[str, Any]: ...
+
+    def execution_observations(self, execution_run_id: str) -> list[dict[str, Any]]: ...
+
+    def effect_validations(self, execution_run_id: str) -> list[dict[str, Any]]: ...
+
+
 class EvidenceRepository(Protocol):
     def record(self, event_type: str, summary: str, data: JsonObject | None = None) -> dict[str, Any]: ...
 

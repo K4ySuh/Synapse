@@ -195,6 +195,83 @@ Compact surface current: 11 operations / 23,336 application bytes
 225 Python files compile; shell syntax and diff hygiene pass
 ```
 
-Task 6B is complete. The next implementation checkpoint is Task 6C: versioned
-execution lifecycle contracts and durable execution-run state. Phase 6 remains
-open through Task 6J.
+Task 6B is complete. Task 6C follows below; Phase 6 remains open through Task
+6J.
+
+## Task 6C — versioned execution lifecycle and durable run state
+
+Status: implemented on 2026-09-02; focused and compatibility gates passed.
+
+Delivered:
+
+- ADR-0013 maps execution intent, authorization, dispatch, observation, and
+  validation onto the existing `ExecutionPlan` v1, Action Registry, Authority
+  Engine, work-attempt, background-job, and SQLite-v2 paths and rejects a
+  parallel executor, authority service, or lifecycle store;
+- immutable protocol-independent contracts seal execution intent,
+  authorization binding, run identity/state, observation provenance/trust and
+  coverage, normalized effects, discrepancies, and validation verdicts;
+- ordered migration `0006_execution_lifecycle.sql` adds exactly one run per
+  dispatch plus append-only observations and validations to the workspace
+  database, with repository, migration inventory, backup, and canonical bundle
+  support;
+- the Authority reservation transaction creates the run before effecting
+  dispatch and binds exact plan/authorization fingerprints, opaque
+  session/idempotency references, grant revision, and optional work attempt;
+- synchronous Registry execution, exact supervised resume, and background
+  creation/status/finalization carry the same run identity, while restart can
+  reconstruct every lifecycle boundary without consulting a work lease;
+- the injectable no-op observer records `not_instrumented` coverage and an
+  explicit `unobservable` verdict. Only runtime-observed/runtime-enforced
+  telemetry can determine effect truth; mismatched validation fingerprints are
+  rejected atomically, and unsafe or failed validation becomes
+  `execution_unknown` without replay;
+- existing `ExecutionPlan` v1/job fixtures and JSON-v1 authority serialization
+  remain compatible. JSON-v1 refuses lifecycle repository selection and gains
+  no lifecycle files or dual-write behavior.
+
+Exact verification:
+
+```text
+19 Phase 6C lifecycle/migration/concurrency/data-hygiene tests passed
+147 authority/state/work/background compatibility tests passed
+58 Phase 4 migration/runtime/context tests and acceptance passed
+67 retained Phase 5 tests and all 8 acceptance verdict groups passed across 3 repetitions
+16 official-SDK modern adapter tests passed
+2 custom-adapter template tests passed
+798 full core tests passed
+Action inventory/output contracts/pack ownership current: 174/168/174
+Compact surface remains 11 operations / 23,336 application bytes
+Phase 6A v3 performance comparison passed the matching 20% relative p95 gate
+229 Python files compile; shell syntax and diff hygiene pass
+```
+
+The Phase 5 distribution sub-gate used the documented build-only
+`SYNAPSE_BUILD_PYTHON` and `SYNAPSE_BUILD_PYTHONPATH` overrides for this host's
+split offline build prerequisites; both wheel and sdist installs and 174/42
+standard/core startup passed. The first invocation omitted the explicit build
+interpreter and failed before building; no product or fixture change was made
+to obtain the pass.
+
+Compatibility result: the Registry remains the only executor path and the
+Authority Engine remains the only grant/effect decision path. Action
+IDs/order/effects and generated contracts remain 174/168/174; compact remains
+eleven operations; modern-direct, the frozen legacy projection, persisted plan
+v1, existing SQLite-v2 dispatches, and JSON-v1 behavior remain compatible.
+Migration `0006` is additive and does not invent lifecycle truth for historical
+dispatches.
+
+Residuals and boundary:
+
+- Task 6C establishes lifecycle identity and durable truth but deliberately
+  provides no owned HTTP, local-output, or child-process observation coverage;
+  normal baseline verdicts are explicit `unobservable`, not proof that effects
+  were observed;
+- the performance replay retains the accepted absolute cold-start misses while
+  passing every matching-environment relative p95 comparison; Registry control
+  p95 changed from 0.038 ms to 0.039 ms;
+- generic MCP conformance remains the retained `partial_fail` classification;
+  Inspector and live Codex diagnostics remain optional and were not rerun;
+- Task 6C requires an adversarial checkpoint focused on lifecycle-state
+  completeness and duplicate dispatch before Task 6D begins. Phase 6 remains
+  open through Task 6J.

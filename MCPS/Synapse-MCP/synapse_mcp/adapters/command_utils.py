@@ -138,6 +138,7 @@ def start_background_command(
     finalizer_data: dict[str, Any] | None = None,
     execution_plan: ExecutionPlan | None = None,
     finalizer_effects: EffectEnvelope | None = None,
+    execution_run_id: str = "",
 ) -> dict[str, Any]:
     if completion_callback and not finalizer_name:
         if finalizer_effects is None:
@@ -160,6 +161,7 @@ def start_background_command(
         finalizer_data=finalizer_data,
         execution_plan=execution_plan,
         finalizer_effects=finalizer_effects,
+        execution_run_id=execution_run_id,
     )
 
 

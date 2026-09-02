@@ -1653,6 +1653,15 @@ class SQLiteWorkItemRepository:
                 "AND idempotency_key=? ORDER BY updated_revision DESC, dispatch_id LIMIT 1",
                 (self.workspace_id, str(row[2]), str(row[3])),
             ).fetchone()
+            execution_run = (
+                connection.execute(
+                    "SELECT execution_run_id, state, final_validation_id FROM execution_runs "
+                    "WHERE workspace_id=? AND dispatch_id=?",
+                    (self.workspace_id, str(dispatch[0])),
+                ).fetchone()
+                if dispatch
+                else None
+            )
             result.append(
                 {
                     "executionReference": str(row[0]),
@@ -1663,6 +1672,9 @@ class SQLiteWorkItemRepository:
                     "outcomeKind": str(row[6]),
                     "dispatchId": str(dispatch[0]) if dispatch else "",
                     "dispatchState": str(dispatch[1]) if dispatch else "",
+                    "executionRunId": str(execution_run[0]) if execution_run else "",
+                    "executionRunState": str(execution_run[1]) if execution_run else "",
+                    "effectValidationId": str(execution_run[2] or "") if execution_run else "",
                     "createdWorkspaceRevision": int(row[7]),
                     "updatedWorkspaceRevision": int(row[8]),
                     "createdAt": str(row[9]),

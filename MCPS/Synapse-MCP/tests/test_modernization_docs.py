@@ -149,8 +149,9 @@ class ModernizationDocumentationTests(unittest.TestCase):
         adr_paths = sorted(ADR_DIR.glob("ADR-*.md"))
         # 6 from Phase 0; ADR-0007/0008 from Phase 1 Stage A; ADR-0009 closes
         # the correction gate before Phase 2; ADR-0010 establishes Phase 5A
-        # capability-pack assembly; ADR-0011 establishes Phase 5C work items.
-        self.assertEqual(len(adr_paths), 12)
+        # capability-pack assembly; ADR-0011 establishes Phase 5C work items;
+        # ADR-0012/0013 establish the Phase 6 agent and execution boundaries.
+        self.assertEqual(len(adr_paths), 13)
 
         for path in adr_paths:
             text = path.read_text(encoding="utf-8")
