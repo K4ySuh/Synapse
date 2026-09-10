@@ -90,6 +90,9 @@ tests, and the shared [changelog](../../CHANGELOG.md).
   deterministic method, environment, absolute results, and relative ceiling
 - [Phase 6A adversarial-review brief](phase-6a-adversarial-review.md) — review
   targets, evidence, compatibility boundary, and residual risks
+- [Phase 6C adversarial-review brief](phase-6c-adversarial-review.md) — exact
+  receipt binding, lifecycle completeness, duplicate-dispatch, background-job
+  mutation ordering, and checkpoint verdict
 
 ## Architecture decisions
 

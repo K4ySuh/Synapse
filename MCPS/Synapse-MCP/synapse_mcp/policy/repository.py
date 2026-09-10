@@ -588,6 +588,9 @@ class WorkspaceAuthorityRepository:
     def mark_dispatched(self, receipt: AuthorizationReceipt) -> dict[str, Any]:
         if receipt.continuation:
             return self.inspect_dispatch(receipt.dispatch_id)
+        with self._repository_transaction():
+            state = self._read_locked()
+            self._require_receipt_binding_locked(state, receipt)
         return self.transition_dispatch(receipt.dispatch_id, "dispatched")
 
     def transition_dispatch(
@@ -643,8 +646,6 @@ class WorkspaceAuthorityRepository:
     def bind_background_job(self, receipt: AuthorizationReceipt, job_id: str) -> dict[str, Any]:
         """Bind a dispatched ledger entry to the sealed durable job record."""
 
-        if receipt.execution_run_id:
-            background_jobs.bind_execution_run(job_id, receipt.execution_run_id)
         record = background_jobs.snapshot_record(job_id)
         if str(record.get("workspaceId") or "") != self.workspace_id:
             raise AuthorityRepositoryError("job_workspace_mismatch", "Job workspace differs from dispatch workspace.")
@@ -661,22 +662,13 @@ class WorkspaceAuthorityRepository:
         finalizer_effects = record.get("finalizerEffects")
         if not isinstance(finalizer_effects, Mapping):
             raise AuthorityRepositoryError("job_effects_missing", "Background job has no sealed finalizer effects.")
-        binding = {
-            "jobId": job_id,
-            "jobRevision": int(record.get("revision") or 1),
-            "parentPlanFingerprint": job_plan.plan_fingerprint,
-            "handler": lineage.handler,
-            "bindingFingerprint": lineage.binding_fingerprint,
-            "effects": EffectEnvelope.from_dict(finalizer_effects).to_dict(),
-            "localOutputs": [item.to_dict() for item in job_plan.intent.local_outputs],
-            "executionRunId": str(record.get("executionRunId") or ""),
-        }
-        if receipt.execution_run_id and binding["executionRunId"] != receipt.execution_run_id:
+        job_execution_run_id = str(record.get("executionRunId") or "")
+        if receipt.execution_run_id and job_execution_run_id not in {"", receipt.execution_run_id}:
             raise AuthorityRepositoryError(
                 "job_execution_run_mismatch",
                 "Background job does not carry the authorized execution run identity.",
             )
-        if not binding["handler"] or not binding["bindingFingerprint"]:
+        if not lineage.handler or not lineage.binding_fingerprint:
             raise AuthorityRepositoryError("job_binding_missing", "Background job continuation is not sealed.")
         with self._repository_transaction():
             state = self._read_locked()
@@ -685,6 +677,20 @@ class WorkspaceAuthorityRepository:
                 raise DispatchTransitionError(receipt.dispatch_id, str(dispatch["state"]), "bind_job")
             if dispatch["planFingerprint"] != receipt.plan_fingerprint:
                 raise AuthorityRepositoryError("dispatch_plan_mismatch", "Receipt plan differs from dispatch truth.")
+            if receipt.execution_run_id:
+                dispatch, _ = self._run_for_receipt_locked(state, receipt)
+                record = background_jobs.bind_execution_run(job_id, receipt.execution_run_id)
+                job_execution_run_id = str(record.get("executionRunId") or "")
+            binding = {
+                "jobId": job_id,
+                "jobRevision": int(record.get("revision") or 1),
+                "parentPlanFingerprint": job_plan.plan_fingerprint,
+                "handler": lineage.handler,
+                "bindingFingerprint": lineage.binding_fingerprint,
+                "effects": EffectEnvelope.from_dict(finalizer_effects).to_dict(),
+                "localOutputs": [item.to_dict() for item in job_plan.intent.local_outputs],
+                "executionRunId": job_execution_run_id,
+            }
             dispatch["continuation"] = binding
             execution_run_id = str(dispatch.get("executionRunId") or receipt.execution_run_id or "")
             if execution_run_id:
@@ -1162,22 +1168,42 @@ class WorkspaceAuthorityRepository:
         state: Mapping[str, Any],
         receipt: AuthorizationReceipt,
     ) -> tuple[dict[str, Any], ExecutionRun]:
-        if receipt.workspace_id != self.workspace_id or not receipt.execution_run_id:
+        dispatch = self._require_receipt_binding_locked(state, receipt)
+        if not receipt.execution_run_id:
             raise AuthorityRepositoryError(
                 "execution_run_receipt_mismatch",
                 "Authorization receipt does not bind a lifecycle run in this workspace.",
             )
-        dispatch = self._dispatch_locked(state, receipt.dispatch_id)
-        if (
-            str(dispatch.get("executionRunId") or "") != receipt.execution_run_id
-            or str(dispatch.get("grantId") or "") != receipt.grant_id
-            or int(dispatch.get("grantRevision") or 0) != receipt.grant_revision
-        ):
+        return dispatch, self._execution_run_locked(state, receipt.execution_run_id)
+
+    def _require_receipt_binding_locked(
+        self,
+        state: Mapping[str, Any],
+        receipt: AuthorizationReceipt,
+    ) -> dict[str, Any]:
+        if receipt.workspace_id != self.workspace_id:
             raise AuthorityRepositoryError(
                 "execution_run_receipt_mismatch",
                 "Authorization receipt differs from durable dispatch/run truth.",
             )
-        return dispatch, self._execution_run_locked(state, receipt.execution_run_id)
+        dispatch = self._dispatch_locked(state, receipt.dispatch_id)
+        common_mismatch = (
+            str(dispatch.get("grantId") or "") != receipt.grant_id
+            or int(dispatch.get("grantRevision") or 0) != receipt.grant_revision
+            or str(dispatch.get("profile") or "") != receipt.profile
+            or str(dispatch.get("authoritySessionId") or "") != receipt.authority_session_id
+            or str(dispatch.get("executionRunId") or "") != receipt.execution_run_id
+        )
+        origin_mismatch = not receipt.continuation and (
+            str(dispatch.get("actionId") or "") != receipt.action_id
+            or str(dispatch.get("planFingerprint") or "") != receipt.plan_fingerprint
+        )
+        if common_mismatch or origin_mismatch:
+            raise AuthorityRepositoryError(
+                "execution_run_receipt_mismatch",
+                "Authorization receipt differs from durable dispatch/run truth.",
+            )
+        return dispatch
 
     def _transition_execution_run_locked(
         self,

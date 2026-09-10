@@ -272,6 +272,48 @@ Residuals and boundary:
   p95 changed from 0.038 ms to 0.039 ms;
 - generic MCP conformance remains the retained `partial_fail` classification;
   Inspector and live Codex diagnostics remain optional and were not rerun;
-- Task 6C requires an adversarial checkpoint focused on lifecycle-state
-  completeness and duplicate dispatch before Task 6D begins. Phase 6 remains
-  open through Task 6J.
+- Task 6C does not provide owned effect-boundary instrumentation; that work
+  begins in Task 6D. Phase 6 remains open through Task 6J.
+
+## Task 6C adversarial checkpoint
+
+Status: passed after corrective action on 2026-09-10; Task 6D may begin.
+
+The checkpoint challenged lifecycle-state completeness, duplicate dispatch,
+exact receipt identity, restart reconstruction, background continuation
+binding, observation trust, migration, and compatibility. It found and fixed
+three issues:
+
+- origin dispatch and lifecycle mutations now compare the complete trusted
+  receipt binding with durable workspace, action/plan, grant revision, session,
+  profile, dispatch, and run truth before advancing state;
+- rejected cross-workspace or forged-run background bindings no longer mutate
+  the job before validation succeeds;
+- the Phase 6C fixture captures current UTC once rather than allowing its
+  one-day grant window to expire as the calendar advances.
+
+Exact checkpoint verification:
+
+```text
+22 Phase 6C lifecycle/adversarial tests passed
+49 complete Phase 6 tests passed
+60 authority-focused, 27 background-focused, and 28 migration-focused tests passed
+801 full core tests passed
+16 official-SDK modern adapter tests passed
+2 custom-adapter template tests passed
+67 retained Phase 5 tests and all 8 acceptance verdict groups passed across 3 repetitions
+Action inventory/output contracts/pack ownership current: 174/168/174
+Compact surface remains 11 operations / 23,336 application bytes
+3 default Codex operating skills and 2 shared references validate
+```
+
+The Phase 5 distribution sub-gate used the documented build interpreter/path
+overrides and passed wheel/sdist installation plus 174/42 standard/core-only
+startup. The Phase 6A performance runner completed on a non-matching environment
+fingerprint, so relative acceptance was unavailable; it kept the existing
+core-only cold-start p50 absolute miss visible while the other four absolute
+fixtures passed. No threshold or baseline was changed.
+
+The full findings, corrections, evidence, and residual boundary are recorded in
+[the Task 6C adversarial-review brief](phase-6c-adversarial-review.md). This
+checkpoint closes Task 6C only; Phase 6 remains open through Task 6J.

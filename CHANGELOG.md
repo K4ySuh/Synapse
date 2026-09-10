@@ -348,6 +348,13 @@ durable dispatch and continuation truth.
 
 ### Fixed
 
+- **Phase 6C adversarial lifecycle checkpoint.** Dispatch and lifecycle
+  mutations now validate the complete server-held receipt binding before state
+  advances. Background continuation setup validates workspace, plan, effects,
+  handler, dispatch, and run truth before writing the run identity into the job,
+  so rejected cross-workspace or forged-run binds cannot poison unrelated job
+  state. The Phase 6C grant fixture now derives one stable current test clock so
+  the focused gate remains reproducible after its original calendar window.
 - **Phase 5B adversarial capability boundary.** Capability manifests and
   built-in ownership maps are now deeply immutable at their declared sequence
   and mapping boundaries. Installed manifests fail startup on invalid global

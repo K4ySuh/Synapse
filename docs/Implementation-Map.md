@@ -546,7 +546,8 @@ The protocol-independent Phase 2 authority model is under
   crash-atomic workspace JSON implementation for grants, request states,
   reservations, decisions, dispatches, continuations, and reconciliation; on
   activated SQLite-v2 it also reserves and advances the bound execution run in
-  the same authority transaction;
+  the same authority transaction, validates complete receipt identity before
+  state advances, and validates background bindings before mutating job state;
 - `integration.py` maps typed policy decisions onto Registry outcomes and
   advances durable dispatch/run truth around the sole executor seam;
 - `operator_service.py` and `operator_cli.py` expose trusted local management

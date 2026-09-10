@@ -65,7 +65,7 @@ from synapse_mcp.state import migrations as state_migrations
 from synapse_mcp.state.migrations import MIGRATION_NAMES, apply_migrations
 
 
-NOW = datetime(2026, 9, 2, 9, 0, tzinfo=timezone.utc)
+NOW = datetime.now(timezone.utc).replace(microsecond=0)
 
 
 def _plan(workspace_id: str, *, correlation_id: str = "phase6c-correlation") -> ExecutionPlan:
@@ -561,6 +561,34 @@ class Phase6CExecutionLifecycleContractTests(unittest.TestCase):
             self.assertEqual(run["identity"]["correlationId"], plan.correlation_id)
             self.assertEqual(run["authorizationBinding"]["profile"], "supervised")
 
+    def test_forged_receipt_cannot_advance_dispatch_or_lifecycle_state(self) -> None:
+        with TemporaryDirectory() as temporary, isolated_state(Path(temporary), store_version="sqlite-v2"):
+            workspace.create_workspace("phase6c-receipt", hosts=["receipt.example"])
+            repository = WorkspaceAuthorityRepository("phase6c-receipt", clock=lambda: NOW)
+            plan = _plan("phase6c-receipt")
+            repository.create_grant(_grant(plan))
+            receipt = repository.authorize(
+                plan,
+                risk_class=RiskClass.NONE,
+                profile="full_delegated",
+                authority_session_id="phase6c-session",
+                selected_grant_id="grant-phase6c",
+                idempotency_key="phase6c-receipt-binding",
+            ).receipt
+            forged_session = replace(receipt, authority_session_id="sha256:" + ("0" * 64))
+            with self.assertRaises(AuthorityRepositoryError) as raised:
+                repository.mark_dispatched(forged_session)
+            self.assertEqual(raised.exception.reason_code, "execution_run_receipt_mismatch")
+            self.assertEqual(repository.inspect_dispatch(receipt.dispatch_id)["state"], "authorized")
+            self.assertEqual(repository.inspect_execution_run(receipt.execution_run_id)["state"], "authorized")
+
+            repository.mark_dispatched(receipt)
+            forged_action = replace(receipt, action_id="workspace.list")
+            with self.assertRaises(AuthorityRepositoryError) as raised:
+                repository.mark_execution_observing(forged_action)
+            self.assertEqual(raised.exception.reason_code, "execution_run_receipt_mismatch")
+            self.assertEqual(repository.inspect_execution_run(receipt.execution_run_id)["state"], "dispatch_started")
+
     def test_expired_work_claim_cannot_orphan_registry_run_finalization(self) -> None:
         class SequenceClock:
             def __init__(self) -> None:
@@ -706,6 +734,82 @@ class Phase6CExecutionLifecycleContractTests(unittest.TestCase):
                 job_id,
             )
             wait_for_job(job_id, require_runtime_quiescent=True)
+
+    def test_rejected_cross_workspace_job_binding_does_not_mutate_the_job(self) -> None:
+        with TemporaryDirectory() as temporary, isolated_state(Path(temporary), store_version="sqlite-v2"):
+            workspace.create_workspace("phase6c-origin", hosts=["origin.example"])
+            workspace.create_workspace("phase6c-other", hosts=["other.example"])
+            repository = WorkspaceAuthorityRepository("phase6c-origin", clock=lambda: NOW)
+            plan = _plan("phase6c-origin")
+            repository.create_grant(_grant(plan))
+            receipt = repository.authorize(
+                plan,
+                risk_class=RiskClass.NONE,
+                profile="full_delegated",
+                authority_session_id="phase6c-session",
+                selected_grant_id="grant-phase6c",
+                idempotency_key="phase6c-cross-workspace",
+            ).receipt
+            repository.mark_dispatched(receipt)
+            other_plan = _plan("phase6c-other")
+            started = background_jobs.start_command(
+                [sys.executable, "-c", "import time; time.sleep(30)"],
+                timeout_seconds=45,
+                event_type="phase6c.cross_workspace",
+                summary="Exercise rejected cross-workspace lifecycle binding.",
+                tool="workspace.summary",
+                workspace_id="phase6c-other",
+                finalizer_name="worker.result",
+                execution_plan=other_plan,
+                finalizer_effects=other_plan.effects,
+            )
+            job_id = started["jobId"]
+            try:
+                with self.assertRaises(AuthorityRepositoryError) as raised:
+                    repository.bind_background_job(receipt, job_id)
+                self.assertEqual(raised.exception.reason_code, "job_workspace_mismatch")
+                self.assertEqual(background_jobs.snapshot_record(job_id)["executionRunId"], "")
+            finally:
+                background_jobs.cancel(job_id)
+                wait_for_job(job_id, require_runtime_quiescent=True)
+
+    def test_rejected_forged_run_receipt_does_not_mutate_the_job(self) -> None:
+        with TemporaryDirectory() as temporary, isolated_state(Path(temporary), store_version="sqlite-v2"):
+            workspace.create_workspace("phase6c-forged", hosts=["forged.example"])
+            repository = WorkspaceAuthorityRepository("phase6c-forged", clock=lambda: NOW)
+            plan = _plan("phase6c-forged")
+            repository.create_grant(_grant(plan))
+            receipt = repository.authorize(
+                plan,
+                risk_class=RiskClass.NONE,
+                profile="full_delegated",
+                authority_session_id="phase6c-session",
+                selected_grant_id="grant-phase6c",
+                idempotency_key="phase6c-forged-receipt",
+            ).receipt
+            repository.mark_dispatched(receipt)
+            job_plan = plan.for_continuation(kind="background_worker", runtime_arguments={})
+            started = background_jobs.start_command(
+                [sys.executable, "-c", "import time; time.sleep(30)"],
+                timeout_seconds=45,
+                event_type="phase6c.forged_receipt",
+                summary="Exercise rejected forged execution-run binding.",
+                tool="workspace.summary",
+                workspace_id="phase6c-forged",
+                finalizer_name="worker.result",
+                execution_plan=job_plan,
+                finalizer_effects=plan.effects,
+            )
+            job_id = started["jobId"]
+            forged = replace(receipt, execution_run_id="run-forged")
+            try:
+                with self.assertRaises(AuthorityRepositoryError) as raised:
+                    repository.bind_background_job(forged, job_id)
+                self.assertEqual(raised.exception.reason_code, "execution_run_receipt_mismatch")
+                self.assertEqual(background_jobs.snapshot_record(job_id)["executionRunId"], "")
+            finally:
+                background_jobs.cancel(job_id)
+                wait_for_job(job_id, require_runtime_quiescent=True)
 
     def test_thread_idempotency_reservation_creates_exactly_one_run(self) -> None:
         with TemporaryDirectory() as temporary, isolated_state(Path(temporary), store_version="sqlite-v2"):

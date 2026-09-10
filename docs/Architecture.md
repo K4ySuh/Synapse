@@ -313,7 +313,10 @@ background job lineage before effects begin. Dispatch and run transitions
 commit in the same authority transaction. Only runtime-observed or
 runtime-enforced sources may establish validation truth; the Phase 6C no-op
 observer records an explicit `unobservable` limitation until owned effect
-boundaries are instrumented. JSON-v1 is not extended or dual-written.
+boundaries are instrumented. Origin dispatch and lifecycle mutations require
+the exact durable receipt binding, and background job records are not mutated
+until workspace, plan, receipt, dispatch, and run truth agree. JSON-v1 is not
+extended or dual-written.
 
 ADR-0005 fixes one database and artifact namespace per workspace, with
 credential secrets kept outside SQLite and protocol rollback separated from

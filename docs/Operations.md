@@ -535,8 +535,11 @@ grant. Revocation and expiry stop the next new dispatch immediately.
 Background polling is a zero-budget continuation only after durable dispatch
 and job records agree on workspace, origin action, grant revision, dispatch,
 execution run, parent plan, job, handler, effects, outputs, and lifecycle.
-Expiry or revocation
-does not erase already-dispatched work. A pre-Phase-2 job returns an adoption
+The job's execution-run field is written only after non-mutating workspace/plan
+checks and exact receipt validation against locked authority truth; a rejected
+cross-workspace or mismatched-run binding leaves the job unchanged.
+Expiry or revocation does not erase already-dispatched work. A pre-Phase-2 job
+returns an adoption
 requirement in an authority-aware profile; use
 `synapse-authority ... adopt-legacy-job <job-id> <grant-id> --session <trusted-session-id>`
 after review.
