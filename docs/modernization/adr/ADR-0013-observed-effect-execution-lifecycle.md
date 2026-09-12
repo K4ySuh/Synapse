@@ -129,7 +129,7 @@ Phase 6 truth or dual-write behavior.
 
 ## Verification
 
-- `MCPS/Synapse-MCP/tests/test_phase6c_execution_lifecycle.py`
+- `MCPS/Synapse-MCP/tests/test_execution_lifecycle.py`
 - retained authority, Registry, facade, background-job, Phase 4 state/migration,
   Phase 5 work/acceptance, full core, modern, inventory, output-contract, and
   capability-pack gates

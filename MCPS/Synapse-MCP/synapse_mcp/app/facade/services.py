@@ -153,6 +153,25 @@ def _evidence_references(value: Any) -> list[str]:
     return list(dict.fromkeys(found))
 
 
+def _execution_diagnostics(outcome: Any) -> dict[str, Any]:
+    run_id = str(getattr(outcome, "execution_run_id", ""))
+    if not run_id:
+        return {}
+    result: dict[str, Any] = {"executionRunId": run_id}
+    validation = getattr(outcome, "effect_validation", None)
+    if validation is not None:
+        result["effectValidation"] = {
+            "validationId": validation.validation_id,
+            "verdict": str(validation.verdict),
+            "observationReferences": list(getattr(outcome, "observation_references", ())),
+            "coverage": [
+                {"effectClass": item.effect_class, "status": str(item.status)}
+                for item in validation.coverage
+            ],
+        }
+    return result
+
+
 @dataclass(slots=True)
 class _PendingOperation:
     handle: str
@@ -719,6 +738,7 @@ class ActionExecutionService:
                 diagnostics={
                     "payloadSignalsError": outcome.payload_signals_error,
                     "effects": effect_data,
+                    **_execution_diagnostics(outcome),
                 },
                 trace_id=trace_id,
             )
@@ -760,6 +780,7 @@ class ActionExecutionService:
                 "reasonCode": outcome.reason_code or outcome.kind,
                 "legacyCode": outcome.legacy_code,
                 "effects": effect_data,
+                **_execution_diagnostics(outcome),
             }
             return FacadeEnvelope(
                 operation=operation,

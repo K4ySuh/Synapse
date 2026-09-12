@@ -789,15 +789,35 @@ def resolve_local_outputs(
 
 
 def write_planned_text(plan: ExecutionPlan, purpose: str, content: str) -> Path:
+    from .synchronous_observer import effect_gap, local_output_after, local_output_before
+
     destination = plan.output(purpose)
     path = Path(destination.path)
+    local_output_before(plan, purpose, path)
     if path.resolve(strict=False) != path:
+        effect_gap("local_output")
         raise ExecutionPlanError("output_path_changed", f"Planned output path changed through a symlink: {path}")
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.resolve(strict=False) != path:
+        effect_gap("local_output")
         raise ExecutionPlanError("output_path_changed", f"Planned output path changed during directory creation: {path}")
     current = "overwrite" if path.exists() else "create"
     if destination.disposition == "create" and current == "overwrite":
+        effect_gap("local_output")
         raise ExecutionPlanError("output_overwrite_not_authorized", f"Planned create would overwrite an existing output: {path}")
-    atomic_io.atomic_write_text(path, content, mode=None, fsync=True)
+    if destination.disposition == "overwrite" and current == "create":
+        effect_gap("local_output")
+        raise ExecutionPlanError("output_disposition_changed", "Planned overwrite destination no longer exists.")
+    if current == "overwrite" and not plan.effects.local_destruction:
+        effect_gap("local_output")
+        raise ExecutionPlanError("output_overwrite_not_authorized", "Execution plan does not cover local overwrite.")
+    try:
+        atomic_io.atomic_write_text(path, content, mode=None, fsync=True)
+    except Exception:
+        effect_gap("local_output")
+        raise
+    local_output_after(plan, purpose, path, content, current)
+    if path.resolve(strict=False) != path:
+        effect_gap("local_output")
+        raise ExecutionPlanError("output_path_changed", "Planned output path changed during the write.")
     return path

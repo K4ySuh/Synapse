@@ -24,6 +24,14 @@ durable dispatch and continuation truth.
 
 ### Added
 
+- **Phase 6D synchronous effect observation.** Bound canonical HTTP, planned
+  local-output, and synchronous command helpers to the durable execution run.
+  Per-hop requests and exact file effects are enforced at the owned boundary;
+  observations and sealed validation commit through the existing Authority
+  transaction. Action/facade outcomes expose compact run and verdict references.
+  Uncertain effects require reconciliation, while child internals and deferred
+  provider/browser/background effects retain explicit partial coverage.
+
 - **Phase 6C durable execution lifecycle.** Added versioned immutable execution
   intent, authorization, run, observation, coverage, discrepancy, and
   validation contracts around the unchanged `ExecutionPlan` v1 and canonical
@@ -338,6 +346,10 @@ durable dispatch and continuation truth.
 
 ### Removed
 
+- **Completed-phase scaffolding.** Retired old phase acceptance/benchmark
+  runners, runner-only tests, transient handoffs, and checked benchmark
+  artifacts. Live regression tests are organized by core/service contract;
+  the offline distribution validator remains available under a neutral name.
 - **Alternate-agent Phase 3 paths.** Removed alternate-client preflight,
   authentication, parsing, model, and MCP configuration branches from both live
   runners, along with the optional alternate-agent config output.

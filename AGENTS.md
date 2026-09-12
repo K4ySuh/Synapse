@@ -71,9 +71,9 @@ explicit compatibility profile only.
   fallback.
 - Use the public application/repository contracts in tests; do not make
   transport code another source of business rules.
-- Run focused tests after edits. The preferred harnesses are `bin/test --core`,
-  `bin/test`, and `bin/test-modern`; run phase acceptance gates when their
-  boundaries change.
+- Run focused core/service tests for the changed boundary. Use full core or
+  modern suites when the changed contract warrants them; completed-phase
+  acceptance and benchmark gates are retired.
 - Keep generated action inventory, output contracts, capability ownership, and
   compatibility fixtures current. Never regenerate a frozen fixture merely to
   hide unintended drift.

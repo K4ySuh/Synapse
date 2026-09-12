@@ -1676,7 +1676,10 @@ def write_sitemap(
     if prune_outputs:
         if execution_plan is not None and path.parent.resolve(strict=False) != path.parent:
             raise ExecutionPlanError("output_path_changed", f"Planned output directory changed before retention cleanup: {path.parent}")
-        workspace.retain_latest_artifacts(path.parent, suffix, keep=1, sibling_suffixes=(".flow.mmd", ".flow.svg"))
+        workspace.retain_latest_artifacts(
+            path.parent, suffix, keep=1, sibling_suffixes=(".flow.mmd", ".flow.svg"),
+            execution_plan=execution_plan,
+        )
     return payload
 
 

@@ -10,6 +10,7 @@ import httpx
 
 from ..execution import CanonicalTarget, ExecutionPlanError
 from ..url_hygiene import redact_url_query_values
+from ..synchronous_observer import effect_gap, http_after, http_before
 from .models import HttpClientPolicy, HttpRequest, HttpResponse
 
 
@@ -133,10 +134,21 @@ def _send_with_client(client: httpx.Client, request: HttpRequest, policy: HttpCl
                 current_headers.update(target_headers)
                 if coverage and coverage not in credential_coverage:
                     credential_coverage.append(dict(coverage))
+            observed_header_names = {name: "" for name in (*current_headers, *policy.proxy_headers)}
+            http_before(
+                current_url, current_method, backend=policy.backend, proxy_url=policy.proxy_url,
+                credential_ref=policy.proxy_credential_ref, redirect_hop=redirect_hop,
+                headers=observed_header_names, policy_plan=policy.execution_plan,
+            )
             stream_kwargs: dict[str, object] = {"headers": current_headers, "content": current_body}
             if timeout_seconds is not None:
                 stream_kwargs["timeout"] = httpx.Timeout(max(float(timeout_seconds), 0.1))
             with client.stream(current_method, current_url, **stream_kwargs) as response:
+                http_after(
+                    current_url, current_method, backend=policy.backend, redirect_hop=redirect_hop,
+                    headers=observed_header_names, credential_ref=policy.proxy_credential_ref,
+                    status=response.status_code,
+                )
                 headers = {str(name): str(value) for name, value in response.headers.items()}
                 location = headers.get("location", "")
                 if policy.follow_redirects and response.status_code in {301, 302, 303, 307, 308} and location:
@@ -197,6 +209,7 @@ def _send_with_client(client: httpx.Client, request: HttpRequest, policy: HttpCl
                     credential_coverage=[dict(item) for item in credential_coverage],
                 )
     except (httpx.HTTPError, ExecutionPlanError) as exc:
+        effect_gap("http")
         return HttpResponse(status=None, headers={}, body="", error=str(exc))
 
 

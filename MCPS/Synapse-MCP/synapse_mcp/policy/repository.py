@@ -826,6 +826,22 @@ class WorkspaceAuthorityRepository:
             )
         return self._runtime_repository().inspect_execution_run(execution_run_id)
 
+    def execution_validation_for_run(self, execution_run_id: str) -> EffectValidation | None:
+        """Return the sealed final verdict for one activated execution run."""
+
+        run = ExecutionRun.from_dict(self.inspect_execution_run(execution_run_id))
+        validation_id = run.final_validation_id
+        if not validation_id:
+            return None
+        values = self._runtime_repository().effect_validations(execution_run_id)
+        for value in values:
+            if str(value.get("validationId") or "") == validation_id:
+                return EffectValidation.from_dict(value)
+        raise AuthorityRepositoryError(
+            "effect_validation_missing",
+            "Execution run refers to a missing final effect validation.",
+        )
+
     def execution_run_for_dispatch(self, dispatch_id: str) -> dict[str, Any]:
         if not self._activated:
             raise AuthorityRepositoryError(

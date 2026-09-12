@@ -196,6 +196,7 @@ CORS_EXECUTE_TEST = ActionDescriptor(
     implementation_ref="cors.execute_test",
     approval_required=True,
     idempotency_policy=IdempotencyPolicy(Idempotency.NON_IDEMPOTENT),
+    observed_effect_classes=("http",),
 )
 
 DESCRIPTORS = (CORS_EXECUTE_TEST,)

@@ -102,3 +102,4 @@ class ActionDescriptor(Generic[TInput, TOutput]):
     implementation_ref: str = ""
     approval_required: bool = False
     idempotency_policy: IdempotencyPolicy | None = None
+    observed_effect_classes: tuple[str, ...] = ()

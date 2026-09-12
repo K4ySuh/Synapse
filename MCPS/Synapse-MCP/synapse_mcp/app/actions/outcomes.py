@@ -10,6 +10,7 @@ import json
 from typing import Any, Generic, Literal, TypeAlias, TypeVar, Union
 
 from synapse_mcp.core.errors import McpError
+from synapse_mcp.core.execution_lifecycle import EffectValidation
 
 
 T = TypeVar("T")
@@ -21,6 +22,9 @@ class Success(Generic[T]):
     payload_signals_error: bool = False
     legacy_code: int | None = None
     legacy_payload: object | None = field(default=None, repr=False, compare=False)
+    execution_run_id: str = field(default="", repr=False, compare=False)
+    effect_validation: EffectValidation | None = field(default=None, repr=False, compare=False)
+    observation_references: tuple[str, ...] = field(default=(), repr=False, compare=False)
     kind: Literal["success"] = field(init=False, default="success")
 
 
@@ -29,6 +33,9 @@ class ValidationFailure:
     message: str
     legacy_code: int | None = None
     reason_code: str | None = None
+    execution_run_id: str = field(default="", repr=False, compare=False)
+    effect_validation: EffectValidation | None = field(default=None, repr=False, compare=False)
+    observation_references: tuple[str, ...] = field(default=(), repr=False, compare=False)
     kind: Literal["validation_failure"] = field(init=False, default="validation_failure")
 
 
@@ -37,6 +44,9 @@ class UnavailableCapability:
     message: str
     legacy_code: int | None = None
     reason_code: str | None = None
+    execution_run_id: str = field(default="", repr=False, compare=False)
+    effect_validation: EffectValidation | None = field(default=None, repr=False, compare=False)
+    observation_references: tuple[str, ...] = field(default=(), repr=False, compare=False)
     kind: Literal["unavailable_capability"] = field(init=False, default="unavailable_capability")
 
 
@@ -46,6 +56,9 @@ class PolicyDenial:
     legacy_code: int | None = None
     reason_code: str | None = None
     details: dict[str, Any] | None = None
+    execution_run_id: str = field(default="", repr=False, compare=False)
+    effect_validation: EffectValidation | None = field(default=None, repr=False, compare=False)
+    observation_references: tuple[str, ...] = field(default=(), repr=False, compare=False)
     kind: Literal["policy_denial"] = field(init=False, default="policy_denial")
 
 
@@ -55,6 +68,9 @@ class ApprovalRequired:
     legacy_code: int | None = None
     reason_code: str | None = None
     details: dict[str, Any] | None = None
+    execution_run_id: str = field(default="", repr=False, compare=False)
+    effect_validation: EffectValidation | None = field(default=None, repr=False, compare=False)
+    observation_references: tuple[str, ...] = field(default=(), repr=False, compare=False)
     kind: Literal["approval_required"] = field(init=False, default="approval_required")
 
 
@@ -63,6 +79,9 @@ class ExecutionFailure:
     message: str
     legacy_code: int | None = None
     reason_code: str | None = None
+    execution_run_id: str = field(default="", repr=False, compare=False)
+    effect_validation: EffectValidation | None = field(default=None, repr=False, compare=False)
+    observation_references: tuple[str, ...] = field(default=(), repr=False, compare=False)
     kind: Literal["execution_failure"] = field(init=False, default="execution_failure")
 
 
@@ -71,6 +90,9 @@ class ExecutionUnknown:
     message: str
     legacy_code: int | None = None
     reason_code: str | None = None
+    execution_run_id: str = field(default="", repr=False, compare=False)
+    effect_validation: EffectValidation | None = field(default=None, repr=False, compare=False)
+    observation_references: tuple[str, ...] = field(default=(), repr=False, compare=False)
     kind: Literal["execution_unknown"] = field(init=False, default="execution_unknown")
 
 

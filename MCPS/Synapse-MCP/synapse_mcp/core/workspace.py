@@ -193,6 +193,7 @@ def retain_latest_artifacts(
     *,
     keep: int = 1,
     sibling_suffixes: tuple[str, ...] = (),
+    execution_plan: "ExecutionPlan | None" = None,
 ) -> list[str]:
     from ..state.selector import assert_json_v1_write_allowed
 
@@ -200,15 +201,33 @@ def retain_latest_artifacts(
     if keep < 1 or not directory.exists():
         return []
     matches = sorted(directory.glob(f"*-{suffix}"), key=lambda path: path.name)
+    candidates = [
+        candidate
+        for path in matches[: max(len(matches) - keep, 0)]
+        for candidate in (path, *(path.with_name(f"{path.stem}{sibling}") for sibling in sibling_suffixes))
+        if candidate.exists() and candidate.is_file()
+    ]
+    if execution_plan is not None:
+        from .synchronous_observer import local_output_before_delete
+
+        for candidate in candidates:
+            local_output_before_delete(execution_plan, candidate)
     removed: list[str] = []
-    for path in matches[: max(len(matches) - keep, 0)]:
-        for candidate in (path, *(path.with_name(f"{path.stem}{sibling}") for sibling in sibling_suffixes)):
-            try:
-                if candidate.exists() and candidate.is_file():
-                    candidate.unlink()
-                    removed.append(str(candidate))
-            except OSError:
-                continue
+    for candidate in candidates:
+        try:
+            size = candidate.stat().st_size
+            candidate.unlink()
+            removed.append(str(candidate))
+            if execution_plan is not None:
+                from .synchronous_observer import local_output_deleted
+
+                local_output_deleted(execution_plan, candidate, size)
+        except OSError:
+            if execution_plan is not None:
+                from .synchronous_observer import effect_gap
+
+                effect_gap("local_output")
+            continue
     return removed
 
 

@@ -254,6 +254,7 @@ CRAWLER_CRAWL = ActionDescriptor(
     implementation_ref="crawler_adapter.crawl",
     approval_required=True,
     idempotency_policy=IdempotencyPolicy(Idempotency.NON_IDEMPOTENT),
+    observed_effect_classes=("http", "local_output"),
 )
 
 DESCRIPTORS = (CRAWLER_CRAWL,)

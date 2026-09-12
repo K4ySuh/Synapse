@@ -106,7 +106,7 @@ installed environment accidents alter compatibility behavior.
 
 ## Verification
 
-- `MCPS/Synapse-MCP/tests/test_phase5a_capability_packs.py`
+- `MCPS/Synapse-MCP/tests/test_capability_packs.py`
 - `bin/generate-capability-pack-ownership --check`
 - `bin/generate-action-inventory --check`
 - `bin/generate-action-output-contracts --check`

@@ -101,11 +101,8 @@ authority/dispatch, task/finalization, durable resource, revision, and audit
 truth under both legacy and modern protocol profiles. `status` includes bounded
 WAL state; `checkpoint` serializes manual checkpoints and `backup` uses the
 online backup API without overwriting an existing destination. Credential
-bodies and raw opaque request state are excluded. Run
-`bin/run-phase4-acceptance` before shipping persistence/context changes. See
-[Operations](../../docs/Operations.md) and the
-[Phase 4 handoff](../../docs/modernization/phase-4-handoff.md) for the exact
-workflow and recovery boundary.
+bodies and raw opaque request state are excluded. See
+[Operations](../../docs/Operations.md) for the workflow and recovery boundary.
 
 ## Modern Context Compiler
 
@@ -170,16 +167,11 @@ Wheel and sdist builds install identical default, compatibility, development,
 and five config-profile assets. Use `synapse-codex-assets --skills-dir`,
 `--skills-profile multi-agent-compat|development`,
 `--config standard|core-only|modern-direct|legacy|multi-agent-compat`, or
-`--verify`. `bin/validate-phase6b-distribution` performs the isolated archive
+`--verify`. `bin/validate-distribution` performs the isolated archive
 build/install and standard/core cold-start gate.
 
-Phase 5 operational closure is exercised from the repository root with
-`bin/run-phase5-acceptance`. It uses fresh fictional local SQLite-v2 workspaces,
-real concurrent processes, and disabled external target traffic, then writes
-sanitized aggregate evidence. `bin/run-phase6b-codex-diagnostic --run` is the
-current optional one-agent Terra/medium client diagnostic and is not an
-acceptance dependency. The historical multi-agent runner remains available
-only with `bin/run-phase5-codex-benchmark --run --profile multi-agent-compat`.
+Use focused service tests for runtime changes. Completed-phase acceptance
+and benchmark runners are retired; they are not normal development gates.
 
 ## Runtime Python
 

@@ -96,176 +96,23 @@ prior assessment knowledge available through MCP tools and resources.
 
 ## Modernization Status
 
-Phase 5A–5B add a deterministic high-level capability-pack lifecycle around
-the one canonical Action Registry. The default six-pack assembly preserves all
-174 action IDs and legacy contracts; `--capability-pack core` starts a real
-42-action modern core process without importing unselected implementations.
-Native/generated descriptor providers no longer register through import side
-effects, ownership is checked in
-[`capability-pack-ownership.json`](docs/modernization/capability-pack-ownership.json),
-and the selected catalog/Registry freeze before requests. Capability search
-distinguishes high-level `capabilityPack` ownership from the stable action
-namespace `pack`, filters canonical effects/availability/target/risk/
-credential/task properties, and links on-demand pack methodology resources.
-See the
-[Phase 5 status](docs/modernization/phase-5-status.md).
+Synapse uses one Action Registry and one workspace/Authority path. The current
+default is single-agent Codex over `modern-compact`; `modern-direct`, frozen
+legacy, and explicit multi-agent compatibility remain available. New workspaces
+use SQLite-v2; existing JSON-v1 workspaces migrate only through explicit
+verification and activation.
 
-Phase 4 is complete. Genuinely new workspaces now bootstrap transactionally in
-SQLite-v2 after linked-runtime and filesystem readiness succeeds. Existing
-JSON-v1 workspaces remain unchanged until an operator runs the separate
-inventory, migration, verification, and activation steps; there is no
-dual-write or migration deadline. Canonical bundle import selects v2 only after
-semantic/artifact verification, while online backup, deterministic recovery
-tests, and rollback refusal protect post-cutover truth. The reproducible
-offline gate is `bin/run-phase4-acceptance`; see the
-[Phase 4 handoff](docs/modernization/phase-4-handoff.md).
+Phase 6D instruments Synapse-owned synchronous HTTP, planned local output, and
+command boundaries. An effect is checked against the dispatch plan at the
+boundary, recorded without secret values, and finalized on the same durable
+execution run. Child-process internals and uninstrumented paths remain
+unobservable; an incomplete or uncertain result needs reconciliation, not
+automatic replay. Phase 6 is not closed.
 
-Phase 4D replaces only modern compact `context.query` with the typed,
-revision-aware Context Compiler. It reads one committed repository snapshot,
-separates facts/candidates/contradictions/gaps/actions/tasks/recommendations,
-protects current scope and authority truth, supports exact `sinceRevision`
-deltas, and accounts for the canonical UTF-8 context payload with explicit
-omissions. Large evidence remains behind bound resource links. The frozen
-legacy `workspace.prepare_target_context` action is unchanged. Current compact
-application metadata is 23,482 bytes; the largest supported official-SDK wire
-projection is 24,824 bytes, below the 24,834-byte gate.
-
-Phase 5C adds shared operational work items for coordinator/specialist use in
-activated SQLite-v2 workspaces. Work items are distinct from background jobs:
-they carry bounded objectives, dependencies, atomic claim leases, progress,
-handoffs, gaps, and workspace references. `tasks.control` keeps its existing job
-and operation-handle behavior and adds `work.*` lifecycle operations without a
-twelfth compact tool. Work-item-aware `context.query` supports bounded recovery
-after chat/process loss, and linked active or unknown execution is never replayed
-automatically. Coordination identity has no authority meaning. The compact
-application descriptor is 23,297 bytes and the largest supported official-SDK
-wire projection is 24,639 bytes, both under the 24,834-byte ceiling. Compact
-schemas omit non-validating title/default/description annotations; runtime
-defaults and validation remain unchanged.
-
-Phase 5D adds a Codex-native operating package around that durable coordination
-contract: one router, one coordinator, and six bounded bootstrap/perimeter/web/
-access-control/CVE/reporting playbooks. Shared invariants require workspace
-recovery, live capability discovery, passive/active separation, canonical
-scope and server-held authority, conservative candidate semantics, explicit
-completion/blocking, and evidence-backed handoff. The playbooks contain no
-copied action catalog or schemas and add no provider-specific server behavior.
-`bin/validate-codex-skills --check` detects stale metadata, missing shared
-references, copied contracts, and contradictory authority/reporting language.
-
-Phase 5E separates the 94-line repository policy from a 6,289-byte packaged
-operational prompt, adds scoped MCP/policy/state/adapter/test instructions, and
-ships Codex configs plus the complete skill/reference tree in wheel and sdist
-artifacts. `bin/print-mcp-config` supports standard, core-only, direct
-diagnostic, and legacy rollback profiles; `synapse-codex-assets` locates the
-installed integration. See the
-[Phase 5 distribution guide](docs/modernization/phase-5-distribution.md).
-
-Phase 5F adds a reproducible fictional, provider-neutral operational corpus.
-`bin/run-phase5-acceptance` reports independent pack, real multi-process
-concurrency, authority/execution, compact/context, direct/coordinated workflow,
-distribution, and legacy rollback verdicts without requiring one model account
-to simulate several agents. A one-repetition live Codex runner remains an
-optional client diagnostic only; it defaults the coordinator and specialists
-to the bounded Luna/low profile and requires an explicit override for higher-
-usage profiles. See the
-[benchmark method](docs/modernization/phase-5-benchmark-method.md) and
-[Phase 5 handoff](docs/modernization/phase-5-handoff.md).
-
-Phase 6A closes the retained work-coordination errata before observed-effect
-instrumentation begins. SQLite-v2 work dependencies now declare
-`success_required` (the compatible default) or `terminal_required`; impossible
-success-only work becomes structurally blocked and can be cancelled or
-replanned through a typed operation. `work.list` returns stable cursor-paged
-summaries by default, computes expired leases at read time, and leaves complete
-records to `work.inspect` or `detail=true`. A fresh client can discover every
-work payload through `tasks.control(operation="work.contract")`, so compact
-remains eleven operations. The deterministic pre-instrumentation performance
-method and checked environment baseline are documented in the
-[Phase 6A performance baseline](docs/modernization/phase-6-performance-baseline.md).
-
-Phase 6B makes one Codex agent the default operational unit without changing
-the provider-neutral server. The default installed profile contains
-`operate-synapse`, `synapse-web-pentesting`, and
-`synapse-cve-intelligence`; the same agent may use both methodologies
-sequentially while recovering and converging from workspace truth. The Phase 5
-coordinator and specialist skills remain available only through the explicit
-`multi-agent-compat` profile, and `synapse-developing` is packaged separately.
-Work items are durable multi-consumer coordination records, not an instruction
-to spawn agents and never a source of authority. See
-[ADR-0012](docs/modernization/adr/ADR-0012-single-agent-codex-default.md).
-
-Phase 6C adds a versioned observed-effect lifecycle to the existing Registry,
-Authority, dispatch, work-attempt, and background-job path. Activated
-SQLite-v2 workspaces reserve one durable execution run before dispatch and
-reconstruct `authorized`, `dispatch_started`, `observing`,
-`validation_pending`, `outcome_committed`, `execution_unknown`, and
-`not_dispatched` truth after restart. The initial observer deliberately records
-`not_instrumented`/`unobservable` coverage; provider, consumer, and model
-narration cannot establish observed-effect truth. `ExecutionPlan` v1 and
-JSON-v1 compatibility remain intact, and JSON-v1 refuses the new lifecycle
-repository rather than gaining a parallel state path. See
-[ADR-0013](docs/modernization/adr/ADR-0013-observed-effect-execution-lifecycle.md).
-
-Phase 3C completes the production official-SDK adapter over the
-protocol-independent modern application surfaces. Phase 3D is complete under
-the operator-approved stable-Codex contract. Codex can use protocol-native
-request state when negotiated or the typed `approval_required` plus opaque
-`tasks.control` resume path on older revisions; both remain bound to trusted
-server-held authority and exactly-once dispatch. No Anthropic account or
-under-development Codex protocol feature is required. `modern-compact` stdio is
-the Codex default and ADR-0004 is Accepted.
-
-`synapse-mcp-modern` serves
-either the eleven-operation `modern-compact` projection or the generated
-174-operation `modern-direct` projection over stdio or authenticated
-Streamable HTTP. The adapter pins official Python MCP SDK 2.0.0, negotiates MCP
-`2026-07-28` and its supported earlier revision, persists bound operation and
-artifact records, and uses rotating principal/audience-bound request-state
-keys. Remote HTTP is disabled by default and fails startup without explicit
-host/origin, authentication, persistent keyring, and TLS trust configuration.
-The exact Phase 3D payloads are 99,337 bytes for legacy, 21,648 bytes for
-compact, and 578,249 bytes for direct. See the
-[Phase 3 handoff](docs/modernization/phase-3-handoff.md) for client evidence and
-the reproducible three-run closure gate. The frozen legacy launcher remains an
-independent rollback/bootstrap profile; modern direct remains explicit
-diagnostic compatibility.
-
-Phase 3B completed the protocol-independent modern application surfaces. The
-eleven-operation compact facade provides engagement, context, catalog,
-validated passive/active execution, reviews, opaque artifacts, reports, and
-task control; the generated direct surface exposes all 174 canonical actions.
-Both use the same Action Registry policy, authority, executor, continuation,
-and ledger path. Compact application metadata is 21,648 bytes under the Phase
-3 measurement, below the 24,834-byte gate.
-
-Phase 3A established the canonical application boundary. All 174 frozen legacy
-actions now enter Action Registry v2 by canonical `action_id`, validate typed
-inputs and JSON-object outputs, resolve multidimensional effects and immutable
-authorization intents, and expose one generated inventory for aliases,
-availability, implementation identity, serializer ownership, and parity. Six
-actions use native pack executors; the other 168 use a protocol-free bridge to
-the retained implementation adapter, preserving per-action rollback. The
-legacy 174-tool stdio surface remains the frozen compatibility rollback and
-still uses its existing `confirm=true` gates.
-
-Authority-aware execution now persists workspace-local grants, revisions,
-step-ups, opaque request states, dispatch budgets, decisions, dispatch truth,
-continuation bindings, and reconciliation under
-`DATA/workspaces/<workspace>/authority/state.json`. One locked atomic
-transaction evaluates an exact sealed plan and reserves its dispatch budget.
-Covered `full_delegated` work executes without caller `confirm=true` or a new
-pause; `supervised` returns an exact resumable step-up when required; uncovered
-work does not dispatch. The local `synapse-authority` entry point manages this
-state and is intentionally absent from model-executable actions. Authorization
-identity excludes correlation/deadline metadata while the complete plan seal
-retains it for audit integrity; idempotency keys cannot be reused for a changed
-logical request or to bypass an unresolved dispatch.
-
-The former three-action feasibility command now forwards to the production
-adapter as a deprecated alias. Durable modernization decisions and current
-gate evidence are indexed under
-[`docs/modernization/`](docs/modernization/README.md).
+For current operating procedures see [Operations](docs/Operations.md); for
+durable design decisions and task status see
+[Modernization](docs/modernization/README.md). Closed-phase acceptance runners
+and handoffs are no longer part of the development workflow.
 
 ## Main Features
 
@@ -492,8 +339,8 @@ Recommended optional tooling:
    by default. Existing JSON-v1 workspaces remain on v1. Use `bin/state inventory`, `migrate
    --dry-run`, `migrate --apply`, `verify`, and the separate `activate`
    command for a guarded Task 4B cutover; migration never activates implicitly.
-   Stop the MCP service during cutover. Before shipping state changes, run the
-   private, disabled-traffic `bin/run-phase4-acceptance` gate.
+   Stop the MCP service during cutover. Verify state changes with isolated,
+   disabled-traffic service tests.
 
 3. For a full active-adapter workstation, require scanner binaries too:
 

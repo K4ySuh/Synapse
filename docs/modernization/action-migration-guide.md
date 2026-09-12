@@ -1,9 +1,7 @@
 # Canonical action migration guide
 
 This is the current contributor procedure for the complete canonical Action
-Registry. It supersedes the Phase 1 one-action-at-a-time rule in
-[`action-migration-pattern.md`](action-migration-pattern.md) without rewriting
-the history that established the first six actions.
+Registry. It supersedes the original one-action-at-a-time migration rule.
 
 ## Batch unit
 
@@ -73,9 +71,6 @@ after the live approval/restart/resume gate passed 3/3. The frozen
 `modern-direct` remains explicit diagnostic compatibility. All surfaces must
 continue using the same descriptors, schemas, execution, and policy path.
 
-Future compatibility changes must regenerate the exact payload fixtures with
-`bin/measure-phase3-surfaces --check` and pass
-`bin/run-phase3d-codex --run --repetitions 3`. An under-development client
-protocol feature cannot substitute for the stable gate. Additional model
-clients become adoption requirements only through an explicit operator
-amendment.
+Future compatibility changes must verify the frozen payload fixtures and the
+current service-level transport tests. Additional model clients become
+adoption requirements only through an explicit operator amendment.

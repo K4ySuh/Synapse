@@ -83,8 +83,7 @@ stages, verification, guarded activation, and rollback-boundary enforcement.
 `state/bootstrap.py` owns crash-safe fresh-v2 initialization and selector
 installation. `state/bundles.py` owns canonical export/import,
 artifact-manifest validation, and verified import selection; `state/cli.py` and
-`bin/state` expose the operator surface. `bin/run-phase4-acceptance` owns the
-offline migration/recovery/context adoption gate. Raw SQL remains confined to
+`bin/state` expose the operator surface. Raw SQL remains confined to
 the state package. New workspaces default to v2 after acceptance, while an
 existing selector-less JSON workspace remains v1 until explicit migration and
 activation; an activated selector makes v2 authoritative for both protocol
@@ -454,7 +453,7 @@ The Phase 5D Codex methodology is retained under
 - `bin/validate-codex-skills --check` verifies all eight operating skills,
   shared links and metadata, and rejects copied Registry schemas/catalogs or
   contradictory authority, reporting, and candidate/finding terminology;
-- `tests/test_phase5d_codex_skills.py` exercises fictional direct routing,
+- `tests/test_codex_skills.py` exercises fictional direct routing,
   three-specialist coordination, collision rerouting, job recovery, authority
   blocking, evidence handoff, convergence, and validator failures.
 
@@ -476,51 +475,24 @@ Phase 6B adds the default `skills/codex/default/` profile:
   exposing compatibility routes in the default install;
 - `synapse_mcp/integrations/codex.py` and `pyproject.toml` locate/package all
   three explicit profile roots while keeping default selection at three skills;
-- `bin/run-phase6b-codex-diagnostic` is the optional one-agent Terra/medium
-  diagnostic; the historical Phase 5 runner requires explicit
-  `multi-agent-compat` selection;
-- `tests/test_phase6b_single_agent_default.py` guards routing, methodology,
-  client-only boundaries, distribution selection, and unchanged Registry and
-  compact surfaces.
+- service tests guard routing, methodology, distribution selection, and
+  unchanged Registry and compact surfaces.
 
 Phase 5E adds the separate package operational prompt (6,289 bytes after the
 Phase 5F coordination guidance), keeps the
 root repository policy at 94 lines, and packages Codex integration data without
 importing it from application startup. `synapse_mcp/integrations/codex.py`
-locates and validates installed skills/configs; `bin/validate-phase5-distribution`
+locates and validates installed skills/configs; `bin/validate-distribution`
 builds and installs a wheel and sdist outside the checkout, validates prompt and
 skill/reference equality, and constructs installed standard 174-action and
-core-only 42-action official-SDK runtimes. `tests/test_phase5e_distribution.py`
+core-only 42-action official-SDK runtimes. `tests/test_distribution.py`
 guards instruction
 scope, prompt content/source/size, legacy prompt shape, config selection,
 provider-neutral imports, and distribution metadata.
 
-Phase 5F acceptance is implemented by:
-
-- `tests/phase5_acceptance_support.py`, the deterministic fictional corpus for
-  direct context, concurrent claims, work recovery, evidence convergence,
-  authority linkage, and dependency-bound reporting;
-- `tests/test_phase5f_operational_acceptance.py`, including atomic
-  evidence-before-completion and cross-principal/workspace claim attacks;
-- `bin/run-phase5-codex-benchmark`, an optional explicit-compatibility
-  multi-agent Codex diagnostic with isolated SQLite-v2/private authority fixtures
-  and a process external-network guard; its bounded live profile pins the
-  coordinator and subagents to Luna/low, minimizes response verbosity and
-  reasoning summaries, caps retained tool output, and guards higher-usage
-  overrides;
-- `bin/run-phase5-acceptance`, the aggregate eight-verdict gate over pack,
-  state, authority, compact/context, direct/coordinated operational workflows,
-  distribution, and rollback truth;
-- `docs/modernization/evidence/phase-5/`, which contains provider-neutral
-  deterministic aggregate results. Optional raw client events stay under
-  gitignored `DATA/` and are not acceptance inputs.
-
-Phase 6A performance evidence is produced by `bin/run-phase6-performance`. It
-measures standard/core-only selected-pack cold start, a 500-work-item context
-query, a 50-summary work page, and pre-instrumentation Registry control
-overhead. The sanitized checked environment baseline and its explicit absolute
-core-only p50 miss live under `docs/modernization/evidence/phase-6/`; matching
-future runs enforce the 20% relative p95 ceiling without hiding absolute data.
+Completed-phase acceptance and benchmark runners have been retired. Current
+development checks are focused core/service tests, with the generic offline
+distribution validator when packaging changes.
 
 `synapse_mcp/transport/modern/` projects either surface through
 official SDK 2.0.0 over stdio or authenticated Streamable HTTP. `config.py`
@@ -618,6 +590,19 @@ effect-validation contracts. It wraps the complete sealed `ExecutionPlan` v1,
 provides the observer protocol and coverage-aware no-op implementation, and
 permits only runtime-observed/runtime-enforced telemetry to determine effect
 truth. It has no MCP, state, executor, or provider dependency.
+
+```text
+core/synchronous_observer.py
+```
+
+Task 6D binds per-dispatch runtime capture through a context variable and
+collects only owned HTTP, planned local-output, and synchronous command
+boundary events. It projects into the existing lifecycle observer result;
+`policy/repository.py` commits those observations and the sealed verdict
+together. `core/http/backends.py`, `core/execution.py`,
+`core/workspace.py` retention, and `adapters/command_utils.py` call the
+boundary checks. `app/actions/registry.py` binds and releases capture, while
+`app/facade/services.py` returns compact run/verdict references in diagnostics.
 
 ```text
 core/paths.py

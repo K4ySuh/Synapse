@@ -21,7 +21,7 @@ OUTPUT = ROOT / "MCPS/Synapse-MCP/synapse_mcp/app/actions/action_inventory.json"
 EFFECT_DECLARATIONS = ROOT / "MCPS/Synapse-MCP/synapse_mcp/app/actions/effect_declarations.py"
 EXPECTED_COUNT = 174
 EXPECTED_COMPACT_BYTES = 99_337
-PARITY_TEST = "MCPS/Synapse-MCP/tests/test_phase3_action_inventory.py"
+PARITY_TEST = "MCPS/Synapse-MCP/tests/test_action_inventory.py"
 
 CANONICAL_IDS = {
     "approve_pretext_candidate": "social.approve_pretext_candidate",

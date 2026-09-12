@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from contextlib import nullcontext
 import json
 from typing import Any, Protocol
 
@@ -17,6 +18,7 @@ from synapse_mcp.core.execution import (
     empty_target_envelope,
 )
 from synapse_mcp.core.execution_lifecycle import ExecutionObserver, NoOpExecutionObserver
+from synapse_mcp.core.synchronous_observer import SynchronousExecutionObserver
 
 from .contracts import ActionInput, ActionOutput
 from .descriptor import ActionDescriptor, ActionRequest
@@ -66,7 +68,7 @@ class ProfilePolicyEvaluator:
     """Preserve legacy behavior while lazily routing authority-aware profiles."""
 
     def __init__(self, observer: ExecutionObserver | None = None) -> None:
-        self.observer = observer or NoOpExecutionObserver()
+        self.observer = observer if observer is not None else SynchronousExecutionObserver()
 
     def evaluate(
         self,
@@ -90,7 +92,11 @@ class ProfilePolicyEvaluator:
     def after_dispatch(self, receipt: object, outcome: ActionOutcome[Any]) -> None:
         from synapse_mcp.policy.integration import record_registry_outcome
 
-        record_registry_outcome(receipt, outcome, observer=self.observer)
+        try:
+            record_registry_outcome(receipt, outcome, observer=self.observer)
+        finally:
+            if hasattr(self.observer, "discard"):
+                self.observer.discard(str(getattr(receipt, "execution_run_id", "")))
 
     def dispatch_unknown(self, receipt: object) -> None:
         from synapse_mcp.policy.integration import record_registry_unknown
@@ -98,6 +104,18 @@ class ProfilePolicyEvaluator:
         # A failing or inconsistent injected observer cannot prevent the
         # canonical dispatch/run pair from becoming conservatively unknown.
         record_registry_unknown(receipt)
+        if hasattr(self.observer, "discard"):
+            self.observer.discard(str(getattr(receipt, "execution_run_id", "")))
+
+    def execution_metadata(self, receipt: object) -> tuple[str, object | None, tuple[str, ...]]:
+        run_id = str(getattr(receipt, "execution_run_id", ""))
+        if not run_id:
+            return "", None, ()
+        from synapse_mcp.policy.repository import WorkspaceAuthorityRepository
+
+        repository = WorkspaceAuthorityRepository(str(getattr(receipt, "workspace_id")))
+        run = repository.inspect_execution_run(run_id)
+        return run_id, repository.execution_validation_for_run(run_id), tuple(run.get("observationIds") or ())
 
 
 class PassThroughPolicyEvaluator:
@@ -187,6 +205,8 @@ class ActionRegistry:
             invalid("effects must be an ActionEffects instance")
         if not isinstance(descriptor.idempotency_policy, IdempotencyPolicy):
             invalid("idempotency policy must be explicit")
+        if not set(descriptor.observed_effect_classes).issubset({"http", "local_output", "child_process"}):
+            invalid("observation coverage declares an unsupported owned boundary")
         if not descriptor.effects.permits(
             ActionEffects(replay_safety=descriptor.idempotency_policy.behaviour)
         ):
@@ -365,8 +385,18 @@ class ActionRegistry:
                     reason_code="authority_dispatch_commit_failed",
                     details={"dispatch": "not_started"},
                 )
+        observer = getattr(self._policy_evaluator, "observer", None)
+        capture = (
+            observer.bind(
+                str(getattr(receipt, "execution_run_id", "")), execution_plan,
+                declared_classes=descriptor.observed_effect_classes,
+            )
+            if receipt is not None and hasattr(observer, "bind")
+            else nullcontext()
+        )
         try:
-            outcome = descriptor.executor(planned_request)
+            with capture:
+                outcome = descriptor.executor(planned_request)
         except Exception:
             if receipt is not None and hasattr(self._policy_evaluator, "dispatch_unknown"):
                 self._policy_evaluator.dispatch_unknown(receipt)
@@ -396,6 +426,7 @@ class ActionRegistry:
                         message=f"{descriptor.id}: execution completed but output contract validation failed: {validation_problem}",
                         legacy_code=-32000,
                         reason_code="invalid_output_contract_unknown",
+                        execution_run_id=str(getattr(receipt, "execution_run_id", "")),
                     )
                 return ExecutionFailure(
                     message=f"{descriptor.id}: output contract validation failed: {validation_problem}",
@@ -413,10 +444,35 @@ class ActionRegistry:
                         self._policy_evaluator.dispatch_unknown(receipt)
                     except Exception:
                         pass
-                return ExecutionUnknown(
+                unknown = ExecutionUnknown(
                     message=f"{descriptor.id}: execution completed but authority result commit is uncertain: {type(exc).__name__}",
                     legacy_code=-32000,
                     reason_code="authority_result_commit_unknown",
+                    execution_run_id=str(getattr(receipt, "execution_run_id", "")),
+                )
+                if hasattr(self._policy_evaluator, "execution_metadata"):
+                    try:
+                        run_id, validation, references = self._policy_evaluator.execution_metadata(receipt)
+                        return replace(
+                            unknown, execution_run_id=run_id,
+                            effect_validation=validation, observation_references=references,
+                        )
+                    except Exception:
+                        pass
+                return unknown
+        if receipt is not None and hasattr(self._policy_evaluator, "execution_metadata"):
+            try:
+                run_id, validation, references = self._policy_evaluator.execution_metadata(receipt)
+                return replace(
+                    finalized_outcome, execution_run_id=run_id,
+                    effect_validation=validation, observation_references=references,
+                )
+            except Exception:
+                return ExecutionUnknown(
+                    message=f"{descriptor.id}: execution completed but validation could not be read safely.",
+                    legacy_code=-32000,
+                    reason_code="execution_validation_read_unknown",
+                    execution_run_id=str(getattr(receipt, "execution_run_id", "")),
                 )
         return finalized_outcome
 

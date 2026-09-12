@@ -94,10 +94,9 @@ default. Separate profile roots make selection observable and testable.
 
 - `bin/validate-codex-skills --check`
 - `bin/validate-codex-skills --check --profile multi-agent-compat`
-- `MCPS/Synapse-MCP/tests/test_phase6b_single_agent_default.py`
-- `bin/validate-phase6b-distribution`
-- retained Phase 5 multi-process, compact/direct/legacy, inventory, and package
-  gates
+- `MCPS/Synapse-MCP/tests/test_single_agent_default.py`
+- `bin/validate-distribution` for package changes
+- focused multi-process, compact/direct/legacy, and inventory service tests
 
 ## Migration and rollback
 

@@ -46,6 +46,20 @@ from .policies import (
 )
 
 
+_OWNED_OBSERVATION_BOUNDARIES: dict[str, tuple[str, ...]] = {
+    **{action_id: ("http",) for action_id in (
+        "xss.execute_test", "xxe.execute_test", "graphql.execute_test",
+        "ssrf.execute_test", "open_redirect.execute_test",
+        "command_injection.execute_test", "ssti.execute_test",
+        "lfi.execute_test", "ssi.execute_test",
+        "access_control.execute_matrix_test", "js.fetch_assets",
+    )},
+    **{action_id: ("child_process",) for action_id in (
+        "ffuf.run_profile", "nuclei.run_profile", "nmap.run_profile",
+    )},
+}
+
+
 def _maximum_effects(action_id: str) -> ActionEffects:
     """Resolve descriptor-owned audited truth; never infer authority from labels."""
 
@@ -271,6 +285,7 @@ def generated_descriptors(
                 Idempotency(str(idempotency["behaviour"])),
                 condition=idempotency.get("condition"),
             ),
+            observed_effect_classes=_OWNED_OBSERVATION_BOUNDARIES.get(action_id, ()),
         )
         descriptors.append(descriptor)
     return tuple(descriptors)

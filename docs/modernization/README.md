@@ -1,98 +1,18 @@
 # Synapse Modernization
 
-This directory records the reviewed baseline and durable architecture decisions
-for the staged Synapse modernization. The reviewed product baseline is commit
-`099ba1aec4873b3ac08ffbecd82a45c06753880f`; Phase 0 measurements and
-compatibility evidence build on that immutable reference.
+This directory keeps durable decisions and current migration guidance. Closed
+phase handoffs, acceptance runners, and benchmark artifacts are not active
+development instructions.
 
-## Baseline
-
-- [Reproducible baseline](baseline.md)
-- [Phase 0 handoff](phase-0-handoff.md)
-
-## Phase 1
-
-- [Stage A design checkpoint](phase-1-stage-a.md) — approved; the Phase 0
-  program gate is PASS
-- [Stage B task brief](phase-1-stage-b-tasks.md) — the ordered Codex
-  implementation spec for the Action Registry and six-action slice
-- [Stage B review brief](phase-1-stage-b-review-brief.md) — the independent
-  adversarial-review gate
-- [Stage B handoff](phase-1-stage-b-handoff.md) — Action Registry and the
-  six-action vertical slice landed; gate PASS (2026-08-07)
+- [Action migration guide](action-migration-guide.md)
 - [Contract-change ledger](contract-changes.md)
-- [Action migration pattern](action-migration-pattern.md) — contributor guide
-  preserved as the Phase 1 historical pattern
+- [Capability-pack ownership map](capability-pack-ownership.json)
+- [Current Phase 6 status](phase-6-status.md)
+- [Operations and recovery](../Operations.md)
 
-## Phase 2
-
-Phase 2 is complete. Its temporary design, execution, status, inventory, and
-handoff documents were removed after closure; the original local workbench plan
-is retained outside this tracked directory. Durable decisions remain in
-[ADR-0003](adr/ADR-0003-durable-authority-grants.md),
-[ADR-0009](adr/ADR-0009-registry-v2-correction-gate.md), the implementation,
-tests, and the shared [changelog](../../CHANGELOG.md).
-
-## Phase 3
-
-- [Execution plan](phase-3-plan.md) — strict Session A–D sequence
-- [Running status](phase-3-status.md) — exact Session 3A–3D gate evidence and
-  Codex-only closure amendment
-- [Benchmark method](phase-3-benchmark-method.md) — frozen corpus, metrics, and
-  tolerances
-- [Interoperability handoff](phase-3-handoff.md) — adopted Codex default,
-  reproducible gate, residuals, and rollback
-- [Machine-readable Phase 3 evidence](evidence/phase-3/) — client matrix,
-  objective-agent and exact transport/safety results, payload/read results,
-  conformance, and security gates
-- [Canonical action migration guide](action-migration-guide.md) — current
-  bounded pack-batch and manifest procedure
-
-## Phase 4
-
-- [State and context handoff](phase-4-handoff.md) — v2 default for new
-  workspaces, explicit existing-workspace migration, recovery procedures, and
-  the reproducible offline acceptance gate
-- [Machine-readable Phase 4 evidence](evidence/phase-4/) — sanitized
-  migration/recovery/context, environment, transport, Inspector, and test
-  measurements
-
-## Phase 5
-
-- [Implementation status](phase-5-status.md) — ordered 5A–5F progress and
-  focused gate evidence
-- [Codex distribution and instruction architecture](phase-5-distribution.md) —
-  scoped repository policy, packaged operational prompt, installed skills, and
-  standard/core/direct configuration
-- [Operational benchmark method](phase-5-benchmark-method.md) — fictional
-  provider-neutral deterministic corpus, bounded Luna/low optional live client
-  diagnostic, thresholds, evidence hygiene, and retained baselines
-- [Phase 5 handoff](phase-5-handoff.md) — acceptance, operating boundary,
-  compatibility, residuals, and rollback closure
-- [Machine-readable Phase 5 evidence](evidence/phase-5/) — sanitized
-  provider-neutral aggregate acceptance results
-- [Capability-pack ownership map](capability-pack-ownership.json) — checked
-  single-owner assignment for all 174 built-in actions
-- [ADR-0010](adr/ADR-0010-capability-pack-lifecycle.md) — deterministic,
-  frozen, high-level capability-pack assembly over the one Action Registry
-
-## Phase 6
-
-- [Implementation status](phase-6-status.md) — Task 6A operational-errata,
-  Task 6B single-agent-default, and Task 6C execution-lifecycle checkpoints;
-  there is no complete Phase 6 closure claim
-- [ADR-0012](adr/ADR-0012-single-agent-codex-default.md) — one Codex agent by
-  default over the unchanged multi-consumer control plane
-- [ADR-0013](adr/ADR-0013-observed-effect-execution-lifecycle.md) — versioned
-  lifecycle identity, observations, and validation over the canonical Registry
-  and Authority path
-- [Phase 6A performance baseline](phase-6-performance-baseline.md) —
-  deterministic method, environment, absolute results, and relative ceiling
-- [Phase 6A adversarial-review brief](phase-6a-adversarial-review.md) — review
-  targets, evidence, compatibility boundary, and residual risks
-- [Phase 6C adversarial-review brief](phase-6c-adversarial-review.md) — exact
-  receipt binding, lifecycle completeness, duplicate-dispatch, background-job
-  mutation ordering, and checkpoint verdict
+The frozen baseline and Stage A checkpoint remain only because inventory and
+compatibility checks reference them. Service-level regression tests remain in
+the test suite even when their original filenames mention a completed phase.
 
 ## Architecture decisions
 

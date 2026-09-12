@@ -156,7 +156,7 @@ surface or adding autonomous planning.
 
 ## Verification
 
-- `MCPS/Synapse-MCP/tests/test_phase5c_work_items.py`
+- `MCPS/Synapse-MCP/tests/test_work_items.py`
 - Phase 3B compact facade gates
 - Phase 4 migration, runtime, bundle, and context gates
 - `bin/test --core`, `bin/test`, and `bin/test-modern`

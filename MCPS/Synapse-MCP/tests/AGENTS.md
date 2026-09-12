@@ -17,6 +17,6 @@
 - Package tests must inspect built wheel and sdist contents, install them in
   isolated targets, resolve every shipped skill reference, and verify the
   package-owned operational prompt outside the checkout.
-- Prefer focused execution during development, then `bin/test --core` and the
-  applicable modern/phase gate. Report exact test counts and unavailable
-  optional environment checks.
+- Prefer focused tests for the changed core/service boundary. Do not add or run
+  historical phase acceptance gates. Report exact test counts and skipped
+  broader checks.

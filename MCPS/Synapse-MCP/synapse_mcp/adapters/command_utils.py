@@ -13,6 +13,7 @@ from ..core import background_jobs
 from ..core.errors import McpError
 from ..core import evidence, scope, workspace
 from ..core.execution import EffectEnvelope, ExecutionPlan
+from ..core.synchronous_observer import command_before, command_started, command_finished
 
 
 def stringify_command(cmd: list[str]) -> str:
@@ -65,6 +66,7 @@ def run_command(
     display_cmd: list[str] | None = None,
     event_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    command_before(event_data)
     visible_cmd = display_cmd or cmd
     proc: subprocess.Popen[str] | None = None
     try:
@@ -75,7 +77,9 @@ def run_command(
             text=True,
             start_new_session=True,
         )
+        command_started(cmd)
         stdout, stderr = proc.communicate(timeout=timeout_seconds)
+        command_finished(return_code=proc.returncode, timed_out=False)
         payload = {
             "command": visible_cmd,
             "shellCommand": stringify_command(visible_cmd),
@@ -88,6 +92,7 @@ def run_command(
     except FileNotFoundError as exc:
         raise McpError(-32000, f"Executable not found: {cmd[0]}") from exc
     except subprocess.TimeoutExpired as exc:
+        command_finished(return_code=None, timed_out=True)
         if proc is not None and proc.pid:
             background_jobs.terminate_process_group(proc.pid)
             try:

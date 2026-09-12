@@ -318,6 +318,16 @@ the exact durable receipt binding, and background job records are not mutated
 until workspace, plan, receipt, dispatch, and run truth agree. JSON-v1 is not
 extended or dual-written.
 
+Task 6D binds one synchronous observer to the Registry executor call. The
+canonical HTTP backend enforces each target/method/provider route before a
+request and records response status without storing header values or query
+values. Planned local-output writes and exact retention deletions enforce the
+sealed path/effect before changing a file and record digest/size or deletion
+size. The synchronous command helper checks its planned target before spawning
+and records hashed command lifecycle metadata; child internals remain partial.
+The Authority repository alone persists observations and the final validation
+verdict, and uncertain effects retain the existing unknown/no-replay behavior.
+
 ADR-0005 fixes one database and artifact namespace per workspace, with
 credential secrets kept outside SQLite and protocol rollback separated from
 state-engine rollback. The deterministic migrator inventories JSON-v1 sources,

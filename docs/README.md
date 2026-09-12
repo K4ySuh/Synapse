@@ -7,11 +7,10 @@ next to the component under `MCPS/`.
 
 - [Root README](../README.md): project overview, setup, and current runtime.
 - [Architecture](Architecture.md): system boundaries and data flow.
-- [Modernization](modernization/README.md): reviewed baseline, architecture decisions, and phase evidence.
-- [Phase 4 handoff](modernization/phase-4-handoff.md): State Store v2 adoption, migration, backup/recovery, and acceptance.
+- [Modernization](modernization/README.md): current status, migration guidance, and architecture decisions.
+- [Operations](Operations.md): State Store v2 adoption, migration, backup, and recovery.
 - [Implementation Map](Implementation-Map.md): current modules, tool surface, and workflows.
 - [Reporting Model](Reporting-Model.md): internal HTML report views, presentation toggle, and what reports must not do.
-- [Operations](Operations.md): practical setup, workflows, cleanup, and tests.
 - [Adapter Development](Adapter-Development.md): how to build safe workspace-native adapters.
 - [Contributing](../CONTRIBUTING.md): development, test, documentation, and safety expectations.
 - [Security Policy](../SECURITY.md): vulnerability reporting and security boundaries.

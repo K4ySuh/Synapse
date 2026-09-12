@@ -184,21 +184,6 @@ opaque `operationHandle`; after trusted operator step-up Codex calls
 available, the modern adapter can instead return `input_required`. Do not
 enable an under-development client protocol feature as a workaround.
 
-Run the exact Phase 3D client gate with:
-
-```bash
-bin/run-phase3d-codex --preflight
-bin/run-phase3d-codex --run
-```
-
-The gate uses only a fictional disabled-traffic fixture and writes raw output
-under `DATA/phase3d-codex/`. It now defaults to one Luna/low repetition with
-low verbosity, no reasoning summary, and bounded retained tool output. The
-checked historical three-run Sol evidence is retained without regeneration.
-See the
-[Phase 3 handoff](modernization/phase-3-handoff.md) for accepted results and
-rollback.
-
 ## Optional Burp MCP
 
 Synapse can operate without the Burp MCP for workspace state, scoped evidence,
@@ -309,17 +294,8 @@ fresh-v2 bootstrap, a committed database without a selector is an interrupted
 creation; retrying the same create operation installs the selector without a
 duplicate revision. Workspaces never dual-write.
 
-Run the complete offline adoption gate before shipping State Store changes:
-
-```bash
-bin/run-phase4-acceptance
-```
-
-It uses private temporary roots and fictional targets with target traffic
-disabled. Exact transport smoke is reported separately from objective agent
-tool-selection evidence. See the
-[Phase 4 handoff](modernization/phase-4-handoff.md) for coverage and retained
-limitations.
+State and context changes should use focused service tests with isolated
+workspaces and disabled external traffic.
 
 ### Deterministic JSON-v1 migration and cutover
 
@@ -557,13 +533,19 @@ Restart recovery distinguishes `authorized`, `dispatch_started`, `observing`,
 `validation_pending`, `outcome_committed`, `execution_unknown`, and
 `not_dispatched` instead of inferring execution from a work-item lease.
 
-Task 6C establishes this durable lifecycle but intentionally does not claim
-effect-boundary coverage. The default observer records `not_instrumented` and
-an `unobservable` verdict. Only `runtime_observed` and `runtime_enforced`
-sources may determine validation truth; provider, consumer, model, and legacy
-reports remain supporting context. A trusted outside-envelope, incomplete, or
-indeterminate verdict moves both dispatch and run to unknown and requires
-review. Never retry an active or unknown run automatically.
+Task 6D records trusted observations for Synapse-owned synchronous HTTP hops,
+planned local-output writes and exact retention deletions, and command
+start/exit/timeout. A response or command result alone does not prove a remote
+state change or a child process's internal effects. Such gaps remain explicit
+`unobservable`/partial coverage; a blocked or uncertain owned effect becomes
+`incomplete` and moves the dispatch/run to unknown. The action outcome carries
+the typed validation and observation IDs; the facade returns only the run ID,
+verdict, coverage statuses, and observation references in diagnostics. No
+header or credential value, URL query value, command argument, or local path is
+copied into observation detail. Only `runtime_observed` and
+`runtime_enforced` sources may determine validation truth; provider,
+consumer, model, and legacy reports remain supporting context. Never retry an
+active or unknown run automatically.
 
 Execution lifecycle repository operations require SQLite-v2 and return
 `execution_lifecycle_requires_sqlite_v2` on JSON-v1. This does not migrate the
@@ -892,7 +874,7 @@ are evaluated only against server-held grants; uncovered work blocks on
 ```sh
 bin/validate-codex-skills --check
 bin/validate-codex-skills --check --profile multi-agent-compat
-bin/validate-phase6b-distribution
+bin/validate-distribution
 ```
 
 The distribution gate must remain offline. If build prerequisites are split
@@ -903,52 +885,11 @@ set `SYNAPSE_BUILD_PYTHON` to the project interpreter and
 installation subprocesses; installed runtime checks use their isolated target
 plus the selected runtime interpreter.
 
-### Phase 5 operational acceptance
+### Development checks
 
-Run the complete provider-neutral gate from the repository root:
-
-```sh
-bin/run-phase5-acceptance
-```
-
-The runner creates private fictional `benchmark` workspaces for
-`app.acme-demo.test`; a process guard disables external target traffic and no
-credentials or third-party providers are configured. Real concurrent processes
-exercise the same durable coordination contract used by separately connected
-operators/accounts. Sanitized aggregate evidence is written under
-`docs/modernization/evidence/phase-5/`.
-
-`bin/run-phase6b-codex-diagnostic --run` is the optional live-client check. It
-runs one `gpt-5.6-terra`/medium repetition with sub-agents disabled and verifies
-direct work, Web and CVE skill use in sequence, durable restart recovery,
-non-replay, and report convergence. It is not an acceptance dependency; raw
-events remain under gitignored `DATA/phase6b-codex-diagnostic/`. A different
-model or effort requires `--allow-high-usage`.
-
-The historical Phase 5 multi-agent diagnostic remains available only as:
-
-```sh
-bin/run-phase5-codex-benchmark --run --profile multi-agent-compat
-```
-
-It retains its Luna/low one-repetition guard and is compatibility evidence, not
-the default or a closure dependency. See the
-[Phase 5 benchmark method](modernization/phase-5-benchmark-method.md) and
-[handoff](modernization/phase-5-handoff.md) for historical thresholds.
-
-### Phase 6A performance baseline
-
-Run the deterministic local performance comparison with:
-
-```sh
-bin/run-phase6-performance --check
-```
-
-The runner uses 500 fictional work items, no provider I/O, 40 warm samples, and
-12 fresh-process cold starts. It reports the absolute ceilings even when a
-matching checked environment is accepted through the 20% relative p95 ceiling.
-See [the Phase 6A baseline](modernization/phase-6-performance-baseline.md) for
-the exact environment and the preserved core-only p50 miss.
+Run focused core or service tests for the boundary being changed. The offline
+distribution validator is used only for packaging changes. Completed-phase
+acceptance and benchmark runners are retired.
 
 Each connection is independently bound to server-held principal/session state.
 Authorized consumers may share a Synapse workspace while using distinct
