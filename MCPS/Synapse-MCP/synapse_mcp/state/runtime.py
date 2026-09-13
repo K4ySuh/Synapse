@@ -1399,7 +1399,26 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
             "effectValidations": effect_validations,
         }
 
-    def save_authority_state(self, connection: StateConnection, state: Mapping[str, Any]) -> int:
+    def save_authority_state(
+        self,
+        connection: StateConnection,
+        state: Mapping[str, Any],
+        *,
+        before: Mapping[str, Any] | None = None,
+    ) -> int:
+        # The policy layer mutates a transaction-local document. Compare it with
+        # the document read under the same write lock so only touched rows are
+        # persisted. A missing baseline is reserved for import/bootstrap paths.
+        previous = before or {}
+
+        def changed(kind: str, key: str, value: Any) -> bool:
+            prior = previous.get(kind)
+            return not isinstance(prior, Mapping) or key not in prior or prior[key] != value
+
+        def removed(kind: str, current: Mapping[str, Any]) -> set[str]:
+            prior = previous.get(kind)
+            return set(prior) - set(current) if isinstance(prior, Mapping) else set()
+
         current_workspace = self._workspace_revision(connection)
         current_authority_row = connection.execute(
             "SELECT revision FROM authority_repository_revisions WHERE workspace_id=?",
@@ -1418,6 +1437,8 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
         grants = state.get("grants") if isinstance(state.get("grants"), Mapping) else {}
         for grant_id, entry in grants.items():
             if not isinstance(entry, Mapping):
+                continue
+            if not changed("grants", grant_id, entry):
                 continue
             revisions = entry.get("revisions") if isinstance(entry.get("revisions"), Mapping) else {}
             current_grant_revision = int(entry.get("currentRevision") or 0)
@@ -1442,14 +1463,14 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                 )
             changes.append(("authority_grant", str(grant_id), "update", {"revision": current_grant_revision}))
 
-        valid_request_ids: set[str] = set()
         requests = state.get("requestStates") if isinstance(state.get("requestStates"), Mapping) else {}
         for raw_id, raw_item in requests.items():
             if not isinstance(raw_item, Mapping):
                 continue
             request_id = opaque_ref(str(raw_id))
+            if not changed("requestStates", raw_id, raw_item):
+                continue
             item = _secure({**raw_item, "requestStateId": request_id})
-            valid_request_ids.add(request_id)
             action_id = self._ensure_action(connection, str(item.get("actionId") or "authority.request"), revision, item)
             grant_id = str(item.get("grantId") or "") or None
             connection.execute(
@@ -1459,16 +1480,17 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                 (request_id, self.workspace_id, action_id, grant_id, request_id, str(item.get("status") or "pending"), str(item.get("expiresAt") or now), revision, revision, str(item.get("createdAt") or now), now),
             )
             self._upsert_authority_payload(connection, "request_state", request_id, item, revision)
-        self._delete_missing(connection, "request_states", "request_state_id", valid_request_ids)
+        for request_id in removed("requestStates", requests):
+            self._delete_authority_record(connection, "request_states", "request_state_id", opaque_ref(request_id))
 
-        valid_stepups: set[str] = set()
         stepups = state.get("stepUps") if isinstance(state.get("stepUps"), Mapping) else {}
         for raw_id, raw_item in stepups.items():
             if not isinstance(raw_item, Mapping):
                 continue
             stepup_id = opaque_ref(str(raw_id))
+            if not changed("stepUps", raw_id, raw_item):
+                continue
             item = _secure(raw_item)
-            valid_stepups.add(stepup_id)
             connection.execute(
                 "INSERT INTO step_ups(step_up_id, workspace_id, grant_id, grant_revision, authorization_fingerprint, approved_by_ref, expires_at, consumed_at, created_revision, created_at) "
                 "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
@@ -1476,11 +1498,14 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                 (stepup_id, self.workspace_id, str(item.get("grantId") or ""), int(item.get("grantRevision") or 0), str(item.get("authorizationFingerprint") or ""), str(item.get("approvedBy") or "operator"), str(item.get("expiresAt") or now), item.get("consumedAt") or None, revision, str(item.get("createdAt") or now)),
             )
             self._upsert_authority_payload(connection, "step_up", stepup_id, item, revision)
-        self._delete_missing(connection, "step_ups", "step_up_id", valid_stepups)
+        for stepup_id in removed("stepUps", stepups):
+            self._delete_authority_record(connection, "step_ups", "step_up_id", opaque_ref(stepup_id))
 
         budgets = state.get("budgetWindows") if isinstance(state.get("budgetWindows"), Mapping) else {}
         for grant_id, raw_item in budgets.items():
             if not isinstance(raw_item, Mapping):
+                continue
+            if not changed("budgetWindows", grant_id, raw_item):
                 continue
             item = _secure(raw_item)
             window_start = str(item.get("windowStartedAt") or now)
@@ -1504,6 +1529,8 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
         for dispatch_id, raw_item in dispatches.items():
             if not isinstance(raw_item, Mapping):
                 continue
+            if not changed("dispatches", dispatch_id, raw_item):
+                continue
             item = _secure(raw_item)
             action_id = self._ensure_action(connection, str(item.get("actionId") or "authority.action"), revision, item)
             idempotency = str(item.get("idempotencyKey") or "")
@@ -1514,11 +1541,13 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                 "ON CONFLICT(dispatch_id) DO UPDATE SET state=excluded.state, payload_json=excluded.payload_json, updated_revision=excluded.updated_revision, updated_at=excluded.updated_at",
                 (dispatch_id, self.workspace_id, action_id, grant_id, str(item.get("state") or "unknown"), idempotency, _json(item), revision, revision, str(item.get("createdAt") or now), now),
             )
-            changes.append(("action_dispatch", str(dispatch_id), "update", {"state": item.get("state")}))
+            changes.append(("action_dispatch", str(dispatch_id), "create" if dispatch_id not in previous.get("dispatches", {}) else "update", {"state": item.get("state")}))
 
         execution_runs = state.get("executionRuns") if isinstance(state.get("executionRuns"), Mapping) else {}
         for execution_run_id, raw_item in execution_runs.items():
             if not isinstance(raw_item, Mapping):
+                continue
+            if not changed("executionRuns", execution_run_id, raw_item):
                 continue
             try:
                 run = ExecutionRun.from_dict(raw_item)
@@ -1632,7 +1661,7 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                     run.updated_at,
                 ),
             )
-            changes.append(("execution_run", identity.execution_run_id, "update", {"state": str(run.state)}))
+            changes.append(("execution_run", identity.execution_run_id, "create" if execution_run_id not in previous.get("executionRuns", {}) else "update", {"state": str(run.state)}))
 
         observations = (
             state.get("executionObservations")
@@ -1642,6 +1671,10 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
         parsed_observations: dict[str, list[NormalizedEffectObservation]] = {}
         for observation_id, raw_item in observations.items():
             if not isinstance(raw_item, Mapping):
+                continue
+            if not changed("executionObservations", observation_id, raw_item):
+                observation = NormalizedEffectObservation.from_dict(raw_item)
+                parsed_observations.setdefault(observation.execution_run_id, []).append(observation)
                 continue
             try:
                 observation = NormalizedEffectObservation.from_dict(raw_item)
@@ -1691,6 +1724,10 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
         parsed_validations: dict[str, EffectValidation] = {}
         for validation_id, raw_item in validations.items():
             if not isinstance(raw_item, Mapping):
+                continue
+            if not changed("effectValidations", validation_id, raw_item):
+                validation = EffectValidation.from_dict(raw_item)
+                parsed_validations[validation.validation_id] = validation
                 continue
             try:
                 validation = EffectValidation.from_dict(raw_item)
@@ -1769,6 +1806,8 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
         for reconciliation_id, raw_item in reconciliations.items():
             if not isinstance(raw_item, Mapping):
                 continue
+            if not changed("reconciliations", reconciliation_id, raw_item):
+                continue
             dispatch_id = str(raw_item.get("dispatchId") or reconciliation_id)
             if dispatch_id not in dispatches:
                 continue
@@ -1779,12 +1818,17 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
             )
 
         decisions = state.get("decisions") if isinstance(state.get("decisions"), list) else []
-        valid_decisions: set[str] = set()
+        previous_decision_ids = {
+            str(item.get("auditId"))
+            for item in previous.get("decisions", [])
+            if isinstance(item, Mapping) and item.get("auditId")
+        }
         for index, raw_item in enumerate(decisions):
             if not isinstance(raw_item, Mapping):
                 continue
             decision_id = _safe_id(raw_item.get("auditId"), "audit", self.workspace_id, requested_revision, index, _json(raw_item))
-            valid_decisions.add(decision_id)
+            if decision_id in previous_decision_ids:
+                continue
             item = _secure(raw_item)
             inserted = connection.execute(
                 "INSERT OR IGNORE INTO authority_decisions(decision_id, workspace_id, payload_json, created_revision, created_at) VALUES(?, ?, ?, ?, ?)",
@@ -1795,7 +1839,10 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                     "INSERT INTO audit_events(event_id, workspace_id, revision, event_type, summary, actor_ref, payload_json, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
                     (decision_id, self.workspace_id, revision, f"authority.{item.get('kind') or 'decision'}", str(item.get("reason") or "Authority decision"), "authority-engine", _json(item), str(item.get("at") or now)),
                 )
-        self._delete_missing(connection, "authority_decisions", "decision_id", valid_decisions)
+        current_decision_ids = {str(item.get("auditId") or "") for item in decisions if isinstance(item, Mapping)}
+        for item in previous.get("decisions", []):
+            if isinstance(item, Mapping) and item.get("auditId") and item["auditId"] not in current_decision_ids:
+                self._delete_authority_record(connection, "authority_decisions", "decision_id", str(item["auditId"]))
 
         connection.execute(
             "INSERT INTO authority_repository_revisions(workspace_id, revision, updated_at) VALUES(?, ?, ?) "
@@ -1844,18 +1891,18 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
         )
         return safe
 
-    def _delete_missing(self, connection: StateConnection, table: str, column: str, valid: set[str]) -> None:
+    def _delete_authority_record(self, connection: StateConnection, table: str, column: str, record_id: str) -> None:
         # Table/column values are internal constants supplied by this module.
-        rows = list(connection.execute(f"SELECT {column} FROM {table} WHERE workspace_id=?", (self.workspace_id,)))
-        for row in rows:
-            if str(row[0]) not in valid:
-                connection.execute(f"DELETE FROM {table} WHERE workspace_id=? AND {column}=?", (self.workspace_id, row[0]))
-                payload_kind = {"request_states": "request_state", "step_ups": "step_up"}.get(table)
-                if payload_kind:
-                    connection.execute(
-                        "DELETE FROM authority_runtime_payloads WHERE workspace_id=? AND record_kind=? AND record_id=?",
-                        (self.workspace_id, payload_kind, row[0]),
-                    )
+        connection.execute(
+            f"DELETE FROM {table} WHERE workspace_id=? AND {column}=?",
+            (self.workspace_id, record_id),
+        )
+        payload_kind = {"request_states": "request_state", "step_ups": "step_up"}.get(table)
+        if payload_kind:
+            connection.execute(
+                "DELETE FROM authority_runtime_payloads WHERE workspace_id=? AND record_kind=? AND record_id=?",
+                (self.workspace_id, payload_kind, record_id),
+            )
 
     def _upsert_authority_payload(
         self,

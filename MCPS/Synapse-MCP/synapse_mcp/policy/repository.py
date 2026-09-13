@@ -274,6 +274,10 @@ class WorkspaceAuthorityRepository:
             f"synapse_authority_connection_{id(self)}",
             default=None,
         )
+        self._loaded_state: ContextVar[dict[str, Any] | None] = ContextVar(
+            f"synapse_authority_loaded_state_{id(self)}",
+            default=None,
+        )
 
     @property
     def path(self) -> Path:
@@ -296,9 +300,11 @@ class WorkspaceAuthorityRepository:
         try:
             with repository.transaction() as connection:
                 token = self._active_connection.set(connection)
+                state_token = self._loaded_state.set(None)
                 try:
                     yield
                 finally:
+                    self._loaded_state.reset(state_token)
                     self._active_connection.reset(token)
         except StateStoreError as exc:
             raise AuthorityRepositoryError(
@@ -1100,7 +1106,9 @@ class WorkspaceAuthorityRepository:
                     "authority_transaction_missing",
                     "Activated authority state must be read inside its workspace transaction.",
                 )
-            return self._runtime_repository().authority_state(connection)
+            state = self._runtime_repository().authority_state(connection)
+            self._loaded_state.set(json.loads(json.dumps(state)))
+            return state
         if not self.path.exists():
             return _initial_state()
         try:
@@ -1118,7 +1126,9 @@ class WorkspaceAuthorityRepository:
                     "Activated authority state must commit inside its workspace transaction.",
                 )
             try:
-                self._runtime_repository().save_authority_state(connection, state)
+                self._runtime_repository().save_authority_state(
+                    connection, state, before=self._loaded_state.get()
+                )
             except StateStoreError as exc:
                 raise AuthorityRepositoryError(exc.reason_code, str(exc)) from exc
             return

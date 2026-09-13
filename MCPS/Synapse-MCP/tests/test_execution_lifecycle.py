@@ -463,6 +463,56 @@ class ExecutionLifecycleContractTests(unittest.TestCase):
                 ["authorized", "dispatch_started", "execution_unknown", "outcome_committed"],
             )
 
+    def test_later_run_does_not_rewrite_completed_history(self) -> None:
+        with TemporaryDirectory() as temporary, isolated_state(Path(temporary), store_version="sqlite-v2"):
+            workspace.create_workspace("phase6c-unchanged", hosts=["unchanged.example"])
+            authority = WorkspaceAuthorityRepository("phase6c-unchanged", clock=lambda: NOW)
+            runtime = ActivatedWorkspaceRepository(
+                "phase6c-unchanged", workspace.workspace_path("phase6c-unchanged")
+            )
+            plan = _plan("phase6c-unchanged")
+            authority.create_grant(_grant(plan))
+
+            def complete(key: str):
+                receipt = authority.authorize(
+                    plan,
+                    risk_class=RiskClass.NONE,
+                    profile="full_delegated",
+                    authority_session_id="phase6c-session",
+                    selected_grant_id="grant-phase6c",
+                    idempotency_key=key,
+                ).receipt
+                authority.mark_dispatched(receipt)
+                authority.transition_dispatch(receipt.dispatch_id, "succeeded", outcome_kind="success")
+                return receipt
+
+            first = complete("phase6c-first")
+
+            def stored_first():
+                with runtime.connection_factory.connect() as connection:
+                    dispatch = tuple(connection.execute(
+                        "SELECT payload_json, updated_revision, updated_at FROM action_dispatches "
+                        "WHERE dispatch_id=?", (first.dispatch_id,)
+                    ).fetchone())
+                    run = tuple(connection.execute(
+                        "SELECT payload_json, updated_revision, updated_at FROM execution_runs "
+                        "WHERE execution_run_id=?", (first.execution_run_id,)
+                    ).fetchone())
+                    return dispatch, run
+
+            original = stored_first()
+            first_revision = runtime.revision()
+            complete("phase6c-second")
+            self.assertEqual(stored_first(), original)
+            with runtime.connection_factory.connect() as connection:
+                later_changes = list(connection.execute(
+                    "SELECT entity_type FROM change_log WHERE workspace_id=? "
+                    "AND revision>? AND entity_id IN (?, ?)",
+                    ("phase6c-unchanged", first_revision,
+                     first.dispatch_id, first.execution_run_id),
+                ))
+            self.assertEqual(later_changes, [])
+
     def test_restart_reconstructs_observing_and_validation_pending_boundaries(self) -> None:
         with TemporaryDirectory() as temporary, isolated_state(Path(temporary), store_version="sqlite-v2"):
             workspace.create_workspace("phase6c-boundaries", hosts=["boundaries.example"])
