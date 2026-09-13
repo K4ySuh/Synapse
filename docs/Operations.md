@@ -702,6 +702,24 @@ workspace.ingest_data(
 )
 ```
 
+For an activated SQLite-v2 workspace populated before the 6R1 ingestion fix
+(`6845e9f`), a later import of one entity could have attached that import's
+evidence to other pre-existing entities in the same target and collection.
+Generic entity payloads and `entity_evidence` links may both be affected;
+finding and action payload evidence lists may also have inherited links. New
+imports link evidence only to submitted records. Earlier workspace data is not
+rewritten or unlinked automatically.
+
+If an older link matters to a finding or report, inspect the record alongside
+the retained source artifact and decide whether that artifact actually
+supports it. A matching evidence/link revision alone cannot establish that:
+both legitimate and unintended links were created in the same ingest
+transaction. Some artifacts may have been pruned by retention, and current
+parsers cannot reconstruct the exact historical normalized submission. Mark
+uncertain cases for operator review and make any corrective state change as a
+separate, explicit decision. There is no reliable automatic diagnostic or
+repair for all historical links.
+
 Planning context:
 
 ```text

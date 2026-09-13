@@ -360,6 +360,11 @@ durable dispatch and continuation truth.
 
 ### Fixed
 
+- **Phase 6R1 SQLite-v2 ingestion integrity.** New evidence links only to
+  entities in its submission. Touched rows merge against current transactional
+  state, preserving list contributions and reviewed finding decisions;
+  unrelated entity revisions and relations stay unchanged. Existing over-linked
+  workspaces are left intact for explicit operator review.
 - **Phase 6C adversarial lifecycle checkpoint.** Dispatch and lifecycle
   mutations now validate the complete server-held receipt binding before state
   advances. Background continuation setup validates workspace, plan, effects,

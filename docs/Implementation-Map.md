@@ -791,6 +791,13 @@ parsers cover ffuf JSON, Nuclei JSONL, Synapse site map JSON, crawler JSON,
 nmap XML, Shodan, workspace-native adapter results, SSRF/open-redirect/
 command-injection/SSTI/LFI/SSI/access-control analysis output, and operator
 notes.
+For activated SQLite-v2 workspaces, ingestion passes only normalized records
+present in the submission to `state/runtime.py::ingest_collections`. That
+repository reads each touched current row and applies the shared
+`core/entity_merge.py` field policy inside the same transaction as evidence,
+entity links, workspace revision, change log, and audit. Existing records not
+in the submission keep their payload, revision, timestamp, and relations.
+JSON-v1 retains its existing merge path; no migration or wire contract changes.
 `workspace.prepare_target_context` returns a target planning summary without
 loading raw evidence, including known services, interesting endpoints, auth
 surface, state-changing candidates, input parameters, candidate/confirmed
