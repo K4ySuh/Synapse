@@ -147,6 +147,7 @@ def _entity_race_worker(workspace_root: str, barrier, worker: int, rounds: int, 
                             "method": "GET",
                             "url": "https://race.example/shared",
                             "worker": worker,
+                            "tags": [f"contribution-{round_number:03d}-{worker}"],
                         },
                         {
                             "type": "endpoint",
@@ -426,6 +427,9 @@ class StateRuntimeTests(unittest.TestCase):
         self.assertEqual(total_endpoints, 1 + RACE_ROUNDS * 2)
         self.assertEqual(evidence_count, RACE_ROUNDS * 2)
         self.assertEqual(relation_count, RACE_ROUNDS * 4)
+        shared = next(item for item in repository.collection("race.example", "endpoints") if item.get("url") == "https://race.example/shared")
+        self.assertEqual(len(shared["tags"]), RACE_ROUNDS * 2)
+        self.assertEqual(len(shared["evidenceIds"]), RACE_ROUNDS * 2)
         self.assertEqual(repository.revision(), 1 + RACE_ROUNDS * 2)
         self.assertEqual(audit_count, repository.revision())
 

@@ -369,6 +369,31 @@ class WorkspaceIngestionTests(unittest.TestCase):
                     {("/a", first["evidenceId"]), ("/b", second["evidenceId"])},
                 )
 
+                baseline_revision = repository.revision()
+                artifact = repository.artifacts.ingest_bytes(b"failed-local-submission", origin="ingest-rollback-test")
+                def fail_after_audit(stage: str) -> None:
+                    if stage == "after_audit":
+                        raise RuntimeError("injected rollback")
+
+                with self.assertRaisesRegex(RuntimeError, "injected rollback"):
+                    repository.ingest_collections(
+                        target="example.com",
+                        target_payload={"workspaceId": "engagement", "target": "example.com", "kind": "host"},
+                        evidence_payload={"evidenceId": "ev_failed_local", "source": "test", "dataType": "local"},
+                        artifact=artifact,
+                        collections={"endpoints": [{**endpoints["/a"], "tags": ["failed-update"]}]},
+                        audit_payload={"summary": "Injected failed merge."},
+                        fault_injector=fail_after_audit,
+                    )
+                self.assertEqual(repository.revision(), baseline_revision)
+                self.assertFalse(repository.evidence_exists("ev_failed_local"))
+                self.assertNotIn("failed-update", repository.collection("example.com", "endpoints")[0].get("tags", []))
+                with repository.connection_factory.connect() as connection:
+                    self.assertEqual(connection.execute(
+                        "SELECT COUNT(*) FROM entity_evidence WHERE workspace_id=? AND evidence_id=?",
+                        ("engagement", "ev_failed_local"),
+                    ).fetchone()[0], 0)
+
     def test_replaceable_ingestion_prunes_old_generated_evidence(self) -> None:
         with TemporaryDirectory() as tmp:
             with isolated_state(Path(tmp)):
@@ -613,6 +638,32 @@ class WorkspaceIngestionTests(unittest.TestCase):
                 self.assertEqual(finding["severity"], "high")
                 self.assertTrue(finding["id"])
                 self.assertTrue(finding["createdAt"])
+
+    def test_sqlite_reingest_preserves_reviewed_finding_decisions(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp), store_version="sqlite-v2"):
+                def payload(severity: str) -> str:
+                    return json.dumps({"entities": {"findings": [{
+                        "type": "finding", "key": "finding:reviewed-admin",
+                        "title": "Admin route candidate", "severity": severity,
+                        "status": "candidate", "isReportable": True,
+                    }]}})
+
+                first = workspace.ingest_data("engagement", "example.com", "adapter_result", "tool_output", "json", payload("low"))
+                repository = workspace._activated_repository("engagement")
+                finding = repository.collection("example.com", "findings")[0]
+                reviewed = {**finding, "status": "false_positive", "operatorReviewed": True,
+                            "reviewedBy": "operator:local", "isReportable": False}
+                repository.replace_collection("example.com", "findings", [reviewed])
+
+                second = workspace.ingest_data("engagement", "example.com", "adapter_result", "tool_output", "json", payload("critical"))
+                current = repository.collection("example.com", "findings")
+                self.assertEqual(len(current), 1)
+                self.assertEqual(current[0]["status"], "false_positive")
+                self.assertEqual(current[0]["severity"], "low")
+                self.assertFalse(current[0]["isReportable"])
+                self.assertEqual(current[0]["reviewedBy"], "operator:local")
+                self.assertEqual(set(current[0]["evidenceIds"]), {first["evidenceId"], second["evidenceId"]})
 
     def test_adapter_result_clamps_invalid_finding_enums_and_defaults_assets(self) -> None:
         with TemporaryDirectory() as tmp:

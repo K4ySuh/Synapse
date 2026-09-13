@@ -24,6 +24,7 @@ from synapse_mcp.core.execution_lifecycle import (
     NormalizedEffectObservation,
     verify_effect_validation_binding,
 )
+from synapse_mcp.core.entity_merge import merge_entity_fields
 
 from .backup import online_backup
 from .connections import StateConnection
@@ -834,7 +835,11 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                         (self.workspace_id, target_id, f"{target_id}:{natural}", natural, f"{target_id}:{natural}"),
                     ).fetchone()
                 )
-                merged = {**(_decode(existing[1]) if existing else {}), **item}
+                merged = _decode(existing[1]) if existing else {}
+                if evidence_id:
+                    merge_entity_fields(merged, item)
+                else:
+                    merged.update(item)
                 if existing:
                     finding_id = str(existing[0])
                     connection.execute(
@@ -846,7 +851,7 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                         "INSERT INTO findings(finding_id, workspace_id, target_id, natural_key, status, severity, operator_reviewed, payload_json, created_revision, updated_revision, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         (finding_id, self.workspace_id, target_id, f"{target_id}:{natural}", str(merged.get("status") or "candidate"), str(merged.get("severity") or "info"), int(bool(merged.get("operatorReviewed"))), _json(merged), revision, revision, now, now),
                     )
-                if merged.get("operatorReviewed"):
+                if merged.get("operatorReviewed") and (not existing or not _decode(existing[1]).get("operatorReviewed")):
                     review_id = _stable_id("review", self.workspace_id, finding_id, merged.get("updatedAt") or revision)
                     connection.execute(
                         "INSERT OR IGNORE INTO review_events(review_event_id, workspace_id, finding_id, decision, reviewer_ref, payload_json, created_revision, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
@@ -861,7 +866,11 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                     "SELECT payload_json FROM actions WHERE workspace_id=? AND action_id=?",
                     (self.workspace_id, row_id),
                 ).fetchone()
-                merged = {**(_decode(existing[0]) if existing else {}), **item}
+                merged = _decode(existing[0]) if existing else {}
+                if evidence_id:
+                    merge_entity_fields(merged, item)
+                else:
+                    merged.update(item)
                 connection.execute(
                     "INSERT INTO actions(action_id, workspace_id, action_name, state, plan_fingerprint, payload_json, created_revision, updated_revision, created_at, updated_at) "
                     "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
@@ -883,11 +892,14 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                     ).fetchone()
                 )
                 row_id = str(existing[0]) if existing else _stable_id("entity", self.workspace_id, target_id, singular, natural)
-                merged = {**(_decode(existing[1]) if existing else {}), **item}
+                merged = _decode(existing[1]) if existing else {}
                 prior_evidence = set(merged.get("evidenceIds") or []) if isinstance(merged.get("evidenceIds"), list) else set()
                 incoming_evidence = set(item.get("evidenceIds") or []) if isinstance(item.get("evidenceIds"), list) else set()
                 if evidence_id:
+                    merge_entity_fields(merged, item)
                     incoming_evidence.add(evidence_id)
+                else:
+                    merged.update(item)
                 if prior_evidence or incoming_evidence:
                     merged["evidenceIds"] = sorted(prior_evidence | incoming_evidence)
                 if existing:
@@ -987,7 +999,7 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                     relation_type,
                 )
                 desired[relation_id] = (source_id, target_entity_id, relation_type, _json(relation))
-        for relation_id in existing.keys() - desired.keys():
+        for relation_id in sorted(existing.keys() - desired.keys()):
             connection.execute(
                 "DELETE FROM entity_relations WHERE workspace_id=? AND relation_id=?",
                 (self.workspace_id, relation_id),
