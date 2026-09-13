@@ -10,7 +10,7 @@ phase acceptance and benchmark runners.
 | Task | Status | Checkpoints | Next step |
 | --- | --- | --- | --- |
 | 6R0 | Complete | 6R0.1 complete at `370597f`; 6R0.2 complete at reviewed `f503e87`/`5a33b23` | 6R1.1 |
-| 6R1 | In progress | 6R1.1 complete at `6845e9f`; 6R1.2, 6R1.3 pending | Merge touched rows against transactional current state |
+| 6R1 | In progress | 6R1.1 complete at `6845e9f`; 6R1.2 complete at `3b50c98`; 6R1.3 pending | Record historical repair limits |
 | 6R2 | Pending | 6R2.1, 6R2.2, 6R2.3 pending | Stop rewriting unchanged lifecycle history |
 | 6R3 | Pending | 6R3.1, 6R3.2, 6R3.3 pending | Define the contribution envelope |
 | 6R4 | Pending | 6R4.1, 6R4.2, 6R4.3 pending | Unify the packaged operating entry point |
@@ -22,30 +22,33 @@ phase acceptance and benchmark runners.
 
 ```yaml
 task: 6R1
-checkpoint: 6R1.1
+checkpoint: 6R1.2
 status: complete
 review_base: 5a33b238020ff987ecf38dd3afcacca81d13de1a
-implementation_commit: 6845e9f172fbf71ca4075a5ed72ca3518f0a058d
+implementation_commit: 3b50c98bcd6aeaf45700cf9febf8eb3d5ba90330
 branch: Beta
 changed_files:
+  - MCPS/Synapse-MCP/synapse_mcp/core/entity_merge.py
   - MCPS/Synapse-MCP/synapse_mcp/core/workspace.py
   - MCPS/Synapse-MCP/synapse_mcp/state/runtime.py
+  - MCPS/Synapse-MCP/tests/test_state_runtime.py
   - MCPS/Synapse-MCP/tests/test_workspace_ingestion.py
 contract_changes:
-  - SQLite-v2 ingestion submits only contributed entities; existing rows are resolved in the repository transaction.
-  - Relation synchronization preserves unchanged relation rows.
+  - SQLite-v2 ingestion merges submitted fields with the current row inside its write transaction.
+  - JSON-v1 retains the same shared field merge policy; non-ingest repository updates keep their previous replacement behavior.
 checks:
   - command: PYTHONPATH=tests python -m unittest test_workspace_ingestion test_state_runtime -q
-    result: pass; 46 tests
+    result: pass; 47 tests
   - command: git diff --cached --check
     result: pass; no whitespace errors
-remaining_issue: Same-entity list unions and reviewed finding fields still need merge against the current transactional row.
-next_checkpoint: 6R1.2
+remaining_issue: Existing SQLite-v2 workspaces may contain historical over-linking; no automatic repair has been established.
+next_checkpoint: 6R1.3
 next_action: >-
-  Move the existing field merge policy into a shared core helper and call it from
-  state/runtime.py::_upsert_collection_rows for ingestion after reading the current
-  row inside the transaction. Verify two same-entity submissions and a reviewed
-  finding with local fixtures, including rollback on an injected failure.
+  Document the affected SQLite-v2 path and historical over-linking limit. Check
+  whether evidence payloads and stored entity rows can reliably distinguish
+  erroneous links from legitimate repeated submissions; provide only a bounded
+  read-only diagnostic if that provenance is sufficient. Record compatibility
+  and the focused checks without deleting historical links.
 dirty_worktree: >-
   Tracked checkpoint work committed; pre-existing untracked
   Synapse-Reconvert-Phase.md left untouched.
