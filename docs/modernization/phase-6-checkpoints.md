@@ -10,7 +10,7 @@ phase acceptance and benchmark runners.
 | Task | Status | Checkpoints | Next step |
 | --- | --- | --- | --- |
 | 6R0 | Complete | 6R0.1 complete at `370597f`; 6R0.2 complete at reviewed `f503e87`/`5a33b23` | 6R1.1 |
-| 6R1 | Pending | 6R1.1, 6R1.2, 6R1.3 pending | Limit evidence links to contributed records |
+| 6R1 | In progress | 6R1.1 complete at `6845e9f`; 6R1.2, 6R1.3 pending | Merge touched rows against transactional current state |
 | 6R2 | Pending | 6R2.1, 6R2.2, 6R2.3 pending | Stop rewriting unchanged lifecycle history |
 | 6R3 | Pending | 6R3.1, 6R3.2, 6R3.3 pending | Define the contribution envelope |
 | 6R4 | Pending | 6R4.1, 6R4.2, 6R4.3 pending | Unify the packaged operating entry point |
@@ -21,39 +21,31 @@ phase acceptance and benchmark runners.
 ## Latest checkpoint record
 
 ```yaml
-task: 6R0
-checkpoint: 6R0.1
+task: 6R1
+checkpoint: 6R1.1
 status: complete
 review_base: 5a33b238020ff987ecf38dd3afcacca81d13de1a
-implementation_commit: 370597f4b04c1b502e5d52ce211ae0ccabdc6167
+implementation_commit: 6845e9f172fbf71ca4075a5ed72ca3518f0a058d
 branch: Beta
 changed_files:
-  - docs/modernization/README.md
-  - docs/modernization/phase-6-status.md
-  - docs/modernization/phase-6-checkpoints.md
+  - MCPS/Synapse-MCP/synapse_mcp/core/workspace.py
+  - MCPS/Synapse-MCP/synapse_mcp/state/runtime.py
+  - MCPS/Synapse-MCP/tests/test_workspace_ingestion.py
 contract_changes:
-  - Documentation only; no runtime, wire, storage, or compatibility contract change.
+  - SQLite-v2 ingestion submits only contributed entities; existing rows are resolved in the repository transaction.
+  - Relation synchronization preserves unchanged relation rows.
 checks:
-  - command: git diff --check
-    result: pass; no whitespace errors in the roadmap/status diff
-  - command: git diff -- docs/modernization/README.md docs/modernization/phase-6-status.md
-    result: reviewed; roadmap, old-to-new mapping, coverage limits, and deferred work agree
-  - command: git merge-base --is-ancestor 5a33b238020ff987ecf38dd3afcacca81d13de1a HEAD
-    result: pass; reviewed Beta was the exact HEAD before the documentation commit
-  - command: runtime suite
-    result: skipped; documentation-only checkpoint
-historical_verification:
-  checkpoint: 6R0.2
-  commit: f503e87
-  reviewed_head: 5a33b23
-  result: test_execution_lifecycle.py passed 22/22 at reviewed HEAD; not rerun for 6R0
-remaining_issue: Evidence ownership and transactional merge integrity remain for 6R1.
-next_checkpoint: 6R1.1
+  - command: PYTHONPATH=tests python -m unittest test_workspace_ingestion test_state_runtime -q
+    result: pass; 46 tests
+  - command: git diff --cached --check
+    result: pass; no whitespace errors
+remaining_issue: Same-entity list unions and reviewed finding fields still need merge against the current transactional row.
+next_checkpoint: 6R1.2
 next_action: >-
-  Inspect core/workspace.py::_ingest_data_v2 and state/runtime.py::ingest_collections;
-  carry only touched endpoint records into the repository write and link evidence
-  only to those records. Add a two-endpoint ingestion regression for payload and
-  relational links, then run the focused state/ingestion tests.
+  Move the existing field merge policy into a shared core helper and call it from
+  state/runtime.py::_upsert_collection_rows for ingestion after reading the current
+  row inside the transaction. Verify two same-entity submissions and a reviewed
+  finding with local fixtures, including rollback on an injected failure.
 dirty_worktree: >-
   Tracked checkpoint work committed; pre-existing untracked
   Synapse-Reconvert-Phase.md left untouched.
