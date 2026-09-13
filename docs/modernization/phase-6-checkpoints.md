@@ -10,7 +10,7 @@ phase acceptance and benchmark runners.
 | Task | Status | Checkpoints | Next step |
 | --- | --- | --- | --- |
 | 6R0 | Complete | 6R0.1 complete at `370597f`; 6R0.2 complete at reviewed `f503e87`/`5a33b23` | 6R1.1 |
-| 6R1 | In progress | 6R1.1 complete at `6845e9f`; 6R1.2 complete at `3b50c98`; 6R1.3 pending | Record historical repair limits |
+| 6R1 | Complete | 6R1.1 `6845e9f`; 6R1.2 `3b50c98`; 6R1.3 `e9b8233` | 6R2.1 |
 | 6R2 | Pending | 6R2.1, 6R2.2, 6R2.3 pending | Stop rewriting unchanged lifecycle history |
 | 6R3 | Pending | 6R3.1, 6R3.2, 6R3.3 pending | Define the contribution envelope |
 | 6R4 | Pending | 6R4.1, 6R4.2, 6R4.3 pending | Unify the packaged operating entry point |
@@ -22,33 +22,37 @@ phase acceptance and benchmark runners.
 
 ```yaml
 task: 6R1
-checkpoint: 6R1.2
+checkpoint: 6R1.3
 status: complete
 review_base: 5a33b238020ff987ecf38dd3afcacca81d13de1a
-implementation_commit: 3b50c98bcd6aeaf45700cf9febf8eb3d5ba90330
+implementation_commit: e9b823354f135af92fb8cca8e27bd82057d9c179
 branch: Beta
 changed_files:
-  - MCPS/Synapse-MCP/synapse_mcp/core/entity_merge.py
-  - MCPS/Synapse-MCP/synapse_mcp/core/workspace.py
-  - MCPS/Synapse-MCP/synapse_mcp/state/runtime.py
-  - MCPS/Synapse-MCP/tests/test_state_runtime.py
-  - MCPS/Synapse-MCP/tests/test_workspace_ingestion.py
+  - CHANGELOG.md
+  - docs/Implementation-Map.md
+  - docs/Operations.md
+  - docs/modernization/phase-6-status.md
 contract_changes:
-  - SQLite-v2 ingestion merges submitted fields with the current row inside its write transaction.
-  - JSON-v1 retains the same shared field merge policy; non-ingest repository updates keep their previous replacement behavior.
+  - Documentation only; historical SQLite-v2 over-linking remains untouched.
+  - JSON-v1, modern/legacy wire schemas, storage schema, and fixtures unchanged across 6R1.
 checks:
   - command: PYTHONPATH=tests python -m unittest test_workspace_ingestion test_state_runtime -q
-    result: pass; 47 tests
+    result: pass; 47 tests at 6R1.2, including JSON-v1 and SQLite-v2 paths; not rerun for documentation-only 6R1.3
   - command: git diff --cached --check
     result: pass; no whitespace errors
-remaining_issue: Existing SQLite-v2 workspaces may contain historical over-linking; no automatic repair has been established.
-next_checkpoint: 6R1.3
+  - command: local Markdown reference review
+    result: pass; Operations link and Workspace Context anchor resolve
+remaining_issue: >-
+  Older SQLite-v2 workspaces may contain over-linked evidence. Stored revision
+  metadata cannot reliably distinguish those links from legitimate repeated
+  submissions, and retained raw artifacts may be incomplete; no automatic
+  diagnostic or repair was added. Operator review is required where material.
+next_checkpoint: 6R2.1
 next_action: >-
-  Document the affected SQLite-v2 path and historical over-linking limit. Check
-  whether evidence payloads and stored entity rows can reliably distinguish
-  erroneous links from legitimate repeated submissions; provide only a bounded
-  read-only diagnostic if that provenance is sufficient. Record compatibility
-  and the focused checks without deleting historical links.
+  Trace policy/repository.py and state/runtime.py authority transactions for
+  grant, dispatch, run, budget, decision, observation, and validation writes.
+  Stop updating unchanged run/dispatch rows and add a focused run-A/run-B
+  regression before moving to the history-read reduction in 6R2.2.
 dirty_worktree: >-
   Tracked checkpoint work committed; pre-existing untracked
   Synapse-Reconvert-Phase.md left untouched.
