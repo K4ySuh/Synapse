@@ -1,8 +1,10 @@
 # Phase 6 status
 
-Phase 6 is in progress. Tasks 6A–6D are implemented, including trusted
-synchronous effect observations. No Phase 6 closure or client-support claim is
-made here.
+Phase 6 is in progress. Tasks 6A–6D are implemented at reviewed Beta commit
+`5a33b238020ff987ecf38dd3afcacca81d13de1a`. Task 6R0 records the revised
+completion contract; 6R1–6R7 remain planned. No Phase 6 closure or
+live-client support claim is made here. See the [roadmap](README.md#phase-6-beta-completion-roadmap)
+and [checkpoint ledger](phase-6-checkpoints.md).
 
 - The default is one Codex agent using `modern-compact`. Provider-specific
   skills stay outside the Synapse application.
@@ -11,13 +13,26 @@ made here.
   migration remain unchanged.
 - The Action Registry is the single policy, execution, outcome, and evidence
   route. A dispatch is bound to its signed execution plan and durable run.
-- 6D observes owned HTTP, planned local output, and synchronous child-process
-  seams. It records bounded, redacted observations; a child process's internal
-  traffic is not claimed as observed. Missing or uncertain effects require
-  reconciliation and are not automatically replayed.
+- 6D observes Synapse-owned synchronous HTTP hops, planned local-output writes
+  and exact retention deletions, and command preflight/process lifecycle at
+  the synchronous child-process seam. It enforces the plan at those owned
+  boundaries and records bounded, redacted observations on the durable run.
+  Child-process internals, provider-only HTTP, browser activity, background
+  worker internals, and other uninstrumented effects are outside that coverage.
+  Missing or uncertain effects require reconciliation and are not
+  automatically replayed. Comprehensive observer/provider coverage is
+  deferred.
+- Existing 6C lifecycle runs, receipt/job binding, and date-relative test
+  fixtures are retained. Commit `f503e87` repaired the fixture clock, and the
+  renamed lifecycle test passed 22/22 at `5a33b23`; these are historical
+  reviewed results, not fresh 6R0 test runs.
+- Evidence ownership and history-dependent authority/lifecycle persistence
+  remain confirmed Beta defects for 6R1 and 6R2. Versioned ingestion,
+  guidance delivery, bounded recovery/context, a passive pilot, and final
+  integration follow in 6R3–6R7. Counterfactual evaluation is deferred.
 
 The applicable developer checks are focused service tests for the changed
 boundary. Completed-phase acceptance and benchmark runners were retired; they
-are not prerequisites for 6D. Current operator instructions are in
+are not prerequisites for Beta completion. Current operator instructions are in
 [Operations](../Operations.md). Durable decisions are in
 [ADR-0013](adr/ADR-0013-observed-effect-execution-lifecycle.md).
