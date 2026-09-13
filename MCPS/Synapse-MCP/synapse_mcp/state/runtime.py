@@ -950,18 +950,22 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
         ))
         references: dict[str, str] = {}
         payloads: dict[str, dict[str, Any]] = {}
-        source_ids = [str(row[0]) for row in rows]
         for entity_id, payload_json in rows:
             payload = _decode(payload_json)
             payloads[str(entity_id)] = payload
             for reference in (entity_id, payload.get("entityId"), payload.get("id"), payload.get("key")):
                 if reference:
                     references[str(reference)] = str(entity_id)
-        for source_id in source_ids:
-            connection.execute(
-                "DELETE FROM entity_relations WHERE workspace_id=? AND source_entity_id=?",
-                (self.workspace_id, source_id),
+        existing = {
+            str(row[0]): (str(row[1]), str(row[2]), str(row[3]), str(row[4]))
+            for row in connection.execute(
+                "SELECT r.relation_id, r.source_entity_id, r.target_entity_id, r.relation_type, r.payload_json FROM entity_relations r "
+                "JOIN entities e ON e.entity_id=r.source_entity_id "
+                "WHERE r.workspace_id=? AND e.target_id=?",
+                (self.workspace_id, target_id),
             )
+        }
+        desired: dict[str, tuple[str, str, str, str]] = {}
         changes: list[tuple[str, str, str, Any]] = []
         now = _now()
         for source_id, payload in payloads.items():
@@ -982,11 +986,28 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                     target_entity_id,
                     relation_type,
                 )
+                desired[relation_id] = (source_id, target_entity_id, relation_type, _json(relation))
+        for relation_id in existing.keys() - desired.keys():
+            connection.execute(
+                "DELETE FROM entity_relations WHERE workspace_id=? AND relation_id=?",
+                (self.workspace_id, relation_id),
+            )
+            changes.append(("entity_relation", relation_id, "unlink", {}))
+        for relation_id, (source_id, target_entity_id, relation_type, payload_json) in desired.items():
+            if existing.get(relation_id) == (source_id, target_entity_id, relation_type, payload_json):
+                continue
+            if relation_id in existing:
+                connection.execute(
+                    "UPDATE entity_relations SET source_entity_id=?, target_entity_id=?, relation_type=?, payload_json=? "
+                    "WHERE workspace_id=? AND relation_id=?",
+                    (source_id, target_entity_id, relation_type, payload_json, self.workspace_id, relation_id),
+                )
+            else:
                 connection.execute(
                     "INSERT INTO entity_relations(relation_id, workspace_id, source_entity_id, target_entity_id, relation_type, payload_json, created_revision, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
-                    (relation_id, self.workspace_id, source_id, target_entity_id, relation_type, _json(relation), revision, now),
+                    (relation_id, self.workspace_id, source_id, target_entity_id, relation_type, payload_json, revision, now),
                 )
-                changes.append(("entity_relation", relation_id, "link", relation))
+            changes.append(("entity_relation", relation_id, "link", _decode(payload_json)))
         return changes
 
     def evidence_exists(self, evidence_id: str, target: str = "") -> bool:

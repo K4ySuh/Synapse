@@ -319,6 +319,56 @@ class WorkspaceIngestionTests(unittest.TestCase):
                 endpoint = context["knownEndpoints"]["interesting"][0]
                 self.assertEqual(endpoint["queryParameters"], ["q"])
 
+    def test_distinct_endpoint_ingests_link_only_their_own_evidence(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp), store_version="sqlite-v2"):
+                def payload(path: str) -> str:
+                    return json.dumps({"entities": {"endpoints": [{
+                        "type": "endpoint", "id": f"endpoint-{path}",
+                        "url": f"https://example.com/{path}", "method": "GET",
+                        **({"relations": [{"type": "related", "targetId": "endpoint-a"}]} if path == "a" else {}),
+                    }]}})
+
+                first = workspace.ingest_data("engagement", "example.com", "adapter_result", "tool_output", "json", payload("a"))
+                repository = workspace._activated_repository("engagement")
+                with repository.connection_factory.connect() as connection:
+                    first_row = connection.execute(
+                        "SELECT entity_id, updated_revision, updated_at FROM entities "
+                        "WHERE workspace_id=? AND entity_type='endpoint'",
+                        ("engagement",),
+                    ).fetchone()
+                    first_relation = connection.execute(
+                        "SELECT relation_id, created_revision, created_at FROM entity_relations WHERE workspace_id=?",
+                        ("engagement",),
+                    ).fetchone()
+                    self.assertIsNotNone(first_relation)
+
+                second = workspace.ingest_data("engagement", "example.com", "adapter_result", "tool_output", "json", payload("b"))
+                endpoints = {item["path"]: item for item in repository.collection("example.com", "endpoints")}
+                self.assertEqual(set(endpoints), {"/a", "/b"})
+                self.assertEqual(endpoints["/a"]["evidenceIds"], [first["evidenceId"]])
+                self.assertEqual(endpoints["/b"]["evidenceIds"], [second["evidenceId"]])
+                with repository.connection_factory.connect() as connection:
+                    first_after = connection.execute(
+                        "SELECT updated_revision, updated_at FROM entities WHERE workspace_id=? AND entity_id=?",
+                        ("engagement", first_row[0]),
+                    ).fetchone()
+                    relation_after = connection.execute(
+                        "SELECT relation_id, created_revision, created_at FROM entity_relations WHERE workspace_id=?",
+                        ("engagement",),
+                    ).fetchone()
+                    links = connection.execute(
+                        "SELECT e.payload_json, ee.evidence_id FROM entity_evidence ee "
+                        "JOIN entities e ON e.entity_id=ee.entity_id WHERE ee.workspace_id=?",
+                        ("engagement",),
+                    ).fetchall()
+                self.assertEqual(tuple(first_after), tuple(first_row[1:]))
+                self.assertEqual(tuple(relation_after), tuple(first_relation))
+                self.assertEqual(
+                    {(json.loads(row[0])["path"], row[1]) for row in links},
+                    {("/a", first["evidenceId"]), ("/b", second["evidenceId"])},
+                )
+
     def test_replaceable_ingestion_prunes_old_generated_evidence(self) -> None:
         with TemporaryDirectory() as tmp:
             with isolated_state(Path(tmp)):

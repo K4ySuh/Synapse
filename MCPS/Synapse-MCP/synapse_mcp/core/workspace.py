@@ -2666,27 +2666,20 @@ def _ingest_data_v2(
     stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
     evidence_id = f"ev_{stamp}_{time.time_ns() % 1_000_000:06d}_{slug(source)[:32]}"
     collections: dict[str, list[dict[str, Any]]] = {}
-    row_id_hints: dict[str, dict[str, str]] = {}
     for entity_name in ENTITY_FILES:
         values = parsed_entities.get(entity_name, [])
         if not values:
             collections[entity_name] = []
             continue
         normalized = _normalize_entities_for_workspace(workspace_id, host, entity_name, values)
-        records = repository.collection_records(host, entity_name)
-        existing = [payload for _row_id, payload in records]
-        by_key = {_entity_key(payload): row_id for row_id, payload in records}
+        # Only submitted records are evidence-supported by this ingest. The
+        # repository resolves existing rows inside its write transaction.
         collections[entity_name], _created = _merge_entity_values(
-            existing,
+            [],
             normalized,
             evidence_id,
             materialize_keys=True,
         )
-        row_id_hints[entity_name] = {
-            str(item.get("key")): by_key[str(item.get("key"))]
-            for item in collections[entity_name]
-            if str(item.get("key")) in by_key
-        }
     media_type = {
         "json": "application/json",
         "jsonl": "application/x-ndjson",
@@ -2739,7 +2732,6 @@ def _ingest_data_v2(
                 else metadata or {}
             ),
         },
-        row_id_hints=row_id_hints,
     )
     stored = {name: repository.collection(host, name) for name in ENTITY_FILES}
     findings_document = write_findings_markdown(workspace_id, host) if counts.get("findings") else None
