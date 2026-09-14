@@ -24,6 +24,13 @@ durable dispatch and continuation truth.
 
 ### Added
 
+- **Phase 6R4 modern guidance delivery.** Modern MCP now publishes the same
+  package-owned `synapse-main` prompt as legacy, plus a read-only catalog of
+  the three default Codex skills and their referenced documents. Catalog
+  entries carry stable URIs, package version, digest, and size; hosted text
+  comes from the files used by local skill installation. The compact surface
+  remains eleven tools, and skill activation remains a client choice.
+
 - **Phase 6R3 versioned contributions.** Modern `workspace.ingest_data` accepts
   strict `contribution.v1` envelopes for saved endpoint and observation facts.
   Registry descriptions publish the generated envelope/receipt schemas; the

@@ -10,6 +10,8 @@ from pathlib import Path
 import re
 import sysconfig
 
+from synapse_mcp.guidance import default_skills_dir
+
 
 CONFIG_PROFILES = ("standard", "core-only", "modern-direct", "legacy", "multi-agent-compat")
 SKILL_PROFILES = ("default", "multi-agent-compat", "development")
@@ -56,6 +58,11 @@ def _installed_asset_roots() -> tuple[Path, ...]:
 def codex_skills_dir(profile: str = "default") -> Path:
     if profile not in PROFILE_SKILLS:
         raise CodexAssetError(f"Unknown Codex skill profile: {profile}")
+    if profile == "default":
+        try:
+            return default_skills_dir()
+        except FileNotFoundError as exc:
+            raise CodexAssetError(str(exc)) from exc
     repository = _repository_root()
     candidates = []
     if repository is not None:

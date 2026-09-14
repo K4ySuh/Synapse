@@ -33,6 +33,18 @@ Work items are durable multi-consumer coordination records. They support
 restarts, long-running responsibility, dependencies, humans, and independently
 connected clients; their claims and role labels never grant authority.
 
+## Skill authoring
+
+Keep method selection and short recovery guidance in `operate-synapse`; put
+detailed Web and CVE methodology in the respective on-demand skills and their
+local `references/` files. Relative Markdown links in each `SKILL.md` must
+resolve within that skill directory. Keep provider instructions out of the
+application Registry and the package-owned operating prompt. The modern MCP
+guidance catalog serves the three default `SKILL.md` files and their four
+referenced Markdown documents from the same files used by the local installer.
+Update the small hosted manifest in `synapse_mcp/guidance.py` when a selected
+reference changes, then run the skill and distribution validators.
+
 ## Install and validate
 
 Each skill contains `SKILL.md` plus `agents/openai.yaml` declaring the local
@@ -61,6 +73,11 @@ SYNAPSE_SKILL_SOURCE="$(synapse-codex-assets --skills-dir)"
 mkdir -p .agents/skills
 cp -R "$SYNAPSE_SKILL_SOURCE"/. .agents/skills/
 ```
+
+Modern clients can discover the same text at `synapse://guidance/catalog` and
+read individual `synapse://guidance/skills/...` resources. MCP resource
+discovery does not install or activate Codex skills; local installation remains
+the supported skill-loading path.
 
 Selecting `multi-agent-compat` requires both its skill directory and the
 explicit client config profile. It does not change Synapse server behavior.

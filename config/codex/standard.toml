@@ -1,4 +1,7 @@
 # Installed-package Codex default. Replace every /private or /operator path.
+# Preferred operator-selected model for an assessment: gpt-daybreak-blue-latest
+# with High reasoning when available. Choose it in the client; this MCP server
+# profile does not change the user's global model setting.
 [mcp_servers.synapse]
 command = "/absolute/path/to/venv/bin/synapse-mcp-modern"
 args = [

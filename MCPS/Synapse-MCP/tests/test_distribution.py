@@ -12,6 +12,7 @@ import unittest
 from unittest.mock import patch
 
 from synapse_mcp.integrations import codex
+from synapse_mcp import guidance
 from synapse_mcp.transport import stdio_server
 
 
@@ -122,10 +123,24 @@ class DistributionTests(unittest.TestCase):
         self.assertEqual(codex.codex_config_dir().resolve(), (ROOT / "config" / "codex").resolve())
         self.assertEqual(len(codex.OPERATING_SKILLS), 3)
         self.assertEqual(len(codex.MULTI_AGENT_COMPAT_SKILLS), 8)
+        self.assertEqual(codex.codex_skills_dir(), guidance.default_skills_dir())
+        self.assertEqual(len(guidance.guidance_documents()), 7)
         for profile in codex.CONFIG_PROFILES:
             config = (codex.codex_config_dir() / f"{profile}.toml").read_text(encoding="utf-8")
             self.assertIn("[mcp_servers.synapse]", config)
             self.assertNotIn("SHODAN_API_KEY", config)
+
+    def test_guidance_reads_only_manifested_bounded_files(self) -> None:
+        with self.assertRaises(ValueError):
+            guidance.read_guidance("synapse://guidance/skills/operate-synapse/../secret")
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            oversized = root / "operate-synapse" / "SKILL.md"
+            oversized.parent.mkdir()
+            oversized.write_bytes(b"x" * (guidance.MAX_GUIDANCE_BYTES + 1))
+            with patch.object(guidance, "default_skills_dir", return_value=root):
+                with self.assertRaisesRegex(ValueError, "exceeds"):
+                    guidance.read_guidance(guidance.guidance_uri("operate-synapse", "SKILL.md"))
 
     def test_generated_codex_profiles_select_standard_core_direct_and_legacy(self) -> None:
         script = ROOT / "bin" / "print-mcp-config"

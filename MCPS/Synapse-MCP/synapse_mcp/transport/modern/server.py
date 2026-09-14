@@ -34,6 +34,14 @@ from synapse_mcp.app.facade.services import (
     CompactFacadeService,
     OperationHandleService,
 )
+from synapse_mcp.guidance import (
+    GUIDANCE_CATALOG_URI,
+    MAIN_PROMPT_URI,
+    guidance_catalog,
+    guidance_documents,
+    read_guidance,
+    read_main_prompt,
+)
 
 from .config import (
     ModernAdapterConfig,
@@ -54,17 +62,16 @@ MODERN_PROTOCOL_REVISION = "2026-07-28"
 MODERN_SDK_VERSION = "2.0.0"
 RESOURCE_URI_TEMPLATE = "synapse://artifact/{reference}"
 SERVER_INSTRUCTIONS = (
-    "Synapse is a local-first control plane for authorized human-in-the-loop security work. "
-    "Use capabilities.search and actions.describe before dynamic execution. Passive calls fail "
-    "closed on traffic, credentials, secrets, remote mutation, and destructive effects. Active "
-    "calls use server-held scope and authority; tool arguments never grant authority. Approval "
-    "requests must be reviewed through the trusted operator service. When an approval result "
-    "contains operationHandle and tasks.control is available, resume with tasks.control using "
-    "operation=resume and that handle. Protocol input_required results are retried with the same "
-    "tool and arguments using their request state. Artifact links are opaque and reauthorized on "
-    "every read. Opaque resourceRef objects returned for local source files or dump directories may "
-    "be passed back in matching source-path fields; Synapse resolves them only after rebinding checks. "
-    "Never place secrets in arguments, notes, logs, or reports."
+    "Synapse supports authorized human-in-the-loop security work. Read synapse-main or "
+    "synapse://prompt/main for the operating workflow. Discover optional read-only skills at "
+    "synapse://guidance/catalog; resources do not activate skills. Use capabilities.search and "
+    "actions.describe before dynamic execution. Passive calls fail closed on consequential "
+    "effects. Active calls use server-held scope and authority; tool arguments never grant it. "
+    "Approval requests require trusted operator review. Resume an operationHandle with "
+    "tasks.control operation=resume when available. Retry input_required with the same tool, "
+    "arguments, and request state. Artifact links and resourceRef values are opaque and "
+    "reauthorized when read or passed to matching source-path fields. Never place secrets "
+    "in arguments, notes, logs, or reports."
 )
 
 
@@ -551,6 +558,49 @@ def build_runtime(
         description="Read one selected pack description, ownership, dependencies, and resource links.",
         mime_type="application/json",
     )(read_capability_pack)
+
+    def operating_prompt() -> str:
+        return read_main_prompt()
+
+    server.prompt(
+        name="synapse-main",
+        title="Synapse operating prompt",
+        description="Shared Synapse operating prompt.",
+    )(operating_prompt)
+    server.resource(
+        MAIN_PROMPT_URI,
+        name="synapse-main-prompt",
+        title="Synapse operating prompt",
+        description="Read the same canonical operating prompt exposed through prompts/get.",
+        mime_type="text/markdown",
+    )(operating_prompt)
+    server.resource(
+        GUIDANCE_CATALOG_URI,
+        name="synapse-guidance-catalog",
+        title="Default Synapse guidance",
+        description="Versioned and digested catalog of the three default operating skills and referenced documents.",
+        mime_type="application/json",
+    )(guidance_catalog)
+
+    def guidance_reader(uri: str) -> Callable[[], str]:
+        def read_document() -> str:
+            return read_guidance(uri)
+
+        return read_document
+
+    for document in guidance_documents():
+        server.resource(
+            document.uri,
+            name=f"synapse-guidance-{document.skill}-{document.path.replace('/', '-')}",
+            title=document.description,
+            description=document.description,
+            mime_type="text/markdown",
+            meta={
+                "synapse/version": document.version,
+                "synapse/sha256": document.sha256,
+                "synapse/size": document.size,
+            },
+        )(guidance_reader(document.uri))
 
     return runtime
 

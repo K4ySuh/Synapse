@@ -4,7 +4,8 @@ Phase 6 is in progress. Tasks 6A–6D are implemented at reviewed Beta commit
 `5a33b238020ff987ecf38dd3afcacca81d13de1a`. Task 6R0 records the revised
 completion contract; 6R1 corrects new SQLite-v2 ingestion, and 6R2 makes
 authority/lifecycle persistence incremental, and 6R3 publishes versioned
-consumer contributions. Tasks 6R4–6R7 remain planned. No Phase 6 closure or
+consumer contributions. 6R4 publishes canonical modern guidance. Tasks
+6R5–6R7 remain planned. No Phase 6 closure or
 live-client support claim is made here. See the [roadmap](README.md#phase-6-beta-completion-roadmap)
 and [checkpoint ledger](phase-6-checkpoints.md).
 
@@ -36,10 +37,12 @@ and [checkpoint ledger](phase-6-checkpoints.md).
   same SQL statement counts per operation and measured 15.22 versus 15.40 ms
   median. These figures are a local diagnostic, not a client or service-level
   guarantee. Versioned ingestion is documented in the
-  [contribution contract](../Contribution-Contract.md). Guidance delivery,
-  bounded recovery/context, a passive pilot, and final integration follow in
-  6R4–6R7. Counterfactual
-  evaluation is deferred.
+  [contribution contract](../Contribution-Contract.md). The modern server now
+  exposes the same package-owned operating prompt as legacy plus a read-only,
+  digested catalog of the three default Codex skills and their references.
+  Local skill installation remains supported; hosted resources do not activate
+  client skills. Bounded recovery/context, a passive pilot, and final
+  integration follow in 6R5–6R7. Counterfactual evaluation is deferred.
 
 The applicable developer checks are focused service tests for the changed
 boundary. Completed-phase acceptance and benchmark runners were retired; they

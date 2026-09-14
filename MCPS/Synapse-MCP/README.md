@@ -173,7 +173,11 @@ and five config-profile assets. Use `synapse-codex-assets --skills-dir`,
 `--skills-profile multi-agent-compat|development`,
 `--config standard|core-only|modern-direct|legacy|multi-agent-compat`, or
 `--verify`. `bin/validate-distribution` performs the isolated archive
-build/install and standard/core cold-start gate.
+build/install and standard/core cold-start gate. Modern MCP also serves
+`synapse-main`, `synapse://prompt/main`, and a read-only
+`synapse://guidance/catalog` with the three default skill files and their
+referenced documents. Hosted guidance reads the same packaged assets as the
+local installer; resource discovery alone does not activate a client skill.
 
 Use focused service tests for runtime changes. Completed-phase acceptance
 and benchmark runners are retired; they are not normal development gates.

@@ -59,7 +59,8 @@ explicit compatibility profile only.
 - `MCPS/Synapse-MCP/synapse_mcp/adapters/AGENTS.md` governs adapters.
 - `MCPS/Synapse-MCP/tests/AGENTS.md` governs tests and fixtures.
 - `skills/README.md` and `skills/codex/` own Codex methodology; keep development
-  guidance separate from operational skills.
+  guidance separate from operational skills. Follow the
+  [skill-authoring conventions](skills/README.md#skill-authoring) when editing them.
 - `DATA/` and `reports/` contain local operational artifacts, not source.
 
 ## Development workflow

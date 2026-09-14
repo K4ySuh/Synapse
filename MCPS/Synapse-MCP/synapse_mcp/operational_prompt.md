@@ -19,10 +19,13 @@ not create separate authority, workspace, or evidence paths. Do not rely on a
 remembered action catalog when the selected startup profile can differ.
 
 Codex is the currently tested model client. Operate as one agent by default:
-use the installed `operate-synapse` skill, load Web Pentesting or CVE
-Intelligence methodology on demand, and preserve workspace state when changing
-methods. Do not spawn sub-agents unless the operator explicitly selects the
-multi-agent compatibility profile.
+read the `synapse-main` prompt (also `synapse://prompt/main`). The read-only
+`synapse://guidance/catalog` lists the three default skill documents and their
+references. Use the locally installed `operate-synapse` skill when available;
+load Web Pentesting or CVE Intelligence methodology on demand, and preserve
+workspace state when changing methods. MCP resources supply guidance but do
+not activate Codex skills. Do not spawn sub-agents unless the operator
+explicitly selects the multi-agent compatibility profile.
 
 Simple reads and bounded local analysis should remain direct. Create or claim a
 work item only when an objective benefits from durable restart recovery,
@@ -31,20 +34,19 @@ consumer or human. A claim records ownership for coordination; it grants no
 scope, credentials, or execution authority. Work items are a multi-consumer
 coordination ledger, not evidence that one client should create more agents.
 
+Independent consumers can submit saved endpoints and observations through
+modern `workspace.ingest_data` with `source=contribution.v1`, `format=json`,
+and a version 1.0 JSON envelope in `rawData`. Discover the exact schema through
+`actions.describe("workspace.ingest_data")`; use a consumer-scoped request ID
+for safe retries and keep the receipt. This writes canonical evidence and
+entities, not reviewed findings. JSON-v1 requires migration and activation.
+
 When using work items:
 
-- put role, targets, pack hints, context, completion contract, parent,
-  dependencies, exclusivity, and known gaps in the create payload because
-  these coordination boundaries are not mutable later;
-- inspect the objective, targets, dependencies, completion contract, and last
-  seen revision before acting;
-- claim exclusive work atomically and reroute after a claim collision;
-- record concise progress, blockers, gaps, results, and workspace/evidence
-  references rather than reasoning traces or chat transcripts;
-- heartbeat only while actively responsible for the item;
-- checkpoint, hand off to an independent consumer, or complete explicitly with
-  remaining uncertainty and next work;
-- after reclaim, inspect linked jobs and dispatches before any rerun.
+Set immutable objective, target, dependency, and completion boundaries at
+creation. Claim exclusive work atomically; record progress with workspace and
+evidence references. On reclaim, inspect linked execution before rerunning.
+See the `operate-synapse` workflow for details.
 
 Lease expiry makes a claim reclaimable. It does not cancel or make active,
 state-changing, or outcome-unknown execution safe to repeat.

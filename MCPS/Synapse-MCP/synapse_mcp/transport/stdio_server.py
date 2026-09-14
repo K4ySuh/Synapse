@@ -43,6 +43,7 @@ from ..core import background_jobs, cache, credentials, documentation, dumps, ev
 from ..core.adapters import default_registry as adapter_registry
 from ..core.errors import McpError
 from ..core.paths import PROMPT_PATH
+from ..guidance import read_main_prompt as read_operational_guidance
 from ..core.purple_team import gap_analysis
 from ..app.actions.legacy_bridge import bind_retained_legacy_implementation
 
@@ -3037,7 +3038,7 @@ def json_line(obj: dict[str, Any]) -> str:
 
 def read_main_prompt() -> str:
     try:
-        return PROMPT_PATH.read_text(encoding="utf-8")
+        return read_operational_guidance(PROMPT_PATH)
     except FileNotFoundError as exc:
         raise McpError(-32000, f"Main prompt file not found: {PROMPT_PATH}") from exc
 

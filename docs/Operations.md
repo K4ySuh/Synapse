@@ -32,6 +32,9 @@ Repository and installed launches serve the same package-owned
 repository-development policy, not runtime engagement guidance. Set
 `SYNAPSE_ROOT` to an operator-owned runtime root. Use `SYNAPSE_PROMPT_PATH` only
 for an intentional target-neutral override; a missing override fails closed.
+The modern server exposes the prompt both as `synapse-main` in `prompts/list`
+and as `synapse://prompt/main` in `resources/list`. Its short initialization
+instructions point clients to those entry points.
 
 Do not point the MCP client directly at system `python3` for Synapse when
 browser authentication is needed. System package builds of Playwright can be
@@ -874,6 +877,22 @@ with `$operate-synapse`. It contains exactly three operating skills:
   authentication, access control, hypotheses, validation, and convergence;
 - `synapse-cve-intelligence` for component normalization, vulnerability and
   public-PoC intelligence, applicability, and bounded validation planning.
+
+Modern MCP also lists `synapse://guidance/catalog`. The catalog identifies the
+three default skill documents and their four referenced Markdown files with
+package version, SHA-256 digest, description, size, and stable resource URI.
+Each file is read on demand with a 64 KiB limit from the same installed asset
+tree returned by `synapse-codex-assets --skills-dir`. These resources are
+read-only guidance; listing them does not activate Codex skills or mutate a
+workspace. Install the default skill profile locally when the Codex host
+should invoke skills by name. The legacy server retains its existing
+`synapse-main`/`synapse://prompt/main` discovery shape.
+
+The `standard` config example records Daybreak Blue with High reasoning as an
+operator-selected preference when provisioned. Select it in the Codex client;
+the config does not set a global model or require that model for server use.
+One Codex agent remains the default. The exact Codex build and direct-client
+compatibility result are reserved for the 6R7 client exercise.
 
 One agent may load Web Pentesting, move to CVE Intelligence, and return while
 preserving revision, execution/evidence references, authority state, and gaps.

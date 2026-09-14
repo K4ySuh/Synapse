@@ -255,17 +255,25 @@ def _verify_install(python: str, target: Path, outside: Path, expected_prompt: s
     code = """
 import hashlib, sys
 from synapse_mcp.integrations.codex import validate_assets
+from synapse_mcp.guidance import default_skills_dir, guidance_catalog, guidance_documents, read_guidance
 from synapse_mcp.state.migrations import MIGRATION_NAMES, migration_text
 from synapse_mcp.transport.stdio_server import read_main_prompt
 prompt = read_main_prompt()
 assert hashlib.sha256(prompt.encode()).hexdigest() == sys.argv[1]
+catalog = guidance_catalog()
+assert len(guidance_documents()) == 7
+assert default_skills_dir().is_relative_to(sys.argv[2])
+for document in guidance_documents():
+    assert hashlib.sha256(read_guidance(document.uri).encode()).hexdigest() == document.sha256
+    assert read_guidance(document.uri) == (default_skills_dir() / document.skill / document.path).read_text()
+assert 'synapse://guidance/skills/operate-synapse/SKILL.md' in catalog
 assert MIGRATION_NAMES[-1] == '0008_contribution_receipts.sql'
 assert 'contribution_receipts' in migration_text(MIGRATION_NAMES[-1])
 assert not validate_assets(), validate_assets()
 print(len(prompt.encode()))
 """
     _run(
-        [python, "-c", code, expected_digest],
+        [python, "-c", code, expected_digest, str(target)],
         cwd=outside,
         env=_installed_env(target, runtime_root),
     )
@@ -317,13 +325,17 @@ print('core-only runtime: 42 actions')
     else:
         code = """
 import base64, json, os
+import asyncio
 from pathlib import Path
 import sys
+from mcp import Client
 from synapse_mcp.app.actions import REGISTRY
+from synapse_mcp.app.facade.catalog import ActionCatalogService
 from synapse_mcp.app.facade.projections import SurfaceMode
 from synapse_mcp.transport.modern.config import ModernAdapterConfig
 from synapse_mcp.transport.modern.server import build_runtime
 assert len(REGISTRY.descriptors()) == 174
+assert ActionCatalogService().describe('workspace.ingest_data').input_schema['x-synapse-contribution']['rawDataSchema']['properties']['schemaVersion']['const'] == '1.0'
 root = Path(os.environ['SYNAPSE_ROOT'])
 private = root / 'private'
 private.mkdir(parents=True, exist_ok=True)
@@ -336,6 +348,18 @@ keyring.chmod(0o600)
 runtime = build_runtime(ModernAdapterConfig(surface=SurfaceMode.MODERN_COMPACT, transport='stdio', server_name='phase5e-standard', audience='phase5e-standard', identity_bindings_path=bindings, stdio_principal='phase5e-operator', request_state_keyring_path=keyring, state_dir=root / 'DATA' / 'modern-adapter' / 'standard', observability='disabled'))
 assert len(runtime.capability_packs.registry.descriptors()) == 174
 assert not any(name.startswith('synapse_mcp.integrations.codex') for name in sys.modules)
+async def verify_guidance():
+    async with Client(runtime.server) as client:
+        tools = await client.list_tools()
+        assert len(tools.tools) == 11
+        prompt = await client.get_prompt('synapse-main')
+        resource = await client.read_resource('synapse://prompt/main')
+        assert prompt.messages[0].content.text == resource.contents[0].text
+        catalog = json.loads((await client.read_resource('synapse://guidance/catalog')).contents[0].text)
+        assert len(catalog['documents']) == 7
+        ingest = next(tool for tool in tools.tools if tool.name == 'actions.run_passive')
+        assert 'actionId' in ingest.input_schema['properties']
+asyncio.run(verify_guidance())
 print('standard runtime: 174 actions')
 """
     _run(
@@ -375,6 +399,7 @@ def main() -> int:
         _verify_install(build_python, wheel_target, outside, expected_prompt)
         _verify_install(build_python, sdist_target, outside, expected_prompt)
         _verify_pack_start(modern_python, wheel_target, outside, core_only=False)
+        _verify_pack_start(modern_python, sdist_target, outside, core_only=False)
         _verify_pack_start(modern_python, wheel_target, outside, core_only=True)
 
         root_lines = len((ROOT / "AGENTS.md").read_text(encoding="utf-8").splitlines())
@@ -385,7 +410,7 @@ def main() -> int:
             "installed Codex assets: 3 default operating skills; "
             "8 multi-agent compatibility skills; 1 development skill; 5 configs"
         )
-        print("installed modern runtime starts: standard 174 actions; core-only 42 actions")
+        print("installed modern runtime starts: standard 174 actions (wheel and sdist); core-only 42 actions")
     return 0
 
 

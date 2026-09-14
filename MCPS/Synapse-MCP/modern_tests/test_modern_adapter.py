@@ -30,6 +30,12 @@ from synapse_mcp.app.actions import ActionRequest, ExecutionContext, REGISTRY, R
 from synapse_mcp.app.facade.contracts import FacadeCallContext, FacadeEnvelope, ResourceReference
 from synapse_mcp.app.facade.projections import SurfaceMode
 from synapse_mcp.core import paths, workspace
+from synapse_mcp.guidance import (
+    GUIDANCE_CATALOG_URI,
+    MAIN_PROMPT_URI,
+    guidance_documents,
+    read_main_prompt,
+)
 from synapse_mcp.policy import (
     AuthorityGrant,
     AuthorityMode,
@@ -511,6 +517,35 @@ class ModernDiscoveryTests(ModernAdapterFixture, unittest.IsolatedAsyncioTestCas
 
 
 class ModernPersistenceAndResourceTests(ModernAdapterFixture, unittest.IsolatedAsyncioTestCase):
+    async def test_operating_prompt_and_default_guidance_are_discoverable_read_only(self) -> None:
+        runtime = build_runtime(self.config())
+        before = sorted(self.data.rglob("*"))
+        async with Client(runtime.server) as client:
+            prompts = await client.list_prompts()
+            self.assertIn("synapse-main", [item.name for item in prompts.prompts])
+            prompt = await client.get_prompt("synapse-main")
+            self.assertEqual(prompt.messages[0].content.text, read_main_prompt())
+
+            resources = await client.list_resources()
+            uris = {str(item.uri): item for item in resources.resources}
+            expected = {MAIN_PROMPT_URI, GUIDANCE_CATALOG_URI}
+            expected.update(document.uri for document in guidance_documents())
+            self.assertTrue(expected.issubset(uris))
+            main = await client.read_resource(MAIN_PROMPT_URI)
+            self.assertEqual(main.contents[0].text, read_main_prompt())
+
+            catalog_result = await client.read_resource(GUIDANCE_CATALOG_URI)
+            catalog = json.loads(catalog_result.contents[0].text)
+            self.assertEqual(len(catalog["documents"]), 7)
+            for document in catalog["documents"]:
+                content = await client.read_resource(document["uri"])
+                body = content.contents[0].text
+                self.assertEqual(sha256(body.encode()).hexdigest(), document["sha256"])
+                self.assertEqual(len(body.encode()), document["size"])
+                self.assertEqual(uris[document["uri"]].meta["synapse/sha256"], document["sha256"])
+            self.assertEqual(len((await client.list_tools()).tools), 11)
+        self.assertEqual(sorted(self.data.rglob("*")), before)
+
     async def test_selected_capability_pack_catalog_and_methodology_resources_are_readable(self) -> None:
         runtime = build_runtime(self.config())
         async with Client(runtime.server) as client:
