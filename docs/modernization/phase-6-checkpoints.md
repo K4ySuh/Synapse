@@ -11,7 +11,7 @@ phase acceptance and benchmark runners.
 | --- | --- | --- | --- |
 | 6R0 | Complete | 6R0.1 complete at `370597f`; 6R0.2 complete at reviewed `f503e87`/`5a33b23` | 6R1.1 |
 | 6R1 | Complete | 6R1.1 `6845e9f`; 6R1.2 `3b50c98`; 6R1.3 `e9b8233` | 6R2.1 |
-| 6R2 | In progress | 6R2.1 `4c6e6a0`; 6R2.2 `5272de4`; 6R2.3 pending | Measure and close persistent-path checks |
+| 6R2 | Complete | 6R2.1 `4c6e6a0`; 6R2.2 `5272de4`; 6R2.3 `d18dbd7` | 6R3.1 |
 | 6R3 | Pending | 6R3.1, 6R3.2, 6R3.3 pending | Define the contribution envelope |
 | 6R4 | Pending | 6R4.1, 6R4.2, 6R4.3 pending | Unify the packaged operating entry point |
 | 6R5 | Pending | 6R5.1, 6R5.2, 6R5.3 pending | Add bounded recovery lookup |
@@ -22,50 +22,49 @@ phase acceptance and benchmark runners.
 
 ```yaml
 task: 6R2
-checkpoint: 6R2.2
+checkpoint: 6R2.3
 status: complete
 review_base: 5a33b238020ff987ecf38dd3afcacca81d13de1a
-implementation_commit: 5272de4
+implementation_commit: d18dbd7
 branch: Beta
 changed_files:
-  - MCPS/Synapse-MCP/synapse_mcp/policy/repository.py
-  - MCPS/Synapse-MCP/synapse_mcp/state/runtime.py
-  - MCPS/Synapse-MCP/synapse_mcp/state/migrations/0007_authority_lookup_indexes.sql
-  - MCPS/Synapse-MCP/synapse_mcp/state/migrations/__init__.py
-  - MCPS/Synapse-MCP/tests/test_execution_lifecycle.py
-  - MCPS/Synapse-MCP/tests/test_state_store.py
-  - MCPS/Synapse-MCP/tests/test_action_contracts.py
-  - MCPS/Synapse-MCP/tests/test_work_contracts.py
-  - MCPS/Synapse-MCP/tests/test_work_items.py
-  - bin/validate-distribution
-  - docs/Architecture.md
-  - docs/Implementation-Map.md
-  - docs/Operations.md
+  - MCPS/Synapse-MCP/tests/diagnose_authority_history.py
+  - CHANGELOG.md
+  - docs/modernization/phase-6-status.md
 contract_changes:
-  - SQLite-v2 migration 0007 adds indexed idempotency, continuation, and expiry lookup paths without changing stored row shape.
-  - Authority mutations load relevant records only; full snapshots remain explicit inspection/export behavior.
-  - Supplied observer callbacks run before the write lock and stale sealed run bindings are rejected.
-  - JSON-v1 and modern/legacy wire schemas unchanged.
+  - No further runtime or schema change in this measurement checkpoint.
+  - Across 6R2, SQLite-v2 added lookup-index migration 0007; JSON-v1, modern/legacy wire schemas, and stored row shapes remain compatible.
 checks:
-  - command: PYTHONPATH=tests ../../.venv/bin/python -m unittest test_authority_model test_authority_repository test_authority_integration test_execution_lifecycle test_execution_truth test_synchronous_execution test_state_store test_state_runtime test_state_migration test_work_items test_work_contracts test_work_reliability -q
-    result: pass; 186 tests
-  - command: PYTHONPATH=tests ../../.venv/bin/python -m unittest test_action_contracts test_modernization_docs -q
-    result: pass; 20 tests after correcting two pre-existing stale test expectations and the checkpoint path
+  - command: PYTHONPATH=tests ../../.venv/bin/python tests/diagnose_authority_history.py
+    result: >-
+      pass; Python 3.14.7, SQLite 3.53.4 via sqlite3 on MSI-Tower; five
+      passive/mock authority-lifecycle operations per history size. With 8
+      retained runs median was 15.22 ms; with 256 it was 15.40 ms. Both used
+      91 SELECT, 38 INSERT, 6 UPDATE, 3 DELETE, 35 PRAGMA, 4 BEGIN, and 4 COMMIT
+      statements per operation. This is local diagnostic evidence, not a timing
+      threshold or full MCP client measurement.
+  - command: bin/test --core -q
+    result: pass; 795 tests after correcting stale action-contract and documentation assertions
+  - command: bin/test-modern -q
+    result: pass; 16 isolated modern-adapter tests
   - command: SYNAPSE_BUILD_PYTHON=.venv/bin/python SYNAPSE_BUILD_PYTHONPATH=/usr/lib/python3.14/site-packages SYNAPSE_RUNTIME_PYTHON=.venv/bin/python .venv/bin/python bin/validate-distribution
-    result: pass; wheel and sdist built/installed, migration 0007 present
+    result: pass at 6R2.2; wheel/sdist installed, standard 174 and core 42 action startup, migration 0007 present
+  - command: PYTHONPATH=tests ../../.venv/bin/python -m unittest test_modernization_docs -q
+    result: pass; 5 documentation tests after status update
   - command: git diff --cached --check
     result: pass; no whitespace errors
-remaining_issue: Full core rerun and persistent-path diagnostic are due at 6R2.3; initial 795-test core run found two stale assertions, now corrected.
-next_checkpoint: 6R2.3
+remaining_issue: >-
+  The diagnostic covers a passive/mock local path on one host and is not a
+  live-client compatibility claim. Full-history reads remain by design for
+  explicit snapshot/export and inspection operations.
+next_checkpoint: 6R3.1
 next_action: >-
-  Run tests/diagnose_authority_history.py in one interpreter for 8 and 256
-  retained passive/mock runs, record SQL counts and median latency; rerun the
-  full core suite after stale-test corrections, update the status/changelog,
-  and close 6R2 without restoring retired performance gates.
+  Define the strict versioned contribution envelope on the existing ingestion
+  path in core/workspace.py and app/actions, with a published schema and a
+  receipt containing canonical IDs, diagnostics, and committed revision.
 dirty_worktree: >-
-  Tracked implementation committed; checkpoint record pending commit;
-  tests/diagnose_authority_history.py is unfinished 6R2.3 work; pre-existing
-  untracked Synapse-Reconvert-Phase.md left untouched.
+  Tracked 6R2 implementation committed; this checkpoint record pending commit;
+  pre-existing untracked Synapse-Reconvert-Phase.md left untouched.
 ```
 
 The Daybreak preference applies to the future operator-selected model. Codex
