@@ -360,6 +360,13 @@ durable dispatch and continuation truth.
 
 ### Fixed
 
+- **Phase 6R2 incremental SQLite-v2 authority persistence.** Authority
+  transactions now use indexed lookups for the current grant, request,
+  dispatch, budget, and run, and update only changed records. Completed
+  dispatches/runs retain their revisions and timestamps as later work commits.
+  Supplied observers finalize outside the write lock; commit rejects a stale
+  sealed run. Migration `0007` adds the lookup indexes. JSON-v1 and MCP wire
+  contracts are unchanged.
 - **Phase 6R1 SQLite-v2 ingestion integrity.** New evidence links only to
   entities in its submission. Touched rows merge against current transactional
   state, preserving list contributions and reviewed finding decisions;
