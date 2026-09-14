@@ -3,7 +3,8 @@
 Phase 6 is in progress. Tasks 6A–6D are implemented at reviewed Beta commit
 `5a33b238020ff987ecf38dd3afcacca81d13de1a`. Task 6R0 records the revised
 completion contract; 6R1 corrects new SQLite-v2 ingestion, and 6R2 makes
-authority/lifecycle persistence incremental. Tasks 6R3–6R7 remain planned. No Phase 6 closure or
+authority/lifecycle persistence incremental, and 6R3 publishes versioned
+consumer contributions. Tasks 6R4–6R7 remain planned. No Phase 6 closure or
 live-client support claim is made here. See the [roadmap](README.md#phase-6-beta-completion-roadmap)
 and [checkpoint ledger](phase-6-checkpoints.md).
 
@@ -34,8 +35,10 @@ and [checkpoint ledger](phase-6-checkpoints.md).
   256 retained mock runs on one local interpreter, the persistent path used the
   same SQL statement counts per operation and measured 15.22 versus 15.40 ms
   median. These figures are a local diagnostic, not a client or service-level
-  guarantee. Versioned ingestion, guidance delivery, bounded recovery/context,
-  a passive pilot, and final integration follow in 6R3–6R7. Counterfactual
+  guarantee. Versioned ingestion is documented in the
+  [contribution contract](../Contribution-Contract.md). Guidance delivery,
+  bounded recovery/context, a passive pilot, and final integration follow in
+  6R4–6R7. Counterfactual
   evaluation is deferred.
 
 The applicable developer checks are focused service tests for the changed

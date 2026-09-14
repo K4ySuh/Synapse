@@ -14,6 +14,7 @@ from synapse_mcp.core.execution import ExecutionPlanError
 from .descriptor import ActionRequest
 from .outcomes import (
     ExecutionFailure,
+    ExecutionUnknown,
     Success,
     ValidationFailure,
     legacy_payload_signals_error,
@@ -101,3 +102,64 @@ class RetainedLegacyExecutor:
             payload_signals_error=legacy_payload_signals_error(payload),
             legacy_payload=legacy_payload,
         )
+
+
+class WorkspaceIngestExecutor(RetainedLegacyExecutor):
+    """Use the canonical ingest path with trusted identity for strict submissions."""
+
+    def __call__(self, request: ActionRequest):
+        args = request.input.model_dump(by_alias=True, exclude_unset=True)
+        if args.get("source") != "contribution.v1":
+            return super().__call__(request)
+        if request.context.execution_profile == "legacy" or not request.context.principal_id:
+            return ValidationFailure(
+                "contribution.v1 requires an authenticated modern consumer context.",
+                legacy_code=-32602,
+                reason_code="contribution_identity_required",
+            )
+        if args.get("metadata"):
+            return ValidationFailure(
+                "contribution.v1 does not accept legacy metadata; use the versioned envelope.",
+                legacy_code=-32602,
+                reason_code="contribution_metadata_forbidden",
+            )
+        try:
+            plan = request.context.execution_plan
+            if plan is None:
+                raise ExecutionPlanError("execution_plan_missing", "Canonical execution plan is missing.")
+            plan.assert_runtime_input(args)
+            from synapse_mcp.core import workspace
+
+            receipt = workspace.ingest_data(
+                request.context.workspace_id,
+                args["target"],
+                "contribution.v1",
+                "consumer_submission",
+                args.get("format", "json"),
+                args["rawData"],
+                principal_id=request.context.principal_id,
+            )
+            from synapse_mcp.core.adapters.results import ContributionReceipt
+
+            ContributionReceipt.model_validate(receipt)
+        except ExecutionPlanError as exc:
+            return ValidationFailure(str(exc), legacy_code=-32602, reason_code=exc.reason_code)
+        except McpError as exc:
+            return outcome_from_mcp_error(exc)
+        except Exception as exc:
+            from synapse_mcp.state.errors import StateCommitUnknownError, StateStoreError
+
+            if isinstance(exc, StateCommitUnknownError):
+                return ExecutionUnknown(
+                    "Contribution commit outcome is uncertain; retry with the same requestId and payload.",
+                    legacy_code=-32000,
+                    reason_code=exc.reason_code,
+                )
+            if isinstance(exc, StateStoreError):
+                return ExecutionFailure(
+                    "Contribution storage failed before a confirmed receipt.",
+                    legacy_code=-32000,
+                    reason_code=exc.reason_code,
+                )
+            raise
+        return Success(payload=receipt)

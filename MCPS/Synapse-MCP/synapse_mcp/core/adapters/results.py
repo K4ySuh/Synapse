@@ -4,9 +4,10 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
 from .models import RiskTier, to_camel
 from ..url_hygiene import canonical_url_identity, normalize_parameter_name, redact_url_query_values
@@ -183,6 +184,86 @@ class AdapterResult(WorkspaceModel):
         payload = self.as_dict()
         payload["entities"] = self.entities.as_ingest_entities()
         return payload
+
+
+class ContributionProducer(BaseModel):
+    name: str = Field(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+    version: str = Field(min_length=1, max_length=40)
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+
+class ContributionEndpoint(EndpointEntity):
+    """The initially supported endpoint fields; no caller-authored review state."""
+
+    type: Literal["endpoint"] = "endpoint"
+    url: str = Field(min_length=1, max_length=2048)
+    evidence_ids: list[str] = Field(default_factory=list, max_length=32)
+    model_config = ConfigDict(strict=True, extra="forbid", alias_generator=to_camel, populate_by_name=True)
+
+
+class ContributionObservation(ObservationEntity):
+    type: str = Field(min_length=1, max_length=80)
+    value: JsonValue
+    evidence_ids: list[str] = Field(default_factory=list, max_length=32)
+    model_config = ConfigDict(strict=True, extra="forbid", alias_generator=to_camel, populate_by_name=True)
+
+
+class ContributionEntities(BaseModel):
+    endpoints: list[ContributionEndpoint] = Field(default_factory=list, max_length=100)
+    observations: list[ContributionObservation] = Field(default_factory=list, max_length=100)
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+
+class ContributionEnvelope(BaseModel):
+    """Version 1.0 saved-data contribution carried by workspace.ingest_data."""
+
+    schema_version: Literal["1.0"]
+    request_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
+    producer: ContributionProducer
+    source_timestamp: str | None = Field(default=None, max_length=40)
+    entities: ContributionEntities
+    evidence_refs: list[str] = Field(default_factory=list, max_length=32)
+    artifact_refs: list[str] = Field(default_factory=list, max_length=32)
+    model_config = ConfigDict(strict=True, extra="forbid", alias_generator=to_camel, populate_by_name=True)
+
+    @field_validator("source_timestamp")
+    @classmethod
+    def timestamp_has_timezone(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("sourceTimestamp must be an ISO 8601 timestamp") from exc
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            raise ValueError("sourceTimestamp must include a timezone")
+        return value
+
+    @model_validator(mode="after")
+    def require_entities(self) -> "ContributionEnvelope":
+        if not self.entities.endpoints and not self.entities.observations:
+            raise ValueError("entities must contain at least one endpoint or observation")
+        if len(self.entities.endpoints) + len(self.entities.observations) > 100:
+            raise ValueError("entities may contain at most 100 total records")
+        return self
+
+
+class ContributionReceipt(BaseModel):
+    schema_version: Literal["1.0"]
+    submission_id: str
+    workspace_id: str
+    target: str
+    request_id: str
+    producer: ContributionProducer
+    consumer_ref: str
+    canonical_record_ids: dict[str, list[str]]
+    evidence_ids: list[str]
+    artifact_ids: list[str]
+    inserted_counts: dict[str, int]
+    updated_counts: dict[str, int]
+    validation_diagnostics: list[dict[str, JsonValue]]
+    committed_revision: int
+    model_config = ConfigDict(strict=True, extra="forbid", alias_generator=to_camel, populate_by_name=True)
 
 
 def candidate_observation(

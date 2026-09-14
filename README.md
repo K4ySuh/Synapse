@@ -109,6 +109,10 @@ execution run. Child-process internals and uninstrumented paths remain
 unobservable; an incomplete or uncertain result needs reconciliation, not
 automatic replay. Phase 6 is not closed.
 
+Modern `workspace.ingest_data` now accepts a strict, versioned saved-data
+[contribution contract](docs/Contribution-Contract.md) with durable
+consumer-scoped receipts on activated SQLite-v2 workspaces.
+
 For current operating procedures see [Operations](docs/Operations.md); for
 durable design decisions and task status see
 [Modernization](docs/modernization/README.md). Closed-phase acceptance runners

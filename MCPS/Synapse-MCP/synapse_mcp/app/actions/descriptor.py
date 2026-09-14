@@ -34,6 +34,7 @@ class ExecutionContext:
     correlation_id: str
     deadline_seconds: float
     legacy_approval_asserted: bool | None
+    principal_id: str = ""
     execution_plan: ExecutionPlan | None = None
     execution_profile: str = "legacy"
     authority_session_id: str = ""

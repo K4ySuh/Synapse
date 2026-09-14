@@ -24,6 +24,13 @@ durable dispatch and continuation truth.
 
 ### Added
 
+- **Phase 6R3 versioned contributions.** Modern `workspace.ingest_data` accepts
+  strict `contribution.v1` envelopes for saved endpoint and observation facts.
+  Registry descriptions publish the generated envelope/receipt schemas; the
+  new SQLite-v2 receipt commits with evidence and entities, supports
+  consumer-scoped request retries, and survives bundle export/import. Legacy
+  parser modes and reviewed finding promotion remain unchanged.
+
 - **Phase 6D synchronous effect observation.** Bound canonical HTTP, planned
   local-output, and synchronous command helpers to the durable execution run.
   Per-hop requests and exact file effects are enforced at the owned boundary;

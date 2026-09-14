@@ -288,10 +288,23 @@ class ActionRegistry:
         """Return canonical schemas validated at the Registry execution boundary."""
 
         descriptor = self.get(action_id)
+        input_schema = descriptor.input_model.model_json_schema(mode="validation", by_alias=True)
+        output_schema = descriptor.output_model.model_json_schema(mode="validation", by_alias=True)
+        if str(descriptor.id) == "workspace.ingest_data":
+            from synapse_mcp.core.adapters.results import ContributionEnvelope, ContributionReceipt
+
+            input_schema["x-synapse-contribution"] = {
+                "source": "contribution.v1",
+                "format": "json",
+                "rawDataSchema": ContributionEnvelope.model_json_schema(mode="validation", by_alias=True),
+            }
+            output_schema["x-synapse-contribution-receipt"] = ContributionReceipt.model_json_schema(
+                mode="validation", by_alias=True
+            )
         return {
             "actionId": str(descriptor.id),
-            "inputSchema": descriptor.input_model.model_json_schema(mode="validation", by_alias=True),
-            "outputSchema": descriptor.output_model.model_json_schema(mode="validation", by_alias=True),
+            "inputSchema": input_schema,
+            "outputSchema": output_schema,
         }
 
     def resolve_effects(

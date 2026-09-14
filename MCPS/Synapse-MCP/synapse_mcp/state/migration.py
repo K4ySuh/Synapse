@@ -120,6 +120,7 @@ _PRIMARY_KEYS = {
     "evidence": ("evidence_id",),
     "artifacts": ("artifact_id",),
     "evidence_artifacts": ("workspace_id", "evidence_id", "artifact_id"),
+    "contribution_receipts": ("workspace_id", "principal_ref", "request_id"),
     "actions": ("action_id",),
     "action_dispatches": ("dispatch_id",),
     "execution_runs": ("execution_run_id",),

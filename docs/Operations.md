@@ -707,6 +707,11 @@ workspace.ingest_data(
 )
 ```
 
+For independent consumers contributing saved facts, use the strict
+[`contribution.v1` contract](Contribution-Contract.md). It publishes its schema
+through `actions.describe`, returns an atomic receipt, and supports safe
+request-ID retries on activated SQLite-v2 workspaces.
+
 For an activated SQLite-v2 workspace populated before the 6R1 ingestion fix
 (`6845e9f`), a later import of one entity could have attached that import's
 evidence to other pre-existing entities in the same target and collection.

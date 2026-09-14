@@ -232,6 +232,7 @@ class StateStoreTests(unittest.TestCase):
             "actions", "action_dispatches", "tasks", "task_events", "authority_grants",
             "authority_grant_revisions", "step_ups", "request_states", "budget_windows",
             "reconciliations", "audit_events", "migration_runs", "migration_orphans", "id_mappings",
+            "contribution_receipts",
         }
         with repository.connection_factory.connect() as connection:
             actual = {

@@ -14,10 +14,12 @@ import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
+from uuid import uuid4
 from xml.etree import ElementTree
 
 from . import atomic_io, evidence, scope
 from .adapters.results import surface_candidate, surface_candidate_id
+from .adapters.results import ContributionEnvelope
 from .entity_merge import SEVERITY_RANK, merge_entity_fields
 from .errors import McpError
 from .paths import DATA_DIR, REPORTS_DIR as _CONFIGURED_REPORTS_DIR
@@ -2678,6 +2680,119 @@ def _ingest_data_v2(
     }
 
 
+def _ingest_contribution_v1(
+    workspace_id: str | None,
+    target: str,
+    format_name: str,
+    raw_data: str,
+    *,
+    principal_id: str,
+) -> dict[str, Any]:
+    from pydantic import ValidationError
+
+    from ..state.errors import StateConflictError, StateIntegrityError
+
+    if not principal_id.strip():
+        raise McpError(-32602, "contribution.v1 requires an authenticated consumer context.")
+    if format_name != "json":
+        raise McpError(-32602, "format must be json for contribution.v1.")
+    if len(raw_data.encode("utf-8")) > 262_144:
+        raise McpError(-32602, "rawData exceeds the 256 KiB contribution limit.")
+    try:
+        envelope = ContributionEnvelope.model_validate_json(raw_data)
+    except ValidationError as exc:
+        fields = [
+            f"{'.'.join(str(part) for part in error['loc']) or 'rawData'} ({error['type']})"
+            for error in exc.errors(include_input=False, include_url=False)
+        ]
+        raise McpError(-32602, "contribution.v1 field validation failed: " + ", ".join(fields[:20])) from exc
+    wid = normalize_workspace_id(workspace_id or "")
+    if not wid or not _read_json(workspace_path(wid) / "workspace.json", {}):
+        raise McpError(-32602, "workspaceId must identify an existing workspace for contribution.v1.")
+    repository = _activated_repository(wid)
+    if repository is None:
+        raise McpError(-32602, "contribution.v1 requires an activated SQLite-v2 workspace.")
+    host = normalize_target(target)
+    if not host:
+        raise McpError(-32602, "target must include a hostname or IP.")
+    for index, item in enumerate(envelope.entities.endpoints):
+        if normalize_target(item.url) != host:
+            raise McpError(-32602, f"entities.endpoints.{index}.url must belong to target {host}.")
+        parsed_url = urlsplit(item.url)
+        if parsed_url.scheme not in {"http", "https"} or not parsed_url.hostname:
+            raise McpError(-32602, f"entities.endpoints.{index}.url must be an HTTP(S) URL.")
+        if item.host and normalize_target(item.host) != host:
+            raise McpError(-32602, f"entities.endpoints.{index}.host must match target {host}.")
+        if item.path and item.path != (parsed_url.path or "/"):
+            raise McpError(-32602, f"entities.endpoints.{index}.path must match its URL path.")
+    parsed_entities = envelope.entities.model_dump(mode="json", by_alias=True, exclude_none=True)
+    collections: dict[str, list[dict[str, Any]]] = {}
+    evidence_id = f"ev_{uuid4().hex}_contribution"
+    for name, values in parsed_entities.items():
+        normalized = _normalize_entities_for_workspace(wid, host, name, values)
+        collections[name], _created = _merge_entity_values([], normalized, evidence_id, materialize_keys=True)
+    normalized_payload = envelope.model_dump(mode="json", by_alias=True, exclude_none=True)
+    payload_fingerprint = hashlib.sha256(
+        json.dumps(normalized_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+    artifact = repository.artifacts.ingest_bytes(
+        raw_data.encode("utf-8"), media_type="application/json", origin="workspace.ingest:contribution.v1"
+    )
+    existing = repository.target_document(host)
+    scope_context = scope_status_for_target(target)
+    evidence_payload = {
+        "evidenceId": evidence_id,
+        "workspaceId": wid,
+        "target": host,
+        "source": "contribution.v1",
+        "dataType": "consumer_submission",
+        "format": "json",
+        "rawPath": str(artifact.path),
+        "artifactId": artifact.artifact_id,
+        "metadata": {
+            "producer": normalized_payload["producer"],
+            "requestId": envelope.request_id,
+            "sourceTimestamp": envelope.source_timestamp,
+            "attribution": "consumer_submitted",
+        },
+        "createdAt": now_utc(),
+    }
+    try:
+        receipt = repository.ingest_collections(
+            target=host,
+            target_payload={
+                "workspaceId": wid,
+                "target": host,
+                "kind": str(existing.get("kind") or "host"),
+                "notes": str(existing.get("notes") or ""),
+                "createdAt": str(existing.get("createdAt") or now_utc()),
+                "updatedAt": now_utc(),
+            },
+            evidence_payload=evidence_payload,
+            artifact=artifact,
+            collections=collections,
+            audit_payload={
+                "summary": f"Accepted contribution.v1 for {host}.",
+                "target": host,
+                "source": "contribution.v1",
+                "scopeStatus": scope_context["scopeStatus"],
+                "scopeReason": scope_context["scopeReason"],
+                "producer": normalized_payload["producer"],
+            },
+            contribution={
+                "principalId": principal_id,
+                "requestId": envelope.request_id,
+                "payloadFingerprint": payload_fingerprint,
+                "producer": normalized_payload["producer"],
+                "evidenceRefs": envelope.evidence_refs,
+                "artifactRefs": envelope.artifact_refs,
+            },
+        )
+    except (StateConflictError, StateIntegrityError) as exc:
+        raise McpError(-32602, f"contribution.v1 {exc.reason_code}: {exc}") from exc
+    return receipt
+
+
 def ingest_data(
     workspace_id: str | None,
     target: str,
@@ -2686,7 +2801,13 @@ def ingest_data(
     format_name: str,
     raw_data: str,
     metadata: dict[str, Any] | None = None,
+    *,
+    principal_id: str = "",
 ) -> dict[str, Any]:
+    if source == "contribution.v1":
+        return _ingest_contribution_v1(
+            workspace_id, target, format_name, raw_data, principal_id=principal_id
+        )
     workspace = ensure_workspace(workspace_id)
     wid = workspace["workspaceId"]
     scope_context = scope_status_for_target(target)

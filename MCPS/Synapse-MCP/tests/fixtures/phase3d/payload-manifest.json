@@ -67,33 +67,33 @@
       "modern-direct": {
         "revisions": {
           "2024-11-05": {
-            "compactUtf8Bytes": 1525315,
+            "compactUtf8Bytes": 1533992,
             "fixture": "sdk-modern-direct-2024-11-05-tools.json",
-            "sha256": "cd75cbc7a2da84b6ffe4f375ef9684679bb7f1d634393747d212bce5a08f5d9c",
+            "sha256": "2f1519584f90ebe74b8cc6001ee9458526510dcad3465484d457ef5e2dde949a",
             "toolCount": 174
           },
           "2025-03-26": {
-            "compactUtf8Bytes": 1525315,
+            "compactUtf8Bytes": 1533992,
             "fixture": "sdk-modern-direct-2024-11-05-tools.json",
-            "sha256": "cd75cbc7a2da84b6ffe4f375ef9684679bb7f1d634393747d212bce5a08f5d9c",
+            "sha256": "2f1519584f90ebe74b8cc6001ee9458526510dcad3465484d457ef5e2dde949a",
             "toolCount": 174
           },
           "2025-06-18": {
-            "compactUtf8Bytes": 1525315,
+            "compactUtf8Bytes": 1533992,
             "fixture": "sdk-modern-direct-2024-11-05-tools.json",
-            "sha256": "cd75cbc7a2da84b6ffe4f375ef9684679bb7f1d634393747d212bce5a08f5d9c",
+            "sha256": "2f1519584f90ebe74b8cc6001ee9458526510dcad3465484d457ef5e2dde949a",
             "toolCount": 174
           },
           "2025-11-25": {
-            "compactUtf8Bytes": 1525315,
+            "compactUtf8Bytes": 1533992,
             "fixture": "sdk-modern-direct-2024-11-05-tools.json",
-            "sha256": "cd75cbc7a2da84b6ffe4f375ef9684679bb7f1d634393747d212bce5a08f5d9c",
+            "sha256": "2f1519584f90ebe74b8cc6001ee9458526510dcad3465484d457ef5e2dde949a",
             "toolCount": 174
           },
           "2026-07-28": {
-            "compactUtf8Bytes": 1525315,
+            "compactUtf8Bytes": 1533992,
             "fixture": "sdk-modern-direct-2026-07-28-tools.json",
-            "sha256": "d666c26bc13fe850416aeb2a1c1895bafaee3ab55b04745556d850c6a4a6c5a9",
+            "sha256": "18e670e7b30e45fa877a1d165a17f714453e890b1a078f37c9dfcb7c10ab5c74",
             "toolCount": 174
           }
         }

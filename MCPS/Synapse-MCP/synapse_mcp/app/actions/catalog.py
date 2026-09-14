@@ -27,7 +27,7 @@ from .descriptor import ActionDescriptor, ActionRequest
 from .effect_declarations import EFFECT_DECLARATIONS
 from .identity import ActionId
 from .inventory import action_inventory
-from .legacy_bridge import RetainedLegacyExecutor, retained_legacy_implementation_bound
+from .legacy_bridge import RetainedLegacyExecutor, WorkspaceIngestExecutor, retained_legacy_implementation_bound
 from .policies import (
     ActionEffects,
     Availability,
@@ -195,6 +195,9 @@ def _availability_resolver(entry: dict[str, Any]):
     probe = dict(entry.get("availability", {}))
 
     def resolve(request: ActionRequest) -> Availability:
+        if (str(entry.get("actionId")) == "workspace.ingest_data"
+                and request.input.model_dump(by_alias=True).get("source") == "contribution.v1"):
+            return Availability(True)
         if not retained_legacy_implementation_bound():
             return Availability(
                 False,
@@ -268,7 +271,7 @@ def generated_descriptors(
                 entry["taskMode"] == "background_capable",
                 bool(entry["passiveRecordable"]),
             ),
-            executor=RetainedLegacyExecutor(
+            executor=(WorkspaceIngestExecutor if action_id == "workspace.ingest_data" else RetainedLegacyExecutor)(
                 str(entry["legacyName"]),
                 str(entry["serializer"]),
                 input_model,

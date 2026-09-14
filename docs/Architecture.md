@@ -335,6 +335,12 @@ transaction and persist only changed rows. Full history remains available for
 inspection/export. A supplied observer finalizes outside the write lock;
 commit checks the sealed run fingerprint and refuses stale observation truth.
 
+Migration `0008` adds a receipt keyed by workspace, authenticated consumer
+digest, and request ID. Strict `contribution.v1` submissions still pass through
+`workspace.ingest_data` and the Registry; the receipt, evidence, canonical
+entities, and revision commit together. Retries read the same receipt before
+any entity or evidence mutation, and bundles preserve it.
+
 ADR-0005 fixes one database and artifact namespace per workspace, with
 credential secrets kept outside SQLite and protocol rollback separated from
 state-engine rollback. The deterministic migrator inventories JSON-v1 sources,

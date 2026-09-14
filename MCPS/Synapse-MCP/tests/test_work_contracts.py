@@ -173,7 +173,7 @@ class WorkContractTests(unittest.TestCase):
         self.assertEqual(upgraded["dependencyPolicy"], "success_required")
         self.assertEqual(upgraded["blocker"], {})
         with repository.workspace.connection_factory.connect() as checked:
-            self.assertEqual(int(checked.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0]), 7)
+            self.assertEqual(int(checked.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0]), 8)
 
     def test_cancelled_dependency_obeys_both_dependency_policies(self) -> None:
         first = self._create("dependency-first")

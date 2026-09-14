@@ -45,6 +45,11 @@ destructive effects. Local file results become opaque, versioned references
 reauthorized against principal, authority session, and workspace on every
 read.
 
+Modern `workspace.ingest_data` also accepts `source="contribution.v1"` with a
+strict saved-data envelope and atomic SQLite-v2 receipt. The generated schema
+is published by `actions.describe`; see the
+[contribution contract](../../docs/Contribution-Contract.md).
+
 Capability discovery reports both the high-level `capabilityPack` owner and
 the stable action namespace `pack`. Deterministic filters cover effects,
 availability, target type, risk, credential need/use, scope, and task

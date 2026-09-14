@@ -1115,12 +1115,58 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
         audit_payload: Mapping[str, Any],
         fault_injector: Callable[[str], None] | None = None,
         row_id_hints: Mapping[str, Mapping[str, str]] | None = None,
-    ) -> tuple[int, dict[str, int]]:
+        contribution: Mapping[str, Any] | None = None,
+    ) -> tuple[int, dict[str, int]] | dict[str, Any]:
         if not self.artifacts.blob_exists(artifact):
             raise StateIntegrityError("artifact_blob_not_installed", "Evidence artifact bytes are not installed.")
         evidence_id = str(evidence_payload["evidenceId"])
         counts: dict[str, int] = {name: 0 for name in collections}
         with self.transaction() as connection:
+            prior_refs: list[str] = []
+            artifact_refs: list[str] = []
+            principal_ref = ""
+            if contribution is not None:
+                principal_ref = opaque_ref(str(contribution["principalId"]))
+                request_id = str(contribution["requestId"])
+                fingerprint = str(contribution["payloadFingerprint"])
+                previous = connection.execute(
+                    "SELECT payload_fingerprint, receipt_json FROM contribution_receipts "
+                    "WHERE workspace_id=? AND principal_ref=? AND request_id=?",
+                    (self.workspace_id, principal_ref, request_id),
+                ).fetchone()
+                if previous is not None:
+                    if str(previous[0]) != fingerprint:
+                        raise StateConflictError(
+                            "contribution_request_conflict",
+                            "requestId was already committed with different contribution content.",
+                            details={"field": "requestId"},
+                        )
+                    return _decode(previous[1])
+                target_id_for_refs = self._target_id(connection, target)
+                prior_refs = sorted(set(str(value) for value in contribution.get("evidenceRefs", ())))
+                artifact_refs = sorted(set(str(value) for value in contribution.get("artifactRefs", ())))
+                for linked_id in prior_refs:
+                    found = connection.execute(
+                        "SELECT 1 FROM evidence WHERE workspace_id=? AND target_id=? AND evidence_id=?",
+                        (self.workspace_id, target_id_for_refs, linked_id),
+                    ).fetchone()
+                    if found is None:
+                        raise StateIntegrityError(
+                            "contribution_evidence_ref_invalid",
+                            "evidenceRefs contains an unknown or different-target evidence ID.",
+                            details={"field": "evidenceRefs", "reference": linked_id},
+                        )
+                for linked_id in artifact_refs:
+                    found = connection.execute(
+                        "SELECT 1 FROM artifacts WHERE workspace_id=? AND artifact_id=?",
+                        (self.workspace_id, linked_id),
+                    ).fetchone()
+                    if found is None:
+                        raise StateIntegrityError(
+                            "contribution_artifact_ref_invalid",
+                            "artifactRefs contains an unknown workspace artifact ID.",
+                            details={"field": "artifactRefs", "reference": linked_id},
+                        )
             current = self._workspace_revision(connection)
             revision = current + 1
             now = _now()
@@ -1162,6 +1208,12 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                 "INSERT INTO evidence_artifacts(workspace_id, evidence_id, artifact_id, created_revision) VALUES(?, ?, ?, ?)",
                 (self.workspace_id, evidence_id, artifact.artifact_id, revision),
             )
+            for linked_id in artifact_refs:
+                if linked_id != artifact.artifact_id:
+                    connection.execute(
+                        "INSERT INTO evidence_artifacts(workspace_id, evidence_id, artifact_id, created_revision) VALUES(?, ?, ?, ?)",
+                        (self.workspace_id, evidence_id, linked_id, revision),
+                    )
             changes.extend((("evidence", evidence_id, "create", {}), ("artifact", artifact.artifact_id, "link", {"evidenceId": evidence_id})))
             if action_id:
                 result_link_id = _stable_id(
@@ -1177,17 +1229,29 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                     (result_link_id, self.workspace_id, action_id, dispatch_id or None, evidence_id, artifact.artifact_id, revision, now),
                 )
                 changes.append(("execution_result", result_link_id, "link", {"actionId": action_id, "dispatchId": dispatch_id}))
+            record_ids: dict[str, list[str]] = {}
             for name, items in collections.items():
+                submitted_items = items
+                if contribution is not None:
+                    for item in submitted_items:
+                        for linked_id in item.get("evidenceIds") or []:
+                            if linked_id != evidence_id and linked_id not in prior_refs:
+                                raise StateIntegrityError(
+                                    "contribution_entity_evidence_invalid",
+                                    "Entity evidenceIds must be listed in envelope evidenceRefs.",
+                                    details={"field": f"entities.{name}.evidenceIds", "reference": linked_id},
+                                )
                 count, entity_changes = self._upsert_collection_rows(
                     connection,
                     target=target,
                     entity_type=name,
-                    items=items,
+                    items=submitted_items,
                     revision=revision,
                     evidence_id=evidence_id,
                     row_id_hints=(row_id_hints or {}).get(name),
                 )
                 counts[name] = count
+                record_ids[name] = [str(change[1]) for change in entity_changes]
                 changes.extend(entity_changes)
             changes.extend(self._sync_relations(connection, target_id, revision))
             committed = self._finish_revision(
@@ -1199,6 +1263,31 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                 payload={**audit_payload, "evidenceId": evidence_id, "artifactId": artifact.artifact_id},
                 fault_injector=fault_injector,
             )
+            if contribution is not None:
+                receipt = {
+                    "schemaVersion": "1.0",
+                    "submissionId": _stable_id("submission", self.workspace_id, principal_ref, request_id),
+                    "workspaceId": self.workspace_id,
+                    "target": target,
+                    "requestId": request_id,
+                    "producer": dict(contribution["producer"]),
+                    "consumerRef": principal_ref,
+                    "canonicalRecordIds": record_ids,
+                    "evidenceIds": [evidence_id, *prior_refs],
+                    "artifactIds": [artifact.artifact_id, *[value for value in artifact_refs if value != artifact.artifact_id]],
+                    "insertedCounts": counts,
+                    "updatedCounts": {name: len(collections[name]) - counts[name] for name in collections},
+                    "validationDiagnostics": [],
+                    "committedRevision": committed,
+                }
+                connection.execute(
+                    "INSERT INTO contribution_receipts(workspace_id, principal_ref, request_id, payload_fingerprint, receipt_json, created_revision, created_at) "
+                    "VALUES(?, ?, ?, ?, ?, ?, ?)",
+                    (self.workspace_id, principal_ref, request_id, fingerprint, _json(receipt), committed, now),
+                )
+                if fault_injector is not None:
+                    fault_injector("after_contribution_receipt")
+                return receipt
         return committed, counts
 
     def register_artifact(self, artifact: ArtifactRecord, *, event_type: str = "artifact.register") -> int:

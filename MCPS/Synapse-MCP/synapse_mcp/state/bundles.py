@@ -49,6 +49,7 @@ BUNDLE_TABLES = (
     "action_dispatches",
     "artifacts",
     "evidence_artifacts",
+    "contribution_receipts",
     "tasks",
     "task_events",
     "task_dispatch_links",

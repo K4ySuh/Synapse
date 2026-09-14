@@ -570,7 +570,7 @@ class ExecutionLifecycleContractTests(unittest.TestCase):
             self.assertEqual(authority.inspect_execution_run(receipt.execution_run_id)["state"], "outcome_committed")
 
     def test_migration_0007_indexes_authority_request_lookups(self) -> None:
-        self.assertEqual(MIGRATION_NAMES[-1], "0007_authority_lookup_indexes.sql")
+        self.assertEqual(MIGRATION_NAMES[6], "0007_authority_lookup_indexes.sql")
         with TemporaryDirectory() as temporary, isolated_state(Path(temporary), store_version="sqlite-v2"):
             workspace.create_workspace("phase6c-indexes", hosts=["indexes.example"])
             runtime = ActivatedWorkspaceRepository("phase6c-indexes", workspace.workspace_path("phase6c-indexes"))

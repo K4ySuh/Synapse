@@ -506,6 +506,7 @@ class ActionExecutionService:
                 correlation_id=str(trusted.get("correlationId") or trace_id),
                 deadline_seconds=descriptor.task_policy.deadline_tier.value,
                 legacy_approval_asserted=None,
+                principal_id=context.principal_id,
                 execution_profile=str(trusted.get("profile") or context.execution_profile),
                 authority_session_id=context.authority_session_id,
                 selected_grant_id=str(trusted.get("grantId") or context.selected_grant_id),
