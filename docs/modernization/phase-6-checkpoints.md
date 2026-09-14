@@ -12,7 +12,7 @@ phase acceptance and benchmark runners.
 | 6R0 | Complete | 6R0.1 complete at `370597f`; 6R0.2 complete at reviewed `f503e87`/`5a33b23` | 6R1.1 |
 | 6R1 | Complete | 6R1.1 `6845e9f`; 6R1.2 `3b50c98`; 6R1.3 `e9b8233` | 6R2.1 |
 | 6R2 | Complete | 6R2.1 `4c6e6a0`; 6R2.2 `5272de4`; 6R2.3 `d18dbd7` | 6R3.1 |
-| 6R3 | Pending | 6R3.1, 6R3.2, 6R3.3 pending | Define the contribution envelope |
+| 6R3 | Complete | 6R3.1–6R3.3 `c01242e` | 6R4.1 |
 | 6R4 | Pending | 6R4.1, 6R4.2, 6R4.3 pending | Unify the packaged operating entry point |
 | 6R5 | Pending | 6R5.1, 6R5.2, 6R5.3 pending | Add bounded recovery lookup |
 | 6R6 | Pending | 6R6.1, 6R6.2 pending | Extract one saved-data integration seam |
@@ -21,49 +21,71 @@ phase acceptance and benchmark runners.
 ## Latest checkpoint record
 
 ```yaml
-task: 6R2
-checkpoint: 6R2.3
+task: 6R3
+checkpoint: 6R3.3
 status: complete
 review_base: 5a33b238020ff987ecf38dd3afcacca81d13de1a
-implementation_commit: d18dbd7
+implementation_commit: c01242e
 branch: Beta
 changed_files:
-  - MCPS/Synapse-MCP/tests/diagnose_authority_history.py
-  - CHANGELOG.md
+  - MCPS/Synapse-MCP/synapse_mcp/core/adapters/results.py
+  - MCPS/Synapse-MCP/synapse_mcp/core/workspace.py
+  - MCPS/Synapse-MCP/synapse_mcp/app/actions/catalog.py
+  - MCPS/Synapse-MCP/synapse_mcp/app/actions/descriptor.py
+  - MCPS/Synapse-MCP/synapse_mcp/app/actions/legacy_bridge.py
+  - MCPS/Synapse-MCP/synapse_mcp/app/actions/registry.py
+  - MCPS/Synapse-MCP/synapse_mcp/app/facade/services.py
+  - MCPS/Synapse-MCP/synapse_mcp/state/runtime.py
+  - MCPS/Synapse-MCP/synapse_mcp/state/bundles.py
+  - MCPS/Synapse-MCP/synapse_mcp/state/migration.py
+  - MCPS/Synapse-MCP/synapse_mcp/state/migrations/__init__.py
+  - MCPS/Synapse-MCP/synapse_mcp/state/migrations/0008_contribution_receipts.sql
+  - MCPS/Synapse-MCP/tests/test_contributions.py
+  - MCPS/Synapse-MCP/tests/test_execution_lifecycle.py
+  - MCPS/Synapse-MCP/tests/test_state_store.py
+  - MCPS/Synapse-MCP/tests/test_work_contracts.py
+  - MCPS/Synapse-MCP/tests/test_work_items.py
+  - MCPS/Synapse-MCP/tests/fixtures/phase3d/payload-manifest.json
+  - MCPS/Synapse-MCP/tests/fixtures/phase3d/sdk-modern-direct-2024-11-05-tools.json
+  - MCPS/Synapse-MCP/tests/fixtures/phase3d/sdk-modern-direct-2026-07-28-tools.json
+  - bin/validate-distribution
+  - README.md
+  - MCPS/Synapse-MCP/README.md
+  - docs/Architecture.md
+  - docs/Contribution-Contract.md
+  - docs/Implementation-Map.md
+  - docs/Operations.md
+  - docs/README.md
   - docs/modernization/phase-6-status.md
+  - CHANGELOG.md
 contract_changes:
-  - No further runtime or schema change in this measurement checkpoint.
-  - Across 6R2, SQLite-v2 added lookup-index migration 0007; JSON-v1, modern/legacy wire schemas, and stored row shapes remain compatible.
+  - Modern workspace.ingest_data accepts source=contribution.v1 with a strict 1.0 JSON envelope in rawData.
+  - Registry-generated input and receipt schemas are published in x-synapse-contribution extensions; modern-direct SDK wire fixtures intentionally changed, compact operation count stays eleven.
+  - SQLite-v2 migration 0008 adds consumer-scoped durable request receipts and bundle/backup preservation; JSON-v1 refuses strict mode without migration and activation.
+  - Legacy tool input, parser modes, and reviewed-finding promotion are unchanged.
 checks:
-  - command: PYTHONPATH=tests ../../.venv/bin/python tests/diagnose_authority_history.py
-    result: >-
-      pass; Python 3.14.7, SQLite 3.53.4 via sqlite3 on MSI-Tower; five
-      passive/mock authority-lifecycle operations per history size. With 8
-      retained runs median was 15.22 ms; with 256 it was 15.40 ms. Both used
-      91 SELECT, 38 INSERT, 6 UPDATE, 3 DELETE, 35 PRAGMA, 4 BEGIN, and 4 COMMIT
-      statements per operation. This is local diagnostic evidence, not a timing
-      threshold or full MCP client measurement.
+  - command: PYTHONPATH=tests ../../.venv/bin/python -m unittest test_contributions -q
+    result: pass; 7 focused local tests covering two consumers, retry/conflict, concurrency, evidence/artifact links, rollback, facade binding, JSON-v1 refusal, bundle and backup recovery
   - command: bin/test --core -q
-    result: pass; 795 tests after correcting stale action-contract and documentation assertions
+    result: pass; 802 tests
   - command: bin/test-modern -q
-    result: pass; 16 isolated modern-adapter tests
-  - command: SYNAPSE_BUILD_PYTHON=.venv/bin/python SYNAPSE_BUILD_PYTHONPATH=/usr/lib/python3.14/site-packages SYNAPSE_RUNTIME_PYTHON=.venv/bin/python .venv/bin/python bin/validate-distribution
-    result: pass at 6R2.2; wheel/sdist installed, standard 174 and core 42 action startup, migration 0007 present
+    result: pass; 16 isolated modern-adapter tests including exact direct wire fixtures
+  - command: SYNAPSE_BUILD_PYTHON="$PWD/.venv/bin/python" SYNAPSE_BUILD_PYTHONPATH=/usr/lib/python3.14/site-packages SYNAPSE_RUNTIME_PYTHON="$PWD/.venv/bin/python" .venv/bin/python bin/validate-distribution
+    result: pass; wheel and sdist installed; migration 0008 included; standard 174 and core-only 42 action startup
   - command: PYTHONPATH=tests ../../.venv/bin/python -m unittest test_modernization_docs -q
-    result: pass; 5 documentation tests after status update
+    result: pass; 5 documentation tests
   - command: git diff --cached --check
     result: pass; no whitespace errors
 remaining_issue: >-
-  The diagnostic covers a passive/mock local path on one host and is not a
-  live-client compatibility claim. Full-history reads remain by design for
-  explicit snapshot/export and inspection operations.
-next_checkpoint: 6R3.1
+  Version 1.0 intentionally supports endpoints and observations only. The
+  two-consumer exercise used isolated local contexts and fictional data; it
+  is not a live external-client or Daybreak compatibility claim.
+next_checkpoint: 6R4.1
 next_action: >-
-  Define the strict versioned contribution envelope on the existing ingestion
-  path in core/workspace.py and app/actions, with a published schema and a
-  receipt containing canonical IDs, diagnostics, and committed revision.
+  Add one package-level canonical guidance accessor and register the operating
+  prompt/resource on modern MCP, preserving the legacy retrieval shape.
 dirty_worktree: >-
-  Tracked 6R2 work committed; only pre-existing untracked
+  Tracked 6R3 implementation and checkpoint record committed; only pre-existing untracked
   Synapse-Reconvert-Phase.md remains untouched.
 ```
 
