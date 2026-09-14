@@ -239,6 +239,7 @@ class ActionContractTests(unittest.TestCase):
                 "implementation_ref",
                 "approval_required",
                 "idempotency_policy",
+                "observed_effect_classes",
             ],
         )
         self.assertNotIn("side_effect_class", [field.name for field in fields(ActionDescriptor)])

@@ -70,13 +70,17 @@ templates and skills through `synapse-codex-assets`.
 SQLite runtimes through the transport-independent `synapse_mcp/state/readiness.py`
 contract and fails below SQLite 3.51.3. `synapse_mcp/state/` now also owns
 repository contracts and selection, JSON-v1 compatibility adapters, verified
-SQLite connection/transaction helpers, migrations `0001` through `0006`, workspace
+SQLite connection/transaction helpers, migrations `0001` through `0007`, workspace
 and task revisions, the activated transactional runtime repository, bounded WAL
 checkpoint/status and online backup, and the workspace-local SHA-256 artifact
 store. `state/runtime.py` owns activated workspace, entity/relation, evidence,
 artifact/resource, finding/review, authority/dispatch/execution-lifecycle,
 task/finalization, and audit operations. Its `context_snapshot()` reads compiler
 inputs and the requested change-log interval from one committed WAL snapshot.
+Authority mutations select current grant, request, budget, dispatch, and run
+records under the write transaction, while `authority_state()` retains the full
+export/inspection projection. Migration `0007` indexes idempotency and job
+continuation lookups; commits update only changed authority/lifecycle rows.
 `state/migration.py` owns
 read-only inventory, immutable snapshots, restartable/idempotent v1-to-v2
 stages, verification, guarded activation, and rollback-boundary enforcement.
@@ -519,7 +523,9 @@ The protocol-independent Phase 2 authority model is under
   reservations, decisions, dispatches, continuations, and reconciliation; on
   activated SQLite-v2 it also reserves and advances the bound execution run in
   the same authority transaction, validates complete receipt identity before
-  state advances, and validates background bindings before mutating job state;
+  state advances, and validates background bindings before mutating job state.
+  Supplied observer callbacks run before the write lock and their sealed run
+  binding is rechecked during commit;
 - `integration.py` maps typed policy decisions onto Registry outcomes and
   advances durable dispatch/run truth around the sole executor seam;
 - `operator_service.py` and `operator_cli.py` expose trusted local management

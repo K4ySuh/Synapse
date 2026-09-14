@@ -1399,12 +1399,182 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
             "effectValidations": effect_validations,
         }
 
+    def authority_transaction_state(
+        self,
+        connection: StateConnection,
+        *,
+        grant_id: str = "",
+        grant_revision: int | None = None,
+        all_grants: bool = False,
+        request_state_id: str = "",
+        idempotency_key: str = "",
+        all_request_states: bool = False,
+        dispatch_id: str = "",
+        continuation_job_id: str = "",
+        all_dispatches: bool = False,
+        execution_run_id: str = "",
+        include_lifecycle: bool = False,
+        step_ups: bool = False,
+        as_of: str = "",
+    ) -> dict[str, Any]:
+        """Load only records participating in one locked authority operation."""
+
+        revision_row = connection.execute(
+            "SELECT revision FROM authority_repository_revisions WHERE workspace_id=?",
+            (self.workspace_id,),
+        ).fetchone()
+        state: dict[str, Any] = {
+            "schemaVersion": 1,
+            "revision": int(revision_row[0]) if revision_row else 0,
+            "grants": {}, "stepUps": {}, "requestStates": {},
+            "budgetWindows": {}, "decisions": [], "dispatches": {},
+            "reconciliations": {}, "executionRuns": {},
+            "executionObservations": {}, "effectValidations": {},
+        }
+        request_ids: set[str] = {request_state_id} if request_state_id else set()
+        if idempotency_key:
+            request_ids.update(str(row[0]) for row in connection.execute(
+                "SELECT p.record_id FROM authority_runtime_payloads p "
+                "WHERE p.workspace_id=? AND p.record_kind='request_state' "
+                "AND json_extract(p.payload_json, '$.idempotencyKey')=? "
+                "AND EXISTS (SELECT 1 FROM request_states r WHERE r.workspace_id=p.workspace_id "
+                "AND r.request_state_id=p.record_id AND r.expires_at>?)",
+                (self.workspace_id, idempotency_key, as_of or _now()),
+            ))
+        if all_request_states:
+            request_ids.update(str(row[0]) for row in connection.execute(
+                "SELECT request_state_id FROM request_states WHERE workspace_id=? AND expires_at>?",
+                (self.workspace_id, as_of or _now()),
+            ))
+        grant_ids: set[str] = {grant_id} if grant_id else set()
+        for identity in request_ids:
+            row = connection.execute(
+                "SELECT p.payload_json FROM authority_runtime_payloads p "
+                "WHERE p.workspace_id=? AND p.record_kind='request_state' AND p.record_id=?",
+                (self.workspace_id, identity),
+            ).fetchone()
+            if row:
+                item = _decode(row[0])
+                state["requestStates"][identity] = item
+                if item.get("grantId"):
+                    grant_ids.add(str(item["grantId"]))
+
+        dispatch_ids: set[str] = {dispatch_id} if dispatch_id else set()
+        if idempotency_key:
+            dispatch_ids.update(str(row[0]) for row in connection.execute(
+                "SELECT dispatch_id FROM action_dispatches WHERE workspace_id=? AND idempotency_key=?",
+                (self.workspace_id, idempotency_key),
+            ))
+        if continuation_job_id:
+            dispatch_ids.update(str(row[0]) for row in connection.execute(
+                "SELECT dispatch_id FROM action_dispatches WHERE workspace_id=? "
+                "AND json_extract(payload_json, '$.continuation.jobId')=?",
+                (self.workspace_id, continuation_job_id),
+            ))
+        if all_dispatches:
+            dispatch_ids.update(str(row[0]) for row in connection.execute(
+                "SELECT dispatch_id FROM action_dispatches WHERE workspace_id=?",
+                (self.workspace_id,),
+            ))
+        run_ids: set[str] = {execution_run_id} if execution_run_id else set()
+        if execution_run_id:
+            row = connection.execute(
+                "SELECT dispatch_id FROM execution_runs WHERE workspace_id=? AND execution_run_id=?",
+                (self.workspace_id, execution_run_id),
+            ).fetchone()
+            if row:
+                dispatch_ids.add(str(row[0]))
+        for identity in dispatch_ids:
+            row = connection.execute(
+                "SELECT idempotency_key, payload_json FROM action_dispatches "
+                "WHERE workspace_id=? AND dispatch_id=?",
+                (self.workspace_id, identity),
+            ).fetchone()
+            if row:
+                item = _decode(row[1])
+                item.setdefault("dispatchId", identity)
+                item["idempotencyKey"] = str(row[0])
+                state["dispatches"][identity] = item
+                if item.get("grantId"):
+                    grant_ids.add(str(item["grantId"]))
+                if include_lifecycle and item.get("executionRunId"):
+                    run_ids.add(str(item["executionRunId"]))
+
+        if all_grants:
+            grant_ids.update(str(row[0]) for row in connection.execute(
+                "SELECT grant_id FROM authority_grants WHERE workspace_id=?",
+                (self.workspace_id,),
+            ))
+        for identity in grant_ids:
+            row = connection.execute(
+                "SELECT current_revision FROM authority_grants WHERE workspace_id=? AND grant_id=?",
+                (self.workspace_id, identity),
+            ).fetchone()
+            if row is None:
+                continue
+            current = int(row[0])
+            revisions: dict[str, Any] = {}
+            selected = {current}
+            if identity == grant_id and grant_revision is not None:
+                selected.add(grant_revision)
+            for number in selected:
+                policy = connection.execute(
+                    "SELECT policy_json FROM authority_grant_revisions WHERE workspace_id=? "
+                    "AND grant_id=? AND grant_revision=?",
+                    (self.workspace_id, identity, number),
+                ).fetchone()
+                if policy:
+                    revisions[str(number)] = _decode(policy[0])
+            state["grants"][identity] = {"currentRevision": current, "revisions": revisions}
+            budget = connection.execute(
+                "SELECT p.payload_json FROM budget_windows b "
+                "JOIN authority_runtime_payloads p ON p.workspace_id=b.workspace_id "
+                "AND p.record_kind='budget_window' AND p.record_id=b.budget_window_id "
+                "WHERE b.workspace_id=? AND b.grant_id=? AND b.dimension='dispatch_total' "
+                "ORDER BY b.window_start DESC LIMIT 1",
+                (self.workspace_id, identity),
+            ).fetchone()
+            if budget:
+                state["budgetWindows"][identity] = _decode(budget[0])
+            if step_ups:
+                for step_id, payload in connection.execute(
+                    "SELECT s.step_up_id, p.payload_json FROM step_ups s "
+                    "JOIN authority_runtime_payloads p ON p.workspace_id=s.workspace_id "
+                    "AND p.record_kind='step_up' AND p.record_id=s.step_up_id "
+                    "WHERE s.workspace_id=? AND s.grant_id=? AND s.grant_revision=? AND s.expires_at>?",
+                    (self.workspace_id, identity, current, as_of or _now()),
+                ):
+                    state["stepUps"][str(step_id)] = _decode(payload)
+
+        for identity in run_ids:
+            row = connection.execute(
+                "SELECT payload_json FROM execution_runs WHERE workspace_id=? AND execution_run_id=?",
+                (self.workspace_id, identity),
+            ).fetchone()
+            if row:
+                state["executionRuns"][identity] = _decode(row[0])
+                for observation_id, payload in connection.execute(
+                    "SELECT observation_id, payload_json FROM execution_observations "
+                    "WHERE workspace_id=? AND execution_run_id=? ORDER BY sequence",
+                    (self.workspace_id, identity),
+                ):
+                    state["executionObservations"][str(observation_id)] = _decode(payload)
+                for validation_id, payload in connection.execute(
+                    "SELECT validation_id, payload_json FROM effect_validations "
+                    "WHERE workspace_id=? AND execution_run_id=? ORDER BY created_revision",
+                    (self.workspace_id, identity),
+                ):
+                    state["effectValidations"][str(validation_id)] = _decode(payload)
+        return state
+
     def save_authority_state(
         self,
         connection: StateConnection,
         state: Mapping[str, Any],
         *,
         before: Mapping[str, Any] | None = None,
+        as_of: str = "",
+        decision_retention: int = 500,
     ) -> int:
         # The policy layer mutates a transaction-local document. Compare it with
         # the document read under the same write lock so only touched rows are
@@ -1843,6 +2013,35 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
         for item in previous.get("decisions", []):
             if isinstance(item, Mapping) and item.get("auditId") and item["auditId"] not in current_decision_ids:
                 self._delete_authority_record(connection, "authority_decisions", "decision_id", str(item["auditId"]))
+
+        # Compaction belongs to SQLite when the policy document is scoped. It
+        # never requires loading historical payloads into the transaction.
+        cutoff = as_of or now
+        for row in list(connection.execute(
+            "SELECT request_state_id FROM request_states WHERE workspace_id=? AND expires_at<=?",
+            (self.workspace_id, cutoff),
+        )):
+            self._delete_authority_record(connection, "request_states", "request_state_id", str(row[0]))
+        for row in list(connection.execute(
+            "SELECT request_state_id FROM request_states WHERE workspace_id=? "
+            "ORDER BY created_at DESC, request_state_id DESC LIMIT -1 OFFSET ?",
+            (self.workspace_id, decision_retention),
+        )):
+            self._delete_authority_record(connection, "request_states", "request_state_id", str(row[0]))
+        for row in list(connection.execute(
+            "SELECT step_up_id FROM step_ups WHERE workspace_id=? AND expires_at<=?",
+            (self.workspace_id, cutoff),
+        )):
+            self._delete_authority_record(connection, "step_ups", "step_up_id", str(row[0]))
+        connection.execute(
+            "DELETE FROM authority_decisions WHERE workspace_id=? AND decision_id IN ("
+            "SELECT decision_id FROM authority_decisions WHERE workspace_id=? "
+            "ORDER BY created_revision DESC, decision_id DESC LIMIT -1 OFFSET ?"
+            ") AND NOT EXISTS (SELECT 1 FROM action_dispatches d WHERE d.workspace_id=? "
+            "AND d.dispatch_id=json_extract(authority_decisions.payload_json, '$.dispatchId') "
+            "AND d.state IN ('authorized', 'dispatched', 'unknown'))",
+            (self.workspace_id, self.workspace_id, decision_retention, self.workspace_id),
+        )
 
         connection.execute(
             "INSERT INTO authority_repository_revisions(workspace_id, revision, updated_at) VALUES(?, ?, ?) "

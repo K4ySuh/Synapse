@@ -473,7 +473,12 @@ DATA/workspaces/<workspace-id>/authority/state.json
 For an activated SQLite-v2 workspace, authority, dispatch, and execution
 lifecycle truth is transactional in `state-v2/state.sqlite3`; do not read or
 modify the database directly. The operator authority commands below select the
-correct repository from workspace state.
+correct repository from workspace state. New transactions use bounded indexed
+lookups for the current request and referenced run, and keep completed unrelated
+dispatch/run revisions and timestamps unchanged. Full snapshots remain available
+for explicit inspection/export. SQLite-v2 migration `0007` adds the lookup
+indexes automatically on the next verified repository open; it does not alter
+JSON-v1 workspaces or activate a migration for them.
 
 Use the local operator entry point, never an MCP action, to manage it:
 

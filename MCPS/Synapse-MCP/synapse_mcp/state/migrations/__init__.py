@@ -21,6 +21,7 @@ MIGRATION_NAMES = (
     "0004_work_execution_attempts.sql",
     "0005_work_dependency_policies.sql",
     "0006_execution_lifecycle.sql",
+    "0007_authority_lookup_indexes.sql",
 )
 
 

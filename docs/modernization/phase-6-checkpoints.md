@@ -35,7 +35,7 @@ contract_changes:
   - SQLite-v2 authority commits write only changed grant, request, step-up, budget, dispatch, run, observation, validation, and decision records.
   - JSON-v1, modern/legacy wire schemas, and storage schema unchanged.
 checks:
-  - command: PYTHONPATH=tests /home/kaysuh/Projects/Synapse/.venv/bin/python -m unittest test_authority_repository test_authority_integration test_state_runtime test_execution_lifecycle -q
+  - command: PYTHONPATH=tests ../../.venv/bin/python -m unittest test_authority_repository test_authority_integration test_state_runtime test_execution_lifecycle -q
     result: pass; 64 tests, including unchanged run A after run B
   - command: git diff --check
     result: pass; no whitespace errors

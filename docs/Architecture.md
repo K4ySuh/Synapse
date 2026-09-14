@@ -328,6 +328,13 @@ and records hashed command lifecycle metadata; child internals remain partial.
 The Authority repository alone persists observations and the final validation
 verdict, and uncertain effects retain the existing unknown/no-replay behavior.
 
+Migration `0007` adds lookup indexes for authority idempotency and job
+continuation. Activated SQLite-v2 authority mutations load relevant grant,
+request, budget, dispatch, and execution-run records inside one write
+transaction and persist only changed rows. Full history remains available for
+inspection/export. A supplied observer finalizes outside the write lock;
+commit checks the sealed run fingerprint and refuses stale observation truth.
+
 ADR-0005 fixes one database and artifact namespace per workspace, with
 credential secrets kept outside SQLite and protocol rollback separated from
 state-engine rollback. The deterministic migrator inventories JSON-v1 sources,

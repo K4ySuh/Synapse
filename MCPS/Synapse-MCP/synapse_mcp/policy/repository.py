@@ -335,7 +335,7 @@ class WorkspaceAuthorityRepository:
         if grant.revision != 1:
             raise AuthorityRepositoryError("grant_revision_invalid", "A new grant must begin at revision 1.")
         with self._repository_transaction():
-            state = self._read_locked()
+            state = self._read_locked(grant_id=grant.grant_id)
             self._check_revision(state, expected_repository_revision)
             if grant.grant_id in state["grants"]:
                 raise AuthorityRepositoryError("grant_already_exists", f"Grant already exists: {grant.grant_id}")
@@ -349,12 +349,12 @@ class WorkspaceAuthorityRepository:
 
     def inspect_grant(self, grant_id: str, revision: int | None = None) -> AuthorityGrant:
         with self._repository_transaction():
-            state = self._read_locked()
+            state = self._read_locked(grant_id=grant_id, grant_revision=revision)
             return self._grant_from_state(state, grant_id, revision)
 
     def list_grants(self) -> tuple[AuthorityGrant, ...]:
         with self._repository_transaction():
-            state = self._read_locked()
+            state = self._read_locked(all_grants=True)
             return tuple(
                 self._grant_from_state(state, grant_id)
                 for grant_id in sorted(state["grants"])
@@ -370,7 +370,7 @@ class WorkspaceAuthorityRepository:
         if replacement.workspace_id != self.workspace_id:
             raise AuthorityRepositoryError("grant_workspace_mismatch", "Grant workspace does not match repository.")
         with self._repository_transaction():
-            state = self._read_locked()
+            state = self._read_locked(grant_id=replacement.grant_id)
             self._check_revision(state, expected_repository_revision)
             current = self._grant_from_state(state, replacement.grant_id)
             if current.revision != expected_grant_revision:
@@ -407,7 +407,7 @@ class WorkspaceAuthorityRepository:
             )
         step_up_id = f"stepup-{uuid4().hex}"
         with self._repository_transaction():
-            state = self._read_locked()
+            state = self._read_locked(grant_id=authorization.grant_id)
             if self._grant_from_state(state, authorization.grant_id).revision != authorization.grant_revision:
                 raise AuthorityRepositoryError("step_up_grant_stale", "Step-up grant revision is not current.")
             state["stepUps"][step_up_id] = authorization.to_dict()
@@ -440,7 +440,7 @@ class WorkspaceAuthorityRepository:
 
         request_state_id = self._opaque(request_state_id, "request_state")
         with self._repository_transaction():
-            state = self._read_locked()
+            state = self._read_locked(request_state_id=request_state_id)
             now = self._clock()
             request_state = self._pending_request_state_locked(state, request_state_id, now)
             grant_id = str(request_state.get("grantId") or "")
@@ -524,7 +524,13 @@ class WorkspaceAuthorityRepository:
             raise AuthorityRepositoryError("authority_profile_invalid", f"Unknown authority profile: {profile}") from exc
         now = self._clock()
         with self._repository_transaction():
-            state = self._read_locked()
+            state = self._read_locked(
+                grant_id=selected_grant_id,
+                request_state_id=request_state_id,
+                idempotency_key=idempotency_key,
+                continuation_job_id=plan.intent.lineage.job_id if plan.intent.lineage.kind == "job_status" else "",
+                step_ups=True,
+            )
             resumed = (
                 self._request_state_locked(
                     state,
@@ -539,7 +545,8 @@ class WorkspaceAuthorityRepository:
                 if request_state_id
                 else None
             )
-            self._compact_locked(state, now)
+            if not self._activated:
+                self._compact_locked(state, now)
             self._validate_idempotency_locked(state, plan, idempotency_key, request_state_id)
             grant_id = str(resumed.get("grantId") or "") if resumed else selected_grant_id
             grant = self._grant_from_state(state, grant_id) if grant_id else None
@@ -587,7 +594,8 @@ class WorkspaceAuthorityRepository:
                     resumed,
                     now,
                 )
-            self._compact_locked(state, now)
+            if not self._activated:
+                self._compact_locked(state, now)
             self._commit_locked(state)
             return result
 
@@ -595,7 +603,7 @@ class WorkspaceAuthorityRepository:
         if receipt.continuation:
             return self.inspect_dispatch(receipt.dispatch_id)
         with self._repository_transaction():
-            state = self._read_locked()
+            state = self._read_locked(dispatch_id=receipt.dispatch_id)
             self._require_receipt_binding_locked(state, receipt)
         return self.transition_dispatch(receipt.dispatch_id, "dispatched")
 
@@ -610,8 +618,25 @@ class WorkspaceAuthorityRepository:
         if requested not in DISPATCH_STATES:
             raise AuthorityRepositoryError("dispatch_state_invalid", f"Unknown dispatch state: {requested}")
         now = self._clock()
+        prepared_observation: ObserverResult | None = None
+        prepared_run_fingerprint = ""
+        if observer is not None and self._activated and requested in {"succeeded", "failed", "unknown"}:
+            # Observer implementations may perform work beyond local validation.
+            # Collect outside the SQLite write lock, then compare the sealed run
+            # binding before committing their observations.
+            preview = self.inspect_dispatch(dispatch_id)
+            execution_run_id = str(preview.get("executionRunId") or "")
+            if preview.get("state") == "dispatched" and execution_run_id:
+                preview_run = ExecutionRun.from_dict(self.inspect_execution_run(execution_run_id))
+                if preview_run.state is not ExecutionRunState.VALIDATION_PENDING:
+                    prepared_observation = observer.finalize(
+                        preview_run,
+                        outcome_kind=outcome_kind or requested,
+                        observed_at=_format_time(now),
+                    )
+                    prepared_run_fingerprint = preview_run.run_fingerprint
         with self._repository_transaction():
-            state = self._read_locked()
+            state = self._read_locked(dispatch_id=dispatch_id, include_lifecycle=True)
             dispatch = self._dispatch_locked(state, dispatch_id)
             current = str(dispatch["state"])
             if current == requested:
@@ -624,6 +649,8 @@ class WorkspaceAuthorityRepository:
                 requested,
                 outcome_kind=outcome_kind,
                 observer=observer,
+                prepared_observation=prepared_observation,
+                prepared_run_fingerprint=prepared_run_fingerprint,
                 now=now,
             )
             dispatch["state"] = effective_requested
@@ -677,7 +704,7 @@ class WorkspaceAuthorityRepository:
         if not lineage.handler or not lineage.binding_fingerprint:
             raise AuthorityRepositoryError("job_binding_missing", "Background job continuation is not sealed.")
         with self._repository_transaction():
-            state = self._read_locked()
+            state = self._read_locked(dispatch_id=receipt.dispatch_id, include_lifecycle=True)
             dispatch = self._dispatch_locked(state, receipt.dispatch_id)
             if dispatch["state"] != "dispatched":
                 raise DispatchTransitionError(receipt.dispatch_id, str(dispatch["state"]), "bind_job")
@@ -734,7 +761,7 @@ class WorkspaceAuthorityRepository:
         if not isinstance(finalizer_effects, Mapping):
             raise AuthorityRepositoryError("job_effects_missing", "Legacy job has no finalizer effect envelope.")
         with self._repository_transaction():
-            state = self._read_locked()
+            state = self._read_locked(grant_id=grant_id, continuation_job_id=job_id)
             if any(
                 isinstance(item.get("continuation"), Mapping)
                 and item["continuation"].get("jobId") == job_id
@@ -821,7 +848,7 @@ class WorkspaceAuthorityRepository:
 
     def inspect_dispatch(self, dispatch_id: str) -> dict[str, Any]:
         with self._repository_transaction():
-            state = self._read_locked()
+            state = self._read_locked(dispatch_id=dispatch_id)
             return json.loads(json.dumps(self._dispatch_locked(state, dispatch_id)))
 
     def inspect_execution_run(self, execution_run_id: str) -> dict[str, Any]:
@@ -866,7 +893,7 @@ class WorkspaceAuthorityRepository:
 
         self._require_lifecycle_store()
         with self._repository_transaction():
-            state = self._read_locked()
+            state = self._read_locked(dispatch_id=receipt.dispatch_id, include_lifecycle=True)
             dispatch, run = self._run_for_receipt_locked(state, receipt)
             if dispatch["state"] != "dispatched":
                 raise AuthorityRepositoryError(
@@ -893,7 +920,7 @@ class WorkspaceAuthorityRepository:
 
         self._require_lifecycle_store()
         with self._repository_transaction():
-            state = self._read_locked()
+            state = self._read_locked(dispatch_id=receipt.dispatch_id, include_lifecycle=True)
             dispatch, run = self._run_for_receipt_locked(state, receipt)
             if dispatch["state"] != "dispatched":
                 raise AuthorityRepositoryError(
@@ -930,7 +957,7 @@ class WorkspaceAuthorityRepository:
 
         self._require_lifecycle_store()
         with self._repository_transaction():
-            state = self._read_locked()
+            state = self._read_locked(dispatch_id=receipt.dispatch_id, include_lifecycle=True)
             dispatch, run = self._run_for_receipt_locked(state, receipt)
             if dispatch["state"] != "dispatched":
                 raise AuthorityRepositoryError(
@@ -961,7 +988,7 @@ class WorkspaceAuthorityRepository:
     def inspect_request_state(self, request_state_id: str) -> dict[str, Any]:
         request_state_id = self._opaque(request_state_id, "request_state")
         with self._repository_transaction():
-            state = self._read_locked()
+            state = self._read_locked(request_state_id=request_state_id)
             request_state = self._pending_request_state_locked(state, request_state_id, self._clock())
             return json.loads(json.dumps(request_state))
 
@@ -969,7 +996,7 @@ class WorkspaceAuthorityRepository:
         """List unexpired pending authority requests for the trusted operator plane."""
 
         with self._repository_transaction():
-            state = self._read_locked()
+            state = self._read_locked(all_request_states=True)
             now = self._clock()
             values = [
                 json.loads(json.dumps(value))
@@ -990,7 +1017,7 @@ class WorkspaceAuthorityRepository:
         request_state_id = self._opaque(request_state_id, "request_state")
         authority_session_id = self._opaque(authority_session_id)
         with self._repository_transaction():
-            state = self._read_locked()
+            state = self._read_locked(request_state_id=request_state_id)
             request_state = self._pending_request_state_locked(state, request_state_id, self._clock())
             required = {
                 "authorizationFingerprint",
@@ -1029,7 +1056,7 @@ class WorkspaceAuthorityRepository:
 
     def list_dispatches(self) -> tuple[dict[str, Any], ...]:
         with self._repository_transaction():
-            state = self._read_locked()
+            state = self._read_locked(all_dispatches=True)
             return tuple(json.loads(json.dumps(item)) for item in state["dispatches"].values())
 
     def reconcile_unknown(self, dispatch_id: str, resolution: str, *, operator_id: str) -> dict[str, Any]:
@@ -1037,7 +1064,7 @@ class WorkspaceAuthorityRepository:
             raise AuthorityRepositoryError("reconciliation_invalid", "Resolution must be succeeded, failed, or cancelled.")
         now = self._clock()
         with self._repository_transaction():
-            state = self._read_locked()
+            state = self._read_locked(dispatch_id=dispatch_id)
             dispatch = self._dispatch_locked(state, dispatch_id)
             if dispatch["state"] != "unknown":
                 raise AuthorityRepositoryError("reconciliation_not_required", "Dispatch is not in unknown state.")
@@ -1068,7 +1095,7 @@ class WorkspaceAuthorityRepository:
 
     def budget_usage(self, grant_id: str) -> BudgetUsage:
         with self._repository_transaction():
-            state = self._read_locked()
+            state = self._read_locked(grant_id=grant_id)
             grant = self._grant_from_state(state, grant_id)
             return self._budget_usage_locked(state, grant, self._clock())
 
@@ -1098,7 +1125,7 @@ class WorkspaceAuthorityRepository:
             )
         return state
 
-    def _read_locked(self) -> dict[str, Any]:
+    def _read_locked(self, **selection: Any) -> dict[str, Any]:
         if self._activated:
             connection = self._active_connection.get()
             if connection is None:
@@ -1106,7 +1133,12 @@ class WorkspaceAuthorityRepository:
                     "authority_transaction_missing",
                     "Activated authority state must be read inside its workspace transaction.",
                 )
-            state = self._runtime_repository().authority_state(connection)
+            state = (
+                self._runtime_repository().authority_transaction_state(
+                    connection, as_of=_format_time(self._clock()), **selection
+                )
+                if selection else self._runtime_repository().authority_state(connection)
+            )
             self._loaded_state.set(json.loads(json.dumps(state)))
             return state
         if not self.path.exists():
@@ -1127,7 +1159,11 @@ class WorkspaceAuthorityRepository:
                 )
             try:
                 self._runtime_repository().save_authority_state(
-                    connection, state, before=self._loaded_state.get()
+                    connection,
+                    state,
+                    before=self._loaded_state.get(),
+                    as_of=_format_time(self._clock()),
+                    decision_retention=self._decision_retention,
                 )
             except StateStoreError as exc:
                 raise AuthorityRepositoryError(exc.reason_code, str(exc)) from exc
@@ -1239,6 +1275,8 @@ class WorkspaceAuthorityRepository:
         *,
         outcome_kind: str,
         observer: ExecutionObserver | None,
+        prepared_observation: ObserverResult | None,
+        prepared_run_fingerprint: str,
         now: datetime,
     ) -> str:
         execution_run_id = str(dispatch.get("executionRunId") or "")
@@ -1304,12 +1342,24 @@ class WorkspaceAuthorityRepository:
             )
             state["executionRuns"][execution_run_id] = run.to_dict()
             return effective_requested
-        selected_observer = observer or NoOpExecutionObserver()
-        result: ObserverResult = selected_observer.finalize(
-            run,
-            outcome_kind=outcome_kind or requested,
-            observed_at=timestamp,
-        )
+        if prepared_observation is not None:
+            if run.run_fingerprint != prepared_run_fingerprint:
+                raise AuthorityRepositoryError(
+                    "execution_run_changed",
+                    "Execution run changed while observations were collected; reconciliation is required.",
+                )
+            result = prepared_observation
+        else:
+            if observer is not None:
+                raise AuthorityRepositoryError(
+                    "execution_observation_missing",
+                    "Observer result was not prepared before the authority transaction.",
+                )
+            result = NoOpExecutionObserver().finalize(
+                run,
+                outcome_kind=outcome_kind or requested,
+                observed_at=timestamp,
+            )
         for observation in result.observations:
             observation.verify()
             state.setdefault("executionObservations", {})[observation.observation_id] = observation.to_dict()

@@ -477,7 +477,7 @@ class ArtifactStoreTests(unittest.TestCase):
             repository.artifacts.path_for_digest(missing_digest),
         )
         with self.assertRaises(StateIntegrityError) as absent:
-            repository.apply_vertical_slice(Phase4AStateStoreTests._slice(missing), expected_revision=1)
+            repository.apply_vertical_slice(StateStoreTests._slice(missing), expected_revision=1)
         self.assertEqual(absent.exception.reason_code, "artifact_blob_not_installed")
 
         source = self.root / "installed.bin"
@@ -489,7 +489,7 @@ class ArtifactStoreTests(unittest.TestCase):
 
         with self.assertRaises(StateStoreError):
             repository.apply_vertical_slice(
-                Phase4AStateStoreTests._slice(artifact),
+                StateStoreTests._slice(artifact),
                 expected_revision=1,
                 fault_injector=fail,
             )

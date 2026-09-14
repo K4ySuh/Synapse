@@ -513,6 +513,109 @@ class ExecutionLifecycleContractTests(unittest.TestCase):
                 ))
             self.assertEqual(later_changes, [])
 
+    def test_ordinary_authority_mutations_use_scoped_sqlite_reads(self) -> None:
+        with TemporaryDirectory() as temporary, isolated_state(Path(temporary), store_version="sqlite-v2"):
+            workspace.create_workspace("phase6c-scoped", hosts=["scoped.example"])
+            authority = WorkspaceAuthorityRepository("phase6c-scoped", clock=lambda: NOW)
+            plan = _plan("phase6c-scoped")
+            with patch.object(
+                ActivatedWorkspaceRepository,
+                "authority_state",
+                side_effect=AssertionError("full export snapshot used by mutation"),
+            ):
+                authority.create_grant(_grant(plan))
+                for number in range(3):
+                    receipt = authority.authorize(
+                        plan,
+                        risk_class=RiskClass.NONE,
+                        profile="full_delegated",
+                        authority_session_id="phase6c-session",
+                        selected_grant_id="grant-phase6c",
+                        idempotency_key=f"phase6c-scoped-{number}",
+                    ).receipt
+                    authority.mark_dispatched(receipt)
+                    authority.transition_dispatch(receipt.dispatch_id, "succeeded", outcome_kind="success")
+            self.assertEqual(len(authority.snapshot()["executionRuns"]), 3)
+
+    def test_observer_finalizes_before_authority_write_transaction(self) -> None:
+        with TemporaryDirectory() as temporary, isolated_state(Path(temporary), store_version="sqlite-v2"):
+            workspace.create_workspace("phase6c-observer-lock", hosts=["observer.example"])
+            authority = WorkspaceAuthorityRepository("phase6c-observer-lock", clock=lambda: NOW)
+            plan = _plan("phase6c-observer-lock")
+            authority.create_grant(_grant(plan))
+            receipt = authority.authorize(
+                plan,
+                risk_class=RiskClass.NONE,
+                profile="full_delegated",
+                authority_session_id="phase6c-session",
+                selected_grant_id="grant-phase6c",
+                idempotency_key="phase6c-observer-lock",
+            ).receipt
+            authority.mark_dispatched(receipt)
+
+            class CheckingObserver:
+                def finalize(self, run, *, outcome_kind, observed_at):
+                    if authority._active_connection.get() is not None:
+                        raise AssertionError("observer called inside authority write transaction")
+                    return NoOpExecutionObserver().finalize(
+                        run, outcome_kind=outcome_kind, observed_at=observed_at
+                    )
+
+            authority.transition_dispatch(
+                receipt.dispatch_id,
+                "succeeded",
+                outcome_kind="success",
+                observer=CheckingObserver(),
+            )
+            self.assertEqual(authority.inspect_execution_run(receipt.execution_run_id)["state"], "outcome_committed")
+
+    def test_migration_0007_indexes_authority_request_lookups(self) -> None:
+        self.assertEqual(MIGRATION_NAMES[-1], "0007_authority_lookup_indexes.sql")
+        with TemporaryDirectory() as temporary, isolated_state(Path(temporary), store_version="sqlite-v2"):
+            workspace.create_workspace("phase6c-indexes", hosts=["indexes.example"])
+            runtime = ActivatedWorkspaceRepository("phase6c-indexes", workspace.workspace_path("phase6c-indexes"))
+            with runtime.connection_factory.connect() as connection:
+                apply_migrations(connection)
+                indexes = {
+                    str(row[0]) for row in connection.execute(
+                        "SELECT name FROM sqlite_master WHERE type='index'"
+                    )
+                }
+            self.assertTrue({
+                "idx_dispatch_idempotency_history",
+                "idx_dispatch_continuation_job",
+                "idx_request_idempotency",
+            }.issubset(indexes))
+
+    def test_migration_0007_upgrades_existing_v2_without_changing_run_truth(self) -> None:
+        with TemporaryDirectory() as temporary, isolated_state(Path(temporary), store_version="sqlite-v2"):
+            with patch.object(state_migrations, "MIGRATION_NAMES", MIGRATION_NAMES[:6]):
+                workspace.create_workspace("phase6c-index-upgrade", hosts=["upgrade.example"])
+                authority = WorkspaceAuthorityRepository("phase6c-index-upgrade", clock=lambda: NOW)
+                plan = _plan("phase6c-index-upgrade")
+                authority.create_grant(_grant(plan))
+                receipt = authority.authorize(
+                    plan,
+                    risk_class=RiskClass.NONE,
+                    profile="full_delegated",
+                    authority_session_id="phase6c-session",
+                    selected_grant_id="grant-phase6c",
+                    idempotency_key="phase6c-pre-index",
+                ).receipt
+                authority.mark_dispatched(receipt)
+                authority.transition_dispatch(receipt.dispatch_id, "succeeded", outcome_kind="success")
+                prior_run = authority.inspect_execution_run(receipt.execution_run_id)
+            runtime = ActivatedWorkspaceRepository(
+                "phase6c-index-upgrade", workspace.workspace_path("phase6c-index-upgrade")
+            )
+            with runtime.connection_factory.connect() as connection:
+                apply_migrations(connection)
+                migration = connection.execute(
+                    "SELECT name FROM schema_migrations WHERE version=7"
+                ).fetchone()
+            self.assertEqual(str(migration[0]), "0007_authority_lookup_indexes.sql")
+            self.assertEqual(authority.inspect_execution_run(receipt.execution_run_id), prior_run)
+
     def test_restart_reconstructs_observing_and_validation_pending_boundaries(self) -> None:
         with TemporaryDirectory() as temporary, isolated_state(Path(temporary), store_version="sqlite-v2"):
             workspace.create_workspace("phase6c-boundaries", hosts=["boundaries.example"])
@@ -965,7 +1068,7 @@ class ExecutionLifecycleContractTests(unittest.TestCase):
             self.assertFalse((workspace.workspace_path("phase6c-json") / "state-v2" / "state.sqlite3").exists())
 
     def test_migration_0006_is_ordered_and_installs_lifecycle_tables(self) -> None:
-        self.assertEqual(MIGRATION_NAMES[-1], "0006_execution_lifecycle.sql")
+        self.assertEqual(MIGRATION_NAMES[5], "0006_execution_lifecycle.sql")
         with TemporaryDirectory() as temporary, isolated_state(Path(temporary), store_version="sqlite-v2"):
             workspace.create_workspace("phase6c-schema", hosts=["schema.example"])
             runtime = ActivatedWorkspaceRepository("phase6c-schema", workspace.workspace_path("phase6c-schema"))
@@ -979,7 +1082,7 @@ class ExecutionLifecycleContractTests(unittest.TestCase):
 
     def test_migration_0006_upgrades_existing_v2_without_inventing_run_truth(self) -> None:
         with TemporaryDirectory() as temporary, isolated_state(Path(temporary), store_version="sqlite-v2"):
-            with patch.object(state_migrations, "MIGRATION_NAMES", MIGRATION_NAMES[:-1]):
+            with patch.object(state_migrations, "MIGRATION_NAMES", MIGRATION_NAMES[:5]):
                 workspace.create_workspace("phase6c-upgrade", hosts=["upgrade.example"])
                 runtime = ActivatedWorkspaceRepository(
                     "phase6c-upgrade",
