@@ -63,8 +63,8 @@ next_action: >-
   path in core/workspace.py and app/actions, with a published schema and a
   receipt containing canonical IDs, diagnostics, and committed revision.
 dirty_worktree: >-
-  Tracked 6R2 implementation committed; this checkpoint record pending commit;
-  pre-existing untracked Synapse-Reconvert-Phase.md left untouched.
+  Tracked 6R2 work committed; only pre-existing untracked
+  Synapse-Reconvert-Phase.md remains untouched.
 ```
 
 The Daybreak preference applies to the future operator-selected model. Codex
