@@ -14,64 +14,64 @@ phase acceptance and benchmark runners.
 | 6R2 | Complete | 6R2.1 `4c6e6a0`; 6R2.2 `5272de4`; 6R2.3 `d18dbd7` | 6R3.1 |
 | 6R3 | Complete | 6R3.1–6R3.3 `c01242e` | 6R4.1 |
 | 6R4 | Complete | 6R4.1–6R4.3 `2d81f14` | 6R5.1 |
-| 6R5 | Pending | 6R5.1, 6R5.2, 6R5.3 pending | Add bounded recovery lookup |
+| 6R5 | Complete | 6R5.1–6R5.3 `eb72496` | 6R6.1 |
 | 6R6 | Pending | 6R6.1, 6R6.2 pending | Extract one saved-data integration seam |
 | 6R7 | Pending | 6R7.1, 6R7.2, 6R7.3 pending | Run current integrated service checks |
 
 ## Latest checkpoint record
 
 ```yaml
-task: 6R4
-checkpoint: 6R4.3
+task: 6R5
+checkpoint: 6R5.3
 status: complete
 review_base: 5a33b238020ff987ecf38dd3afcacca81d13de1a
-implementation_commit: 2d81f14
+implementation_commit: eb72496
 branch: Beta
 changed_files:
-  - AGENTS.md
   - CHANGELOG.md
-  - MCPS/Synapse-MCP/README.md
-  - MCPS/Synapse-MCP/modern_tests/test_modern_adapter.py
-  - MCPS/Synapse-MCP/synapse_mcp/guidance.py
-  - MCPS/Synapse-MCP/synapse_mcp/integrations/codex.py
-  - MCPS/Synapse-MCP/synapse_mcp/operational_prompt.md
-  - MCPS/Synapse-MCP/synapse_mcp/transport/modern/server.py
-  - MCPS/Synapse-MCP/synapse_mcp/transport/stdio_server.py
-  - MCPS/Synapse-MCP/tests/test_distribution.py
+  - MCPS/Synapse-MCP/synapse_mcp/app/actions/registry.py
+  - MCPS/Synapse-MCP/synapse_mcp/app/context.py
+  - MCPS/Synapse-MCP/synapse_mcp/core/synchronous_observer.py
+  - MCPS/Synapse-MCP/synapse_mcp/policy/integration.py
+  - MCPS/Synapse-MCP/synapse_mcp/state/contracts.py
+  - MCPS/Synapse-MCP/synapse_mcp/state/json_v1.py
+  - MCPS/Synapse-MCP/synapse_mcp/state/migrations/0009_context_recovery_indexes.sql
+  - MCPS/Synapse-MCP/synapse_mcp/state/migrations/__init__.py
+  - MCPS/Synapse-MCP/synapse_mcp/state/runtime.py
+  - MCPS/Synapse-MCP/synapse_mcp/state/work_items.py
+  - MCPS/Synapse-MCP/tests/test_context_compiler.py
+  - MCPS/Synapse-MCP/tests/test_synchronous_execution.py
+  - MCPS/Synapse-MCP/tests/test_work_contracts.py
+  - MCPS/Synapse-MCP/tests/test_work_items.py
   - bin/validate-distribution
-  - config/codex/standard.toml
-  - docs/Operations.md
   - docs/modernization/phase-6-status.md
-  - skills/README.md
 contract_changes:
-  - Modern MCP prompts/list and resources/list expose synapse-main and synapse://prompt/main from the shared package-level prompt reader; legacy retrieval shape and configured-path override remain intact.
-  - Modern resources/list exposes a static read-only guidance catalog plus three default skill files and four references with stable URIs, package version, SHA-256 digests, descriptions, and 64 KiB read limit.
-  - Hosted default guidance and local Codex installation resolve the same asset tree; resource discovery does not activate a skill. Compact remains eleven tools; no Registry, state, authority, migration, or frozen fixture change.
+  - ContextRepositorySnapshot accepts target, entity-type, revision, work-item, claimant, selected-grant, and opaque authority-session selectors and exposes bounded recovery/page metadata.
+  - Modern context omissions add repository_page with an explicit continuation; no compact tool count, modern-direct input, frozen legacy fixture, or JSON-v1 behavior change.
+  - Ordered SQLite-v2 migration 0009 adds idx_execution_runs_authority_recovery over the opaque authority-session expression; existing v2 workspaces upgrade in place.
 checks:
   - command: bin/test --core -q
-    result: pass; 803 tests after correcting a legacy patched-path regression found by the first run
+    result: pass; 808 tests after correcting two stale hard-coded migration-count assertions found by the first post-migration run
   - command: bin/test-modern -q
-    result: pass; 17 isolated modern-adapter tests including prompt/resource reads and exact wire fixtures
-  - command: bin/validate-codex-skills --check
-    result: pass; three default skills and their local references
-  - command: bin/validate-codex-skills --check --profile multi-agent-compat
-    result: pass; eight compatibility skills and their local references
+    result: pass; 17 isolated modern-adapter tests including exact wire fixtures
+  - command: cd MCPS/Synapse-MCP && PYTHONPATH=tests ../../.venv/bin/python -m unittest test_context_compiler test_synchronous_execution test_execution_lifecycle test_work_items -q
+    result: pass; 70 focused context, observation, lifecycle, and work-item tests
+  - command: cd MCPS/Synapse-MCP && PYTHONPATH=tests ../../.venv/bin/python -m unittest test_state_migration test_execution_lifecycle -q
+    result: pass; 43 focused migration and lifecycle tests
   - command: SYNAPSE_BUILD_PYTHON="$PWD/.venv/bin/python" SYNAPSE_BUILD_PYTHONPATH=/usr/lib/python3.14/site-packages SYNAPSE_RUNTIME_PYTHON="$PWD/.venv/bin/python" .venv/bin/python bin/validate-distribution
-    result: pass; wheel and sdist installed outside checkout; prompt, guidance, contribution schema, standard 174-action/eleven-tool and core-only 42-action startup verified
-  - command: PYTHONPATH=tests ../../.venv/bin/python -m unittest test_modernization_docs test_distribution test_single_agent_default -q
-    result: pass; 21 focused documentation, distribution, and profile tests
+    result: pass; wheel and sdist installed outside checkout; migration 0009, standard 174-action and core-only 42-action startup verified
   - command: git diff --cached --check
     result: pass; no whitespace errors
 remaining_issue: >-
-  No external Codex/Daybreak client build was exercised for this task; exact
-  direct-client compatibility remains the bounded 6R7.2 exercise. MCP resource
-  discovery alone cannot install or activate a Codex skill.
-next_checkpoint: 6R5.1
+  Repository-page omission counts are conservative lower bounds so queries do
+  not scan an omitted tail merely to count it. Provider/browser/process-internal
+  observation remains outside the owned synchronous coverage, as documented.
+next_checkpoint: 6R6.1
 next_action: >-
-  Add a bounded run/job/recent-evidence recovery lookup using existing lifecycle
-  metadata, then verify restart reconstruction in the focused state/service tests.
+  Select one saved-data import path with a stable parser and extract its passive
+  interpretation/help seam while preserving canonical ingestion and legacy forwarding.
 dirty_worktree: >-
-  Tracked 6R4 implementation committed at 2d81f14; only pre-existing untracked
+  Tracked 6R5 implementation committed at eb72496; only pre-existing untracked
   Synapse-Reconvert-Phase.md remains untouched after the checkpoint record commit.
 ```
 
