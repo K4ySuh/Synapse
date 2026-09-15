@@ -124,7 +124,7 @@ class DistributionTests(unittest.TestCase):
         self.assertEqual(len(codex.OPERATING_SKILLS), 3)
         self.assertEqual(len(codex.MULTI_AGENT_COMPAT_SKILLS), 8)
         self.assertEqual(codex.codex_skills_dir(), guidance.default_skills_dir())
-        self.assertEqual(len(guidance.guidance_documents()), 7)
+        self.assertEqual(len(guidance.guidance_documents()), 8)
         for profile in codex.CONFIG_PROFILES:
             config = (codex.codex_config_dir() / f"{profile}.toml").read_text(encoding="utf-8")
             self.assertIn("[mcp_servers.synapse]", config)

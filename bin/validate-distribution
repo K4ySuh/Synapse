@@ -181,6 +181,7 @@ def _required_archive_suffixes() -> tuple[str, ...]:
         "share/synapse-mcp/codex/skills/default/operate-synapse/references/operational-invariants.md",
         "share/synapse-mcp/codex/skills/default/operate-synapse/references/single-agent-workflow.md",
         "share/synapse-mcp/codex/skills/default/synapse-web-pentesting/references/auth-and-access-control.md",
+        "share/synapse-mcp/codex/skills/default/synapse-web-pentesting/references/saved-data-integrations.md",
         "share/synapse-mcp/codex/skills/default/synapse-cve-intelligence/references/source-and-poc-analysis.md",
         "share/synapse-mcp/codex/skills/multi-agent-compat/operate-synapse/references/operational-invariants.md",
         "share/synapse-mcp/codex/skills/multi-agent-compat/operate-synapse/references/specialist-workflow.md",
@@ -262,7 +263,7 @@ from synapse_mcp.transport.stdio_server import read_main_prompt
 prompt = read_main_prompt()
 assert hashlib.sha256(prompt.encode()).hexdigest() == sys.argv[1]
 catalog = guidance_catalog()
-assert len(guidance_documents()) == 7
+assert len(guidance_documents()) == 8
 assert default_skills_dir().is_relative_to(sys.argv[2])
 for document in guidance_documents():
     assert hashlib.sha256(read_guidance(document.uri).encode()).hexdigest() == document.sha256
@@ -357,7 +358,7 @@ async def verify_guidance():
         resource = await client.read_resource('synapse://prompt/main')
         assert prompt.messages[0].content.text == resource.contents[0].text
         catalog = json.loads((await client.read_resource('synapse://guidance/catalog')).contents[0].text)
-        assert len(catalog['documents']) == 7
+        assert len(catalog['documents']) == 8
         ingest = next(tool for tool in tools.tools if tool.name == 'actions.run_passive')
         assert 'actionId' in ingest.input_schema['properties']
 asyncio.run(verify_guidance())

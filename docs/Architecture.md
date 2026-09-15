@@ -124,6 +124,7 @@ MCP client
                    |   |-- cache.py
                    |   |-- fingerprint.py
                    |   |-- perimeter.py
+                   |   |-- saved_spec_import.py
                    |   |-- js/
                    |   |-- background_jobs.py
                    |   |-- job_worker.py
@@ -171,7 +172,7 @@ MCP client
                        |   |-- open_redirect_adapter.py
                        |   |-- command_injection_adapter.py
                        |   |-- cve_intel.py
-                       |   |-- spec_import.py
+                       |   |-- spec_import.py (saved-spec compatibility wrapper)
                        |   |-- headers_cookies.py
                        |   |-- jwt_analysis.py
                        |   |-- csrf.py

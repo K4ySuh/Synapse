@@ -27,6 +27,7 @@ GUIDANCE_FILES = (
     ("operate-synapse", "references/single-agent-workflow.md", "Recovery and convergence workflow"),
     ("synapse-web-pentesting", "SKILL.md", "Web assessment methodology"),
     ("synapse-web-pentesting", "references/auth-and-access-control.md", "Authentication and access-control methodology"),
+    ("synapse-web-pentesting", "references/saved-data-integrations.md", "Saved-data import and contribution methodology"),
     ("synapse-cve-intelligence", "SKILL.md", "Vulnerability intelligence methodology"),
     ("synapse-cve-intelligence", "references/source-and-poc-analysis.md", "Source and public-PoC analysis"),
 )

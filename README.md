@@ -47,6 +47,8 @@ Core project references:
   layout, tool surface, and schemas.
 - [Operations](docs/Operations.md): environment setup, operator procedures,
   jobs, credentials, cleanup, and tests.
+- [Integration Convention](docs/Integration-Convention.md): passive saved-data
+  parsing, contributions, and migration boundaries.
 - [Reporting Model](docs/Reporting-Model.md): internal Operator / High-Level
   report views and what they must not imply.
 - [Synapse MCP](MCPS/Synapse-MCP/README.md): complete exposed tool list and MCP

@@ -24,6 +24,14 @@ durable dispatch and continuation truth.
 
 ### Added
 
+- **Phase 6R6 passive saved-data pilot.** The OpenAPI/Swagger/Postman importer
+  now has a deterministic core parsing and ingestion seam behind its unchanged
+  public and legacy adapter alias. A hosted web-method reference points to live
+  Registry and contribution schemas, while the integration convention records
+  source attribution, conservative interpretation, durable receipts, and
+  migration categories. A fictional fixture exercises saved import, versioned
+  contribution, context recovery, evidence linkage, and report projection.
+
 - **Phase 6R5 bounded lifecycle recovery.** `context.query` now returns a
   bounded, session-bound projection of relevant execution runs with their
   dispatch, work-attempt, job, outcome, coverage, and effect-validation truth.

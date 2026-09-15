@@ -879,7 +879,7 @@ with `$operate-synapse`. It contains exactly three operating skills:
   public-PoC intelligence, applicability, and bounded validation planning.
 
 Modern MCP also lists `synapse://guidance/catalog`. The catalog identifies the
-three default skill documents and their four referenced Markdown files with
+three default skill documents and their five referenced Markdown files with
 package version, SHA-256 digest, description, size, and stable resource URI.
 Each file is read on demand with a 64 KiB limit from the same installed asset
 tree returned by `synapse-codex-assets --skills-dir`. These resources are

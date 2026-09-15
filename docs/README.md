@@ -11,6 +11,7 @@ next to the component under `MCPS/`.
 - [Operations](Operations.md): State Store v2 adoption, migration, backup, and recovery.
 - [Implementation Map](Implementation-Map.md): current modules, tool surface, and workflows.
 - [Contribution Contract](Contribution-Contract.md): strict versioned saved-data ingestion and durable receipts.
+- [Integration Convention](Integration-Convention.md): deterministic saved-data boundaries and the passive specification pilot.
 - [Reporting Model](Reporting-Model.md): internal HTML report views, presentation toggle, and what reports must not do.
 - [Adapter Development](Adapter-Development.md): how to build safe workspace-native adapters.
 - [Contributing](../CONTRIBUTING.md): development, test, documentation, and safety expectations.

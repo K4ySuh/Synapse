@@ -6,6 +6,7 @@ development instructions.
 
 - [Action migration guide](action-migration-guide.md)
 - [Contract-change ledger](contract-changes.md)
+- [Saved-data integration convention](../Integration-Convention.md)
 - [Capability-pack ownership map](capability-pack-ownership.json)
 - [Current Phase 6 status](phase-6-status.md)
 - [Phase 6 checkpoint ledger](phase-6-checkpoints.md)

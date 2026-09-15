@@ -536,7 +536,7 @@ class ModernPersistenceAndResourceTests(ModernAdapterFixture, unittest.IsolatedA
 
             catalog_result = await client.read_resource(GUIDANCE_CATALOG_URI)
             catalog = json.loads(catalog_result.contents[0].text)
-            self.assertEqual(len(catalog["documents"]), 7)
+            self.assertEqual(len(catalog["documents"]), 8)
             for document in catalog["documents"]:
                 content = await client.read_resource(document["uri"])
                 body = content.contents[0].text

@@ -1302,16 +1302,21 @@ secret-bearing request headers from evidence, and records
 `possible_command_injection` only when the marker is observed.
 
 ```text
-adapters/web/spec_import.py
+core/saved_spec_import.py
+adapters/web/spec_import.py       retained compatibility wrapper
 ```
 
-Passive API surface import. `spec_import.import_spec` parses OpenAPI 3,
+Passive API surface import. The core integration seam parses OpenAPI 3,
 Swagger 2.0, and Postman collections and normalizes documented endpoints,
 parameters (with bounded `valuePreview`), request media types, and
 `documented_auth_scheme` observations into the workspace through the generic
 `adapter_result` ingestion path. Imported endpoints are marked inferred rather
 than observed, so a path's presence in a spec is never treated as live traffic.
-No secret values are persisted, and the adapter sends no traffic.
+No secret values are persisted, and the adapter sends no traffic. The adapter
+module retains `spec_import.import_spec` and its discovery entry point as
+forwarding compatibility aliases. The saved-data integration convention and
+hosted web-method reference point consumers to live Registry schemas and the
+versioned contribution receipt rather than duplicating those contracts.
 
 ```text
 adapters/web/headers_cookies.py
