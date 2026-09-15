@@ -15,63 +15,64 @@ phase acceptance and benchmark runners.
 | 6R3 | Complete | 6R3.1–6R3.3 `c01242e` | 6R4.1 |
 | 6R4 | Complete | 6R4.1–6R4.3 `2d81f14` | 6R5.1 |
 | 6R5 | Complete | 6R5.1–6R5.3 `eb72496` | 6R6.1 |
-| 6R6 | Pending | 6R6.1, 6R6.2 pending | Extract one saved-data integration seam |
+| 6R6 | Complete | 6R6.1–6R6.2 `a7cf5a9` | 6R7.1 |
 | 6R7 | Pending | 6R7.1, 6R7.2, 6R7.3 pending | Run current integrated service checks |
 
 ## Latest checkpoint record
 
 ```yaml
-task: 6R5
-checkpoint: 6R5.3
+task: 6R6
+checkpoint: 6R6.2
 status: complete
 review_base: 5a33b238020ff987ecf38dd3afcacca81d13de1a
-implementation_commit: eb72496
+implementation_commit: a7cf5a9
 branch: Beta
 changed_files:
   - CHANGELOG.md
-  - MCPS/Synapse-MCP/synapse_mcp/app/actions/registry.py
-  - MCPS/Synapse-MCP/synapse_mcp/app/context.py
-  - MCPS/Synapse-MCP/synapse_mcp/core/synchronous_observer.py
-  - MCPS/Synapse-MCP/synapse_mcp/policy/integration.py
-  - MCPS/Synapse-MCP/synapse_mcp/state/contracts.py
-  - MCPS/Synapse-MCP/synapse_mcp/state/json_v1.py
-  - MCPS/Synapse-MCP/synapse_mcp/state/migrations/0009_context_recovery_indexes.sql
-  - MCPS/Synapse-MCP/synapse_mcp/state/migrations/__init__.py
-  - MCPS/Synapse-MCP/synapse_mcp/state/runtime.py
-  - MCPS/Synapse-MCP/synapse_mcp/state/work_items.py
-  - MCPS/Synapse-MCP/tests/test_context_compiler.py
-  - MCPS/Synapse-MCP/tests/test_synchronous_execution.py
-  - MCPS/Synapse-MCP/tests/test_work_contracts.py
-  - MCPS/Synapse-MCP/tests/test_work_items.py
+  - MCPS/Synapse-MCP/modern_tests/test_modern_adapter.py
+  - MCPS/Synapse-MCP/synapse_mcp/adapters/web/spec_import.py
+  - MCPS/Synapse-MCP/synapse_mcp/core/saved_spec_import.py
+  - MCPS/Synapse-MCP/synapse_mcp/guidance.py
+  - MCPS/Synapse-MCP/tests/fixtures/integrations/saved-openapi.json
+  - MCPS/Synapse-MCP/tests/test_distribution.py
+  - MCPS/Synapse-MCP/tests/test_saved_data_integration.py
+  - README.md
   - bin/validate-distribution
-  - docs/modernization/phase-6-status.md
+  - docs/Architecture.md
+  - docs/Implementation-Map.md
+  - docs/Integration-Convention.md
+  - docs/Operations.md
+  - docs/README.md
+  - docs/modernization/README.md
+  - skills/codex/default/synapse-web-pentesting/SKILL.md
+  - skills/codex/default/synapse-web-pentesting/references/saved-data-integrations.md
 contract_changes:
-  - ContextRepositorySnapshot accepts target, entity-type, revision, work-item, claimant, selected-grant, and opaque authority-session selectors and exposes bounded recovery/page metadata.
-  - Modern context omissions add repository_page with an explicit continuation; no compact tool count, modern-direct input, frozen legacy fixture, or JSON-v1 behavior change.
-  - Ordered SQLite-v2 migration 0009 adds idx_execution_runs_authority_recovery over the opaque authority-session expression; existing v2 workspaces upgrade in place.
+  - spec_import.import_spec and its same-named legacy alias retain their existing input/output shape, effects, serializer, and canonical entities through a forwarding adapter wrapper.
+  - OpenAPI, Swagger, and Postman detection, parsing, redaction, normalization, evidence creation, and adapter_result ingestion now live in the protocol-independent core.saved_spec_import seam.
+  - The hosted default guidance catalog adds saved-data-integrations.md; modern-compact remains eleven operations and no Registry, contribution, legacy fixture, JSON-v1, or state schema changes were made.
 checks:
+  - command: cd MCPS/Synapse-MCP && PYTHONPATH=tests ../../.venv/bin/python -m unittest test_saved_data_integration test_web_discovery_adapters.SpecImportAdapterTests test_architecture_boundaries test_distribution -q
+    result: pass; 17 focused pilot, retained import, architecture, and distribution tests
+  - command: bin/validate-codex-skills --check && bin/validate-codex-skills --check --profile multi-agent-compat
+    result: pass; 3 default skills and 8 multi-agent compatibility skills validated with all local references
   - command: bin/test --core -q
-    result: pass; 808 tests after correcting two stale hard-coded migration-count assertions found by the first post-migration run
+    result: pass; 810 tests. The first run found stale output-contract derivation at the forwarding wrapper; wrapped-function introspection restored the existing 168-action generated contract without changing it.
   - command: bin/test-modern -q
-    result: pass; 17 isolated modern-adapter tests including exact wire fixtures
-  - command: cd MCPS/Synapse-MCP && PYTHONPATH=tests ../../.venv/bin/python -m unittest test_context_compiler test_synchronous_execution test_execution_lifecycle test_work_items -q
-    result: pass; 70 focused context, observation, lifecycle, and work-item tests
-  - command: cd MCPS/Synapse-MCP && PYTHONPATH=tests ../../.venv/bin/python -m unittest test_state_migration test_execution_lifecycle -q
-    result: pass; 43 focused migration and lifecycle tests
+    result: pass; 17 isolated modern-adapter tests including eight hosted guidance documents and exact wire fixtures
   - command: SYNAPSE_BUILD_PYTHON="$PWD/.venv/bin/python" SYNAPSE_BUILD_PYTHONPATH=/usr/lib/python3.14/site-packages SYNAPSE_RUNTIME_PYTHON="$PWD/.venv/bin/python" .venv/bin/python bin/validate-distribution
-    result: pass; wheel and sdist installed outside checkout; migration 0009, standard 174-action and core-only 42-action startup verified
+    result: pass; wheel and sdist installed outside checkout; eight hosted guidance documents, standard 174-action and core-only 42-action startup verified
   - command: git diff --cached --check
     result: pass; no whitespace errors
 remaining_issue: >-
-  Repository-page omission counts are conservative lower bounds so queries do
-  not scan an omitted tail merely to count it. Provider/browser/process-internal
-  observation remains outside the owned synchronous coverage, as documented.
-next_checkpoint: 6R6.1
+  The pilot covers one saved specification importer. Other saved formats,
+  passive analyzers, consumer-interpreted facts, and guarded active/provider
+  adapters are classified for future migration but are not rewritten by 6R6.
+next_checkpoint: 6R7.1
 next_action: >-
-  Select one saved-data import path with a stable parser and extract its passive
-  interpretation/help seam while preserving canonical ingestion and legacy forwarding.
+  Run the current integrated service checks once, record exact versions and
+  results, then continue to the bounded direct-client exercise in 6R7.2.
 dirty_worktree: >-
-  Tracked 6R5 implementation committed at eb72496; only pre-existing untracked
+  Tracked 6R6 implementation committed at a7cf5a9; only pre-existing untracked
   Synapse-Reconvert-Phase.md remains untouched after the checkpoint record commit.
 ```
 

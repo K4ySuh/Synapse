@@ -4,9 +4,10 @@ Phase 6 is in progress. Tasks 6A–6D are implemented at reviewed Beta commit
 `5a33b238020ff987ecf38dd3afcacca81d13de1a`. Task 6R0 records the revised
 completion contract; 6R1 corrects new SQLite-v2 ingestion, and 6R2 makes
 authority/lifecycle persistence incremental, and 6R3 publishes versioned
-consumer contributions. 6R4 publishes canonical modern guidance. Tasks
+consumer contributions. 6R4 publishes canonical modern guidance. Task
 6R5 bounds context recovery and preserves synchronous observations across
-failure finalization. Tasks 6R6–6R7 remain planned. No Phase 6 closure or
+failure finalization. Task 6R6 proves a passive saved-data integration seam.
+Task 6R7 remains planned. No Phase 6 closure or
 live-client support claim is made here. See the [roadmap](README.md#phase-6-beta-completion-roadmap)
 and [checkpoint ledger](phase-6-checkpoints.md).
 
@@ -47,7 +48,14 @@ and [checkpoint ledger](phase-6-checkpoints.md).
   work/job, outcome, coverage, and validation facts. Captured synchronous
   observations survive executor/output/finalization failures when storage can
   commit; uncertain execution remains unknown and is never automatically
-  replayed. A passive pilot and final integration follow in 6R6–6R7.
+  replayed. The OpenAPI/Swagger/Postman pilot now keeps its existing action and
+  legacy alias over a deterministic core parser/ingestion seam. Hosted web
+  guidance points to live Registry and contribution schemas, and the saved-data
+  integration convention classifies future adapter migration without starting
+  a catalog rewrite. A fictional temporary-workspace scenario proves saved
+  import, strict contribution receipt, evidence-linked context recovery, and
+  report projection. Final integration and the direct-client exercise follow
+  in 6R7.
   Counterfactual evaluation is deferred.
 
 The applicable developer checks are focused service tests for the changed
