@@ -14,8 +14,10 @@ import httpx
 
 from helpers import isolated_state
 from synapse_mcp.app.actions import (
-    ActionEffects, ActionRequest, ExecutionContext, ExecutionUnknown, Idempotency, REGISTRY, RiskClass, Success,
+    ActionEffects, ActionId, ActionRegistry, ActionRequest, ExecutionContext, ExecutionUnknown,
+    Idempotency, IdempotencyPolicy, REGISTRY, RiskClass, Success,
 )
+from synapse_mcp.app.actions.registry import ProfilePolicyEvaluator
 from synapse_mcp.app.facade import CompactFacadeService, FacadeCallContext
 from synapse_mcp.core import workspace
 from synapse_mcp.core.execution import (
@@ -95,6 +97,99 @@ def _dispatch(plan: ExecutionPlan) -> tuple[WorkspaceAuthorityRepository, object
 
 
 class SynchronousObservationTests(unittest.TestCase):
+    def test_registry_file_effect_survives_executor_and_output_failures(self) -> None:
+        with TemporaryDirectory() as temporary, isolated_state(Path(temporary), store_version="sqlite-v2"):
+            workspace.create_workspace("phase6d", hosts=["target.example"])
+            base = REGISTRY.get("workspace.summary")
+            observer = SynchronousExecutionObserver()
+            registry = ActionRegistry(ProfilePolicyEvaluator(observer=observer))
+            failure_mode = "raise"
+            path = Path(temporary) / "registry-effect.txt"
+
+            class FileThenFail:
+                input_model = base.input_model
+                output_model = base.output_model
+
+                def __call__(self, request):
+                    write_planned_text(request.context.execution_plan, "fixture.output", "private registry effect")
+                    if failure_mode == "raise":
+                        raise RuntimeError("fixture registry executor failed")
+                    return Success(payload={})
+
+            descriptor = replace(
+                base, id=ActionId.parse("fixture.observe"), pack="fixture",
+                effects=ActionEffects(local_writes=frozenset({"workspace"}), local_change=True,
+                                      replay_safety=Idempotency.IDEMPOTENT_WRITE),
+                intent_resolver=lambda request: _plan(output=path).intent,
+                executor=FileThenFail(), implementation_ref="tests.FileThenFail",
+                idempotency_policy=IdempotencyPolicy(Idempotency.IDEMPOTENT_WRITE),
+                observed_effect_classes=("local_output",), legacy_aliases=(),
+            )
+            registry.register(descriptor, legacy_compatible=False)
+
+            def request(key: str) -> ActionRequest:
+                return ActionRequest(
+                    descriptor.input_model.model_validate({"workspaceId": "phase6d"}),
+                    ExecutionContext("phase6d", "phase6d", 45.0, None,
+                                     execution_profile="full_delegated", authority_session_id="phase6d-session",
+                                     selected_grant_id="grant-phase6d", idempotency_key=key),
+                )
+
+            plan = registry.resolve_execution_plan("fixture.observe", request("executor"))
+            repository = WorkspaceAuthorityRepository("phase6d")
+            repository.create_grant(_grant(plan, grant_id="grant-phase6d"))
+            with self.assertRaisesRegex(RuntimeError, "fixture registry executor failed"):
+                registry.execute("fixture.observe", request("executor"))
+            first = repository.list_dispatches()[0]
+            self.assertEqual(first["state"], "unknown")
+            self.assertEqual(len(repository.snapshot()["executionObservations"]), 1)
+
+            path.unlink()
+            failure_mode = "invalid_output"
+            outcome = registry.execute("fixture.observe", request("invalid-output"))
+            self.assertIsInstance(outcome, ExecutionUnknown)
+            self.assertEqual(outcome.reason_code, "invalid_output_contract_unknown")
+            self.assertEqual(len(repository.snapshot()["executionObservations"]), 2)
+            self.assertEqual(repository.inspect_execution_run(outcome.execution_run_id)["state"], "execution_unknown")
+
+    def test_failed_file_executor_preserves_observation_and_unknown_is_idempotent(self) -> None:
+        with TemporaryDirectory() as temporary, isolated_state(Path(temporary), store_version="sqlite-v2"):
+            workspace.create_workspace("phase6d", hosts=["target.example"])
+            plan = _plan(output=Path(temporary) / "failed-output.txt")
+            repository, receipt = _dispatch(plan)
+            observer = SynchronousExecutionObserver()
+            evaluator = ProfilePolicyEvaluator(observer=observer)
+            with self.assertRaisesRegex(RuntimeError, "fixture executor failed"):
+                with observer.bind(receipt.execution_run_id, plan, declared_classes=("local_output",)):
+                    write_planned_text(plan, "fixture.output", "private fixture content")
+                    raise RuntimeError("fixture executor failed")
+            evaluator.dispatch_unknown(receipt)
+            evaluator.dispatch_unknown(receipt)
+            self.assertEqual(repository.inspect_dispatch(receipt.dispatch_id)["state"], "unknown")
+            run = repository.inspect_execution_run(receipt.execution_run_id)
+            self.assertEqual(run["state"], "execution_unknown")
+            observations = repository.snapshot()["executionObservations"]
+            self.assertEqual(len(observations), 1)
+            self.assertIn(hashlib.sha256(b"private fixture content").hexdigest(), str(observations))
+            self.assertNotIn("private fixture content", str(observations))
+            self.assertNotEqual(str(repository.execution_validation_for_run(receipt.execution_run_id).verdict), "within_envelope")
+
+    def test_failed_validation_commit_retains_file_observation_for_unknown_fallback(self) -> None:
+        with TemporaryDirectory() as temporary, isolated_state(Path(temporary), store_version="sqlite-v2"):
+            workspace.create_workspace("phase6d", hosts=["target.example"])
+            plan = _plan(output=Path(temporary) / "commit-failed-output.txt")
+            repository, receipt = _dispatch(plan)
+            observer = SynchronousExecutionObserver()
+            with observer.bind(receipt.execution_run_id, plan, declared_classes=("local_output",)):
+                write_planned_text(plan, "fixture.output", "committed effect")
+            with patch.object(repository, "_commit_locked", side_effect=RuntimeError("fixture storage failure")):
+                with self.assertRaisesRegex(RuntimeError, "fixture storage failure"):
+                    repository.transition_dispatch(receipt.dispatch_id, "succeeded", outcome_kind="success", observer=observer)
+            self.assertEqual(repository.inspect_dispatch(receipt.dispatch_id)["state"], "dispatched")
+            repository.transition_dispatch(receipt.dispatch_id, "unknown", outcome_kind="execution_unknown", observer=observer)
+            self.assertEqual(repository.inspect_dispatch(receipt.dispatch_id)["state"], "unknown")
+            self.assertEqual(len(repository.snapshot()["executionObservations"]), 1)
+
     def test_capabilities_declare_only_owned_synchronous_boundaries(self) -> None:
         self.assertEqual(REGISTRY.get("crawler.crawl").observed_effect_classes, ("http", "local_output"))
         self.assertEqual(REGISTRY.get("cors.execute_test").observed_effect_classes, ("http",))

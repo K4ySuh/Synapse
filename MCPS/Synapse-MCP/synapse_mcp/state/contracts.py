@@ -109,6 +109,9 @@ class ContextRepositorySnapshot:
     work_items: Sequence[JsonObject] = field(default_factory=tuple)
     authority: JsonObject = field(default_factory=dict)
     changes: Sequence[JsonObject] = field(default_factory=tuple)
+    recovery_runs: Sequence[JsonObject] = field(default_factory=tuple)
+    recovery_omitted: int = 0
+    page_omissions: Sequence[JsonObject] = field(default_factory=tuple)
 
 
 class WorkspaceRepository(Protocol):
@@ -119,7 +122,11 @@ class WorkspaceRepository(Protocol):
 
     def snapshot(self) -> dict[str, Any]: ...
 
-    def context_snapshot(self, *, since_revision: int | None = None) -> ContextRepositorySnapshot: ...
+    def context_snapshot(
+        self, *, since_revision: int | None = None,
+        targets: Sequence[str] = (), work_item_id: str = "", authority_session_ref: str = "",
+        selected_grant_id: str = "", claimant: str = "", entity_types: Sequence[str] = (),
+    ) -> ContextRepositorySnapshot: ...
 
 
 class WorkItemRepository(Protocol):

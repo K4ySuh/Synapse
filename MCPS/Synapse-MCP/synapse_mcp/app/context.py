@@ -171,7 +171,7 @@ class ContextResourceLink(ContextModel):
 
 class ContextOmission(ContextModel):
     section: str
-    reason: Literal["budget_exhausted", "change_log_pruned"]
+    reason: Literal["budget_exhausted", "change_log_pruned", "repository_page"]
     count: int = Field(ge=1)
     continuation: str
 
@@ -346,7 +346,18 @@ class ContextCompiler:
     def compile(self, query: ContextQueryInput, *, trust: ContextTrust) -> ContextQueryResult:
         if query.workspace_id != self.repository.workspace_id:
             raise ContextQueryError("context_workspace_mismatch", "Context query workspace does not match its repository.")
-        snapshot = self.repository.context_snapshot(since_revision=query.since_revision)
+        snapshot = self.repository.context_snapshot(
+            since_revision=query.since_revision,
+            targets=tuple(_target_host(item) for item in query.targets),
+            work_item_id=query.work_item_id or "",
+            claimant=query.claimant or "",
+            entity_types=query.entity_types,
+            selected_grant_id=trust.selected_grant_id or "",
+            authority_session_ref=(
+                f"sha256:{sha256(trust.authority_session_id.encode('utf-8')).hexdigest()}"
+                if trust.authority_session_id else ""
+            ),
+        )
         if query.since_revision is not None and query.since_revision > snapshot.revision:
             raise ContextQueryError(
                 "context_revision_future",
@@ -385,6 +396,18 @@ class ContextCompiler:
             if pruned
             else []
         )
+        if not pruned and snapshot.recovery_omitted:
+            extra_omissions.append(ContextOmission(
+                section="recentActions", reason="repository_page",
+                count=snapshot.recovery_omitted,
+                continuation="At least one additional run exists; narrow targets or workItemId and repeat context.query.",
+            ))
+        if not pruned:
+            extra_omissions.extend(ContextOmission(
+                section=str(item["section"]), reason="repository_page",
+                count=int(item["count"]),
+                continuation="At least one additional record exists; narrow targets/entityTypes or advance sinceRevision and repeat context.query.",
+            ) for item in snapshot.page_omissions)
         return self._pack(
             snapshot=snapshot,
             query=query,
@@ -567,7 +590,12 @@ class ContextCompiler:
             str(record.get(name) or "")
             for name in ("targetId", "entityId", "findingId", "relationId", "evidenceId", "artifactId", "actionId", "dispatchId", "taskId", "workItemId")
         }
-        return bool((changed or set()) & identities)
+        if (changed or set()) & identities:
+            return True
+        return any(
+            int(record.get(name) or 0) > since_revision
+            for name in ("createdRevision", "updatedRevision", "currentWorkspaceRevision")
+        )
 
     def _sections(
         self,
@@ -710,6 +738,13 @@ class ContextCompiler:
                 )
         actions = [self._action_item(item, snapshot.revision) for item in (*snapshot.actions, *snapshot.dispatches) if self._row_changed(item, changed, query.since_revision)]
         tasks = [self._task_item(item, snapshot.revision) for item in snapshot.tasks if str(item.get("state") or "").lower() not in _TERMINAL_TASK_STATES and self._row_changed(item, changed, query.since_revision)]
+        for run in snapshot.recovery_runs:
+            state = str(run.get("state") or "")
+            unresolved = state in {"authorized", "dispatch_started", "observing", "execution_unknown"}
+            if query.since_revision is not None and not unresolved and int(run.get("updatedRevision") or 0) <= query.since_revision:
+                continue
+            item = self._execution_run_item(run, snapshot.revision)
+            (tasks if unresolved else actions).append(item)
         selected_work_ids: set[str] = set()
         if query.work_item_id:
             selected = next(
@@ -807,6 +842,37 @@ class ContextCompiler:
         )
 
     @staticmethod
+    def _execution_run_item(record: Mapping[str, Any], revision: int) -> ContextItem:
+        state = str(record.get("state") or "unknown")
+        outcome = str(record.get("outcomeKind") or "pending")
+        verdict = str(record.get("verdict") or "pending")
+        coverage = record.get("coverage") if isinstance(record.get("coverage"), list) else []
+        return ContextItem(
+            item_id=str(record.get("executionRunId") or ""),
+            kind="execution_run",
+            target=str(record.get("target") or "") or None,
+            summary=f"{record.get('actionId')}: run {state}; outcome {outcome}; effect validation {verdict}.",
+            lifecycle=state,
+            priority=100 if state in {"authorized", "dispatch_started", "observing", "execution_unknown"} else 50,
+            changed_revision=int(record.get("updatedRevision") or revision),
+            attributes={
+                "dispatchId": str(record.get("dispatchId") or ""),
+                "dispatchState": str(record.get("dispatchState") or ""),
+                "jobId": str(record.get("jobId") or ""),
+                "workItemId": str(record.get("workItemId") or ""),
+                "workExecutionAttemptId": str(record.get("workExecutionAttemptId") or ""),
+                "outcomeKind": outcome,
+                "effectValidationId": str(record.get("effectValidationId") or ""),
+                "effectValidationVerdict": verdict,
+                "coverage": [
+                    {"effectClass": str(item.get("effectClass") or ""), "status": str(item.get("status") or "")}
+                    for item in coverage if isinstance(item, Mapping)
+                ],
+                "automaticReplay": False,
+            },
+        )
+
+    @staticmethod
     def _task_item(record: Mapping[str, Any], revision: int) -> ContextItem:
         payload = _payload(record)
         identity = str(record.get("taskId") or "task")
@@ -881,6 +947,11 @@ class ContextCompiler:
         extra_omissions: list[ContextOmission],
     ) -> ContextQueryResult:
         included = {name: [] for name in _SECTION_ORDER}
+        # Preserve one unresolved run before discretionary facts consume the
+        # response budget. Scope and authority remain protected separately.
+        included["activeTasks"] = [
+            item for item in sections["activeTasks"] if item.kind == "execution_run"
+        ][:1]
 
         def omissions() -> list[ContextOmission]:
             result = list(extra_omissions)
@@ -938,7 +1009,7 @@ class ContextCompiler:
 
         stopped = False
         for name in _SECTION_ORDER:
-            for item in sections[name]:
+            for item in sections[name][len(included[name]):]:
                 included[name].append(item)
                 remaining = sum(len(sections[key]) - len(included[key]) for key in _SECTION_ORDER)
                 candidate = build("complete" if remaining == 0 and not extra_omissions else "truncated")

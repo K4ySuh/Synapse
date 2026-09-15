@@ -172,6 +172,7 @@ def _required_archive_suffixes() -> tuple[str, ...]:
         "synapse_mcp/operational_prompt.md",
         "synapse_mcp/state/migrations/0007_authority_lookup_indexes.sql",
         "synapse_mcp/state/migrations/0008_contribution_receipts.sql",
+        "synapse_mcp/state/migrations/0009_context_recovery_indexes.sql",
         "share/synapse-mcp/codex/config/standard.toml",
         "share/synapse-mcp/codex/config/core-only.toml",
         "share/synapse-mcp/codex/config/modern-direct.toml",
@@ -267,8 +268,8 @@ for document in guidance_documents():
     assert hashlib.sha256(read_guidance(document.uri).encode()).hexdigest() == document.sha256
     assert read_guidance(document.uri) == (default_skills_dir() / document.skill / document.path).read_text()
 assert 'synapse://guidance/skills/operate-synapse/SKILL.md' in catalog
-assert MIGRATION_NAMES[-1] == '0008_contribution_receipts.sql'
-assert 'contribution_receipts' in migration_text(MIGRATION_NAMES[-1])
+assert MIGRATION_NAMES[-1] == '0009_context_recovery_indexes.sql'
+assert 'idx_execution_runs_authority_recovery' in migration_text(MIGRATION_NAMES[-1])
 assert not validate_assets(), validate_assets()
 print(len(prompt.encode()))
 """

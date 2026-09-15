@@ -19,7 +19,7 @@ from synapse_mcp.app.work_items import WorkItemService
 from synapse_mcp.core import workspace
 from synapse_mcp.state import ActivatedWorkspaceRepository, SQLiteWorkItemRepository, StateBundleService
 from synapse_mcp.state.errors import StateConflictError, StateStoreError
-from synapse_mcp.state.migrations import migration_hash, migration_text
+from synapse_mcp.state.migrations import MIGRATION_NAMES, migration_hash, migration_text
 from synapse_mcp.state.selector import selected_store_version
 
 
@@ -211,7 +211,10 @@ class WorkItemTests(unittest.TestCase):
                     "SELECT name FROM sqlite_master WHERE type='table' AND name='work_item_execution_attempts'"
                 ).fetchone()
             )
-            self.assertEqual(int(checked.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0]), 8)
+            self.assertEqual(
+                int(checked.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0]),
+                len(MIGRATION_NAMES),
+            )
 
     def test_two_processes_race_for_one_exclusive_claim_and_exactly_one_wins(self) -> None:
         self.repository.create(

@@ -32,7 +32,9 @@ from synapse_mcp.app.facade import (
 )
 from synapse_mcp.core import workspace
 from synapse_mcp.policy import AuthorityGrant, AuthorityMode, BudgetLimits, StateChangePolicy, WorkspaceAuthorityRepository
-from synapse_mcp.state import ActivatedWorkspaceRepository, StateMigrationService, repository_bundle
+from synapse_mcp.state import (
+    ActivatedWorkspaceRepository, SQLiteWorkItemRepository, StateMigrationService, repository_bundle,
+)
 
 
 HISTORICAL_BUDGETS = (100, 400, 1_500, 6_000, 20_000)
@@ -394,6 +396,130 @@ class ContextCompilerTests(unittest.TestCase):
         self.assertTrue(pruned.full_refresh_required)
         self.assertTrue(any(item.reason == "change_log_pruned" for item in pruned.omissions))
         self.assertFalse(pruned.confirmed_facts)
+
+    def test_restart_recovers_bounded_runs_with_dispatch_and_validation_truth(self) -> None:
+        plan = _plan("context")
+        authority = WorkspaceAuthorityRepository("context")
+        authority.create_grant(_grant(plan))
+        work_repository = SQLiteWorkItemRepository(self.repository)
+        work = work_repository.create(
+            {"workItemId": "work-recovery", "objective": "Recover lifecycle context"},
+            principal_id=self.trust.principal_id,
+        )
+        claim = work_repository.claim(
+            work["workItemId"], expected_version=work["version"],
+            principal_id=self.trust.principal_id,
+            authority_session_id=self.trust.authority_session_id,
+            agent_run_id="context-recovery-run", worker="context-recovery", lease_seconds=60,
+        )
+        attempt = work_repository.bind_execution_attempt(
+            work["workItemId"], claim_id=claim["claimId"],
+            principal_id=self.trust.principal_id,
+            authority_session_id=self.trust.authority_session_id,
+            agent_run_id="context-recovery-run", action_id=plan.action_id,
+            replay_safety="pure_read", idempotency_key="recovery-10",
+        )
+        receipts = []
+        for index in range(11):
+            receipt = authority.authorize(
+                plan, risk_class=RiskClass.NONE, profile="full_delegated",
+                authority_session_id=self.trust.authority_session_id,
+                selected_grant_id="grant-context",
+                idempotency_key=f"recovery-{index}",
+                work_item_id="work-recovery" if index == 10 else "",
+                work_execution_attempt_id=attempt["executionReference"] if index == 10 else "",
+            ).receipt
+            authority.mark_dispatched(receipt)
+            authority.transition_dispatch(
+                receipt.dispatch_id, "unknown", outcome_kind="execution_unknown",
+            )
+            receipts.append(receipt)
+        for index in range(4):
+            succeeded = authority.authorize(
+                plan, risk_class=RiskClass.NONE, profile="full_delegated",
+                authority_session_id=self.trust.authority_session_id,
+                selected_grant_id="grant-context", idempotency_key=f"recovery-success-{index}",
+            ).receipt
+            authority.mark_dispatched(succeeded)
+            authority.transition_dispatch(succeeded.dispatch_id, "succeeded", outcome_kind="success")
+
+        reopened = ActivatedWorkspaceRepository("context", self.repository.workspace_root)
+        with reopened.connection_factory.connect() as connection:
+            query_plan = " ".join(str(column) for row in connection.execute(
+                "EXPLAIN QUERY PLAN SELECT execution_run_id FROM execution_runs "
+                "WHERE workspace_id=? AND json_extract(payload_json, "
+                "'$.authorizationBinding.authoritySessionRef')=?",
+                ("context", "sha256:" + "0" * 64),
+            ) for column in row)
+        self.assertIn("idx_execution_runs_authority_recovery", query_plan)
+        recovered = self._compiler(reopened).compile(
+            ContextQueryInput(workspace_id="context", max_tokens=20_000),
+            trust=self.trust,
+        )
+        runs = [item for item in recovered.active_tasks if item.kind == "execution_run"]
+        self.assertTrue(runs)
+        self.assertLessEqual(len(runs), 12)
+        self.assertEqual(runs[0].lifecycle, "execution_unknown")
+        self.assertEqual(runs[0].attributes["dispatchState"], "unknown")
+        self.assertEqual(runs[0].attributes["effectValidationVerdict"], "unobservable")
+        self.assertTrue(runs[0].attributes["effectValidationId"])
+        self.assertFalse(runs[0].attributes["automaticReplay"])
+        linked = next(item for item in runs if item.attributes["workItemId"] == "work-recovery")
+        self.assertEqual(linked.attributes["workExecutionAttemptId"], attempt["executionReference"])
+        completed = [item for item in recovered.recent_actions if item.kind == "execution_run"]
+        self.assertEqual(completed[0].attributes["outcomeKind"], "success")
+        self.assertEqual(completed[0].attributes["effectValidationVerdict"], "unobservable")
+        self.assertTrue(any(item.reason == "repository_page" for item in recovered.omissions))
+        self.assertEqual(recovered.revision, reopened.revision())
+
+        other = self._compiler(reopened).compile(
+            ContextQueryInput(workspace_id="context", max_tokens=20_000),
+            trust=ContextTrust(execution_profile="observe", principal_id="other",
+                               authority_session_id="other-session"),
+        )
+        self.assertFalse(any(item.kind == "execution_run" for item in other.active_tasks))
+        selected_work = self._compiler(reopened).compile(
+            ContextQueryInput(workspace_id="context", work_item_id="work-recovery", max_tokens=20_000),
+            trust=self.trust,
+        )
+        self.assertEqual(
+            [item.attributes["workItemId"] for item in selected_work.active_tasks if item.kind == "execution_run"],
+            ["work-recovery"],
+        )
+
+    def test_target_specific_context_does_not_decode_unrelated_populated_rows(self) -> None:
+        def footprint(snapshot) -> tuple[int, int]:
+            selected = (snapshot.targets, snapshot.entities, snapshot.findings, snapshot.evidence)
+            return sum(len(rows) for rows in selected), len(json.dumps(selected, default=list).encode("utf-8"))
+
+        small = self.repository.context_snapshot(targets=("context.example",))
+        base_revision = small.revision
+        small_rows, small_bytes = footprint(small)
+        small_output = self._query(20_000, targets=["context.example"])
+        self.repository.upsert_target("unrelated.example", {"target": "unrelated.example", "kind": "host"})
+        self.repository.replace_collection(
+            "unrelated.example", "observations",
+            tuple({"type": "observation", "key": f"unrelated-{index:03d}", "summary": "x" * 100}
+                  for index in range(240)),
+        )
+        selected = self.repository.context_snapshot(targets=("context.example",))
+        selected_rows, selected_bytes = footprint(selected)
+        self.assertEqual((selected_rows, selected_bytes), (small_rows, small_bytes))
+        self.assertLess(selected_rows, 30)
+        full = self.repository.context_snapshot()
+        self.assertLessEqual(len(full.entities), 200)
+        self.assertTrue(full.page_omissions)
+        populated_output = self._query(20_000, targets=["context.example"])
+        self.assertEqual(len(populated_output.confirmed_facts), len(small_output.confirmed_facts))
+        self.assertLessEqual(populated_output.budget.used, 20_000)
+        self.repository.replace_collection(
+            "context.example", "endpoints",
+            ({"type": "endpoint", "key": "GET:https://context.example/recovered-delta",
+              "method": "GET", "url": "https://context.example/recovered-delta"},),
+        )
+        delta = self._query(20_000, targets=["context.example"], since_revision=base_revision)
+        self.assertIn("https://context.example/recovered-delta", [item.summary for item in delta.confirmed_facts])
+
 
     def test_scope_authority_classification_and_recommendations_are_non_executable(self) -> None:
         plan = _plan("context")

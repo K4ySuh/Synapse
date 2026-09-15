@@ -16,7 +16,7 @@ from synapse_mcp.app.facade import CompactFacadeService, FacadeCallContext
 from synapse_mcp.app.work_items import WorkItemService
 from synapse_mcp.core import workspace
 from synapse_mcp.state import ActivatedWorkspaceRepository, SQLiteWorkItemRepository
-from synapse_mcp.state.migrations import migration_hash, migration_text
+from synapse_mcp.state.migrations import MIGRATION_NAMES, migration_hash, migration_text
 
 
 BASE_TIME = datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc)
@@ -173,7 +173,10 @@ class WorkContractTests(unittest.TestCase):
         self.assertEqual(upgraded["dependencyPolicy"], "success_required")
         self.assertEqual(upgraded["blocker"], {})
         with repository.workspace.connection_factory.connect() as checked:
-            self.assertEqual(int(checked.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0]), 8)
+            self.assertEqual(
+                int(checked.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0]),
+                len(MIGRATION_NAMES),
+            )
 
     def test_cancelled_dependency_obeys_both_dependency_policies(self) -> None:
         first = self._create("dependency-first")

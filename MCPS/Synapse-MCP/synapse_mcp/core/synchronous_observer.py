@@ -92,9 +92,11 @@ class SynchronousExecutionObserver(NoOpExecutionObserver):
         run.verify()
         run_id = run.identity.execution_run_id
         with self._lock:
-            events = tuple(self._events.pop(run_id, ()))
-            gaps = set(self._gaps.pop(run_id, ()))
-            declared = self._declared.pop(run_id, None)
+            # Finalization may be retried after a failed store commit. Consume
+            # buffers only after the caller confirms the durable transition.
+            events = tuple(self._events.get(run_id, ()))
+            gaps = set(self._gaps.get(run_id, ()))
+            declared = self._declared.get(run_id)
         if not events and not gaps:
             return super().finalize(run, outcome_kind=outcome_kind, observed_at=observed_at)
         observations = tuple(

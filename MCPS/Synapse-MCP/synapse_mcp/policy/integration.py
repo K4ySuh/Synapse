@@ -163,6 +163,7 @@ def record_registry_outcome(
                             receipt.dispatch_id,
                             "unknown",
                             outcome_kind="execution_unknown",
+                            observer=observer,
                         )
                 except Exception:
                     pass

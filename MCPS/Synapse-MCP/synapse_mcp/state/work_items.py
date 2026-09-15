@@ -2076,18 +2076,27 @@ class SQLiteWorkItemRepository:
         )
 
 
-def context_work_items(connection: Any, workspace_id: str) -> tuple[dict[str, Any], ...]:
-    """Return work-item context records from the caller's existing WAL snapshot."""
+def context_work_items(
+    connection: Any, workspace_id: str, *, work_item_id: str = "", claimant: str = "",
+) -> tuple[tuple[dict[str, Any], ...], int]:
+    """Return selected work-item records from the caller's existing WAL snapshot."""
 
     repository = _SnapshotWorkItemRepository(workspace_id)
+    sql = (
+        "SELECT w.work_item_id FROM work_items w WHERE w.workspace_id=? AND (w.work_item_id=? "
+        "OR w.work_item_id=(SELECT parent_work_item_id FROM work_items WHERE workspace_id=? AND work_item_id=?) "
+        "OR w.work_item_id IN (SELECT depends_on_work_item_id FROM work_item_dependencies WHERE workspace_id=? AND work_item_id=?) "
+        "OR EXISTS (SELECT 1 FROM work_item_claims c WHERE c.workspace_id=w.workspace_id AND c.work_item_id=w.work_item_id "
+        "AND ?<>'' AND c.worker_label=? AND c.state='active')) "
+        "ORDER BY CASE WHEN w.work_item_id=? THEN 0 ELSE 1 END, w.updated_at DESC, w.work_item_id"
+    )
+    parameters = (workspace_id, work_item_id, workspace_id, work_item_id, workspace_id, work_item_id,
+                  claimant, claimant, work_item_id)
     identifiers = [
         str(row[0])
-        for row in connection.execute(
-            "SELECT work_item_id FROM work_items WHERE workspace_id=? ORDER BY updated_at DESC, work_item_id",
-            (workspace_id,),
-        )
+        for row in connection.execute(f"{sql} LIMIT 65", parameters)
     ]
-    return tuple(repository.record(connection, identity) for identity in identifiers)
+    return tuple(repository.record(connection, identity) for identity in identifiers[:64]), int(len(identifiers) > 64)
 
 
 class _SnapshotWorkItemRepository:

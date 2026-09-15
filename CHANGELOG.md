@@ -24,6 +24,15 @@ durable dispatch and continuation truth.
 
 ### Added
 
+- **Phase 6R5 bounded lifecycle recovery.** `context.query` now returns a
+  bounded, session-bound projection of relevant execution runs with their
+  dispatch, work-attempt, job, outcome, coverage, and effect-validation truth.
+  Unresolved runs are protected ahead of discretionary context, successful
+  outcomes remain distinct from unobservable effects, and recovery never
+  implies automatic replay. Target, entity-type, revision, work-item, and
+  selected-grant filters are applied inside one SQLite snapshot; bounded pages
+  report an explicit continuation instead of reconstructing unrelated history.
+
 - **Phase 6R4 modern guidance delivery.** Modern MCP now publishes the same
   package-owned `synapse-main` prompt as legacy, plus a read-only catalog of
   the three default Codex skills and their referenced documents. Catalog
@@ -373,6 +382,12 @@ durable dispatch and continuation truth.
   ADR-0003/ADR-0009 decisions remain.
 
 ### Fixed
+
+- **Phase 6R5 failure observation retention.** Synchronous observation buffers
+  now survive executor exceptions, invalid output contracts, and failed result
+  commits until an unknown/final result is durable. Failure finalization is
+  idempotent, and a telemetry-storage failure leaves explicit unknown truth
+  without replaying the executor.
 
 - **Phase 6R2 incremental SQLite-v2 authority persistence.** Authority
   transactions now use indexed lookups for the current grant, request,

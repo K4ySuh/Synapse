@@ -5,7 +5,8 @@ Phase 6 is in progress. Tasks 6A–6D are implemented at reviewed Beta commit
 completion contract; 6R1 corrects new SQLite-v2 ingestion, and 6R2 makes
 authority/lifecycle persistence incremental, and 6R3 publishes versioned
 consumer contributions. 6R4 publishes canonical modern guidance. Tasks
-6R5–6R7 remain planned. No Phase 6 closure or
+6R5 bounds context recovery and preserves synchronous observations across
+failure finalization. Tasks 6R6–6R7 remain planned. No Phase 6 closure or
 live-client support claim is made here. See the [roadmap](README.md#phase-6-beta-completion-roadmap)
 and [checkpoint ledger](phase-6-checkpoints.md).
 
@@ -41,8 +42,13 @@ and [checkpoint ledger](phase-6-checkpoints.md).
   exposes the same package-owned operating prompt as legacy plus a read-only,
   digested catalog of the three default Codex skills and their references.
   Local skill installation remains supported; hosted resources do not activate
-  client skills. Bounded recovery/context, a passive pilot, and final
-  integration follow in 6R5–6R7. Counterfactual evaluation is deferred.
+  client skills. Context recovery now selects at most bounded repository pages
+  from one SQLite snapshot and protects relevant unresolved run, dispatch,
+  work/job, outcome, coverage, and validation facts. Captured synchronous
+  observations survive executor/output/finalization failures when storage can
+  commit; uncertain execution remains unknown and is never automatically
+  replayed. A passive pilot and final integration follow in 6R6–6R7.
+  Counterfactual evaluation is deferred.
 
 The applicable developer checks are focused service tests for the changed
 boundary. Completed-phase acceptance and benchmark runners were retired; they

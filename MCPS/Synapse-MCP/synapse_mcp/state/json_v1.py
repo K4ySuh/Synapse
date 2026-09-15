@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Sequence
 
 from .contracts import ContextRepositorySnapshot
 
@@ -27,7 +27,12 @@ class JsonV1WorkspaceRepository:
     def snapshot(self) -> dict[str, Any]:
         return self._workspace.workspace_summary(self._workspace_id)
 
-    def context_snapshot(self, *, since_revision: int | None = None) -> ContextRepositorySnapshot:
+    def context_snapshot(
+        self, *, since_revision: int | None = None,
+        targets: Sequence[str] = (), work_item_id: str = "", authority_session_ref: str = "",
+        selected_grant_id: str = "", claimant: str = "", entity_types: Sequence[str] = (),
+    ) -> ContextRepositorySnapshot:
+        del since_revision, targets, work_item_id, authority_session_ref, selected_grant_id, claimant, entity_types
         root = self._workspace.workspace_path(self._workspace_id)
         targets: list[dict[str, Any]] = []
         entities: list[dict[str, Any]] = []

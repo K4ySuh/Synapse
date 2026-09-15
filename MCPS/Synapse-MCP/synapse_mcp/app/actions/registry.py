@@ -92,18 +92,26 @@ class ProfilePolicyEvaluator:
     def after_dispatch(self, receipt: object, outcome: ActionOutcome[Any]) -> None:
         from synapse_mcp.policy.integration import record_registry_outcome
 
-        try:
-            record_registry_outcome(receipt, outcome, observer=self.observer)
-        finally:
-            if hasattr(self.observer, "discard"):
-                self.observer.discard(str(getattr(receipt, "execution_run_id", "")))
+        record_registry_outcome(receipt, outcome, observer=self.observer)
+        if hasattr(self.observer, "discard"):
+            self.observer.discard(str(getattr(receipt, "execution_run_id", "")))
 
     def dispatch_unknown(self, receipt: object) -> None:
         from synapse_mcp.policy.integration import record_registry_unknown
 
         # A failing or inconsistent injected observer cannot prevent the
         # canonical dispatch/run pair from becoming conservatively unknown.
-        record_registry_unknown(receipt)
+        try:
+            record_registry_unknown(receipt, observer=self.observer)
+        except Exception:
+            try:
+                # A transient store failure must not consume captured facts.
+                # Retrying finalization does not replay the executor.
+                record_registry_unknown(receipt, observer=self.observer)
+            except Exception:
+                # If observation cannot be committed, an unobserved unknown is
+                # still safer than leaving a dispatch apparently in progress.
+                record_registry_unknown(receipt)
         if hasattr(self.observer, "discard"):
             self.observer.discard(str(getattr(receipt, "execution_run_id", "")))
 
