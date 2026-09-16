@@ -16,68 +16,56 @@ phase acceptance and benchmark runners.
 | 6R4 | Complete | 6R4.1–6R4.3 `2d81f14` | 6R5.1 |
 | 6R5 | Complete | 6R5.1–6R5.3 `eb72496` | 6R6.1 |
 | 6R6 | Complete | 6R6.1–6R6.2 `a7cf5a9` | 6R7.1 |
-| 6R7 | Pending | 6R7.1, 6R7.2, 6R7.3 pending | Run current integrated service checks |
+| 6R7 | Complete | 6R7.1–6R7.3 `48dee7f` | Beta operator handoff complete |
 
 ## Latest checkpoint record
 
 ```yaml
-task: 6R6
-checkpoint: 6R6.2
+task: 6R7
+checkpoint: 6R7.3
 status: complete
 review_base: 5a33b238020ff987ecf38dd3afcacca81d13de1a
-implementation_commit: a7cf5a9
+implementation_commit: 48dee7f
 branch: Beta
 changed_files:
   - CHANGELOG.md
-  - MCPS/Synapse-MCP/modern_tests/test_modern_adapter.py
-  - MCPS/Synapse-MCP/synapse_mcp/adapters/web/spec_import.py
-  - MCPS/Synapse-MCP/synapse_mcp/core/saved_spec_import.py
-  - MCPS/Synapse-MCP/synapse_mcp/guidance.py
-  - MCPS/Synapse-MCP/tests/fixtures/integrations/saved-openapi.json
-  - MCPS/Synapse-MCP/tests/test_distribution.py
-  - MCPS/Synapse-MCP/tests/test_saved_data_integration.py
   - README.md
-  - bin/validate-distribution
-  - docs/Architecture.md
-  - docs/Implementation-Map.md
-  - docs/Integration-Convention.md
   - docs/Operations.md
-  - docs/README.md
   - docs/modernization/README.md
-  - skills/codex/default/synapse-web-pentesting/SKILL.md
-  - skills/codex/default/synapse-web-pentesting/references/saved-data-integrations.md
+  - docs/modernization/phase-6-client-exercise.md
 contract_changes:
-  - spec_import.import_spec and its same-named legacy alias retain their existing input/output shape, effects, serializer, and canonical entities through a forwarding adapter wrapper.
-  - OpenAPI, Swagger, and Postman detection, parsing, redaction, normalization, evidence creation, and adapter_result ingestion now live in the protocol-independent core.saved_spec_import seam.
-  - The hosted default guidance catalog adds saved-data-integrations.md; modern-compact remains eleven operations and no Registry, contribution, legacy fixture, JSON-v1, or state schema changes were made.
+  - No application, Registry, state, authority, protocol, generated inventory, output-contract, contribution, or legacy compatibility contract changed in 6R7.
+  - The operator documentation now records the tested client boundary and restart-safe quick start/handoff.
 checks:
-  - command: cd MCPS/Synapse-MCP && PYTHONPATH=tests ../../.venv/bin/python -m unittest test_saved_data_integration test_web_discovery_adapters.SpecImportAdapterTests test_architecture_boundaries test_distribution -q
-    result: pass; 17 focused pilot, retained import, architecture, and distribution tests
-  - command: bin/validate-codex-skills --check && bin/validate-codex-skills --check --profile multi-agent-compat
-    result: pass; 3 default skills and 8 multi-agent compatibility skills validated with all local references
   - command: bin/test --core -q
-    result: pass; 810 tests. The first run found stale output-contract derivation at the forwarding wrapper; wrapped-function introspection restored the existing 168-action generated contract without changing it.
+    result: pass; 810 current tests, including fresh SQLite-v2, migration/storage, inventory/output contracts, ingestion/retry, independent consumers, context/background recovery, and reports
   - command: bin/test-modern -q
-    result: pass; 17 isolated modern-adapter tests including eight hosted guidance documents and exact wire fixtures
-  - command: SYNAPSE_BUILD_PYTHON="$PWD/.venv/bin/python" SYNAPSE_BUILD_PYTHONPATH=/usr/lib/python3.14/site-packages SYNAPSE_RUNTIME_PYTHON="$PWD/.venv/bin/python" .venv/bin/python bin/validate-distribution
-    result: pass; wheel and sdist installed outside checkout; eight hosted guidance documents, standard 174-action and core-only 42-action startup verified
-  - command: git diff --cached --check
-    result: pass; no whitespace errors
+    result: pass; 17 tests across compact/direct, stdio/HTTP, restart, hosted resources, and frozen fixtures
+  - command: bin/validate-codex-skills --check
+    result: pass; 3 default skills and 2 shared references
+  - command: bin/validate-codex-skills --check --profile multi-agent-compat
+    result: pass; 8 compatibility skills and 2 shared references
+  - command: SYNAPSE_BUILD_PYTHON=.venv/bin/python SYNAPSE_BUILD_PYTHONPATH=/usr/lib/python3.14/site-packages SYNAPSE_RUNTIME_PYTHON=.venv/bin/python .venv/bin/python bin/validate-distribution
+    result: pass; wheel and sdist installed outside checkout; standard 174-action and core-only 42-action startup verified
+  - command: bounded single-agent Codex direct-client exercise
+    result: pass; Codex CLI 0.154.0, provisioned gpt-daybreak-blue-latest at High, mcp 2.0.0, protocol 2025-06-18, modern-compact stdio, Synapse 0.6.0b0, and Python 3.14.7
+  - command: cd MCPS/Synapse-MCP && PYTHONPATH=tests ../../.venv/bin/python -m unittest test_modernization_docs test_distribution -q
+    result: pass; 14 focused documentation and distribution-contract tests
 remaining_issue: >-
-  The pilot covers one saved specification importer. Other saved formats,
-  passive analyzers, consumer-interpreted facts, and guarded active/provider
-  adapters are classified for future migration but are not rewritten by 6R6.
-next_checkpoint: 6R7.1
+  The pass is limited to the recorded client/model/build. Provider, browser,
+  background-worker, and child-process-internal observation; generalized
+  taint/invalidation; counterfactual evaluation; and migration of every
+  saved-data adapter remain outside this Beta boundary.
+next_checkpoint: null
 next_action: >-
-  Run the current integrated service checks once, record exact versions and
-  results, then continue to the bounded direct-client exercise in 6R7.2.
+  Use the Beta operator quick start and server-held authority workflow for an
+  authorized engagement; open a new scoped roadmap task for deferred work.
 dirty_worktree: >-
-  Tracked 6R6 implementation committed at a7cf5a9; only pre-existing untracked
+  Tracked 6R7 handoff committed at 48dee7f; only pre-existing untracked
   Synapse-Reconvert-Phase.md remains untouched after the checkpoint record commit.
 ```
 
-The Daybreak preference applies to the future operator-selected model. Codex
-host, protocol, SDK, and package compatibility are separate questions for the
-recorded direct-client exercise in 6R7.2; this ledger makes no live-client pass
-claim. Full observer/provider coverage and counterfactual evaluation remain
-deferred.
+The direct-client pass applies only to the recorded Codex host, provisioned
+model, protocol, SDK, and package versions. Full observer/provider coverage,
+generalized taint/invalidation, counterfactual evaluation, and untested client
+support remain deferred.

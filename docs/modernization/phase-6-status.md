@@ -1,15 +1,17 @@
 # Phase 6 status
 
-Phase 6 is in progress. Tasks 6A–6D are implemented at reviewed Beta commit
+Phase 6 Beta is complete. Tasks 6A–6D are implemented at reviewed Beta commit
 `5a33b238020ff987ecf38dd3afcacca81d13de1a`. Task 6R0 records the revised
 completion contract; 6R1 corrects new SQLite-v2 ingestion, and 6R2 makes
 authority/lifecycle persistence incremental, and 6R3 publishes versioned
 consumer contributions. 6R4 publishes canonical modern guidance. Task
 6R5 bounds context recovery and preserves synchronous observations across
 failure finalization. Task 6R6 proves a passive saved-data integration seam.
-Task 6R7 remains planned. No Phase 6 closure or
-live-client support claim is made here. See the [roadmap](README.md#phase-6-beta-completion-roadmap)
-and [checkpoint ledger](phase-6-checkpoints.md).
+Task 6R7 completes current-suite integration, a bounded direct-client exercise,
+and the operator handoff at `48dee7f`. The passing client claim is limited to
+the exact configuration in the [exercise record](phase-6-client-exercise.md).
+See the [roadmap](README.md#phase-6-beta-completion-roadmap) and
+[checkpoint ledger](phase-6-checkpoints.md).
 
 - The default is one Codex agent using `modern-compact`. Provider-specific
   skills stay outside the Synapse application.
@@ -54,8 +56,11 @@ and [checkpoint ledger](phase-6-checkpoints.md).
   integration convention classifies future adapter migration without starting
   a catalog rewrite. A fictional temporary-workspace scenario proves saved
   import, strict contribution receipt, evidence-linked context recovery, and
-  report projection. Final integration and the direct-client exercise follow
-  in 6R7.
+  report projection. The 6R7 current core/modern/distribution checks pass, and
+  one provisioned Codex/Daybreak client recovered that fictional state across
+  restarts, committed one idempotent contribution receipt under narrow
+  authority, and rendered a context-backed report. This is not a claim for
+  untested clients or models.
   Counterfactual evaluation is deferred.
 
 The applicable developer checks are focused service tests for the changed

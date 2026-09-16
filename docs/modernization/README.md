@@ -19,10 +19,12 @@ the test suite even when their original filenames mention a completed phase.
 
 ## Phase 6 Beta completion roadmap
 
-Tasks 6A–6D are implemented. The remaining work follows the serial 6R0–6R7
-sequence; [status](phase-6-status.md) records the current boundary and the
-[checkpoint ledger](phase-6-checkpoints.md) records resumable progress.
-Completed-phase acceptance and benchmark runners remain retired.
+Tasks 6A–6D and the serial 6R0–6R7 completion sequence are complete.
+[Status](phase-6-status.md) records the final boundary, the
+[checkpoint ledger](phase-6-checkpoints.md) records exact resumable history,
+and the [direct-client exercise](phase-6-client-exercise.md) records the tested
+Codex compatibility claim. Completed-phase acceptance and benchmark runners
+remain retired.
 
 | Task | Deliverable | Depends on | Checkpoints |
 | --- | --- | --- | --- |
@@ -50,10 +52,10 @@ The revised disposition of earlier Phase 6 tasks is:
 | 6I telemetry/counterfactual evaluation | Keep bounded practical measurements; defer counterfactual evaluation. |
 | 6J final acceptance | Use current service checks and a bounded 6R7 client exercise; do not restore historical gates. |
 
-Daybreak is a preferred operator-selected model for the eventual direct-client
-exercise, not a Synapse core requirement or evidence that a Codex host/protocol
-combination is supported. That compatibility claim requires an actual recorded
-client check at 6R7.
+Daybreak remains an operator-selected preference, not a Synapse core
+requirement. The 6R7 direct-client exercise records one passing Codex
+host/model/protocol combination; it does not generalize that claim to untested
+clients or builds.
 
 ## Architecture decisions
 
