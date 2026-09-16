@@ -7,9 +7,9 @@ details that are not cleared for disclosure.
 
 ## Supported Versions
 
-This repository currently tracks active development on the main branch. Until
-formal releases are cut, security fixes are applied to the current development
-tree.
+Until formal releases are cut, security fixes are applied to the current
+development tree. Consult the repository's active branch and release metadata
+rather than assuming a fixed branch name.
 
 ## Reporting A Vulnerability
 
@@ -27,13 +27,13 @@ Include enough non-sensitive context to triage the issue:
 - sanitized reproduction steps,
 - observed and expected behavior,
 - whether the issue can send traffic, mutate state, expose secrets, or bypass
-  scope/confirmation gates.
+  scope or execution-authority gates.
 
 ## Security Boundaries
 
 Reports are especially useful when they affect:
 
-- scope enforcement or confirmation gates,
+- scope enforcement or legacy/modern execution-authority gates,
 - credential redaction or secret storage,
 - active traffic controls,
 - evidence sanitization,

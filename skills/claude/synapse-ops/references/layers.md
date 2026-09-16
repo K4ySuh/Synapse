@@ -1,5 +1,9 @@
 # Synapse Layer Playbooks & Tool Surface
 
+This reference documents the frozen `legacy` MCP projection retained for Claude
+compatibility. Direct tool names and `confirm=true` calls below do not describe
+the default `modern-compact` Codex profile.
+
 Grounded in the repo's `docs/Architecture.md`, `docs/Operations.md`, `docs/Reporting-Model.md`,
 the packaged `synapse_mcp/operational_prompt.md`, and the registered tool names in
 `synapse_mcp/transport/stdio_server.py`. Read the relevant section before driving that layer.

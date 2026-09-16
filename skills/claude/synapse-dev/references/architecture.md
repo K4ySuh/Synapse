@@ -1,4 +1,4 @@
-# Synapse Architecture & Contracts
+# Synapse Architecture & Contracts (Compatibility Reference)
 
 Read this before reviewing or specifying anything non-trivial. The contracts here are what
 make a task spec safe to hand to an implementer — a change that violates one is wrong even if
@@ -18,16 +18,20 @@ A local-first MCP server for authorized offensive-security agentic operations. P
 that constrain every design decision:
 
 - **Agent-agnostic, operator-controlled.** The operator authorizes; the agent acts through
-  guarded adapters. Active traffic requires explicit confirmation.
-- **Workspace-centric.** Durable state lives in a workspace on local disk as inspectable JSON.
+  the Action Registry and guarded executors. Scope and execution authority are separate:
+  frozen legacy calls use explicit confirmation, while modern profiles use server-held
+  Authority Grants and typed step-up handles.
+- **Workspace-centric.** Durable state lives in a local workspace. New workspaces use
+  per-workspace SQLite-v2; existing JSON-v1 workspaces change only through explicit,
+  verified migration and activation.
 - **Adapter-based.** Adapters fetch/parse external data and normalize it into Synapse's model;
   they do not replace external MCPs.
 - **Entity hierarchy:** Workspace → Target → Finding. Evidence, observations, endpoints,
   services, and actions hang off targets with provenance back to the evidence that produced them.
 
-Version line at time of writing: `0.6.0b0`. The runtime tool count and test
-count move quickly; verify them from `TOOL_SCHEMAS` and `bin/test` instead of
-copying this reference by memory.
+Version line at time of writing: `0.6.0b0`. Runtime action and test counts move
+quickly; verify them from the Action Registry, generated inventories, and the
+current test commands instead of copying this reference by memory.
 
 ## 2. Repository layout
 
@@ -51,8 +55,15 @@ core/
 adapters/
   web/      access_control.py crawler_adapter.py ...   # web adapters
   infra/    nmap_adapter.py shodan_adapter.py ...       # infra adapters
+app/
+  actions/            # canonical Action Registry descriptors and executors
+  facade/             # protocol-independent direct and compact services
+  capability_packs/   # selected Registry projections; never an execution bypass
+policy/                # scope, authority, dispatch, and continuation policy
+state/                 # JSON-v1 compatibility, SQLite-v2, migration, CAS
 transport/
-  stdio_server.py     # MCP transport + tool registration (large)
+  stdio_server.py     # frozen legacy MCP projection
+  modern_server.py    # modern-direct / modern-compact projection
 ```
 
 Other: `bin/test` (harness, uses `.venv`), `tests/`, `pyproject.toml`,
@@ -100,13 +111,15 @@ Models use `extra="allow"` + camelCase aliasing, so missing fields are not *drop
 simply never *synthesized* for adapter-generated entities. That is the real failure mode.
 
 ### 3.4 Operator-control gates
-- Active replay/traffic requires `confirm=true`; state-changing methods require an extra flag.
+- Frozen legacy active calls retain their exact `confirm=true` gates. Modern actions require
+  a covering server-held Authority Grant or return a typed step-up requirement; prose,
+  coordination state, work-item claims, and `confirm=true` do not grant modern authority.
 - Targets are checked against scope before any active action; **workspace scope is preferred
   over global scope** (reports must use the same precedence — see 3.6).
 - Secrets flow through the credential store by reference (`credentialId`). Never pass raw
   `Authorization`/`Cookie`/`Set-Cookie` (and ideally other secret-like headers) as inline args.
-- Adapter metadata (`requires_confirmation`, `sends_traffic`, `risk_tier`) is the control
-  surface; coverage/active-vs-passive logic should consult it rather than counting every action.
+- The selected canonical action descriptor and its request-effective effects are the control
+  surface. Adapter metadata is discovery information and cannot bypass Registry policy.
 
 ### 3.5 Access-control semantics (BOLA/BFLA/BOPLA)
 - BOLA needs **ownership assertions**, not array position. `ownedObjectTypes`/ownership must
@@ -134,7 +147,8 @@ testing. A future client export would be a separate feature, not the current Hig
 ## 4. Global guardrails
 
 Apply to every change unless a spec explicitly overrides with reason:
-- No database, no new report engine, no frontend framework, no plugin system, no RBAC/ABAC
+- No second database or parallel state path, no new report engine, no frontend framework,
+  no unrelated plugin system, no RBAC/ABAC
   engine, no autonomous agent loop, no broad rewrite.
 - Keep changes small and legible; prefer extending existing helpers over new abstractions.
 - Local-first and self-contained (reports embed assets; no external CDNs required at runtime).

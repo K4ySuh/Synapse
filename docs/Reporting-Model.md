@@ -66,10 +66,14 @@ may still exist in the HTML source.
 
 ## Workspace Data vs Report Output
 
-Workspace JSON and agent-facing tool responses are **always rich and complete**.
-They are not redacted. The agent keeps access to local file paths, evidence IDs,
-approval IDs, credential references, JS artifact paths, and adapter metadata so
-it can reason and act. Weakening the workspace would weaken the agent.
+Canonical workspace state and evidence remain rich and complete. Modern
+agent-facing responses are deliberately bounded: large bodies stay in the CAS,
+local filesystem paths are replaced by reauthorized opaque resource links, and
+explicit omissions/continuations preserve the difference between unavailable
+context and absent truth. Evidence IDs, approval/grant state, credential
+references, and adapter metadata remain available through the applicable
+authorized projection. This protects paths and context size without weakening
+workspace truth.
 
 Reports are never the source of truth. Workspace state plus evidence are. A
 report is a point-in-time, presentation-scoped projection of that state.

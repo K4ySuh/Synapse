@@ -12,6 +12,7 @@ next to the component under `MCPS/`.
 - [Implementation Map](Implementation-Map.md): current modules, tool surface, and workflows.
 - [Contribution Contract](Contribution-Contract.md): strict versioned saved-data ingestion and durable receipts.
 - [Integration Convention](Integration-Convention.md): deterministic saved-data boundaries and the passive specification pilot.
+- [Phase 6 direct-client exercise](modernization/phase-6-client-exercise.md): exact tested Codex path, measurements, and compatibility limits.
 - [Reporting Model](Reporting-Model.md): internal HTML report views, presentation toggle, and what reports must not do.
 - [Adapter Development](Adapter-Development.md): how to build safe workspace-native adapters.
 - [Contributing](../CONTRIBUTING.md): development, test, documentation, and safety expectations.

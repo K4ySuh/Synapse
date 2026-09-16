@@ -162,8 +162,9 @@ serializers consume the sanitized representation.
 
 ## Representative Entity Schemas
 
-These are representative shapes for the current workspace model. Exact MCP
-input schemas are defined in `transport/stdio_server.py`.
+These are representative shapes for the current workspace model. Canonical
+action inputs come from Registry descriptors under `app/actions/`; the frozen
+legacy MCP schemas remain projected by `transport/stdio_server.py`.
 
 ### Scope Status
 
@@ -485,10 +486,10 @@ Phase 6B adds the default `skills/codex/default/` profile:
 - service tests guard routing, methodology, distribution selection, and
   unchanged Registry and compact surfaces.
 
-Phase 5E adds the separate package operational prompt (6,289 bytes after the
-Phase 5F coordination guidance), keeps the
-root repository policy at 94 lines, and packages Codex integration data without
-importing it from application startup. `synapse_mcp/integrations/codex.py`
+Phase 5E adds the separate package operational prompt and keeps root/nested
+repository policy out of runtime engagement guidance. Exact prompt bytes and
+instruction scope are checked from current package contents instead of being
+duplicated here. `synapse_mcp/integrations/codex.py`
 locates and validates installed skills/configs; `bin/validate-distribution`
 builds and installs a wheel and sdist outside the checkout, validates prompt and
 skill/reference equality, and constructs installed standard 174-action and
@@ -674,9 +675,10 @@ Dispatches JSON-RPC requests for tools, resources, and prompts. `tools/call`
 validates required arguments, declared types, enums, numeric bounds, array
 items, and `oneOf` shapes before dispatch; private underscore-prefixed worker
 fields are rejected at the MCP boundary,
-while leaving adapter-owned approval gates such as `confirm=true` to the
-adapter. Malformed JSON lines return JSON-RPC parse errors. Tool execution uses
-a small executor deadline wrapper so slow synchronous operations return a
+while preserving the selected profile's policy boundary: frozen legacy calls
+retain adapter-owned `confirm=true` gates, and authority-aware calls execute
+through Registry policy. Malformed JSON lines return JSON-RPC parse errors.
+Tool execution uses a small executor deadline wrapper so slow synchronous operations return a
 structured `-32003` timeout error and the stdio loop can continue processing
 later requests. The abandoned worker thread is left to finish; atomic state
 writes prevent late completion from corrupting JSON files. The deadline layer

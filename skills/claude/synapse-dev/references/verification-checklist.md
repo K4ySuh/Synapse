@@ -19,8 +19,9 @@ Re-read the relevant contract in `architecture.md` and confirm the change honors
 - **`_entity_key` stability:** keys don't mutate on evidence linking; no `action:action|` or
   `type:|` collisions introduced.
 - **Typed models:** new persisted fields are declared on the matching entity model.
-- **Operator-control gates:** confirmation/scope/credential gates still intact; nothing now
-  sends traffic without `confirm`, and secrets still flow by reference.
+- **Operator-control gates:** scope, credential, and selected-profile authority gates remain
+  intact; frozen legacy calls preserve `confirm=true`, modern actions require a covering
+  server-held grant or typed step-up, and secrets still flow by reference.
 - **Access-control semantics:** success stays 200–299; ownership (not array position) drives
   baseline/substitutions; BOPLA behavior still differentiated; strict-context default intact.
 - **Report presentation boundary:** Operator and High-Level views are internal presentation
@@ -29,8 +30,9 @@ Re-read the relevant contract in `architecture.md` and confirm the change honors
   mislabel passive as active.
 
 ## 3. Guardrails
-Confirm no guardrail was crossed: no database, no new report engine/framework/plugin system,
-no RBAC engine, no broad rewrite; change is small and legible; no real client data committed.
+Confirm no guardrail was crossed: no second database or parallel state path, no new report
+engine/framework/unrelated plugin system, no RBAC engine, no broad rewrite; change is small
+and legible; no real client data committed.
 
 ## 4. Local version log
 For code changes, confirm the local `docs/Version-Log.md` was updated. It is a gitignored,

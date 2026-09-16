@@ -151,7 +151,9 @@ Adapter rules:
 1. Active adapters must enforce scope validation. When a `workspaceId` is
    available, pass it into the shared guard so the workspace's own persisted
    scope is authoritative for that engagement.
-2. Active adapters must require explicit confirmation.
+2. Active adapters must declare exact effects and cross the canonical execution
+   gate: frozen legacy calls retain their explicit confirmation contract;
+   modern calls require server-held authority or supervised step-up.
 3. Active adapters must default outputs into the workspace evidence directory.
 4. Active adapters should default to asynchronous execution through the generic
    `jobs.*` layer and expose `background=false` as the explicit blocking
@@ -169,7 +171,7 @@ Use `adapters/command_utils.py` for command-style active tools. Use
 adapter needs to replace one query/form/JSON parameter with a benign payload,
 apply a scoped `credentialId`, send a bounded request, and redact returned
 request headers. More complex workflows should keep specialized logic while
-preserving the same scope, confirmation, approval, redaction, evidence, and
+preserving the same scope, legacy/modern authority, redaction, evidence, and
 action-recording semantics.
 
 Command-style adapters should use `start_background_command()` and
@@ -181,9 +183,13 @@ can finalize results after an MCP server restart.
 ## Registration
 
 Built-in adapters are registered in
-`synapse_mcp.core.adapters.registry.build_default_registry`. Register custom
-adapters into an `AdapterRegistry` during your own MCP startup or future plugin
-loading flow.
+`synapse_mcp.core.adapters.registry.build_default_registry`. External
+executable action contributions use the `synapse_mcp.capability_packs` entry
+point contract and must pass capability-pack ownership, dependency, application
+compatibility, descriptor, and alias validation before the selected Registry
+freezes. A standalone `AdapterRegistry` can provide metadata/discovery inside a
+custom integration, but it does not expose an MCP action or bypass the Action
+Registry.
 
 At minimum, implement:
 
@@ -198,7 +204,7 @@ class ExampleAdapter(SynapseAdapter):
 Unsupported operations should use the base `SynapseAdapter` behavior, which
 raises a controlled unsupported-method exception.
 
-For a pack migrated to `app.actions`, do not duplicate traffic, risk, scope,
+For an action-backed adapter, do not duplicate traffic, risk, scope,
 credential, confirmation, execution-mode, or executor metadata in
 `AdapterMetadata`. Register the canonical `ActionDescriptor` and use the
 action-backed discovery bridge. Its adapter record owns only identity,
@@ -210,9 +216,11 @@ its request-effective effects.
 
 ## MCP Tool Exposure
 
-The current built-in MCP tool surface is wired in
-`synapse_mcp.transport.stdio_server`. For an unmigrated built-in adapter, the
-transitional path still requires:
+Every executable action must first have a canonical `ActionDescriptor` and
+execute through `ActionRegistry.execute`. The frozen legacy projection remains
+wired in `synapse_mcp.transport.stdio_server`; change it only when an
+intentional compatibility update requires matching schema/dispatch edits.
+Such a change requires:
 
 - tool schema entries in `TOOL_SCHEMAS`
 - dispatch branches in `call_tool`
@@ -222,13 +230,13 @@ transitional path still requires:
 - a local `docs/Version-Log.md` entry for every code change (gitignored,
   per-developer; provisioned from `docs/Version-Log.template.md` on setup)
 
-For migrated actions, expose the tool through a transport projection of the
-descriptor contract and route calls only through
+Expose modern tools through a transport projection of the descriptor contract
+and route calls only through
 `ActionRegistry.execute(action_id, request)`. Define stable typed output fields,
 negative contract tests, maximum/effective effects, and availability ordering.
 
-Future custom adapter loading should preserve the same discovery model exposed
-by `adapters.list` and `adapters.capabilities`.
+External/custom loading must preserve the same discovery model exposed by
+`adapters.list` and `adapters.capabilities`.
 
 ## Testing Requirements
 
@@ -239,7 +247,7 @@ Each adapter should include focused tests for:
 - workspace-native result serialization
 - workspace ingestion and observation creation
 - planner output structure
-- active confirmation and scope gates, if active
+- exact scope plus legacy/modern authority gates, if active
 - workspace-owned scope behavior, if the adapter accepts `workspaceId`
 - redaction of credentials and secret-bearing headers, if active
 - action/evidence recording, if active

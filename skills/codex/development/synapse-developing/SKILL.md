@@ -12,9 +12,10 @@ control plane for authorized security assessments. Preserve the existing
 architecture unless the operator explicitly asks for a larger change.
 
 Keep edits small, compatible, and aligned with existing module boundaries. Do
-not introduce a database, frontend app, autonomous agent loop, storage
-migration, report product, plugin marketplace, or disconnected scanner wrapper
-unless the operator asks for that direction.
+not introduce a second database/state path, frontend app, autonomous agent
+loop, report product, plugin marketplace, or disconnected scanner wrapper
+unless the operator asks for that direction. New SQLite-v2 migrations still
+require the existing state workflow and explicit compatibility review.
 
 ## Current-State References
 
@@ -26,8 +27,11 @@ Before editing, read the relevant live files instead of relying on memory:
 - `docs/Implementation-Map.md` for module ownership and data layout.
 - `docs/Operations.md` for workflows, setup, jobs, credentials, and reports.
 - `MCPS/Synapse-MCP/README.md` for MCP component notes and exposed tools.
-- `MCPS/Synapse-MCP/synapse_mcp/transport/stdio_server.py` for exact tool
-  schemas, resources, prompts, and dispatch.
+- `MCPS/Synapse-MCP/synapse_mcp/app/actions/` for canonical Registry
+  descriptors, effects, contracts, and executors.
+- `MCPS/Synapse-MCP/synapse_mcp/app/facade/` for compact/direct application
+  services and projections.
+- `MCPS/Synapse-MCP/synapse_mcp/transport/` for protocol projection only.
 - `MCPS/Synapse-MCP/tests/` for regression patterns.
 
 Use `rg` / `rg --files` for repository search. Inspect surrounding tests before
@@ -41,10 +45,11 @@ editing behavior.
 3. Locate the owning module and tests; avoid cross-cutting rewrites unless the
    request requires them.
 4. Make the narrowest coherent change.
-5. Preserve scope checks, confirmation gates, approval metadata, credential
-   references, evidence logging, candidate semantics, background-job behavior,
-   passive/active separation, and rich local report context. Existing redaction
-   modes are compatibility inputs, not the primary internal-report boundary.
+5. Preserve scope checks, exact legacy confirmation gates, modern server-held
+   authority, approval metadata, credential references, evidence logging,
+   candidate semantics, background-job behavior, passive/active separation,
+   and rich canonical report context. Existing redaction modes are
+   compatibility inputs, not the primary internal-report boundary.
 6. Add or update focused tests for changed behavior.
 7. Update the local `docs/Version-Log.md` (gitignored per-developer scratch log,
    provisioned from `docs/Version-Log.template.md` on setup) when behavior,
@@ -62,8 +67,19 @@ curated sample.
 
 Keep these ownership lines intact:
 
+- `app/actions/`: the one action identity, contract, effects, availability,
+  executor, output-validation, and generated-inventory path.
+- `app/facade/`: transport-neutral compact/direct services, context, work-item,
+  and opaque-resource projections.
+- `policy/`: server-held authority decisions, grants, dispatch reservations,
+  execution runs, and reconciliation.
+- `state/`: SQLite-v2 repositories, migrations, activation, bundles, backup,
+  and JSON-v1 compatibility boundaries.
+- `transport/`: MCP mapping and wire behavior; never a second source of
+  application or policy rules.
+
 - `transport/stdio_server.py`: MCP JSON-RPC boundary, tool schemas, resources,
-  prompts, dispatch, and transport deadlines.
+  frozen legacy projection, and transport deadlines.
 - `core/scope.py`: global authorization scope and target checks.
 - `core/workspace.py`: workspace files, ingestion, entity normalization,
   deduplication, findings, and compact planning context.
@@ -88,17 +104,27 @@ Adapters should emit structured results, observations, findings, actions,
 evidence references, and metadata. They should not render report sections
 directly; reporting belongs under `core/documentation/`.
 
-## MCP Tool Changes
+## MCP Action Changes
 
-When adding or changing an MCP tool:
+When adding or changing an executable action:
 
-- Update `TOOL_SCHEMAS` and dispatch together in `transport/stdio_server.py`.
-- Keep schemas precise but compatible with existing callers.
-- Record active approval fields consistently when the tool sends traffic or
-  mutates state.
+- Update the canonical `ActionDescriptor`, typed input/output models, maximum
+  and request-effective effects, availability, authorization intent, executor,
+  and serializer together.
+- Route execution only through `ActionRegistry.execute()`; capability packs and
+  transport projections must not bypass it.
+- Keep action IDs and legacy aliases stable. Change the frozen legacy transport
+  only for an intentional reviewed compatibility change.
+- Keep schemas precise and compatible with compact/direct callers; transport
+  code projects application contracts and does not own business validation.
+- Record modern server-held authority and legacy approval behavior accurately
+  when the action sends traffic or mutates state.
 - Use background jobs for long-running or command-backed work unless the action
   is deliberately bounded and synchronous.
-- Add tests that call the dispatch layer or the owning module directly.
+- Update/check the generated action inventory, output contracts, capability
+  ownership, and exact compatibility fixtures affected by the change.
+- Add tests through the public application/repository seam and the appropriate
+  transport projection.
 - Update `MCPS/Synapse-MCP/README.md` and relevant docs when the public tool
   surface changes.
 
@@ -120,7 +146,9 @@ without the normal workspace-scope and approval gates.
 For active adapters:
 
 - Enforce exact target scope before execution.
-- Require `confirm=true` and include approval metadata.
+- Preserve `confirm=true` only for the exact frozen legacy contract. Modern
+  execution must use a covering server-held Authority Grant or supervised
+  step-up; caller confirmation never grants modern authority.
 - Prefer a no-traffic command/plan builder separate from the run method.
 - Use credential IDs, never raw secrets.
 - Redact secret-bearing fields before evidence or responses.
@@ -189,7 +217,12 @@ The harness configures `PYTHONPATH` for `MCPS/Synapse-MCP` and uses
 
 Choose focused tests based on the changed surface:
 
-- Transport/tool schemas: `test_tool_wrappers.py` and targeted dispatch tests.
+- Registry/contracts/effects: action inventory, output-contract, pack ownership,
+  and targeted Registry/service tests.
+- Modern transport: targeted modern adapter tests plus `bin/test-modern` when
+  the wire or startup boundary changes.
+- Frozen legacy transport: `test_tool_wrappers.py`, exact fixtures, and targeted
+  dispatch tests.
 - Scope, credentials, evidence, jobs, paths, workspace state:
   `test_core_state.py`, `test_paths.py`, and focused module tests.
 - Ingestion and entity normalization: `test_workspace_ingestion.py`.
@@ -214,4 +247,7 @@ Before finishing a development task:
 - Ensure no secrets, runtime data, generated client artifacts, `__pycache__`,
   or local reports were added unintentionally.
 - Confirm docs and version log updates match the blast radius.
+- Run `bin/validate-codex-skills --check` when a default skill changes; also run
+  the compatibility-profile validator when shared authoring rules or assets
+  change. Use `bin/validate-distribution` for packaging/integration changes.
 - Summarize changed files, tests run, and any residual risk.

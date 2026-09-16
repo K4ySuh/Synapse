@@ -16,6 +16,12 @@ description: >
 
 # Operating Synapse
 
+> Compatibility profile: this retained Claude guide targets Synapse's frozen
+> `legacy` MCP surface. Its direct tool names and `confirm=true` calls are the
+> legacy approval contract, not the accepted `modern-compact` Codex workflow.
+> For the current default, use the separately installed Codex skills and
+> server-held Authority Grants described in `docs/Operations.md`.
+
 Synapse is the agentic operations layer for authorized offensive security. It is **not** an
 autonomous attacker and **not** a replacement for operator judgment. It is an MCP control plane
 that lets the agent organize engagement state, reason over normalized target context, prepare

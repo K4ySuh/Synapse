@@ -1,6 +1,7 @@
 # Synapse MCP
 
-Local stdio MCP gateway for Synapse.
+Local MCP control plane for Synapse, with frozen legacy stdio plus modern stdio
+and authenticated Streamable HTTP projections.
 
 Synapse MCP is the scalable MCP boundary for tools other than Burp. Burp remains
 a separate MCP because it is provided by PortSwigger and has its own live
@@ -14,10 +15,9 @@ For setup and workflow steps, see [Operations](../../docs/Operations.md).
 
 The default Codex configuration uses the `modern-compact` stdio profile. The
 frozen `legacy` server remains independently available as rollback/bootstrap;
-its active tools retain their exact `confirm=true` behavior. Migrated actions
-run under server-owned `observe`, `supervised`, or `full_delegated` contexts.
-Those
-profiles evaluate a sealed Registry plan against durable workspace-local
+its active tools retain their exact `confirm=true` behavior. Authority-aware
+actions run under server-owned `observe`, `supervised`, or `full_delegated`
+contexts. Those profiles evaluate a sealed Registry plan against durable workspace-local
 Authority Grants and atomically reserve a dispatch before the executor runs.
 Caller input cannot select or enlarge the profile, grant, step-up, request
 state, dispatch, or continuation.
@@ -72,9 +72,11 @@ seals resume state with an operator rotation keyring bound to the authenticated
 principal and stable server audience. Phase 3D adopts compact stdio for Codex;
 the old spike entry point is a deprecated forwarding alias.
 
-Authority state lives at
-`DATA/workspaces/<workspace>/authority/state.json`. Manage it with the local
-`synapse-authority` console entry point described in
+Authority state is workspace-local. JSON-v1 workspaces retain
+`DATA/workspaces/<workspace>/authority/state.json`; activated SQLite-v2
+workspaces keep authority, dispatch, execution-run, and audit truth in their
+canonical database. Manage either store with the local `synapse-authority`
+console entry point described in
 [Operations](../../docs/Operations.md); no `authority.*` MCP tools exist.
 Covered full-delegated work does not require caller confirmation. Uncovered
 work returns approval-required (`-32001`) without dispatch; scope denial remains
@@ -89,8 +91,8 @@ Dispatch budgets count actions, not outbound HTTP requests.
 
 ## State Migration Operator
 
-After the Phase 4 offline acceptance gate, genuinely new workspace IDs create
-SQLite-v2 state transactionally by default. Existing JSON-v1 workspace files
+Genuinely new workspace IDs create SQLite-v2 state transactionally by default.
+Existing JSON-v1 workspace files
 remain v1 until the operator completes the workflow below; selecting a protocol
 profile never triggers migration.
 
@@ -200,6 +202,11 @@ policy and are never selected by current-working-directory discovery. Set
 only for an explicit target-neutral override. A missing override is an error.
 
 ## Exposed Tools
+
+The list below is the frozen 174-name legacy projection. `modern-direct`
+projects canonical Registry action IDs, while the default `modern-compact`
+surface exposes eleven facade operations and discovers actions through
+`capabilities.search` and `actions.describe`.
 
 - `adapters.list`
 - `adapters.capabilities`
@@ -524,6 +531,10 @@ Batch rendering separately bounds written files with `partCursor`/`maxParts`
 part in one call.
 
 ## Adapter Policy
+
+Tool-specific `confirm=true` references below describe the frozen legacy call
+contract. On modern surfaces the caller field cannot grant authority; the same
+action must be covered by a server-held grant or supervised step-up.
 
 Web and infrastructure adapters are separated by primary operating domain, not
 by risk level. `adapters/web/` contains web crawling, content discovery, offline

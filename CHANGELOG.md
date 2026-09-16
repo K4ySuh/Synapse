@@ -368,6 +368,17 @@ durable dispatch and continuation truth.
 
 ### Changed
 
+- **Current documentation and skill alignment.** Primary guides now describe
+  `modern-compact` as the Codex default, separate frozen legacy confirmation
+  from modern server-held authority, distinguish SQLite-v2 from retained
+  JSON-v1 workspaces, and identify the Action Registry as the one executable
+  contract path. Reporting guidance now preserves rich canonical truth while
+  documenting bounded responses and opaque resource links. Codex development
+  guidance follows the current Registry/state/transport boundaries; retained
+  Claude assets are explicitly labeled as compatibility profiles. Setup links,
+  hosted-guidance counts, examples, and client-support wording were refreshed
+  without changing runtime behavior or compatibility contracts.
+
 - **Codex-only Phase 3 acceptance.** Stable Codex is the sole active named-agent
   gate for Phase 3. Independent client evidence is outside that release gate,
   so no universal cross-agent claim is made; provider-neutral contracts and

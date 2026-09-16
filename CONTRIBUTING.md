@@ -29,9 +29,9 @@ bin/check-setup
 ## Change Guidelines
 
 - Keep changes scoped to the relevant module and existing architecture.
-- Preserve scope checks, `confirm=true` gates, approval metadata, credential
-  redaction, bounded execution, local evidence logging, and passive/active
-  separation.
+- Preserve exact scope checks, frozen legacy `confirm=true` gates, modern
+  server-held authority, approval metadata, credential redaction, bounded
+  execution, local evidence logging, and passive/active separation.
 - Prefer workspace-native `AdapterResult` output for new adapters so ingestion,
   observations, findings, actions, and evidence references stay consistent.
 - Use `adapters.list` and `adapters.capabilities` metadata for discoverability.
@@ -78,6 +78,7 @@ Update the closest durable documentation for the behavior changed:
 - shipped, shared history: `CHANGELOG.md` (committed),
 - local dated dev notes: `docs/Version-Log.md` (gitignored, per developer).
 
-Keep `AGENTS.md` environment-neutral. It is shared as the Synapse MCP main
-prompt and should not contain engagement-specific routes, credentials, targets,
-or stack assumptions.
+Keep `AGENTS.md` environment-neutral. It is repository-development policy, not
+the Synapse MCP runtime prompt, and should not contain engagement-specific
+routes, credentials, targets, or stack assumptions. Runtime guidance lives in
+`MCPS/Synapse-MCP/synapse_mcp/operational_prompt.md`.

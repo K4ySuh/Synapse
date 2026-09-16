@@ -35,7 +35,9 @@ smallest useful mode:
   active execution, open gaps, and authority boundary when changing methods.
 
 If the request concerns Synapse code, tests, architecture, or documentation,
-route to `$synapse-developing` instead.
+leave the engagement profile and use the separately installed
+`$synapse-developing` profile. Do not mix repository development with an active
+engagement workspace.
 
 ## Discover live behavior
 

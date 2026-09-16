@@ -49,6 +49,8 @@ Core project references:
   jobs, credentials, cleanup, and tests.
 - [Integration Convention](docs/Integration-Convention.md): passive saved-data
   parsing, contributions, and migration boundaries.
+- [Phase 6 client exercise](docs/modernization/phase-6-client-exercise.md):
+  exact tested Codex configuration, end-to-end result, and compatibility limit.
 - [Reporting Model](docs/Reporting-Model.md): internal Operator / High-Level
   report views and what they must not imply.
 - [Synapse MCP](MCPS/Synapse-MCP/README.md): complete exposed tool list and MCP
@@ -105,9 +107,8 @@ use SQLite-v2; existing JSON-v1 workspaces migrate only through explicit
 verification and activation.
 
 Phase 6 Beta is complete. Phase 6D instruments Synapse-owned synchronous HTTP,
-planned local output, and
-command boundaries. An effect is checked against the dispatch plan at the
-boundary, recorded without secret values, and finalized on the same durable
+planned local-output, and command boundaries. An effect is checked against the
+dispatch plan at the boundary, recorded without secret values, and finalized on the same durable
 execution run. Child-process internals and uninstrumented paths remain
 unobservable; an incomplete or uncertain result needs reconciliation, not
 automatic replay. The bounded direct-client checkpoint passed with the tested
@@ -148,7 +149,8 @@ and handoffs are no longer part of the development workflow.
 - Scope and execution authority are separate gates. The legacy profile requires
   in-scope validation plus `confirm=true`. Authority-aware profiles ignore that
   caller field as authority, evaluate durable grants immediately before
-  dispatch, and return typed `input_required` state when uncovered.
+  dispatch. Uncovered work returns protocol `input_required` when negotiated or
+  a typed `approval_required` operation handle on compatible older revisions.
 - Scoped credentials (`bearer`, `basic`, `cookie`, `header`, browser-derived
   `session`) stored locally with `0600` permissions, redacted in every
   response, and resolved per request target. Browser authentication profiles
@@ -203,14 +205,14 @@ and handoffs are no longer part of the development workflow.
   introspection, plus approved access-control matrix replay across credential
   contexts. Every active probe is scope-checked and bounded by adapter-specific
   safety policy; the stable legacy profile remains `confirm=true` gated, while
-  migrated authority-aware actions consume trusted grant receipts. XSS validation defaults to an
+  authority-aware actions consume trusted grant receipts. XSS validation defaults to an
   inert reflection-only marker; syntax-breakout and execution-capable payloads
   require explicit modes and higher risk tiers.
 - CVE intelligence and verification: approval-gated correlation of
   fingerprinted components against multiple online sources (NVD, CISA KEV,
   public PoC indexes, Shodan) into candidate CVEs with applicability confidence
   and exploit maturity (known-exploited / public PoC / referenced / none);
-  one-click confirmed benign replay or delegation to a Nuclei template to
+  bounded approved benign replay or delegation to a Nuclei template to
   verify a candidate; and bounded active version probing to raise fingerprint
   precision. Source endpoints are config-driven and can be re-pointed at
   runtime. Provider/query-hash responses are shared across targets under the
@@ -400,11 +402,11 @@ and the full operator procedures.
 10. Link evidence and export report-ready contexts.
 ```
 
-Example MCP tool call:
+Example default `modern-compact` MCP call:
 
 ```json
 {
-  "tool": "project.start",
+  "tool": "engagement.open",
   "arguments": {
     "organization": "Client",
     "workspaceId": "client-web-2026",
@@ -414,11 +416,14 @@ Example MCP tool call:
 }
 ```
 
+The frozen legacy equivalent is `project.start` with the same arguments.
+
 ## MCP Tool Surface
 
-The authoritative runtime schemas live in
-`MCPS/Synapse-MCP/synapse_mcp/transport/stdio_server.py`; the complete,
-test-guarded tool list is maintained in
+Canonical runtime contracts live in the Action Registry under
+`MCPS/Synapse-MCP/synapse_mcp/app/actions/`; transport projects those contracts
+without owning business rules. The complete frozen legacy tool list is
+maintained in
 [MCPS/Synapse-MCP/README.md](MCPS/Synapse-MCP/README.md). At a high level,
 Synapse exposes tools for:
 
@@ -495,9 +500,10 @@ Synapse is designed for authorized security assessments and keeps the operator
 in control:
 
 - Work only on systems the operator is authorized to test.
-- Scope and execution approval are separate gates; active traffic requires
-  in-scope validation and `confirm=true`, checked against the owning
-  workspace's persisted scope first.
+- Scope and execution authority are separate gates. Active traffic is checked
+  against the owning workspace's persisted scope first. Legacy actions retain
+  their exact `confirm=true` approval contract; modern actions require a
+  covering server-held Authority Grant or supervised step-up.
 - Passive/offline ingestion may retain out-of-scope data, but it always
   reports `scopeStatus` and warnings instead of hiding authorization state.
 - Credentials are scoped to authorized hosts and returned redacted; evidence
@@ -505,8 +511,8 @@ in control:
 - Tool outputs default under workspace folders. Rendered reports default under
   `reports/<workspace>/`; paths outside the shared reports root
   require `allowExternalOutput=true`.
-- Cleanup of dumps and generated artifacts is inspect-first and
-  confirm-before-delete.
+- Cleanup of dumps and generated artifacts is inspect-first and must pass the
+  selected legacy or modern execution-authority gate before deletion.
 - SQLMap execution is not exposed; only offline analysis and guarded command
   generation are available. Command-injection execution is limited to approved
   benign marker requests.

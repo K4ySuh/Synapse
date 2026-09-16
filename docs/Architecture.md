@@ -351,8 +351,8 @@ activation as a separate operator action. Activation flips one atomic selector
 and makes legacy JSON writes fail closed. Pre-first-v2-write rollback restores
 the exact prior selector; later rollback is refused to prevent data loss.
 Canonical bundles carry versioned relational JSON and a verified CAS artifact
-manifest. After Phase 4 acceptance, genuinely new workspaces bootstrap
-directly into v2; an existing workspace with no selector remains JSON v1 and
+manifest. Genuinely new workspaces bootstrap directly into v2; an existing
+workspace with no selector remains JSON v1 and
 is never migrated implicitly. There is no dual-write. Once selected,
 SQLite-v2 is authoritative under both legacy and modern protocol profiles.
 Canonical bundle import selects v2 only after semantic and artifact
@@ -432,9 +432,9 @@ state, executor, adapter, or transport logic.
 
 Work items are therefore a durable multi-consumer coordination ledger, not an
 agent scheduler or topology declaration. They serve one restarting agent,
-independent processes/clients, and humans equally. The optional Phase 6B live
-diagnostic uses one Codex agent; real offline multi-process tests continue to
-prove concurrency without relabeling processes as model agents.
+independent processes/clients, and humans equally. The recorded 6R7 client
+exercise uses one Codex agent; offline multi-process tests continue to prove
+concurrency without relabeling processes as model agents.
 
 The modern HTTP boundary authenticates one high-entropy bearer token by
 server-held digest, then resolves principal/workspace to a server-held authority
@@ -653,6 +653,11 @@ Only `.gitkeep` placeholders should be committed from runtime data directories.
 The credential store is local runtime data and should not be committed.
 
 ## Safety Model
+
+The tool-specific `confirm=true` requirements below are the frozen legacy
+contracts. Modern projections reject caller confirmation as authority and
+require the same action/effects to be covered by a server-held Authority Grant
+or supervised step-up.
 
 - Active Burp behavior is controlled by the PortSwigger Burp MCP extension.
 - Active adapter scope checks use the owning workspace's persisted scope when a

@@ -95,9 +95,10 @@ bin/print-mcp-config --standard
 `bin/print-mcp-config` prints the standard `modern-compact` Codex configuration
 by default. `--core-only` keeps compact but selects the independently loadable
 42-action core pack, `--modern-direct` prints the 174-action diagnostic profile,
-and `--legacy` prints frozen rollback/bootstrap. No other agent client is part
-of Phase 5 implementation or acceptance. Do not commit generated local MCP
-configuration because it contains absolute paths.
+and `--legacy` prints frozen rollback/bootstrap. The recorded support claim is
+limited to the exact Codex build and model configuration in the 6R7 exercise;
+no other client is implied. Do not commit generated local MCP configuration
+because it contains absolute paths.
 
 ### Codex MCP profiles
 
@@ -205,7 +206,7 @@ tool_timeout_sec = 120
 ```
 
 Do not embed the token in TOML. The official
-[Codex MCP guide](https://developers.openai.com/codex/mcp) documents stdio,
+[Codex MCP guide](https://learn.chatgpt.com/docs/extend/mcp?surface=cli) documents stdio,
 Streamable HTTP, environment-backed bearer authentication, and server tool
 approval configuration. The frozen legacy tools have no read-only annotations;
 if Codex is configured never to approve MCP calls, even legacy read calls are
@@ -288,19 +289,21 @@ paths. The modern adapter persists their private server-held records under
 `DATA/modern-adapter/`; reads require the same principal, authority session,
 workspace, allowed root, and file version after restart or across workers.
 
-Install the isolated modern runtime with:
+Install the modern runtime plus the maintained SQLite fallback with:
 
 ```bash
-pip install -e '.[modern]'
+pip install -e '.[modern,state-v2]'
 ```
 
 ## State Store v2 Entry Readiness
 
-Phase 4 requires the SQLite library linked to the selected binding to be
+State Store v2 requires the SQLite library linked to the selected binding to be
 3.51.3 or later for WAL/multi-connection operation. The Python version does not
 prove that SQLite floor. `sqlite3` is used when its actual runtime is safe;
 otherwise the `state-v2` extra supplies the maintained, pinned
-`apsw==3.53.4.0` binding across Python 3.10–3.13.
+`apsw==3.53.4.0` binding. The supported package floor is Python 3.10; the
+current CI matrix covers Python 3.10–3.13, and the recorded 6R7 client exercise
+also passed on Python 3.14.7.
 
 ```bash
 python -m pip install -e '.[state-v2]'
@@ -310,9 +313,9 @@ bin/check-state-v2-readiness
 The probe prints Python, the actual `sqlite3.sqlite_version`, APSW and its
 linked SQLite version when installed, and the selected State Store binding. A
 non-zero result is a hard State Store v2 readiness failure; do not weaken the
-SQLite floor. This entry probe does not migrate or activate a workspace. After
-the Phase 4 acceptance gate, a genuinely new workspace ID with no legacy files
-is created directly in SQLite-v2; initialization fails closed when readiness is
+SQLite floor. This entry probe does not migrate or activate a workspace. A
+genuinely new workspace ID with no legacy files is created directly in
+SQLite-v2; initialization fails closed when readiness is
 not met. Existing workspaces remain JSON v1 until the explicit migration,
 verification, and activation workflow. Protocol selection (`legacy`,
 `modern-compact`, or `modern-direct`) is independent of the workspace
@@ -690,10 +693,10 @@ under `SYNAPSE_ROOT`, and `SYNAPSE_DUMP_DIR` must remain under
 
 ## Starting A Project
 
-Preferred entry point:
+The default `modern-compact` entry point is:
 
 ```text
-project.start(
+engagement.open(
   organization="<organization>",
   hosts=["example.com"],
   notes="<operator notes>",
@@ -701,6 +704,10 @@ project.start(
   fingerprint=true
 )
 ```
+
+The frozen legacy equivalent is `project.start` with the same arguments. The
+modern call still crosses the canonical `project.start` Registry action and
+server-held authority; the compact name is a facade operation, not a bypass.
 
 This saves scope, creates evidence folders, and optionally fingerprints hosts
 from an offline Burp dump. It also creates or updates a workspace using
@@ -1881,7 +1888,8 @@ first when components are version-imprecise.
    broad NVD keyword lookup by default. Use `includeVersionUnknown=true` only
    for an explicitly broad run; uncorroborated product-only matches are still
    suppressed, regardless of CVSS.
-2. `cve.correlate` (requires `confirm=true`) queries the enabled sources and
+2. `cve.correlate` queries the enabled third-party sources under the selected
+   authority profile (legacy `confirm=true`; modern server-held grant) and
    records one `cve_candidate` observation per component/CVE. Discovery uses NVD
    and Shodan; enrichment adds CISA KEV (known-exploited), a public PoC index,
    and optionally GitHub search or local `searchsploit`. Each candidate carries
@@ -1891,8 +1899,9 @@ first when components are version-imprecise.
 3. `cve.plan_tests` and `cve.prepare_replay` produce a no-traffic verification
    plan and a benign replay request; PoC references are surfaced as read-only
    intelligence.
-4. `cve.execute_test` (requires `confirm=true`, in-scope) sends one bounded
-   benign request, or returns a `nuclei.build_command` delegation when a safe
+4. `cve.execute_test` (in-scope and authorized through the selected profile)
+   sends one bounded benign request, or returns a `nuclei.build_command`
+   delegation when a safe
    template exists. Promote to a finding only after review with
    `workspace.promote_observation_to_finding`.
 

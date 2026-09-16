@@ -40,7 +40,7 @@ detailed Web and CVE methodology in the respective on-demand skills and their
 local `references/` files. Relative Markdown links in each `SKILL.md` must
 resolve within that skill directory. Keep provider instructions out of the
 application Registry and the package-owned operating prompt. The modern MCP
-guidance catalog serves the three default `SKILL.md` files and their four
+guidance catalog serves the three default `SKILL.md` files and their five
 referenced Markdown documents from the same files used by the local installer.
 Update the small hosted manifest in `synapse_mcp/guidance.py` when a selected
 reference changes, then run the skill and distribution validators.
@@ -81,7 +81,7 @@ the supported skill-loading path.
 
 Selecting `multi-agent-compat` requires both its skill directory and the
 explicit client config profile. It does not change Synapse server behavior.
-See the [Codex skill documentation](https://developers.openai.com/codex/skills)
+See the [Codex skill documentation](https://learn.chatgpt.com/docs/build-skills)
 for other installation scopes.
 
 ## Claude Code compatibility

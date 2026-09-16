@@ -15,6 +15,12 @@ description: >
 
 # Synapse Development
 
+> Retained compatibility profile: this Claude-oriented workflow is not the
+> canonical current development guide and has not passed the Phase 6 Codex
+> client exercise. Root and nested `AGENTS.md` files plus the primary docs take
+> precedence. Use the separately packaged `$synapse-developing` skill for the
+> maintained Codex development workflow.
+
 Synapse is a local-first MCP control plane for authorized offensive-security agentic
 operations. The operator drives; the agent acts through guarded adapters; Synapse normalizes
 results into durable workspace state. This skill covers the project's working loop: **review
@@ -107,8 +113,9 @@ Rules that keep specs safe:
 - **Flag test-contract changes.** If a fix changes behavior an existing passing test encodes,
   say so in the spec and tell the implementer to update that test to the new contract — or
   they will be blindsided by a "passing" test that enforces the old behavior.
-- **Carry the guardrails.** Every spec restates the relevant non-goals: no database, no new
-  report engine, no RBAC/ABAC engine, no frontend framework, no broad rewrite. Keep changes
+- **Carry the guardrails.** Every spec restates the relevant non-goals: no second database or
+  parallel state path, no new report engine, no RBAC/ABAC engine, no frontend framework, no
+  broad rewrite. Keep changes
   small and legible. Workspace/agent data stays rich; Operator and High-Level report views are
   internal presentation modes, not a client-safe redaction boundary.
 - **Order by operational impact.** For the current local-only report model,
