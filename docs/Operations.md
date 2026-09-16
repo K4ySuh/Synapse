@@ -161,6 +161,38 @@ operator-owned data path. Standard and core-only remain eleven compact
 operations; only their selected action catalog differs. Direct is diagnostic,
 not the recommended default.
 
+#### Beta operator quick start and handoff
+
+For a new authorized workspace, keep runtime state under an operator-owned
+`SYNAPSE_ROOT/DATA`, complete `bin/check-setup --modern`, install the default
+three-skill profile, and use the generated standard config. Start one Codex
+agent with `$operate-synapse`; load `$synapse-web-pentesting` or
+`$synapse-cve-intelligence` only when the objective needs that method.
+
+Before active traffic, credential mutation, browser authentication,
+third-party API calls, destructive cleanup, or command-backed scanning, issue
+or select a server-held grant that covers the exact Registry action, target,
+arguments, effects, and budget. A work item, claim, skill, role, prose request,
+or `confirm=true` never supplies authority.
+
+For work that must survive a restart:
+
+1. Create and claim a bounded work item, then bind `context.query` to its work
+   item and active claim.
+2. Checkpoint revision, evidence, dispatch/job/run references, gaps, and the
+   next safe action before exit.
+3. On a fresh connection, inspect the work item and linked execution state,
+   reclaim or renew it, and query context since the recorded revision.
+4. Do not replay an active, unknown, or incompletely observed execution. Resume
+   only from canonical outcome/recovery truth.
+5. Render reports from workspace state after evidence and reviewed findings are
+   linked; reports do not create engagement truth.
+
+The recorded Beta exercise used this handoff with fictional saved data, fresh
+SQLite-v2 state, an idempotent contribution retry, and a context-backed report.
+See the [direct-client record](modernization/phase-6-client-exercise.md) for the
+exact tested versions, checks, compatibility boundary, and known limits.
+
 For loopback or remotely terminated Streamable HTTP, start the server
 separately and let Codex read the bearer token from the environment:
 
@@ -892,7 +924,8 @@ The `standard` config example records Daybreak Blue with High reasoning as an
 operator-selected preference when provisioned. Select it in the Codex client;
 the config does not set a global model or require that model for server use.
 One Codex agent remains the default. The exact Codex build and direct-client
-compatibility result are reserved for the 6R7 client exercise.
+compatibility result are recorded in the
+[6R7 client exercise](modernization/phase-6-client-exercise.md).
 
 One agent may load Web Pentesting, move to CVE Intelligence, and return while
 preserving revision, execution/evidence references, authority state, and gaps.

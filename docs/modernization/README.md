@@ -10,6 +10,7 @@ development instructions.
 - [Capability-pack ownership map](capability-pack-ownership.json)
 - [Current Phase 6 status](phase-6-status.md)
 - [Phase 6 checkpoint ledger](phase-6-checkpoints.md)
+- [Phase 6 direct-client exercise](phase-6-client-exercise.md)
 - [Operations and recovery](../Operations.md)
 
 The frozen baseline and Stage A checkpoint remain only because inventory and

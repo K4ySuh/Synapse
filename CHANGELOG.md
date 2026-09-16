@@ -24,6 +24,15 @@ durable dispatch and continuation truth.
 
 ### Added
 
+- **Phase 6R7 Beta handoff.** The current 810-test core suite, 17-test modern
+  suite, default and compatibility skill validators, and offline wheel/sdist
+  installation gate pass. A bounded single-agent exercise with Codex CLI
+  0.154.0, provisioned Daybreak Blue at High reasoning, `mcp==2.0.0`, and
+  `modern-compact` recovered fictional saved evidence across restarts,
+  committed one idempotent contribution receipt under narrow authority, and
+  rendered a context-backed report. The operator guide now records the tested
+  quick start, durable handoff, compatibility boundary, and known limits.
+
 - **Phase 6R6 passive saved-data pilot.** The OpenAPI/Swagger/Postman importer
   now has a deterministic core parsing and ingestion seam behind its unchanged
   public and legacy adapter alias. A hosted web-method reference points to live

@@ -104,12 +104,14 @@ legacy, and explicit multi-agent compatibility remain available. New workspaces
 use SQLite-v2; existing JSON-v1 workspaces migrate only through explicit
 verification and activation.
 
-Phase 6D instruments Synapse-owned synchronous HTTP, planned local output, and
+Phase 6 Beta is complete. Phase 6D instruments Synapse-owned synchronous HTTP,
+planned local output, and
 command boundaries. An effect is checked against the dispatch plan at the
 boundary, recorded without secret values, and finalized on the same durable
 execution run. Child-process internals and uninstrumented paths remain
 unobservable; an incomplete or uncertain result needs reconciliation, not
-automatic replay. Phase 6 is not closed.
+automatic replay. The bounded direct-client checkpoint passed with the tested
+Codex/Daybreak configuration; it does not claim support for untested clients.
 
 Modern `workspace.ingest_data` now accepts a strict, versioned saved-data
 [contribution contract](docs/Contribution-Contract.md) with durable
