@@ -21,9 +21,16 @@ compatibility observations, not values to hardcode into application behavior.
 
 ## Current repair and delivery boundary
 
-- F1-F4 are correctness repairs: stable curated-candidate identity, usable
-  bounded context continuation, truthful compact-context provenance, and
-  contribution retry binding to the normalized action target.
+- F1 is repaired at checkpoint 7R1.1. New curated candidates materialize one
+  stable key before their first write, and SQLite-v2 changes one current row in
+  a repository transaction rather than replaying a stale collection snapshot.
+  JSON-v1 remains compatible. Adapter rescans cannot revive a refuted class;
+  explicit curation can reconsider it without leaving contradictory retirement
+  or reportability flags. Pre-fix duplicates are detected but never merged or
+  deleted automatically.
+- F2-F4 remain correctness repairs: usable bounded context continuation,
+  truthful compact-context provenance, and contribution retry binding to the
+  normalized action target.
 - F5 bounds ordinary ingestion around touched relations instead of decoding a
   target's full entity history for unrelated writes.
 - F6 adds the smallest typed, evidence-backed methodology contribution through
@@ -31,8 +38,9 @@ compatibility observations, not values to hardcode into application behavior.
   paths. It does not create another submission API or source of truth.
 
 Small isolated installation, saved-data, and restart testing can begin now.
-Candidate counts and candidate-based conclusions require 7R1, while complete
+Candidate identity is reliable for records created or curated after 7R1.1;
+historical duplicate diagnostics still require operator review. Complete
 larger-context recovery and provenance-dependent conclusions require 7R2.
-The exact next action is 7R1.1 in the
+The exact next action is 7R1.2 in the
 [checkpoint ledger](phase-7-checkpoints.md). The full serial scope and deferred
 boundaries are in the [Phase 7 plan](phase-7-plan.md).

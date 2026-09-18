@@ -4031,17 +4031,9 @@ def curate_candidate(
     if not candidate_id:
         raise McpError(-32602, "surface_selector needs a candidateId or a url (with optional method/parameter/location).")
     decided_at = now_utc()
-    created = False
-    with workspace_lock(wid):
-        path = target_entity_path(wid, host, "observations")
-        observations = _read_json(path, [])
-        if not isinstance(observations, list):
-            observations = []
-        matched = next(
-            (item for item in observations if isinstance(item, dict) and _entity_matches_selector(item, {"candidateId": candidate_id})),
-            None,
-        )
-        if matched is None:
+
+    def apply_curation(existing: dict[str, Any] | None) -> dict[str, Any]:
+        if existing is None:
             if not add_classes:
                 raise McpError(-32602, "No matching surface candidate to remove classes from.")
             if not url:
@@ -4060,20 +4052,42 @@ def curate_candidate(
             matched["lastSeenAt"] = decided_at
             matched.setdefault("evidenceIds", [])
             matched["isReportable"] = True
-            observations.append(matched)
-            created = True
-        details = matched.get("candidateDetails") if isinstance(matched.get("candidateDetails"), dict) else {}
+        else:
+            matched = dict(existing)
+        details = {
+            str(cls): dict(detail) if isinstance(detail, dict) else {}
+            for cls, detail in (
+                matched.get("candidateDetails", {}).items()
+                if isinstance(matched.get("candidateDetails"), dict)
+                else ()
+            )
+        }
         candidate_for = [str(cls) for cls in matched.get("candidateFor", []) if str(cls)]
         for cls in add_classes:
             if cls not in candidate_for:
                 candidate_for.append(cls)
-            detail = details.setdefault(cls, {"reasons": [], "priority": matched.get("priority", "low"), "priorityScore": int(matched.get("priorityScore", 0) or 0), "confidence": "medium"})
-            detail["validationStatus"] = detail.get("validationStatus", "proposed")
+            detail = details.setdefault(
+                cls,
+                {
+                    "reasons": [],
+                    "priority": matched.get("priority", "low"),
+                    "priorityScore": int(matched.get("priorityScore", 0) or 0),
+                    "confidence": "medium",
+                },
+            )
+            if detail.get("validationStatus") == "refuted":
+                detail["validationStatus"] = "proposed"
+                detail["reconsideredAt"] = decided_at
+                detail["reconsideredBy"] = reviewer
+                if reason:
+                    detail["reconsiderationReason"] = reason
+            else:
+                detail["validationStatus"] = detail.get("validationStatus", "proposed")
             detail["curatedBy"] = reviewer
             if reason:
                 detail["curationReason"] = reason
         for cls in remove_classes:
-            candidate_for = [existing for existing in candidate_for if existing != cls]
+            candidate_for = [current for current in candidate_for if current != cls]
             detail = details.setdefault(cls, {})
             detail["validationStatus"] = "refuted"
             detail["decidedAt"] = decided_at
@@ -4083,12 +4097,66 @@ def curate_candidate(
         matched["candidateDetails"] = details
         matched["candidateFor"] = candidate_for
         matched["updatedAt"] = decided_at
-        if not candidate_for:
+        if candidate_for:
+            matched["retired"] = False
+            reportable_decision = matched.get("reportableDecision")
+            explicitly_suppressed = (
+                isinstance(reportable_decision, dict)
+                and reportable_decision.get("isReportable") is False
+            )
+            if not explicitly_suppressed:
+                matched["isReportable"] = True
+        else:
             matched["isReportable"] = False
             matched["retired"] = True
+        matched.setdefault("key", _entity_key(matched))
+        return matched
+
+    created = False
+    with workspace_lock(wid):
+        repository = _activated_repository(wid)
+        if repository is not None:
+            from ..state.errors import StateIntegrityError
+
+            if not repository.target_document(host):
+                add_target(wid, host)
+            try:
+                mutation = repository.mutate_collection_item(
+                    host,
+                    "observations",
+                    identity_field="candidateId",
+                    identity_value=candidate_id,
+                    mutator=apply_curation,
+                )
+            except StateIntegrityError as exc:
+                raise McpError(-32602, f"candidate curation {exc.reason_code}: {exc}") from exc
+            matched = mutation["item"]
+            created = bool(mutation["created"])
+        else:
+            if not _read_json(target_path(wid, host) / "target.json", {}):
+                add_target(wid, host)
+            path = target_entity_path(wid, host, "observations")
+            observations = _read_json(path, [])
+            if not isinstance(observations, list):
+                observations = []
+            match_index = next(
+                (
+                    index
+                    for index, item in enumerate(observations)
+                    if isinstance(item, dict)
+                    and _entity_matches_selector(item, {"candidateId": candidate_id})
+                ),
+                None,
+            )
+            existing = observations[match_index] if match_index is not None else None
+            matched = apply_curation(existing)
+            created = match_index is None
+            if match_index is None:
+                observations.append(matched)
+            else:
+                observations[match_index] = matched
+            _write_json(path, observations)
         entity_key = _entity_key(matched)
-        _write_json(path, observations)
-        add_target(wid, host)
         append_report_decision(
             wid,
             {

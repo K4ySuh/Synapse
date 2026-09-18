@@ -10,6 +10,7 @@ from synapse_mcp.core.adapters import surface_candidate
 from synapse_mcp.core.documentation import builder as documentation_builder
 from synapse_mcp.core.errors import McpError
 from synapse_mcp.adapters.web import crawler_adapter, xss_adapter
+from synapse_mcp.state import ActivatedWorkspaceRepository
 from synapse_mcp.transport import stdio_server
 
 
@@ -1222,6 +1223,195 @@ class CurateCandidateTests(unittest.TestCase):
                 self.assertTrue(result["retired"])
                 self.assertIs(result["observation"]["isReportable"], False)
                 self.assertEqual(result["observation"]["candidateFor"], [])
+
+    def test_curated_candidate_lifecycle_keeps_one_identity_across_stores_and_restart(self) -> None:
+        for store_version in ("sqlite-v2", "json-v1"):
+            with self.subTest(store_version=store_version), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                selector = {
+                    "url": self.URL,
+                    "method": "GET",
+                    "parameter": "target",
+                    "location": "query",
+                }
+                with isolated_state(root, store_version=store_version):
+                    self._seed()
+                    created = workspace.curate_candidate(
+                        "engagement",
+                        "example.com",
+                        selector,
+                        add=["sqli"],
+                        reviewer="consumer-a",
+                    )
+                    candidate_id = created["candidateId"]
+                    candidate_key = created["observation"]["key"]
+                    self.assertTrue(created["created"])
+                    self.assertEqual(candidate_key, f"test_candidate:{candidate_id}")
+
+                    repository = (
+                        ActivatedWorkspaceRepository(
+                            "engagement",
+                            root / "workspaces" / "engagement",
+                        )
+                        if store_version == "sqlite-v2"
+                        else None
+                    )
+                    initial_row_id = (
+                        repository.collection_records("example.com", "observations")[0][0]
+                        if repository is not None
+                        else candidate_key
+                    )
+
+                    second_consumer = workspace.curate_candidate(
+                        "engagement",
+                        "example.com",
+                        selector,
+                        add=["ssrf"],
+                        reviewer="consumer-b",
+                    )
+                    self.assertFalse(second_consumer["created"])
+                    self.assertEqual(
+                        sorted(second_consumer["observation"]["candidateFor"]),
+                        ["sqli", "ssrf"],
+                    )
+                    first_consumer = workspace.curate_candidate(
+                        "engagement",
+                        "example.com",
+                        selector,
+                        remove=["sqli"],
+                        reviewer="consumer-a",
+                    )
+                    self.assertEqual(first_consumer["observation"]["candidateFor"], ["ssrf"])
+                    retired = workspace.curate_candidate(
+                        "engagement",
+                        "example.com",
+                        selector,
+                        remove=["ssrf"],
+                        reviewer="consumer-b",
+                    )
+                    self.assertTrue(retired["retired"])
+
+                    # An adapter rescan contributes evidence but cannot revive the
+                    # explicitly refuted class.
+                    observation = surface_candidate(
+                        vuln_class="ssrf",
+                        url=self.URL,
+                        method="GET",
+                        parameter="target",
+                        location="query",
+                        reason="Fictional rescan signal.",
+                    )
+                    workspace.ingest_data(
+                        "engagement",
+                        "example.com",
+                        "adapter_result",
+                        "tool_output",
+                        "json",
+                        json.dumps({"entities": {"observations": [observation]}}),
+                    )
+                    after_rescan = self._surface()
+                    self.assertEqual(after_rescan["candidateFor"], [])
+                    self.assertTrue(after_rescan["retired"])
+                    self.assertIs(after_rescan["isReportable"], False)
+                    self.assertTrue(after_rescan["evidenceIds"])
+
+                    # Agent curation is an explicit reconsideration. It returns the
+                    # class to proposed without contradictory retirement flags.
+                    reconsidered = workspace.curate_candidate(
+                        "engagement",
+                        "example.com",
+                        selector,
+                        add=["ssrf"],
+                        reason="Operator requested reconsideration.",
+                        reviewer="operator",
+                    )["observation"]
+                    self.assertEqual(reconsidered["candidateFor"], ["ssrf"])
+                    self.assertEqual(
+                        reconsidered["candidateDetails"]["ssrf"]["validationStatus"],
+                        "proposed",
+                    )
+                    self.assertFalse(reconsidered["retired"])
+                    self.assertIs(reconsidered["isReportable"], True)
+                    workspace.curate_candidate(
+                        "engagement",
+                        "example.com",
+                        selector,
+                        remove=["ssrf"],
+                        reviewer="operator",
+                    )
+
+                    if repository is not None:
+                        records = repository.collection_records("example.com", "observations")
+                        self.assertEqual(len(records), 1)
+                        self.assertEqual(records[0][0], initial_row_id)
+
+                # Recreate the repository facade over the same files to prove the
+                # final identity and disposition survive process-style recovery.
+                with isolated_state(root, store_version=store_version):
+                    entities = workspace._load_target_entities("engagement", "example.com")
+                    candidates = [
+                        item
+                        for item in entities["observations"]
+                        if item.get("candidateId") == candidate_id
+                    ]
+                    self.assertEqual(len(candidates), 1)
+                    recovered = candidates[0]
+                    self.assertEqual(recovered["key"], candidate_key)
+                    self.assertEqual(recovered["candidateFor"], [])
+                    self.assertTrue(recovered["retired"])
+                    self.assertIs(recovered["isReportable"], False)
+                    self.assertTrue(recovered["evidenceIds"])
+                    reportable = workspace.load_reportable_target_entities(
+                        "engagement",
+                        "example.com",
+                    )
+                    self.assertFalse(
+                        any(item.get("candidateId") == candidate_id for item in reportable["observations"])
+                    )
+                    if store_version == "sqlite-v2":
+                        reopened = ActivatedWorkspaceRepository(
+                            "engagement",
+                            root / "workspaces" / "engagement",
+                        )
+                        records = reopened.collection_records("example.com", "observations")
+                        self.assertEqual(len(records), 1)
+                        self.assertEqual(records[0][0], initial_row_id)
+
+    def test_historical_duplicate_candidate_is_flagged_without_automatic_merge(self) -> None:
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with isolated_state(root, store_version="sqlite-v2"):
+                self._seed()
+                repository = ActivatedWorkspaceRepository(
+                    "engagement",
+                    root / "workspaces" / "engagement",
+                )
+                candidate = surface_candidate(
+                    vuln_class="ssrf",
+                    url=self.URL,
+                    method="GET",
+                    parameter="target",
+                    location="query",
+                    reason="Historical fictional candidate.",
+                )
+                repository.replace_collection("example.com", "observations", [candidate])
+                changed = {**candidate, "updatedAt": "2026-09-18T10:00:00Z"}
+                repository.replace_collection("example.com", "observations", [changed])
+                before = repository.collection_records("example.com", "observations")
+                before_revision = repository.revision()
+                self.assertEqual(len(before), 2)
+
+                with self.assertRaisesRegex(McpError, "collection_identity_ambiguous"):
+                    workspace.curate_candidate(
+                        "engagement",
+                        "example.com",
+                        {"candidateId": candidate["candidateId"]},
+                        remove=["ssrf"],
+                    )
+
+                after = repository.collection_records("example.com", "observations")
+                self.assertEqual(after, before)
+                self.assertEqual(repository.revision(), before_revision)
 
     def test_curate_requires_add_or_remove(self) -> None:
         with TemporaryDirectory() as tmp:

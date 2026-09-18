@@ -1089,6 +1089,137 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                 payload={"target": target, "entityType": entity_type, "count": len(items)},
             )
 
+    def mutate_collection_item(
+        self,
+        target: str,
+        entity_type: str,
+        *,
+        identity_field: str,
+        identity_value: str,
+        mutator: Callable[[dict[str, Any] | None], Mapping[str, Any]],
+    ) -> dict[str, Any]:
+        """Create or update one compatibility entity inside one revision.
+
+        The retained workspace facade uses this seam when a mutation targets one
+        known entity. It preserves the repository row identity and avoids writing
+        a stale snapshot of every sibling in the compatibility collection.
+        """
+
+        if entity_type in {"findings", "actions"} or entity_type not in _COLLECTION_ENTITY_TYPES:
+            raise StateIntegrityError(
+                "collection_item_type_invalid",
+                "Single-item collection mutation requires a canonical entity collection.",
+            )
+        if identity_field not in {"key", "id", "entityId", "candidateId"} or not identity_value:
+            raise StateIntegrityError(
+                "collection_item_identity_invalid",
+                "Single-item collection mutation requires a supported non-empty identity.",
+            )
+        with self.transaction() as connection:
+            current = self._workspace_revision(connection)
+            target_id = self._target_id(connection, target)
+            if target_id is None:
+                raise StateIntegrityError("target_not_found", "Entity target does not exist in the workspace.")
+            singular = _COLLECTION_ENTITY_TYPES[entity_type]
+            json_path = f'$."{identity_field}"'
+            rows = list(connection.execute(
+                "SELECT entity_id, natural_key, payload_json FROM entities "
+                "WHERE workspace_id=? AND target_id=? AND entity_type=? "
+                "AND CAST(json_extract(payload_json, ?) AS TEXT)=? ORDER BY created_revision, entity_id",
+                (self.workspace_id, target_id, singular, json_path, identity_value),
+            ))
+            if len(rows) > 1:
+                raise StateIntegrityError(
+                    "collection_identity_ambiguous",
+                    "Multiple canonical rows share the requested compatibility identity; operator review is required.",
+                    details={
+                        "target": target,
+                        "entityType": entity_type,
+                        "identityField": identity_field,
+                        "identityValue": identity_value,
+                        "matchCount": len(rows),
+                    },
+                )
+            existing = _decode(rows[0][2]) if rows else None
+            updated = dict(mutator(dict(existing) if existing is not None else None))
+            if str(updated.get(identity_field) or "") != identity_value:
+                raise StateIntegrityError(
+                    "collection_item_identity_changed",
+                    "Single-item collection mutation cannot change its selected identity.",
+                )
+            revision = current + 1
+            natural = self._natural(updated)
+            db_natural = f"{target_id}:{natural}"
+            now = _now()
+            if rows:
+                row_id = str(rows[0][0])
+                collision = connection.execute(
+                    "SELECT entity_id FROM entities WHERE workspace_id=? AND entity_type=? AND natural_key=? AND entity_id<>?",
+                    (self.workspace_id, singular, db_natural, row_id),
+                ).fetchone()
+                if collision is not None:
+                    raise StateIntegrityError(
+                        "collection_natural_key_conflict",
+                        "The canonical collection identity conflicts with another stored row; operator review is required.",
+                        details={"target": target, "entityType": entity_type, "identityField": identity_field},
+                    )
+                connection.execute(
+                    "UPDATE entities SET natural_key=?, lifecycle=?, payload_json=?, updated_revision=?, updated_at=? "
+                    "WHERE workspace_id=? AND entity_id=?",
+                    (
+                        db_natural,
+                        str(updated.get("status") or "observed"),
+                        _json(updated),
+                        revision,
+                        now,
+                        self.workspace_id,
+                        row_id,
+                    ),
+                )
+                operation = "update"
+            else:
+                row_id = _stable_id("entity", self.workspace_id, target_id, singular, natural)
+                connection.execute(
+                    "INSERT INTO entities(entity_id, workspace_id, target_id, entity_type, natural_key, lifecycle, payload_json, created_revision, updated_revision, created_at, updated_at) "
+                    "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        row_id,
+                        self.workspace_id,
+                        target_id,
+                        singular,
+                        db_natural,
+                        str(updated.get("status") or "observed"),
+                        _json(updated),
+                        revision,
+                        revision,
+                        now,
+                        now,
+                    ),
+                )
+                operation = "create"
+            changes = [(entity_type, row_id, operation, {"naturalKey": natural})]
+            changes.extend(self._sync_relations(connection, target_id, revision))
+            committed = self._finish_revision(
+                connection,
+                current=current,
+                changes=changes,
+                event_type="workspace.collection_item_update",
+                summary=f"Updated one {entity_type} record for {target}.",
+                payload={
+                    "target": target,
+                    "entityType": entity_type,
+                    "identityField": identity_field,
+                    "identityValue": identity_value,
+                    "created": not rows,
+                },
+            )
+            return {
+                "created": not rows,
+                "entityId": row_id,
+                "item": updated,
+                "revision": committed,
+            }
+
     def _sync_relations(
         self,
         connection: StateConnection,

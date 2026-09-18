@@ -404,6 +404,15 @@ automated operation: stop writers, preserve the failed workspace, verify the
 backup and artifact inventory, and perform a reviewed forward recovery. Do not
 overwrite a live workspace ad hoc.
 
+SQLite-v2 workspaces written before the Phase 7 candidate-identity repair may
+contain multiple observation rows with the same `candidateId`. Current
+candidate curation performs a bounded identity lookup and fails closed with
+`collection_identity_ambiguous` when it finds that condition. It does not
+delete, merge, revive, or change the reportability of historical rows. Preserve
+the workspace, export it for review, and reconcile the candidates with their
+evidence and review history in a separately approved repair; row count alone is
+not enough to decide which record should survive.
+
 Writers wait only for the configured bounded busy timeout. Contention before a
 transaction obtains write authority is a retryable `state_busy_retryable`
 result. Each revisioned write captures its intended revision and audit IDs
