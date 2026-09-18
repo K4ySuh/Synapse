@@ -11,6 +11,9 @@ development instructions.
 - [Current Phase 6 status](phase-6-status.md)
 - [Phase 6 checkpoint ledger](phase-6-checkpoints.md)
 - [Phase 6 direct-client exercise](phase-6-client-exercise.md)
+- [Current Phase 7 status](phase-7-status.md)
+- [Phase 7 implementation plan](phase-7-plan.md)
+- [Phase 7 checkpoint ledger](phase-7-checkpoints.md)
 - [Operations and recovery](../Operations.md)
 
 The frozen baseline and Stage A checkpoint remain only because inventory and
@@ -56,6 +59,17 @@ Daybreak remains an operator-selected preference, not a Synapse core
 requirement. The 6R7 direct-client exercise records one passing Codex
 host/model/protocol combination; it does not generalize that claim to untested
 clients or builds.
+
+## Phase 7 selectable-method roadmap
+
+Phase 7 starts from reviewed Beta commit `8134673a` and proceeds serially from
+correctness repairs through bounded ingestion/context, typed methodology
+contributions, selectable method content, retained compatibility, and a small
+client comparison. The [status](phase-7-status.md) records the current limits,
+the [plan](phase-7-plan.md) fixes scope and dependencies, and the
+[checkpoint ledger](phase-7-checkpoints.md) identifies the next executable
+action. Phase 6 results remain historical evidence; its retired gates are not
+restored.
 
 ## Architecture decisions
 
