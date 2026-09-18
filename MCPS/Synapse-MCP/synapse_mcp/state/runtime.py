@@ -66,6 +66,7 @@ _COLLECTION_ENTITY_TYPES = {
     "pretextCandidates": "pretext_candidate",
     "detectionGaps": "detection_gap",
 }
+_SQLITE_PARAMETER_BATCH = 200
 
 
 @dataclass(frozen=True, slots=True)
@@ -1077,7 +1078,12 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
             )
             target_id = self._target_id(connection, target)
             if target_id is not None:
-                changes.extend(self._sync_relations(connection, target_id, current + 1))
+                touched_entity_ids = (
+                    [str(change[1]) for change in changes]
+                    if entity_type not in {"findings", "actions"}
+                    else []
+                )
+                changes.extend(self._sync_relations(connection, target_id, current + 1, touched_entity_ids))
             if not changes:
                 return current
             return self._finish_revision(
@@ -1198,7 +1204,7 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                 )
                 operation = "create"
             changes = [(entity_type, row_id, operation, {"naturalKey": natural})]
-            changes.extend(self._sync_relations(connection, target_id, revision))
+            changes.extend(self._sync_relations(connection, target_id, revision, (row_id,)))
             committed = self._finish_revision(
                 connection,
                 current=current,
@@ -1225,32 +1231,156 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
         connection: StateConnection,
         target_id: str,
         revision: int,
+        touched_entity_ids: Sequence[str],
     ) -> list[tuple[str, str, str, Any]]:
-        rows = list(connection.execute(
-            "SELECT entity_id, payload_json FROM entities WHERE workspace_id=? AND target_id=?",
-            (self.workspace_id, target_id),
-        ))
+        touched_ids = sorted(set(str(value) for value in touched_entity_ids if value))
+        if not touched_ids:
+            return []
+
+        affected: dict[str, tuple[str, dict[str, Any]]] = {}
+        for offset in range(0, len(touched_ids), _SQLITE_PARAMETER_BATCH):
+            batch = touched_ids[offset:offset + _SQLITE_PARAMETER_BATCH]
+            placeholders = ", ".join("?" for _ in batch)
+            for entity_id, natural_key, payload_json in connection.execute(
+                "SELECT entity_id, natural_key, payload_json FROM entities "
+                f"WHERE workspace_id=? AND target_id=? AND entity_id IN ({placeholders})",
+                (self.workspace_id, target_id, *batch),
+            ):
+                payload = _decode(payload_json)
+                if isinstance(payload, dict):
+                    affected[str(entity_id)] = (str(natural_key), payload)
+        if not affected:
+            return []
+
         references: dict[str, str] = {}
-        payloads: dict[str, dict[str, Any]] = {}
-        for entity_id, payload_json in rows:
-            payload = _decode(payload_json)
-            payloads[str(entity_id)] = payload
+        destination_references: set[str] = set()
+
+        def remember(entity_id: str, payload: Mapping[str, Any]) -> None:
             for reference in (entity_id, payload.get("entityId"), payload.get("id"), payload.get("key")):
                 if reference:
                     references[str(reference)] = str(entity_id)
+                    destination_references.add(str(reference))
+
+        for entity_id, (_, payload) in affected.items():
+            remember(entity_id, payload)
+
+        # A new destination can make an older source's forward reference
+        # resolvable. Let SQLite select only matching sources; do not decode the
+        # rest of the target just to discover that they are unrelated.
+        sorted_destination_references = sorted(destination_references)
+        for offset in range(0, len(sorted_destination_references), _SQLITE_PARAMETER_BATCH):
+            batch = sorted_destination_references[offset:offset + _SQLITE_PARAMETER_BATCH]
+            placeholders = ", ".join("?" for _ in batch)
+            rows = connection.execute(
+                "SELECT e.entity_id, e.natural_key, e.payload_json FROM entities e "
+                "WHERE e.workspace_id=? AND e.target_id=? AND e.updated_revision<? "
+                "AND json_type(e.payload_json, '$.relations')='array' AND EXISTS ("
+                "SELECT 1 FROM json_each(e.payload_json, '$.relations') relation "
+                "WHERE CAST(COALESCE(NULLIF(json_extract(relation.value, '$.targetEntityId'), ''), "
+                f"json_extract(relation.value, '$.targetId')) AS TEXT) IN ({placeholders})) "
+                "ORDER BY e.created_revision, e.entity_id",
+                (self.workspace_id, target_id, revision, *batch),
+            )
+            for entity_id, natural_key, payload_json in rows:
+                identity = str(entity_id)
+                if identity in affected:
+                    continue
+                payload = _decode(payload_json)
+                if isinstance(payload, dict):
+                    affected[identity] = (str(natural_key), payload)
+                    remember(identity, payload)
+
+        target_references: set[str] = set()
+        for _, payload in affected.values():
+            relations = payload.get("relations")
+            for relation in relations if isinstance(relations, list) else []:
+                if not isinstance(relation, Mapping):
+                    continue
+                reference = relation.get("targetEntityId") or relation.get("targetId")
+                if reference:
+                    target_references.add(str(reference))
+
+        # Canonical entity IDs and natural keys are covered by existing unique
+        # indexes. Decode only their candidate rows to retain compatibility with
+        # payload-level entityId/id/key aliases.
+        unresolved = sorted(target_references - references.keys())
+        indexed_candidate_ids: set[str] = set()
+        for offset in range(0, len(unresolved), _SQLITE_PARAMETER_BATCH):
+            batch = unresolved[offset:offset + _SQLITE_PARAMETER_BATCH]
+            entity_placeholders = ", ".join("?" for _ in batch)
+            natural_values = [
+                value
+                for reference in batch
+                for value in (f"{target_id}:{reference}", reference)
+            ]
+            natural_placeholders = ", ".join("?" for _ in natural_values)
+            rows = list(connection.execute(
+                "SELECT entity_id, natural_key, payload_json FROM entities "
+                f"WHERE workspace_id=? AND target_id=? AND entity_id IN ({entity_placeholders}) "
+                "ORDER BY created_revision, entity_id",
+                (self.workspace_id, target_id, *batch),
+            ))
+            for entity_type in sorted(set(_COLLECTION_ENTITY_TYPES.values())):
+                rows.extend(connection.execute(
+                    "SELECT entity_id, natural_key, payload_json FROM entities "
+                    "WHERE workspace_id=? AND target_id=? AND entity_type=? "
+                    f"AND natural_key IN ({natural_placeholders}) "
+                    "ORDER BY created_revision, entity_id",
+                    (self.workspace_id, target_id, entity_type, *natural_values),
+                ))
+            for entity_id, _natural_key, payload_json in rows:
+                identity = str(entity_id)
+                if identity in indexed_candidate_ids:
+                    continue
+                indexed_candidate_ids.add(identity)
+                if identity in affected:
+                    payload = affected[identity][1]
+                else:
+                    payload = _decode(payload_json)
+                if isinstance(payload, dict):
+                    remember(identity, payload)
+
+        # Historical payloads can carry an alias different from their indexed
+        # natural key. Keep that compatibility as a bounded fallback only for
+        # references the indexed lookup could not resolve.
+        unresolved = sorted(target_references - references.keys())
+        for offset in range(0, len(unresolved), _SQLITE_PARAMETER_BATCH):
+            batch = unresolved[offset:offset + _SQLITE_PARAMETER_BATCH]
+            placeholders = ", ".join("?" for _ in batch)
+            rows = connection.execute(
+                "SELECT entity_id, payload_json FROM entities WHERE workspace_id=? AND target_id=? AND ("
+                f"CAST(json_extract(payload_json, '$.entityId') AS TEXT) IN ({placeholders}) OR "
+                f"CAST(json_extract(payload_json, '$.id') AS TEXT) IN ({placeholders}) OR "
+                f"CAST(json_extract(payload_json, '$.key') AS TEXT) IN ({placeholders})) "
+                "ORDER BY created_revision, entity_id",
+                (self.workspace_id, target_id, *batch, *batch, *batch),
+            )
+            for entity_id, payload_json in rows:
+                identity = str(entity_id)
+                if identity in affected:
+                    payload = affected[identity][1]
+                else:
+                    payload = _decode(payload_json)
+                if isinstance(payload, dict):
+                    remember(identity, payload)
+
+        source_ids = sorted(affected)
         existing = {
             str(row[0]): (str(row[1]), str(row[2]), str(row[3]), str(row[4]))
+            for offset in range(0, len(source_ids), _SQLITE_PARAMETER_BATCH)
             for row in connection.execute(
-                "SELECT r.relation_id, r.source_entity_id, r.target_entity_id, r.relation_type, r.payload_json FROM entity_relations r "
-                "JOIN entities e ON e.entity_id=r.source_entity_id "
-                "WHERE r.workspace_id=? AND e.target_id=?",
-                (self.workspace_id, target_id),
+                "SELECT relation_id, source_entity_id, target_entity_id, relation_type, payload_json "
+                "FROM entity_relations WHERE workspace_id=? AND source_entity_id IN ("
+                + ", ".join("?" for _ in source_ids[offset:offset + _SQLITE_PARAMETER_BATCH])
+                + ")",
+                (self.workspace_id, *source_ids[offset:offset + _SQLITE_PARAMETER_BATCH]),
             )
         }
         desired: dict[str, tuple[str, str, str, str]] = {}
+        desired_payloads: dict[str, dict[str, Any]] = {}
         changes: list[tuple[str, str, str, Any]] = []
         now = _now()
-        for source_id, payload in payloads.items():
+        for source_id, (_, payload) in affected.items():
             relations = payload.get("relations")
             for relation in relations if isinstance(relations, list) else []:
                 if not isinstance(relation, Mapping):
@@ -1269,12 +1399,13 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                     relation_type,
                 )
                 desired[relation_id] = (source_id, target_entity_id, relation_type, _json(relation))
+                desired_payloads[relation_id] = dict(relation)
         for relation_id in sorted(existing.keys() - desired.keys()):
             connection.execute(
                 "DELETE FROM entity_relations WHERE workspace_id=? AND relation_id=?",
                 (self.workspace_id, relation_id),
             )
-            changes.append(("entity_relation", relation_id, "unlink", {}))
+            changes.append(("entity_relation", relation_id, "delete", {}))
         for relation_id, (source_id, target_entity_id, relation_type, payload_json) in desired.items():
             if existing.get(relation_id) == (source_id, target_entity_id, relation_type, payload_json):
                 continue
@@ -1289,7 +1420,7 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                     "INSERT INTO entity_relations(relation_id, workspace_id, source_entity_id, target_entity_id, relation_type, payload_json, created_revision, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
                     (relation_id, self.workspace_id, source_id, target_entity_id, relation_type, payload_json, revision, now),
                 )
-            changes.append(("entity_relation", relation_id, "link", _decode(payload_json)))
+            changes.append(("entity_relation", relation_id, "link", desired_payloads[relation_id]))
         return changes
 
     def evidence_exists(self, evidence_id: str, target: str = "") -> bool:
@@ -1449,6 +1580,7 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
             now = _now()
             target_id = self._target_id(connection, target)
             changes: list[tuple[str, str, str, Any]] = []
+            touched_entity_ids: list[str] = []
             if target_id is None:
                 target_id = _stable_id("target", self.workspace_id, target)
                 connection.execute(
@@ -1529,8 +1661,10 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                 )
                 counts[name] = count
                 record_ids[name] = [str(change[1]) for change in entity_changes]
+                if name not in {"findings", "actions"}:
+                    touched_entity_ids.extend(record_ids[name])
                 changes.extend(entity_changes)
-            changes.extend(self._sync_relations(connection, target_id, revision))
+            changes.extend(self._sync_relations(connection, target_id, revision, touched_entity_ids))
             committed = self._finish_revision(
                 connection,
                 current=current,

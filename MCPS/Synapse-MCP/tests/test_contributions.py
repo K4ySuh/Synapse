@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from helpers import isolated_state
 from synapse_mcp.app.actions import ActionRegistry, ActionRequest, ExecutionContext, PassThroughPolicyEvaluator, Success
@@ -19,6 +20,7 @@ from synapse_mcp.app.facade import (
 from synapse_mcp.core import workspace
 from synapse_mcp.core.errors import McpError
 from synapse_mcp.state.runtime import ActivatedWorkspaceRepository
+from synapse_mcp.state import runtime as state_runtime
 from synapse_mcp.state.bundles import StateBundleService
 
 
@@ -98,6 +100,7 @@ class ContributionTests(unittest.TestCase):
                         ("engagement",),
                     ).fetchall()
                     self.assertEqual(len(links), 2)
+
                     self.assertEqual(connection.execute(
                         "SELECT COUNT(*) FROM contribution_receipts WHERE workspace_id=?", ("engagement",)
                     ).fetchone()[0], 2)
@@ -122,6 +125,34 @@ class ContributionTests(unittest.TestCase):
                         ("engagement", "req-1", receipt_a["consumerRef"]),
                     ).fetchone()
                 self.assertEqual(json.loads(backed_up[0]), receipt_a)
+
+    def test_observation_contribution_does_not_decode_unrelated_target_entities(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp), store_version="sqlite-v2"):
+                workspace.create_workspace("engagement", hosts=["example.test"])
+                repository = workspace._activated_repository("engagement")
+                repository.replace_collection(
+                    "example.test",
+                    "endpoints",
+                    tuple(
+                        {
+                            "type": "endpoint",
+                            "key": f"saved-{index}",
+                            "url": f"https://example.test/saved/{index}",
+                        }
+                        for index in range(250)
+                    ),
+                )
+                registry = ActionRegistry(PassThroughPolicyEvaluator())
+                registry.register(REGISTRY.get("workspace.ingest_data"))
+                registry.freeze()
+
+                with patch.object(state_runtime, "_decode", wraps=state_runtime._decode) as decode:
+                    result = self._submit(registry, "consumer:bounded", _observation_payload("bounded-relations"))
+
+                self.assertIsInstance(result, Success)
+                self.assertLessEqual(decode.call_count, 4)
+                self.assertEqual(len(repository.collection("example.test", "endpoints")), 250)
 
     def test_retry_is_bound_to_normalized_target_without_cross_target_writes(self) -> None:
         with TemporaryDirectory() as tmp:

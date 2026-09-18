@@ -395,6 +395,102 @@ class WorkspaceIngestionTests(unittest.TestCase):
                         ("engagement", "ev_failed_local"),
                     ).fetchone()[0], 0)
 
+    def test_relation_sync_updates_only_changed_sources_and_resolves_forward_references(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp), store_version="sqlite-v2"):
+                workspace.create_workspace("engagement", hosts=["example.com"])
+                repository = workspace._activated_repository("engagement")
+                repository.replace_collection(
+                    "example.com",
+                    "endpoints",
+                    (
+                        {"type": "endpoint", "key": "destination-a", "url": "https://example.com/a"},
+                        {"type": "endpoint", "key": "destination-b", "url": "https://example.com/b"},
+                        {
+                            "type": "endpoint",
+                            "key": "changed-source",
+                            "url": "https://example.com/changed",
+                            "relations": [{"type": "links_to", "targetId": "destination-a"}],
+                        },
+                        {
+                            "type": "endpoint",
+                            "key": "unrelated-source",
+                            "url": "https://example.com/unrelated",
+                            "relations": [{"type": "links_to", "targetId": "destination-a"}],
+                        },
+                    ),
+                )
+                with repository.connection_factory.connect() as connection:
+                    unrelated_before = connection.execute(
+                        "SELECT r.relation_id, r.created_revision, r.created_at FROM entity_relations r "
+                        "JOIN entities e ON e.entity_id=r.source_entity_id "
+                        "WHERE r.workspace_id=? AND json_extract(e.payload_json, '$.key')='unrelated-source'",
+                        ("engagement",),
+                    ).fetchone()
+
+                repository.replace_collection(
+                    "example.com",
+                    "endpoints",
+                    ({
+                        "type": "endpoint",
+                        "key": "changed-source",
+                        "url": "https://example.com/changed",
+                        "relations": [{"type": "links_to", "targetId": "destination-b"}],
+                    },),
+                )
+                repository.replace_collection(
+                    "example.com",
+                    "endpoints",
+                    ({
+                        "type": "endpoint",
+                        "key": "forward-source",
+                        "url": "https://example.com/forward",
+                        "relations": [{"type": "links_to", "targetId": "future-destination"}],
+                    },),
+                )
+                with repository.connection_factory.connect() as connection:
+                    self.assertEqual(connection.execute(
+                        "SELECT COUNT(*) FROM entity_relations r JOIN entities e ON e.entity_id=r.source_entity_id "
+                        "WHERE r.workspace_id=? AND json_extract(e.payload_json, '$.key')='forward-source'",
+                        ("engagement",),
+                    ).fetchone()[0], 0)
+
+                repository.replace_collection(
+                    "example.com",
+                    "endpoints",
+                    ({
+                        "type": "endpoint",
+                        "key": "future-destination",
+                        "url": "https://example.com/future",
+                    },),
+                )
+                with repository.connection_factory.connect() as connection:
+                    relations = connection.execute(
+                        "SELECT json_extract(source.payload_json, '$.key'), "
+                        "json_extract(destination.payload_json, '$.key'), r.relation_type "
+                        "FROM entity_relations r "
+                        "JOIN entities source ON source.entity_id=r.source_entity_id "
+                        "JOIN entities destination ON destination.entity_id=r.target_entity_id "
+                        "WHERE r.workspace_id=? ORDER BY 1, 2",
+                        ("engagement",),
+                    ).fetchall()
+                    unrelated_after = connection.execute(
+                        "SELECT r.relation_id, r.created_revision, r.created_at FROM entity_relations r "
+                        "JOIN entities e ON e.entity_id=r.source_entity_id "
+                        "WHERE r.workspace_id=? AND json_extract(e.payload_json, '$.key')='unrelated-source'",
+                        ("engagement",),
+                    ).fetchone()
+
+                self.assertEqual(
+                    [tuple(row) for row in relations],
+                    [
+                        ("changed-source", "destination-b", "links_to"),
+                        ("forward-source", "future-destination", "links_to"),
+                        ("unrelated-source", "destination-a", "links_to"),
+                    ],
+                )
+                self.assertEqual(tuple(unrelated_after), tuple(unrelated_before))
+
     def test_replaceable_ingestion_prunes_old_generated_evidence(self) -> None:
         with TemporaryDirectory() as tmp:
             with isolated_state(Path(tmp)):
