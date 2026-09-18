@@ -10,7 +10,7 @@ not gates to rerun for each Phase 7 checkpoint.
 | Task | Status | Checkpoints | Next step |
 | --- | --- | --- | --- |
 | 7R0 | Complete | 7R0.1 `bcddb09` | 7R1.1 |
-| 7R1 | In progress | 7R1.1 `750e261`; 7R1.2 complete; 7R1.3 pending | 7R1.3 |
+| 7R1 | In progress | 7R1.1 `750e261`; 7R1.2 `a69db92`; 7R1.3 pending | 7R1.3 |
 | 7R2 | Pending | 7R2.1–7R2.2 pending | After 7R0; work serially after 7R1 |
 | 7R3 | Pending | 7R3.1–7R3.2 pending | After 7R1 and 7R2 |
 | 7R4 | Pending | 7R4.1–7R4.2 pending | After 7R0; work serially after 7R3 |
@@ -25,7 +25,7 @@ task: 7R1
 checkpoint: 7R1.2
 status: complete
 review_base: 8134673a386ad00eed786d3d3ba841f00fcb28de
-implementation_commit: null
+implementation_commit: a69db929cd679643284941e760cfc13cd65b521b
 branch: Beta
 changed_files:
   - MCPS/Synapse-MCP/synapse_mcp/state/runtime.py
