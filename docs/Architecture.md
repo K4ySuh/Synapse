@@ -371,8 +371,13 @@ canonical compact UTF-8 facade envelope through an application-injected
 encoder; if the protected minimum exceeds the request, the compiler
 returns that measured minimum instead of dropping safety warnings. Large
 evidence bodies are never embedded. Full queries return CAS-backed links, while
-future or pruned delta cursors fail or require an explicit full refresh. The
-legacy `workspace.prepare_target_context` action does not use this compiler.
+future or pruned delta revisions fail or require an explicit full refresh.
+Repository continuation is separate: an opaque cursor binds normalized query
+filters and deterministic source positions to the committed snapshot revision,
+and a changed revision returns `context_cursor_refresh_required`. Protected
+contradictions are queried independently of the ordinary entity page, so a
+page cutoff cannot report a false zero. The legacy
+`workspace.prepare_target_context` action does not use this compiler.
 
 When `context.query` selects a work item, the compiler prioritizes its objective,
 role, parent/dependencies, selected workspace delta, completion contract,

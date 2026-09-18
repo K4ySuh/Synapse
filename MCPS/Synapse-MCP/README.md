@@ -118,10 +118,14 @@ legacy action. It reads one selected repository snapshot and returns the
 committed revision with closed fact, candidate, contradiction, coverage-gap,
 action/task, recommendation, resource-link, and omission sections. Current
 scope and authority are taken from trusted repositories. `sinceRevision`
-returns the covered committed interval; future cursors fail and pruned cursors
-require a full refresh. JSON-v1 supports full compilation but explicitly
-requires a refresh for every delta request because it has no transactional
-change log.
+selects a committed change-log interval. Repository pages use the separate
+opaque input `cursor` and structured output `continuation`; cursors are bound to
+the workspace, normalized query, source sections, deterministic positions, and
+snapshot revision. A changed revision requires a fresh query instead of
+silently continuing across workspace states. Safety contradictions are selected
+independently of ordinary entity pages. JSON-v1 supports full compilation but
+explicitly requires a refresh for every delta request because it has no
+transactional change log.
 
 The reported `utf8_bytes_v1` counter measures the final canonical compact UTF-8
 facade envelope, not only its inner context result. Protected revision and

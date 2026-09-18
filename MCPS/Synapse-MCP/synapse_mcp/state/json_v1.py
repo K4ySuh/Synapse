@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 from .contracts import ContextRepositorySnapshot
 
@@ -31,8 +31,10 @@ class JsonV1WorkspaceRepository:
         self, *, since_revision: int | None = None,
         targets: Sequence[str] = (), work_item_id: str = "", authority_session_ref: str = "",
         selected_grant_id: str = "", claimant: str = "", entity_types: Sequence[str] = (),
+        page_positions: Mapping[str, int] | None = None, expected_revision: int | None = None,
     ) -> ContextRepositorySnapshot:
         del since_revision, targets, work_item_id, authority_session_ref, selected_grant_id, claimant, entity_types
+        del page_positions, expected_revision
         root = self._workspace.workspace_path(self._workspace_id)
         targets: list[dict[str, Any]] = []
         entities: list[dict[str, Any]] = []
@@ -95,8 +97,10 @@ class JsonV1WorkspaceRepository:
             earliest_change_revision=None,
             workspace=workspace_document if isinstance(workspace_document, dict) else {},
             scope=scope_document if isinstance(scope_document, dict) else {},
+            target_index=tuple(targets),
             targets=tuple(targets),
             entities=tuple(entities),
+            warning_entities=tuple(entities),
             findings=tuple(findings),
             actions=tuple(actions),
             authority=authority_document if isinstance(authority_document, dict) else {},

@@ -97,8 +97,10 @@ class ContextRepositorySnapshot:
     earliest_change_revision: int | None
     workspace: JsonObject
     scope: JsonObject
+    target_index: Sequence[JsonObject] = field(default_factory=tuple)
     targets: Sequence[JsonObject] = field(default_factory=tuple)
     entities: Sequence[JsonObject] = field(default_factory=tuple)
+    warning_entities: Sequence[JsonObject] = field(default_factory=tuple)
     relations: Sequence[JsonObject] = field(default_factory=tuple)
     findings: Sequence[JsonObject] = field(default_factory=tuple)
     evidence: Sequence[JsonObject] = field(default_factory=tuple)
@@ -111,6 +113,7 @@ class ContextRepositorySnapshot:
     changes: Sequence[JsonObject] = field(default_factory=tuple)
     recovery_runs: Sequence[JsonObject] = field(default_factory=tuple)
     recovery_omitted: int = 0
+    page_positions: JsonObject = field(default_factory=dict)
     page_omissions: Sequence[JsonObject] = field(default_factory=tuple)
 
 
@@ -126,6 +129,7 @@ class WorkspaceRepository(Protocol):
         self, *, since_revision: int | None = None,
         targets: Sequence[str] = (), work_item_id: str = "", authority_session_ref: str = "",
         selected_grant_id: str = "", claimant: str = "", entity_types: Sequence[str] = (),
+        page_positions: Mapping[str, int] | None = None, expected_revision: int | None = None,
     ) -> ContextRepositorySnapshot: ...
 
 

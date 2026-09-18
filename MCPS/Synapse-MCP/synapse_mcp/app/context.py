@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import base64
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from fnmatch import fnmatch
@@ -32,6 +33,21 @@ _SECTION_ORDER = (
     "recommendations",
     "resourceLinks",
 )
+_CONTEXT_CURSOR_VERSION = 1
+_CONTEXT_PAGE_SOURCES = frozenset({
+    "actions",
+    "changes",
+    "dispatches",
+    "entities",
+    "evidence",
+    "evidenceArtifacts",
+    "findings",
+    "recoveryRuns",
+    "relations",
+    "targets",
+    "tasks",
+    "workItems",
+})
 
 
 def _camel_case(value: str) -> str:
@@ -56,6 +72,7 @@ class ContextQueryInput(ContextModel):
     since_revision: int | None = Field(default=None, ge=0)
     max_tokens: int = Field(default=1500, ge=100)
     include_evidence_summaries: bool = False
+    cursor: str | None = Field(default=None, min_length=1, max_length=4096)
     target: str | None = Field(default=None, description="Deprecated alias for targets.")
     purpose: str | None = Field(default=None, description="Deprecated alias for intent.")
     work_item_id: str | None = Field(default=None, min_length=1)
@@ -176,6 +193,13 @@ class ContextOmission(ContextModel):
     continuation: str
 
 
+class ContextContinuation(ContextModel):
+    has_more: bool
+    next_cursor: str | None = None
+    sections: list[str] = Field(default_factory=list)
+    revision: int
+
+
 class ContextQueryResult(ContextModel):
     workspace_id: str
     revision: int
@@ -194,6 +218,7 @@ class ContextQueryResult(ContextModel):
     recommendations: list[ContextRecommendation]
     resource_links: list[ContextResourceLink]
     omissions: list[ContextOmission]
+    continuation: ContextContinuation
     full_refresh_required: bool
 
 
@@ -237,6 +262,73 @@ def canonical_context_bytes(result: ContextQueryResult) -> bytes:
         separators=(",", ":"),
         sort_keys=True,
     ).encode("utf-8")
+
+
+def _context_query_fingerprint(query: ContextQueryInput) -> str:
+    value = {
+        "workspaceId": query.workspace_id,
+        "intent": query.intent,
+        "targets": sorted(query.targets),
+        "entityTypes": sorted(query.entity_types),
+        "sinceRevision": query.since_revision,
+        "includeEvidenceSummaries": query.include_evidence_summaries,
+        "workItemId": query.work_item_id,
+        "claimId": query.claim_id,
+        "claimant": query.claimant,
+    }
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return sha256(encoded).hexdigest()[:24]
+
+
+def _encode_context_cursor(
+    query: ContextQueryInput,
+    *,
+    revision: int,
+    positions: Mapping[str, int],
+) -> str:
+    body = {
+        "v": _CONTEXT_CURSOR_VERSION,
+        "w": query.workspace_id,
+        "q": _context_query_fingerprint(query),
+        "r": revision,
+        "p": {key: int(positions[key]) for key in sorted(positions)},
+    }
+    canonical = json.dumps(body, sort_keys=True, separators=(",", ":"))
+    payload = {**body, "d": sha256(canonical.encode("utf-8")).hexdigest()[:24]}
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def _decode_context_cursor(query: ContextQueryInput) -> tuple[int, dict[str, int]] | None:
+    if not query.cursor:
+        return None
+    try:
+        padded = query.cursor + "=" * (-len(query.cursor) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8"))
+        body = {key: payload[key] for key in ("v", "w", "q", "r", "p")}
+        canonical = json.dumps(body, sort_keys=True, separators=(",", ":"))
+        if payload.get("d") != sha256(canonical.encode("utf-8")).hexdigest()[:24]:
+            raise ValueError("cursor digest mismatch")
+        revision = int(body["r"])
+        raw_positions = body["p"]
+        if not isinstance(raw_positions, Mapping) or not raw_positions:
+            raise ValueError("cursor positions missing")
+        positions = {str(key): int(value) for key, value in raw_positions.items()}
+    except Exception as exc:
+        raise ContextQueryError("context_cursor_invalid", "Context continuation cursor is invalid.") from exc
+    if (
+        body["v"] != _CONTEXT_CURSOR_VERSION
+        or body["w"] != query.workspace_id
+        or body["q"] != _context_query_fingerprint(query)
+        or revision < 0
+        or not set(positions).issubset(_CONTEXT_PAGE_SOURCES)
+        or any(value < 0 for value in positions.values())
+    ):
+        raise ContextQueryError(
+            "context_cursor_mismatch",
+            "Context continuation cursor does not match this workspace and normalized query.",
+        )
+    return revision, positions
 
 
 def _target_host(value: str) -> str:
@@ -346,6 +438,7 @@ class ContextCompiler:
     def compile(self, query: ContextQueryInput, *, trust: ContextTrust) -> ContextQueryResult:
         if query.workspace_id != self.repository.workspace_id:
             raise ContextQueryError("context_workspace_mismatch", "Context query workspace does not match its repository.")
+        cursor_state = _decode_context_cursor(query)
         snapshot = self.repository.context_snapshot(
             since_revision=query.since_revision,
             targets=tuple(_target_host(item) for item in query.targets),
@@ -357,7 +450,14 @@ class ContextCompiler:
                 f"sha256:{sha256(trust.authority_session_id.encode('utf-8')).hexdigest()}"
                 if trust.authority_session_id else ""
             ),
+            page_positions=cursor_state[1] if cursor_state else None,
+            expected_revision=cursor_state[0] if cursor_state else None,
         )
+        if cursor_state and snapshot.store_version != "sqlite-v2":
+            raise ContextQueryError(
+                "context_cursor_unsupported",
+                "Context continuation requires an activated SQLite-v2 workspace.",
+            )
         if query.since_revision is not None and query.since_revision > snapshot.revision:
             raise ContextQueryError(
                 "context_revision_future",
@@ -396,18 +496,32 @@ class ContextCompiler:
             if pruned
             else []
         )
-        if not pruned and snapshot.recovery_omitted:
-            extra_omissions.append(ContextOmission(
-                section="recentActions", reason="repository_page",
-                count=snapshot.recovery_omitted,
-                continuation="At least one additional run exists; narrow targets or workItemId and repeat context.query.",
-            ))
         if not pruned:
             extra_omissions.extend(ContextOmission(
                 section=str(item["section"]), reason="repository_page",
                 count=int(item["count"]),
-                continuation="At least one additional record exists; narrow targets/entityTypes or advance sinceRevision and repeat context.query.",
+                continuation=(
+                    "Use continuation.nextCursor with the same query filters; "
+                    "do not advance sinceRevision."
+                ),
             ) for item in snapshot.page_omissions)
+        next_positions = {
+            str(item["source"]): int(item["nextOffset"])
+            for item in snapshot.page_omissions if not pruned
+        }
+        continuation_sections = sorted({str(item["section"]) for item in snapshot.page_omissions}) if not pruned else []
+        replay_cursor = query.cursor if not pruned else None
+        if not pruned and snapshot.page_omissions and not replay_cursor:
+            replay_cursor = _encode_context_cursor(
+                query,
+                revision=snapshot.revision,
+                positions={str(key): int(value) for key, value in snapshot.page_positions.items()},
+            )
+        next_cursor = (
+            _encode_context_cursor(query, revision=snapshot.revision, positions=next_positions)
+            if next_positions
+            else None
+        )
         return self._pack(
             snapshot=snapshot,
             query=query,
@@ -417,6 +531,9 @@ class ContextCompiler:
             sections=sections,
             full_refresh_required=pruned,
             extra_omissions=extra_omissions,
+            replay_cursor=replay_cursor,
+            next_cursor=next_cursor,
+            continuation_sections=continuation_sections,
         )
 
     @staticmethod
@@ -435,7 +552,8 @@ class ContextCompiler:
         snapshot: ContextRepositorySnapshot,
         requested: Sequence[str],
     ) -> tuple[list[str], set[str]]:
-        by_name = {str(item.get("naturalKey") or ""): str(item.get("targetId") or "") for item in snapshot.targets}
+        target_index = snapshot.target_index or snapshot.targets
+        by_name = {str(item.get("naturalKey") or ""): str(item.get("targetId") or "") for item in target_index}
         if requested:
             names = sorted(dict.fromkeys(str(item) for item in requested))
         else:
@@ -525,9 +643,10 @@ class ContextCompiler:
         target_ids: set[str],
         authority: AuthoritySafety,
     ) -> list[ContextWarning]:
-        target_names = {str(item.get("targetId") or ""): str(item.get("naturalKey") or "") for item in snapshot.targets}
+        target_index = snapshot.target_index or snapshot.targets
+        target_names = {str(item.get("targetId") or ""): str(item.get("naturalKey") or "") for item in target_index}
         warnings = []
-        for record in snapshot.entities:
+        for record in snapshot.warning_entities:
             if str(record.get("targetId") or "") not in target_ids:
                 continue
             payload = _payload(record)
@@ -605,12 +724,8 @@ class ContextCompiler:
         target_names: Sequence[str],
         trust: ContextTrust,
     ) -> dict[str, list[Any]]:
-        target_by_id = {str(item.get("targetId") or ""): str(item.get("naturalKey") or "") for item in snapshot.targets}
-        selected_entity_ids = {
-            str(item.get("entityId") or "")
-            for item in snapshot.entities
-            if str(item.get("targetId") or "") in target_ids
-        }
+        target_index = snapshot.target_index or snapshot.targets
+        target_by_id = {str(item.get("targetId") or ""): str(item.get("naturalKey") or "") for item in target_index}
         requested_types = {item.lower().removesuffix("s") for item in query.entity_types}
         changed = self._changed(snapshot, query.since_revision)
         facts: list[ContextItem] = []
@@ -692,11 +807,6 @@ class ContextCompiler:
             )
             (facts if status == "confirmed" else candidates).append(item)
         for relation in snapshot.relations:
-            if not {
-                str(relation.get("sourceEntityId") or ""),
-                str(relation.get("targetEntityId") or ""),
-            } & selected_entity_ids:
-                continue
             if requested_types and "relation" not in requested_types:
                 continue
             if not self._row_changed(relation, changed, query.since_revision):
@@ -790,14 +900,12 @@ class ContextCompiler:
             )
             for item in (*sorted(gaps, key=_item_sort), *sorted(candidates, key=_item_sort))
         ]
-        evidence_by_id = {str(item.get("evidenceId") or ""): item for item in snapshot.evidence}
         resources = []
         for item in snapshot.evidence_artifacts:
             if not self._row_changed(item, changed, query.since_revision):
                 continue
             evidence_id = str(item.get("evidenceId") or "")
-            evidence = evidence_by_id.get(evidence_id, {})
-            if str(evidence.get("targetId") or "") not in target_ids:
+            if str(item.get("targetId") or "") not in target_ids:
                 continue
             resources.append(
                 ContextResourceLink(
@@ -811,7 +919,7 @@ class ContextCompiler:
                     version=str(item.get("digest") or ""),
                     size=int(item.get("size") or 0),
                     evidence_reference=evidence_id,
-                    summary=str(evidence.get("summary") or "") if query.include_evidence_summaries else None,
+                    summary=str(item.get("summary") or "") if query.include_evidence_summaries else None,
                 )
             )
         return {
@@ -945,6 +1053,9 @@ class ContextCompiler:
         sections: dict[str, list[Any]],
         full_refresh_required: bool,
         extra_omissions: list[ContextOmission],
+        replay_cursor: str | None,
+        next_cursor: str | None,
+        continuation_sections: list[str],
     ) -> ContextQueryResult:
         included = {name: [] for name in _SECTION_ORDER}
         # Preserve one unresolved run before discretionary facts consume the
@@ -963,7 +1074,12 @@ class ContextCompiler:
                             section=name,
                             reason="budget_exhausted",
                             count=remaining,
-                            continuation="Increase maxTokens or narrow targets/entityTypes and repeat the same revision query.",
+                            continuation=(
+                                "Increase maxTokens and repeat this page with continuation.nextCursor; "
+                                "do not advance sinceRevision."
+                                if replay_cursor
+                                else "Increase maxTokens or narrow targets/entityTypes and repeat the same query."
+                            ),
                         )
                     )
             return result
@@ -971,6 +1087,13 @@ class ContextCompiler:
         minimum_required = 0
 
         def build(status: Literal["complete", "truncated", "budget_too_small"]) -> ContextQueryResult:
+            page_complete = all(len(included[name]) == len(sections[name]) for name in _SECTION_ORDER)
+            selected_cursor = next_cursor if page_complete else replay_cursor
+            selected_sections = (
+                continuation_sections
+                if page_complete
+                else [name for name in _SECTION_ORDER if len(included[name]) < len(sections[name])]
+            )
             result = ContextQueryResult(
                 workspace_id=snapshot.workspace_id,
                 revision=snapshot.revision,
@@ -994,6 +1117,12 @@ class ContextCompiler:
                 recommendations=list(included["recommendations"]),
                 resource_links=list(included["resourceLinks"]),
                 omissions=omissions(),
+                continuation=ContextContinuation(
+                    has_more=bool(selected_cursor),
+                    next_cursor=selected_cursor,
+                    sections=selected_sections if selected_cursor else [],
+                    revision=snapshot.revision,
+                ),
                 full_refresh_required=full_refresh_required,
             )
             return self._fix_used(result)

@@ -335,6 +335,7 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
         self, *, since_revision: int | None = None,
         targets: Sequence[str] = (), work_item_id: str = "", authority_session_ref: str = "",
         selected_grant_id: str = "", claimant: str = "", entity_types: Sequence[str] = (),
+        page_positions: Mapping[str, int] | None = None, expected_revision: int | None = None,
     ) -> ContextRepositorySnapshot:
         """Read bounded compiler inputs from one WAL snapshot."""
 
@@ -343,13 +344,38 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
             connection.execute("BEGIN")
             try:
                 page_omissions: list[dict[str, Any]] = []
+                current_page_positions: dict[str, int] = {}
+                requested_pages = dict(page_positions) if page_positions is not None else None
 
-                def page(section: str, sql: str, parameters: Sequence[Any]) -> tuple[Any, ...]:
-                    selected = tuple(connection.execute(f"{sql} LIMIT 201", tuple(parameters)))
+                def page_offset(source: str) -> int | None:
+                    if requested_pages is not None and source not in requested_pages:
+                        return None
+                    offset = int((requested_pages or {}).get(source, 0))
+                    if offset < 0:
+                        raise StateIntegrityError(
+                            "context_page_position_invalid",
+                            "Context page positions must be non-negative.",
+                        )
+                    current_page_positions[source] = offset
+                    return offset
+
+                def page(source: str, section: str, sql: str, parameters: Sequence[Any]) -> tuple[Any, ...]:
+                    offset = page_offset(source)
+                    if offset is None:
+                        return ()
+                    selected = tuple(connection.execute(
+                        f"{sql} LIMIT 201 OFFSET ?",
+                        (*tuple(parameters), offset),
+                    ))
                     if len(selected) > 200:
                         # One extra row proves truncation without scanning the
                         # remainder solely to calculate an exact omitted count.
-                        page_omissions.append({"section": section, "count": 1})
+                        page_omissions.append({
+                            "source": source,
+                            "section": section,
+                            "count": 1,
+                            "nextOffset": offset + 200,
+                        })
                     return selected[:200]
 
                 workspace_row = connection.execute(
@@ -359,6 +385,16 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                 if workspace_row is None:
                     raise StateStoreError("workspace_not_initialized", "Workspace is not initialized in State Store v2.")
                 revision = self._workspace_revision(connection)
+                if expected_revision is not None and revision != expected_revision:
+                    raise StateConflictError(
+                        "context_cursor_refresh_required",
+                        "The workspace changed after this context page; restart the query without its cursor.",
+                        details={
+                            "cursorRevision": expected_revision,
+                            "currentRevision": revision,
+                            "fullRefreshRequired": True,
+                        },
+                    )
                 earliest_row = connection.execute(
                     "SELECT MIN(revision) FROM change_log WHERE workspace_id=?",
                     (self.workspace_id,),
@@ -368,6 +404,15 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                     "SELECT payload_json FROM scope_snapshots WHERE workspace_id=? ORDER BY created_revision DESC, scope_snapshot_id DESC LIMIT 1",
                     (self.workspace_id,),
                 ).fetchone()
+                target_index = tuple(
+                    {"targetId": row[0], "naturalKey": row[1]}
+                    for row in connection.execute(
+                        "SELECT target_id, natural_key FROM targets WHERE workspace_id=? "
+                        + (f"AND natural_key IN ({','.join('?' for _ in targets)}) " if targets else "")
+                        + "ORDER BY natural_key, target_id",
+                        (self.workspace_id, *targets),
+                    )
+                )
                 target_records = tuple(
                     {
                         "targetId": row[0],
@@ -378,6 +423,7 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                         "updatedRevision": int(row[5]),
                     }
                     for row in page(
+                        "targets",
                         "confirmedFacts",
                         "SELECT target_id, natural_key, kind, payload_json, created_revision, updated_revision "
                         "FROM targets WHERE workspace_id=? "
@@ -386,7 +432,7 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                         (self.workspace_id, *targets),
                     )
                 )
-                target_ids = tuple(item["targetId"] for item in target_records)
+                target_ids = tuple(item["targetId"] for item in target_index)
                 target_filter = (
                     f"target_id IN ({','.join('?' for _ in target_ids)})" if target_ids else "0"
                 )
@@ -413,6 +459,7 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                         "updatedRevision": int(row[7]),
                     }
                     for row in page(
+                        "entities",
                         "confirmedFacts",
                         "SELECT entity_id, target_id, entity_type, natural_key, lifecycle, payload_json, created_revision, updated_revision "
                         f"FROM entities WHERE workspace_id=? AND {target_filter} {entity_type_filter}"
@@ -422,8 +469,36 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                          *([since_revision] if since_revision is not None else [])),
                     )
                 )
-                entity_ids = tuple(item["entityId"] for item in entities)
-                entity_filter = f"IN ({','.join('?' for _ in entity_ids)})" if entity_ids else "IN (NULL)"
+                warning_entities = tuple(
+                    {
+                        "entityId": row[0],
+                        "targetId": row[1],
+                        "entityType": row[2],
+                        "naturalKey": row[3],
+                        "lifecycle": row[4],
+                        "payload": _decode(row[5]),
+                        "createdRevision": int(row[6]),
+                        "updatedRevision": int(row[7]),
+                    }
+                    for row in connection.execute(
+                        "SELECT entity_id, target_id, entity_type, natural_key, lifecycle, payload_json, "
+                        "created_revision, updated_revision FROM entities "
+                        f"WHERE workspace_id=? AND {target_filter} AND ("
+                        "json_extract(payload_json, '$.scopeStatus') IS NOT NULL "
+                        "OR json_extract(payload_json, '$.authorityStatus') IS NOT NULL "
+                        "OR lower(entity_type) LIKE '%contradiction%' "
+                        "OR lower(entity_type) LIKE '%conflict%' "
+                        "OR lower(json_extract(payload_json, '$.type')) LIKE '%contradiction%' "
+                        "OR lower(json_extract(payload_json, '$.type')) LIKE '%conflict%') "
+                        "ORDER BY entity_type, natural_key, entity_id",
+                        selected_params,
+                    )
+                )
+                relation_target_filter = (
+                    "(source.target_id IN (" + ",".join("?" for _ in target_ids) + ") "
+                    "OR destination.target_id IN (" + ",".join("?" for _ in target_ids) + "))"
+                    if target_ids else "0"
+                )
                 relations = tuple(
                     {
                         "relationId": row[0],
@@ -434,12 +509,18 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                         "createdRevision": int(row[5]),
                     }
                     for row in page(
+                        "relations",
                         "confirmedFacts",
-                        "SELECT relation_id, source_entity_id, target_entity_id, relation_type, payload_json, created_revision "
-                        f"FROM entity_relations WHERE workspace_id=? AND (source_entity_id {entity_filter} OR target_entity_id {entity_filter}) "
-                        + ("AND created_revision>? " if since_revision is not None else "")
-                        + "ORDER BY relation_type, relation_id",
-                        (self.workspace_id, *entity_ids, *entity_ids, *([since_revision] if since_revision is not None else [])),
+                        "SELECT r.relation_id, r.source_entity_id, r.target_entity_id, r.relation_type, "
+                        "r.payload_json, r.created_revision "
+                        "FROM entity_relations r "
+                        "JOIN entities source ON source.entity_id=r.source_entity_id "
+                        "JOIN entities destination ON destination.entity_id=r.target_entity_id "
+                        f"WHERE r.workspace_id=? AND {relation_target_filter} "
+                        + ("AND r.created_revision>? " if since_revision is not None else "")
+                        + "ORDER BY r.relation_type, r.relation_id",
+                        (self.workspace_id, *target_ids, *target_ids,
+                         *([since_revision] if since_revision is not None else [])),
                     )
                 )
                 findings = tuple(
@@ -455,6 +536,7 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                         "updatedRevision": int(row[8]),
                     }
                     for row in page(
+                        "findings",
                         "candidates",
                         "SELECT finding_id, target_id, natural_key, status, severity, operator_reviewed, payload_json, created_revision, updated_revision "
                         f"FROM findings WHERE workspace_id=? AND {target_filter} "
@@ -472,6 +554,7 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                         "createdRevision": int(row[4]),
                     }
                     for row in page(
+                        "evidence",
                         "resourceLinks",
                         "SELECT evidence_id, target_id, summary, payload_json, created_revision "
                         f"FROM evidence WHERE workspace_id=? AND {target_filter} "
@@ -482,7 +565,6 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                         (*selected_params, *((since_revision, since_revision) if since_revision is not None else ())),
                     )
                 )
-                evidence_ids = tuple(item["evidenceId"] for item in evidence)
                 evidence_artifacts = tuple(
                     {
                         "evidenceId": row[0],
@@ -492,14 +574,21 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                         "mediaType": row[4],
                         "origin": row[5],
                         "createdRevision": int(row[6]),
+                        "targetId": row[7],
+                        "summary": row[8],
                     }
                     for row in page(
+                        "evidenceArtifacts",
                         "resourceLinks",
-                        "SELECT ea.evidence_id, a.artifact_id, a.digest, a.size, a.media_type, a.origin, ea.created_revision "
-                        "FROM evidence_artifacts ea JOIN artifacts a ON a.workspace_id=ea.workspace_id AND a.artifact_id=ea.artifact_id "
-                        + f"WHERE ea.workspace_id=? AND ea.evidence_id IN ({','.join('?' for _ in evidence_ids)}) "
+                        "SELECT ea.evidence_id, a.artifact_id, a.digest, a.size, a.media_type, a.origin, "
+                        "ea.created_revision, e.target_id, e.summary "
+                        "FROM evidence_artifacts ea "
+                        "JOIN artifacts a ON a.workspace_id=ea.workspace_id AND a.artifact_id=ea.artifact_id "
+                        "JOIN evidence e ON e.workspace_id=ea.workspace_id AND e.evidence_id=ea.evidence_id "
+                        "WHERE ea.workspace_id=? AND "
+                        + (f"e.target_id IN ({','.join('?' for _ in target_ids)}) " if target_ids else "0 ")
                         + "ORDER BY ea.evidence_id, a.artifact_id",
-                        (self.workspace_id, *evidence_ids),
+                        selected_params,
                     )
                 )
                 actions = tuple(
@@ -512,6 +601,7 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                         "updatedRevision": int(row[5]),
                     }
                     for row in page(
+                        "actions",
                         "recentActions",
                         "SELECT action_id, action_name, state, payload_json, created_revision, updated_revision FROM actions WHERE workspace_id=? "
                         + ("AND updated_revision>? " if since_revision is not None else "")
@@ -529,6 +619,7 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                         "updatedRevision": int(row[5]),
                     }
                     for row in page(
+                        "dispatches",
                         "recentActions",
                         "SELECT dispatch_id, action_id, state, payload_json, created_revision, updated_revision FROM action_dispatches WHERE workspace_id=? "
                         + ("AND updated_revision>? " if since_revision is not None else "")
@@ -547,6 +638,7 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                         "updatedRevision": int(row[6]),
                     }
                     for row in page(
+                        "tasks",
                         "activeTasks",
                         "SELECT task_id, action_id, state, revision, payload_json, created_revision, updated_revision FROM tasks WHERE workspace_id=? "
                         + ("AND updated_revision>? " if since_revision is not None else "")
@@ -556,11 +648,22 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                 )
                 from .work_items import context_work_items
 
+                work_offset = page_offset("workItems") if work_item_id or claimant else None
                 work_items, work_omitted = context_work_items(
-                    connection, self.workspace_id, work_item_id=work_item_id, claimant=claimant,
-                ) if work_item_id or claimant else ((), 0)
+                    connection,
+                    self.workspace_id,
+                    work_item_id=work_item_id,
+                    claimant=claimant,
+                    offset=int(work_offset or 0),
+                    limit=64,
+                ) if work_offset is not None else ((), 0)
                 if work_omitted:
-                    page_omissions.append({"section": "workItems", "count": work_omitted})
+                    page_omissions.append({
+                        "source": "workItems",
+                        "section": "workItems",
+                        "count": work_omitted,
+                        "nextOffset": int(work_offset or 0) + 64,
+                    })
                 changes = tuple(
                     {
                         "revision": int(row[0]),
@@ -571,6 +674,7 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                         "payload": _decode(row[5]),
                     }
                     for row in page(
+                        "changes",
                         "delta",
                         "SELECT revision, sequence, entity_type, entity_id, change_kind, payload_json FROM change_log "
                         "WHERE workspace_id=? AND revision>? ORDER BY revision, sequence",
@@ -578,10 +682,21 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                     )
                 ) if since_revision is not None else ()
                 authority = self._context_authority_state(connection, selected_grant_id)
+                recovery_offset = page_offset("recoveryRuns") if authority_session_ref else None
                 recovery_runs, recovery_omitted = self._context_recovery_runs(
-                    connection, targets=targets, work_item_id=work_item_id,
+                    connection,
+                    targets=targets,
+                    work_item_id=work_item_id,
                     authority_session_ref=authority_session_ref,
-                )
+                    offset=int(recovery_offset or 0),
+                ) if recovery_offset is not None else ((), 0)
+                if recovery_omitted:
+                    page_omissions.append({
+                        "source": "recoveryRuns",
+                        "section": "recentActions",
+                        "count": recovery_omitted,
+                        "nextOffset": int(recovery_offset or 0) + 12,
+                    })
                 connection.commit()
             except BaseException:
                 try:
@@ -602,8 +717,10 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                 "updatedAt": workspace_row[4],
             },
             scope=_decode(scope_row[0]) if scope_row else {},
+            target_index=target_index,
             targets=target_records,
             entities=entities,
+            warning_entities=warning_entities,
             relations=relations,
             findings=findings,
             evidence=evidence,
@@ -615,7 +732,8 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
             authority=authority,
             changes=changes,
             recovery_runs=recovery_runs,
-            recovery_omitted=recovery_omitted,
+            recovery_omitted=0,
+            page_positions=current_page_positions,
             page_omissions=page_omissions,
         )
 
@@ -635,7 +753,7 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
 
     def _context_recovery_runs(
         self, connection: StateConnection, *, targets: Sequence[str],
-        work_item_id: str, authority_session_ref: str,
+        work_item_id: str, authority_session_ref: str, offset: int = 0,
     ) -> tuple[tuple[dict[str, Any], ...], int]:
         if not authority_session_ref:
             return (), 0
@@ -667,8 +785,8 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
             "LEFT JOIN effect_validations v ON v.workspace_id=r.workspace_id AND v.validation_id=r.final_validation_id "
             f"WHERE {where} "
             "ORDER BY CASE WHEN r.state IN ('authorized','dispatch_started','observing','execution_unknown') "
-            "THEN 0 ELSE 1 END, r.updated_revision DESC, r.execution_run_id LIMIT ?",
-            (*parameters, limit + 1),
+            "THEN 0 ELSE 1 END, r.updated_revision DESC, r.execution_run_id LIMIT ? OFFSET ?",
+            (*parameters, limit + 1, offset),
         ))
         selected = tuple({
             "executionRunId": row[0], "actionId": row[1], "dispatchId": row[2],

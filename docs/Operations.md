@@ -801,6 +801,7 @@ context.query(
   targets=["example.com"],
   entityTypes=["endpoint", "finding"],
   sinceRevision=<optional committed revision>,
+  cursor=<optional continuation.nextCursor>,
   maxTokens=6000,
   includeEvidenceSummaries=false
 )
@@ -814,14 +815,25 @@ Every budget omission includes its section, count, reason, and continuation.
 Large evidence content is represented by `resourceLinks` and can be inspected
 only through the same trusted workspace, principal, and authority session.
 
-For incremental context, retain the returned `revision` and pass it as the next
-`sinceRevision`. A future revision returns `context_revision_future`. If
-retention has pruned the required change-log interval, the result sets
-`fullRefreshRequired=true`; repeat without `sinceRevision`. Do not merge a
-pruned partial result into cached context. JSON-v1 repositories support full
-queries but have no transactional change log, so every delta request also
-requires a full refresh. The transitional singular `target` and `purpose`
-inputs remain accepted aliases for `targets` and `intent`.
+When `continuation.hasMore=true`, pass `continuation.nextCursor` with the same
+workspace and normalized query filters, including the same `sinceRevision` if
+the query is a delta. Do not advance `sinceRevision` to finish a repository
+page. The cursor is bound to its source sections, positions, and returned
+`revision`; if workspace truth changes, `context_cursor_refresh_required`
+returns `fullRefreshRequired=true` and the page sequence must restart without a
+cursor. A repository-page omission directs continuation and never recommends a
+larger response budget. A budget-exhausted omission instead repeats the current
+page with a larger `maxTokens` or narrower filters.
+
+After all pages are consumed, retain the returned `revision` and use it as
+`sinceRevision` for a new incremental query. A future revision returns
+`context_revision_future`. If retention has pruned the required change-log
+interval, the result sets `fullRefreshRequired=true`; repeat without
+`sinceRevision`. Do not merge a pruned partial result into cached context.
+JSON-v1 repositories support full queries but have no transactional change log,
+so every delta request also requires a full refresh. The transitional singular
+`target` and `purpose` inputs remain accepted aliases for `targets` and
+`intent`.
 
 ### Shared operational work
 

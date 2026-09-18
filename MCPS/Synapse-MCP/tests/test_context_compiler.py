@@ -520,6 +520,96 @@ class ContextCompilerTests(unittest.TestCase):
         delta = self._query(20_000, targets=["context.example"], since_revision=base_revision)
         self.assertIn("https://context.example/recovered-delta", [item.summary for item in delta.confirmed_facts])
 
+    def test_saved_entity_pages_are_complete_query_bound_and_revision_consistent(self) -> None:
+        endpoints = tuple(
+            {
+                "type": "endpoint",
+                "key": f"paged-endpoint-{index:03d}",
+                "method": "GET",
+                "url": f"https://context.example/paged/{index:03d}",
+                **({"authorityStatus": "authorized"} if index == 224 else {}),
+            }
+            for index in range(225)
+        )
+        starting_revision = self.repository.revision()
+        committed_revision = self.repository.replace_collection(
+            "context.example",
+            "endpoints",
+            endpoints,
+        )
+        self.assertEqual(committed_revision, starting_revision + 1)
+        with self.repository.connection_factory.connect() as connection:
+            warning_entity_id = str(connection.execute(
+                "SELECT entity_id FROM entities WHERE workspace_id=? AND natural_key LIKE ?",
+                ("context", "%:paged-endpoint-224"),
+            ).fetchone()[0])
+
+        service = CompactFacadeService()
+        base_query = {
+            "workspaceId": "context",
+            "intent": "paged_saved_context",
+            "targets": ["context.example"],
+            "entityTypes": ["endpoint"],
+            "maxTokens": 200_000,
+        }
+        recovered: list[str] = []
+        cursor = None
+        first_cursor = None
+        page_count = 0
+        while True:
+            query = dict(base_query)
+            if cursor:
+                query["cursor"] = cursor
+            envelope = service.invoke("context.query", query, context=self.call_context)
+            self.assertEqual(envelope.outcome_kind, "success", envelope)
+            result = ContextQueryResult.model_validate(envelope.result)
+            page_count += 1
+            recovered.extend(
+                item.summary
+                for item in result.confirmed_facts
+                if item.kind == "endpoint" and item.summary.startswith("https://context.example/paged/")
+            )
+            self.assertEqual(result.continuation.revision, committed_revision)
+            self.assertTrue(any(
+                item.warning_id == f"authority-drift:{warning_entity_id}"
+                for item in result.contradictions
+            ))
+            if not result.continuation.has_more:
+                break
+            repository_omissions = [item for item in result.omissions if item.reason == "repository_page"]
+            self.assertTrue(repository_omissions)
+            self.assertTrue(all("continuation.nextCursor" in item.continuation for item in repository_omissions))
+            self.assertTrue(all("maxTokens" not in item.continuation for item in repository_omissions))
+            cursor = result.continuation.next_cursor
+            self.assertTrue(cursor)
+            first_cursor = first_cursor or cursor
+
+        expected = [f"https://context.example/paged/{index:03d}" for index in range(225)]
+        self.assertEqual(page_count, 2)
+        self.assertEqual(len(recovered), len(set(recovered)))
+        self.assertEqual(set(recovered), set(expected))
+
+        mismatched = service.invoke(
+            "context.query",
+            {**base_query, "entityTypes": ["observation"], "cursor": first_cursor},
+            context=self.call_context,
+        )
+        self.assertEqual(mismatched.outcome_kind, "validation_failure")
+        self.assertEqual(mismatched.diagnostics["reasonCode"], "context_cursor_mismatch")
+
+        self.repository.replace_collection(
+            "context.example",
+            "observations",
+            ({"type": "observation", "key": "post-page-change", "summary": "Revision changed."},),
+        )
+        stale = service.invoke(
+            "context.query",
+            {**base_query, "cursor": first_cursor},
+            context=self.call_context,
+        )
+        self.assertEqual(stale.outcome_kind, "validation_failure")
+        self.assertEqual(stale.diagnostics["reasonCode"], "context_cursor_refresh_required")
+        self.assertTrue(stale.diagnostics["fullRefreshRequired"])
 
     def test_scope_authority_classification_and_recommendations_are_non_executable(self) -> None:
         plan = _plan("context")
@@ -606,6 +696,7 @@ class ContextCompilerTests(unittest.TestCase):
             "sinceRevision",
             "maxTokens",
             "includeEvidenceSummaries",
+            "cursor",
             "target",
             "purpose",
         ):
@@ -613,6 +704,7 @@ class ContextCompilerTests(unittest.TestCase):
         self.assertFalse(operation.input_schema["additionalProperties"])
         result_schema = operation.output_schema["properties"]["result"]["anyOf"][0]
         self.assertFalse(result_schema["additionalProperties"])
+        self.assertIn("continuation", result_schema["properties"])
 
         service = CompactFacadeService()
         envelope = service.invoke(

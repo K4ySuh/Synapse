@@ -76,7 +76,10 @@ checkpoint/status and online backup, and the workspace-local SHA-256 artifact
 store. `state/runtime.py` owns activated workspace, entity/relation, evidence,
 artifact/resource, finding/review, authority/dispatch/execution-lifecycle,
 task/finalization, and audit operations. Its `context_snapshot()` reads compiler
-inputs and the requested change-log interval from one committed WAL snapshot.
+inputs, independent protected-warning rows, deterministic bounded source pages,
+and the requested change-log interval from one committed WAL snapshot. Modern
+`context.query` keeps opaque page positions separate from `sinceRevision` and
+rejects continuation when the committed workspace revision changes.
 Authority mutations select current grant, request, budget, dispatch, and run
 records under the write transaction, while `authority_state()` retains the full
 export/inspection projection. Migration `0007` indexes idempotency and job

@@ -2077,7 +2077,13 @@ class SQLiteWorkItemRepository:
 
 
 def context_work_items(
-    connection: Any, workspace_id: str, *, work_item_id: str = "", claimant: str = "",
+    connection: Any,
+    workspace_id: str,
+    *,
+    work_item_id: str = "",
+    claimant: str = "",
+    offset: int = 0,
+    limit: int = 64,
 ) -> tuple[tuple[dict[str, Any], ...], int]:
     """Return selected work-item records from the caller's existing WAL snapshot."""
 
@@ -2094,9 +2100,9 @@ def context_work_items(
                   claimant, claimant, work_item_id)
     identifiers = [
         str(row[0])
-        for row in connection.execute(f"{sql} LIMIT 65", parameters)
+        for row in connection.execute(f"{sql} LIMIT ? OFFSET ?", (*parameters, limit + 1, offset))
     ]
-    return tuple(repository.record(connection, identity) for identity in identifiers[:64]), int(len(identifiers) > 64)
+    return tuple(repository.record(connection, identity) for identity in identifiers[:limit]), int(len(identifiers) > limit)
 
 
 class _SnapshotWorkItemRepository:
