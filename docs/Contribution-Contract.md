@@ -67,11 +67,15 @@ The returned `result` has this shape; IDs and revision below are illustrative:
 ```
 
 `requestId` is unique per workspace and authenticated consumer. Retrying with
-the same parsed envelope returns the stored receipt and does not write a second
-evidence event or revision. Reusing that ID with different content returns
-`contribution_request_conflict`. A different consumer may use the same ID; both
-contributions remain in canonical workspace state and are recoverable through
-`context.query` or workspace context reads in a later session. For an uncertain
-commit outcome, retry with the same ID and payload so the durable receipt can
-resolve the result. JSON-v1 workspaces require an explicit verified migration
-and activation before using this mode.
+the same normalized target and parsed envelope returns the stored receipt and
+does not write a second evidence event or revision. Reusing that ID for a
+different target or different content returns `contribution_request_conflict`
+without creating canonical evidence, entities, receipts, or a revision. The
+target remains an outer Registry action argument and is checked against the
+stored receipt; it is not added to the envelope fingerprint or uniqueness key.
+A different consumer may use the same ID; both contributions remain in
+canonical workspace state and are recoverable through `context.query` or
+workspace context reads in a later session. For an uncertain commit outcome,
+retry with the same target, ID, and payload so the durable receipt can resolve
+the result. JSON-v1 workspaces require an explicit verified migration and
+activation before using this mode.

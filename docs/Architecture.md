@@ -340,7 +340,9 @@ Migration `0008` adds a receipt keyed by workspace, authenticated consumer
 digest, and request ID. Strict `contribution.v1` submissions still pass through
 `workspace.ingest_data` and the Registry; the receipt, evidence, canonical
 entities, and revision commit together. Retries read the same receipt before
-any entity or evidence mutation, and bundles preserve it.
+any entity or evidence mutation, require both the stored normalized target and
+envelope fingerprint to match, and bundles preserve the receipt. Target binding
+does not change the receipt uniqueness key or the historical fingerprint.
 
 ADR-0005 fixes one database and artifact namespace per workspace, with
 credential secrets kept outside SQLite and protocol rollback separated from

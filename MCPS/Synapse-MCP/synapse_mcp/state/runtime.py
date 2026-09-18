@@ -1405,13 +1405,20 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                     (self.workspace_id, principal_ref, request_id),
                 ).fetchone()
                 if previous is not None:
+                    previous_receipt = _decode(previous[1])
+                    if str(previous_receipt.get("target") or "") != target:
+                        raise StateConflictError(
+                            "contribution_request_conflict",
+                            "requestId was already committed for a different target.",
+                            details={"field": "target"},
+                        )
                     if str(previous[0]) != fingerprint:
                         raise StateConflictError(
                             "contribution_request_conflict",
                             "requestId was already committed with different contribution content.",
                             details={"field": "requestId"},
                         )
-                    return _decode(previous[1])
+                    return previous_receipt
                 target_id_for_refs = self._target_id(connection, target)
                 prior_refs = sorted(set(str(value) for value in contribution.get("evidenceRefs", ())))
                 artifact_refs = sorted(set(str(value) for value in contribution.get("artifactRefs", ())))

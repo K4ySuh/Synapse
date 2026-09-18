@@ -31,11 +31,27 @@ def _payload(request_id: str, path: str) -> str:
     })
 
 
+def _observation_payload(request_id: str) -> str:
+    return json.dumps({
+        "schemaVersion": "1.0",
+        "requestId": request_id,
+        "producer": {"name": "saved-fixture", "version": "1.2.0"},
+        "entities": {"observations": [{"type": "saved_note", "value": "fictional shared input"}]},
+    })
+
+
 class ContributionTests(unittest.TestCase):
-    def _submit(self, registry: ActionRegistry, principal: str, raw: str):
+    def _submit(
+        self,
+        registry: ActionRegistry,
+        principal: str,
+        raw: str,
+        *,
+        target: str = "example.test",
+    ):
         descriptor = registry.get("workspace.ingest_data")
         value = descriptor.input_model.model_validate({
-            "workspaceId": "engagement", "target": "example.test", "source": "contribution.v1",
+            "workspaceId": "engagement", "target": target, "source": "contribution.v1",
             "format": "json", "rawData": raw,
         })
         return registry.execute("workspace.ingest_data", ActionRequest(
@@ -106,6 +122,68 @@ class ContributionTests(unittest.TestCase):
                         ("engagement", "req-1", receipt_a["consumerRef"]),
                     ).fetchone()
                 self.assertEqual(json.loads(backed_up[0]), receipt_a)
+
+    def test_retry_is_bound_to_normalized_target_without_cross_target_writes(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp), store_version="sqlite-v2"):
+                workspace.create_workspace(
+                    "engagement",
+                    hosts=["a.example.test", "b.example.test"],
+                )
+                registry = ActionRegistry(PassThroughPolicyEvaluator())
+                registry.register(REGISTRY.get("workspace.ingest_data"))
+                registry.freeze()
+                raw = _observation_payload("target-bound-request")
+
+                first = self._submit(
+                    registry,
+                    "consumer:target-bound",
+                    raw,
+                    target="A.EXAMPLE.TEST",
+                )
+                self.assertIsInstance(first, Success)
+                receipt = first.payload.model_dump(mode="json", exclude_none=True)
+                self.assertEqual(receipt["target"], "a.example.test")
+                repository = workspace._activated_repository("engagement")
+                committed_revision = repository.revision()
+
+                same_target = self._submit(
+                    registry,
+                    "consumer:target-bound",
+                    raw,
+                    target="a.example.test",
+                )
+                self.assertIsInstance(same_target, Success)
+                self.assertEqual(
+                    same_target.payload.model_dump(mode="json", exclude_none=True),
+                    receipt,
+                )
+                self.assertEqual(repository.revision(), committed_revision)
+
+                crossed_target = self._submit(
+                    registry,
+                    "consumer:target-bound",
+                    raw,
+                    target="b.example.test",
+                )
+                self.assertEqual(crossed_target.kind, "validation_failure")
+                self.assertIn("contribution_request_conflict", crossed_target.message)
+                self.assertIn("different target", crossed_target.message)
+                self.assertEqual(repository.revision(), committed_revision)
+                self.assertEqual(repository.collection("b.example.test", "observations"), [])
+                with repository.connection_factory.connect() as connection:
+                    self.assertEqual(connection.execute(
+                        "SELECT COUNT(*) FROM contribution_receipts WHERE workspace_id=?",
+                        ("engagement",),
+                    ).fetchone()[0], 1)
+                    self.assertEqual(connection.execute(
+                        "SELECT COUNT(*) FROM evidence WHERE workspace_id=?",
+                        ("engagement",),
+                    ).fetchone()[0], 1)
+                    self.assertEqual(connection.execute(
+                        "SELECT COUNT(*) FROM artifacts WHERE workspace_id=?",
+                        ("engagement",),
+                    ).fetchone()[0], 1)
 
     def test_concurrent_identical_request_has_one_receipt(self) -> None:
         with TemporaryDirectory() as tmp:

@@ -28,9 +28,13 @@ compatibility observations, not values to hardcode into application behavior.
   explicit curation can reconsider it without leaving contradictory retirement
   or reportability flags. Pre-fix duplicates are detected but never merged or
   deleted automatically.
-- F2-F4 remain correctness repairs: usable bounded context continuation,
-  truthful compact-context provenance, and contribution retry binding to the
-  normalized action target.
+- F4 is repaired at checkpoint 7R1.2. Contribution retries compare the current
+  normalized action target with the durable receipt target inside the same
+  transaction before accepting replay. Same-target retries remain idempotent;
+  target or payload changes conflict without canonical state mutation. Receipt
+  uniqueness and the historical envelope fingerprint remain compatible.
+- F2-F3 remain correctness repairs: usable bounded context continuation and
+  truthful compact-context provenance.
 - F5 bounds ordinary ingestion around touched relations instead of decoding a
   target's full entity history for unrelated writes.
 - F6 adds the smallest typed, evidence-backed methodology contribution through
@@ -41,6 +45,6 @@ Small isolated installation, saved-data, and restart testing can begin now.
 Candidate identity is reliable for records created or curated after 7R1.1;
 historical duplicate diagnostics still require operator review. Complete
 larger-context recovery and provenance-dependent conclusions require 7R2.
-The exact next action is 7R1.2 in the
+The exact next action is 7R1.3 in the
 [checkpoint ledger](phase-7-checkpoints.md). The full serial scope and deferred
 boundaries are in the [Phase 7 plan](phase-7-plan.md).
