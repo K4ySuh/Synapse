@@ -9,7 +9,7 @@ not gates to rerun for each Phase 7 checkpoint.
 
 | Task | Status | Checkpoints | Next step |
 | --- | --- | --- | --- |
-| 7R0 | Complete | 7R0.1 complete; implementation commit recorded below | 7R1.1 |
+| 7R0 | Complete | 7R0.1 `bcddb09` | 7R1.1 |
 | 7R1 | Pending | 7R1.1–7R1.3 pending | 7R1.1 |
 | 7R2 | Pending | 7R2.1–7R2.2 pending | After 7R0; work serially after 7R1 |
 | 7R3 | Pending | 7R3.1–7R3.2 pending | After 7R1 and 7R2 |
@@ -25,7 +25,7 @@ task: 7R0
 checkpoint: 7R0.1
 status: complete
 review_base: 8134673a386ad00eed786d3d3ba841f00fcb28de
-implementation_commit: null
+implementation_commit: bcddb09dacb259020265ce9f9e7116351830491c
 branch: Beta
 changed_files:
   - docs/modernization/README.md
