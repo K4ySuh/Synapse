@@ -196,16 +196,17 @@ server-held execution authority remain application decisions. The Phase 5
 coordinator/specialist tree is preserved under the explicit
 `multi-agent-compat` profile, and the development skill is separate.
 
-Wheel and sdist builds install identical default, compatibility, development,
-and five config-profile assets. Use `synapse-codex-assets --skills-dir`,
+Wheel and sdist builds install identical default, hosted web-method,
+compatibility, development, and five config-profile assets. Use `synapse-codex-assets --skills-dir`,
 `--skills-profile multi-agent-compat|development`,
 `--config standard|core-only|modern-direct|legacy|multi-agent-compat`, or
 `--verify`. `bin/validate-distribution` performs the isolated archive
 build/install and standard/core cold-start gate. Modern MCP also serves
 `synapse-main`, `synapse://prompt/main`, and a read-only
-`synapse://guidance/catalog` with the three default skill files and their
-referenced documents. Hosted guidance reads the same packaged assets as the
-local installer; resource discovery alone does not activate a client skill.
+`synapse://guidance/catalog` with the three default skills and two optional
+web methods. The catalog lists document URIs, content versions, digests, and
+sizes without loading every body. Resource discovery alone does not activate
+a client skill; native optional method installation is a later checkpoint.
 
 Use focused service tests for runtime changes. Completed-phase acceptance
 and benchmark runners are retired; they are not normal development gates.

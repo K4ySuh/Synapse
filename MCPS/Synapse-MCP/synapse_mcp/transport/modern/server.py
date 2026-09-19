@@ -37,9 +37,7 @@ from synapse_mcp.app.facade.services import (
 from synapse_mcp.guidance import (
     GUIDANCE_CATALOG_URI,
     MAIN_PROMPT_URI,
-    guidance_catalog,
-    guidance_documents,
-    read_guidance,
+    build_guidance_snapshot,
     read_main_prompt,
 )
 
@@ -574,21 +572,22 @@ def build_runtime(
         description="Read the same canonical operating prompt exposed through prompts/get.",
         mime_type="text/markdown",
     )(operating_prompt)
+    guidance = build_guidance_snapshot()
     server.resource(
         GUIDANCE_CATALOG_URI,
         name="synapse-guidance-catalog",
-        title="Default Synapse guidance",
-        description="Versioned and digested catalog of the three default operating skills and referenced documents.",
+        title="Synapse guidance catalog",
+        description="Versioned and digested entry skills and selectable web methods; bodies are read separately.",
         mime_type="application/json",
-    )(guidance_catalog)
+    )(guidance.catalog)
 
     def guidance_reader(uri: str) -> Callable[[], str]:
         def read_document() -> str:
-            return read_guidance(uri)
+            return guidance.read(uri)
 
         return read_document
 
-    for document in guidance_documents():
+    for document in guidance.documents:
         server.resource(
             document.uri,
             name=f"synapse-guidance-{document.skill}-{document.path.replace('/', '-')}",

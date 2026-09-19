@@ -1,7 +1,7 @@
 # Copyright 2026 Javier Roldán Ortiz
 # SPDX-License-Identifier: Apache-2.0
 
-"""Read the packaged operating prompt and selected, static client guidance."""
+"""Read the packaged operating prompt and a fixed set of client guidance."""
 
 from __future__ import annotations
 
@@ -11,25 +11,31 @@ import json
 from pathlib import Path
 import sysconfig
 
-from synapse_mcp import __version__
-
 
 MAIN_PROMPT_URI = "synapse://prompt/main"
 GUIDANCE_CATALOG_URI = "synapse://guidance/catalog"
 GUIDANCE_BASE_URI = "synapse://guidance/skills"
 MAX_GUIDANCE_BYTES = 64 * 1024
 
-# These are the only hosted files. Paths are also the relative paths in the
-# installed default Codex skill profile; no client-specific loader is needed.
-GUIDANCE_FILES = (
-    ("operate-synapse", "SKILL.md", "Default single-agent operating workflow"),
-    ("operate-synapse", "references/operational-invariants.md", "Scope, authority, and evidence invariants"),
-    ("operate-synapse", "references/single-agent-workflow.md", "Recovery and convergence workflow"),
-    ("synapse-web-pentesting", "SKILL.md", "Web assessment methodology"),
-    ("synapse-web-pentesting", "references/auth-and-access-control.md", "Authentication and access-control methodology"),
-    ("synapse-web-pentesting", "references/saved-data-integrations.md", "Saved-data import and contribution methodology"),
-    ("synapse-cve-intelligence", "SKILL.md", "Vulnerability intelligence methodology"),
-    ("synapse-cve-intelligence", "references/source-and-poc-analysis.md", "Source and public-PoC analysis"),
+
+@dataclass(frozen=True)
+class GuidancePackage:
+    id: str
+    kind: str
+    description: str
+    profile: str
+    source_path: str
+    parent: str | None = None
+
+
+# Package identity and selection belong here. Only SKILL.md and Markdown files
+# immediately under references/ can be served; no request path reaches disk.
+GUIDANCE_PACKAGES = (
+    GuidancePackage("operate-synapse", "entry", "Default single-agent operating workflow", "default", "operate-synapse"),
+    GuidancePackage("synapse-web-pentesting", "entry", "Web assessment methodology", "default", "synapse-web-pentesting"),
+    GuidancePackage("synapse-cve-intelligence", "entry", "Vulnerability intelligence methodology", "default", "synapse-cve-intelligence"),
+    GuidancePackage("synapse-web-auth-session", "method", "Select for authentication and session evidence, including token, cookie, and CSRF questions", "web-methods", "synapse-web-auth-session", "synapse-web-pentesting"),
+    GuidancePackage("synapse-web-access-control", "method", "Select for actor, object, function, and property authorization comparisons", "web-methods", "synapse-web-access-control", "synapse-web-pentesting"),
 )
 
 
@@ -42,6 +48,31 @@ class GuidanceDocument:
     version: str
     sha256: str
     size: int
+    profile: str
+
+
+@dataclass(frozen=True)
+class GuidanceSnapshot:
+    packages: tuple[dict[str, object], ...]
+    documents: tuple[GuidanceDocument, ...]
+    bodies: dict[str, bytes]
+    version: str
+
+    def read(self, uri: str) -> str:
+        try:
+            return self.bodies[uri].decode("utf-8")
+        except KeyError as exc:
+            raise ValueError(f"Unknown Synapse guidance resource: {uri}") from exc
+
+    def catalog(self) -> str:
+        return json.dumps(
+            {
+                "version": self.version,
+                "packages": self.packages,
+                "documents": [document.__dict__ for document in self.documents],
+            },
+            separators=(",", ":"),
+        )
 
 
 def read_main_prompt(path: Path | None = None) -> str:
@@ -51,18 +82,25 @@ def read_main_prompt(path: Path | None = None) -> str:
     return (path or PROMPT_PATH).read_text(encoding="utf-8")
 
 
-def default_skills_dir() -> Path:
-    """Locate the same default assets used by the local Codex installer."""
+def skills_dir(profile: str) -> Path:
+    """Locate one packaged skill profile without accepting arbitrary paths."""
+    if profile not in {package.profile for package in GUIDANCE_PACKAGES}:
+        raise ValueError(f"Unknown Synapse guidance profile: {profile}")
     repository = Path(__file__).resolve().parents[3]
     candidates = (
-        repository / "skills" / "codex" / "default",
-        Path(__file__).resolve().parents[1] / "share" / "synapse-mcp" / "codex" / "skills" / "default",
-        Path(sysconfig.get_path("data")).resolve() / "share" / "synapse-mcp" / "codex" / "skills" / "default",
+        repository / "skills" / "codex" / profile,
+        Path(__file__).resolve().parents[1] / "share" / "synapse-mcp" / "codex" / "skills" / profile,
+        Path(sysconfig.get_path("data")).resolve() / "share" / "synapse-mcp" / "codex" / "skills" / profile,
     )
+    sentinel = next(package.source_path for package in GUIDANCE_PACKAGES if package.profile == profile)
     for candidate in candidates:
-        if (candidate / "operate-synapse" / "SKILL.md").is_file():
+        if (candidate / sentinel / "SKILL.md").is_file():
             return candidate
-    raise FileNotFoundError("Default Synapse guidance assets are unavailable")
+    raise FileNotFoundError(f"Synapse {profile} guidance assets are unavailable")
+
+
+def default_skills_dir() -> Path:
+    return skills_dir("default")
 
 
 def guidance_uri(skill: str, path: str) -> str:
@@ -75,50 +113,63 @@ def _bounded_content(path: Path) -> bytes:
     data = path.read_bytes()
     if len(data) > MAX_GUIDANCE_BYTES:
         raise ValueError(f"Guidance document exceeds {MAX_GUIDANCE_BYTES} bytes: {path.name}")
+    data.decode("utf-8")
     return data
 
 
-def guidance_documents() -> tuple[GuidanceDocument, ...]:
-    root = default_skills_dir()
-    return tuple(
-        GuidanceDocument(
-            uri=guidance_uri(skill, path),
-            skill=skill,
-            path=path,
-            description=description,
-            version=__version__,
-            sha256=sha256(data).hexdigest(),
-            size=len(data),
+def build_guidance_snapshot() -> GuidanceSnapshot:
+    """Freeze allowlisted paths, metadata, and bytes for one server build."""
+    documents: list[GuidanceDocument] = []
+    packages: list[dict[str, object]] = []
+    bodies: dict[str, bytes] = {}
+    for package in GUIDANCE_PACKAGES:
+        directory = skills_dir(package.profile) / package.source_path
+        reference_dir = directory / "references"
+        paths = (Path("SKILL.md"),) + tuple(
+            Path("references") / path.name for path in sorted(reference_dir.glob("*.md"))
         )
-        for skill, path, description in GUIDANCE_FILES
-        for data in (_bounded_content(root / skill / path),)
-    )
+        package_hash = sha256()
+        package_size = 0
+        uris = []
+        for relative in paths:
+            source = directory / relative
+            if source.is_symlink() or not source.resolve().is_relative_to(directory.resolve()):
+                raise ValueError(f"Guidance document escapes its package: {relative}")
+            data = _bounded_content(source)
+            digest = sha256(data).hexdigest()
+            path = relative.as_posix()
+            uri = guidance_uri(package.id, path)
+            package_hash.update(path.encode("utf-8") + bytes([0]) + data)
+            package_size += len(data)
+            uris.append(uri)
+            bodies[uri] = data
+            documents.append(GuidanceDocument(
+                uri, package.id, path, package.description, digest[:12], digest,
+                len(data), package.profile,
+            ))
+        packages.append({
+            "id": package.id,
+            "kind": package.kind,
+            "description": package.description,
+            "profile": package.profile,
+            "sourcePath": package.source_path,
+            "parent": package.parent,
+            "version": package_hash.hexdigest()[:12],
+            "sha256": package_hash.hexdigest(),
+            "size": package_size,
+            "documents": uris,
+        })
+    catalog_hash = sha256(json.dumps(packages, sort_keys=True).encode("utf-8")).hexdigest()
+    return GuidanceSnapshot(tuple(packages), tuple(documents), bodies, catalog_hash[:12])
+
+
+def guidance_documents() -> tuple[GuidanceDocument, ...]:
+    return build_guidance_snapshot().documents
 
 
 def read_guidance(uri: str) -> str:
-    allowed = {guidance_uri(skill, path): (skill, path) for skill, path, _ in GUIDANCE_FILES}
-    if uri not in allowed:
-        raise ValueError(f"Unknown Synapse guidance resource: {uri}")
-    skill, path = allowed[uri]
-    return _bounded_content(default_skills_dir() / skill / path).decode("utf-8")
+    return build_guidance_snapshot().read(uri)
 
 
 def guidance_catalog() -> str:
-    return json.dumps(
-        {
-            "version": __version__,
-            "documents": [
-                {
-                    "uri": item.uri,
-                    "skill": item.skill,
-                    "path": item.path,
-                    "description": item.description,
-                    "version": item.version,
-                    "sha256": item.sha256,
-                    "size": item.size,
-                }
-                for item in guidance_documents()
-            ],
-        },
-        separators=(",", ":"),
-    )
+    return build_guidance_snapshot().catalog()

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 import runpy
+import shutil
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
@@ -124,7 +126,7 @@ class DistributionTests(unittest.TestCase):
         self.assertEqual(len(codex.OPERATING_SKILLS), 3)
         self.assertEqual(len(codex.MULTI_AGENT_COMPAT_SKILLS), 8)
         self.assertEqual(codex.codex_skills_dir(), guidance.default_skills_dir())
-        self.assertEqual(len(guidance.guidance_documents()), 8)
+        self.assertEqual(len(guidance.guidance_documents()), 12)
         for profile in codex.CONFIG_PROFILES:
             config = (codex.codex_config_dir() / f"{profile}.toml").read_text(encoding="utf-8")
             self.assertIn("[mcp_servers.synapse]", config)
@@ -138,9 +140,49 @@ class DistributionTests(unittest.TestCase):
             oversized = root / "operate-synapse" / "SKILL.md"
             oversized.parent.mkdir()
             oversized.write_bytes(b"x" * (guidance.MAX_GUIDANCE_BYTES + 1))
-            with patch.object(guidance, "default_skills_dir", return_value=root):
+            original = guidance.skills_dir
+            with patch.object(guidance, "skills_dir", side_effect=lambda profile: root if profile == "default" else original(profile)):
                 with self.assertRaisesRegex(ValueError, "exceeds"):
-                    guidance.read_guidance(guidance.guidance_uri("operate-synapse", "SKILL.md"))
+                    guidance.build_guidance_snapshot()
+
+    def test_guidance_snapshot_has_selectable_methods_and_stable_bytes(self) -> None:
+        import json
+        snapshot = guidance.build_guidance_snapshot()
+        catalog = json.loads(snapshot.catalog())
+        self.assertEqual({item["id"] for item in catalog["packages"] if item["kind"] == "entry"}, set(codex.OPERATING_SKILLS))
+        self.assertEqual(
+            {item["id"] for item in catalog["packages"] if item["kind"] == "method"},
+            {"synapse-web-auth-session", "synapse-web-access-control"},
+        )
+        for package in catalog["packages"]:
+            self.assertEqual(package["version"], package["sha256"][:12])
+            for uri in package["documents"]:
+                document = next(item for item in catalog["documents"] if item["uri"] == uri)
+                body = snapshot.read(uri).encode()
+                source = guidance.skills_dir(document["profile"]) / package["sourcePath"] / document["path"]
+                self.assertEqual(body, source.read_bytes())
+                self.assertEqual(hashlib.sha256(body).hexdigest(), document["sha256"])
+                self.assertEqual(len(body), document["size"])
+        with self.assertRaises(ValueError):
+            snapshot.read("synapse://guidance/skills/synapse-web-auth-session/references/../secret.md")
+
+    def test_guidance_snapshot_keeps_advertised_bytes_until_rebuilt(self) -> None:
+        with TemporaryDirectory() as temporary:
+            copied = Path(temporary) / "profiles"
+            shutil.copytree(ROOT / "skills" / "codex" / "default", copied / "default")
+            shutil.copytree(ROOT / "skills" / "codex" / "web-methods", copied / "web-methods")
+            with patch.object(guidance, "skills_dir", side_effect=lambda profile: copied / profile):
+                before = guidance.build_guidance_snapshot()
+                uri = guidance.guidance_uri("synapse-web-auth-session", "SKILL.md")
+                source = copied / "web-methods" / "synapse-web-auth-session" / "SKILL.md"
+                source.write_text(source.read_text() + "\nUpdated after server startup.\n")
+                after = guidance.build_guidance_snapshot()
+            self.assertNotEqual(before.catalog(), after.catalog())
+            self.assertNotEqual(before.read(uri), after.read(uri))
+            self.assertEqual(
+                next(item.sha256 for item in before.documents if item.uri == uri),
+                hashlib.sha256(before.read(uri).encode()).hexdigest(),
+            )
 
     def test_generated_codex_profiles_select_standard_core_direct_and_legacy(self) -> None:
         script = ROOT / "bin" / "print-mcp-config"

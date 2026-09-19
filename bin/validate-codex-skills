@@ -13,6 +13,9 @@ import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "MCPS" / "Synapse-MCP"))
+from synapse_mcp.guidance import GUIDANCE_PACKAGES
+
 CODEX_ROOT = ROOT / "skills" / "codex"
 PROFILE = "default"
 SKILL_ROOT = CODEX_ROOT / PROFILE
@@ -209,6 +212,36 @@ def _validate_default_topology(failures: list[str]) -> None:
         failures.append("default profile: missing explicit no-sub-agent rule")
 
 
+def _validate_hosted_methods(failures: list[str]) -> None:
+    method_root = SKILL_ROOT.parent / "web-methods"
+    expected = {package.source_path for package in GUIDANCE_PACKAGES if package.kind == "method"}
+    actual = {path.name for path in method_root.iterdir() if path.is_dir()} if method_root.is_dir() else set()
+    if actual != expected:
+        failures.append(f"web-methods: inventory mismatch; expected {sorted(expected)!r}, found {sorted(actual)!r}")
+    for name in expected:
+        skill = method_root / name / "SKILL.md"
+        if not skill.is_file():
+            failures.append(f"{name}: missing SKILL.md")
+            continue
+        try:
+            frontmatter, _, body = _frontmatter(skill)
+        except ValueError as exc:
+            failures.append(f"{name}: {exc}")
+            continue
+        if frontmatter.get("name") != name or not frontmatter.get("description"):
+            failures.append(f"{name}: invalid name or description")
+        _validate_links(skill, body, failures)
+        for path in (method_root / name / "references").glob("*.md"):
+            _validate_links(path, path.read_text(encoding="utf-8"), failures)
+        combined = skill.read_text(encoding="utf-8")
+        for marker in FORBIDDEN_COPY_MARKERS:
+            if marker in combined:
+                failures.append(f"{name}: copied schema/catalog marker {marker!r}")
+        for pattern, reason in CONTRADICTORY_PATTERNS:
+            if pattern.search(combined):
+                failures.append(f"{name}: contradictory terminology ({reason})")
+
+
 def validate() -> list[str]:
     failures: list[str] = []
     expected_names = set(OPERATIONAL_SKILLS)
@@ -258,6 +291,7 @@ def validate() -> list[str]:
 
     if PROFILE == "default" and SKILL_ROOT.is_dir():
         _validate_default_topology(failures)
+        _validate_hosted_methods(failures)
     elif PROFILE == "multi-agent-compat" and (SKILL_ROOT / "operate-synapse" / "SKILL.md").is_file():
         router = (SKILL_ROOT / "operate-synapse" / "SKILL.md").read_text(encoding="utf-8")
         for name in OPERATIONAL_SKILLS:

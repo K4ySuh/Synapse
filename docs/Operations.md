@@ -958,13 +958,16 @@ with `$operate-synapse`. It contains exactly three operating skills:
   public-PoC intelligence, applicability, and bounded validation planning.
 
 Modern MCP also lists `synapse://guidance/catalog`. The catalog identifies the
-three default skill documents and their five referenced Markdown files with
-package version, SHA-256 digest, description, size, and stable resource URI.
-Each file is read on demand with a 64 KiB limit from the same installed asset
-tree returned by `synapse-codex-assets --skills-dir`. These resources are
-read-only guidance; listing them does not activate Codex skills or mutate a
-workspace. Install the default skill profile locally when the Codex host
-should invoke skills by name. The legacy server retains its existing
+three default entry skills and two optional web-method packages. It returns
+selection metadata, document URIs, content-derived versions, SHA-256 digests,
+and sizes without loading every body. Each document has a 64 KiB limit;
+selected bytes are frozen when the modern server starts, so file edits require
+a restart to change its advertised digest. Hosted method references use the
+concrete URIs listed in the catalog. These resources are read-only guidance;
+listing them does not activate Codex skills or mutate a workspace. Install the
+default three-skill profile locally when the Codex host should invoke those
+skills by name. Optional native method installation is scheduled for 7R4.2.
+The legacy server retains its existing
 `synapse-main`/`synapse://prompt/main` discovery shape.
 
 The `standard` config example records Daybreak Blue with High reasoning as an

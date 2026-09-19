@@ -23,6 +23,10 @@ profiles under [`codex/`](codex):
   that compatibility topology.
 - `development/` contains `synapse-developing`, which is repository guidance
   rather than an engagement skill.
+- `web-methods/` contains optional, separately retrieved web methods. The
+  initial authentication/session and access-control packages provide selection
+  and handoff guidance; their full procedures are scheduled for Phase 7R5.
+  They are not part of the three-skill default install.
 
 The default is one Codex agent. Start with `$operate-synapse`, do not spawn
 sub-agents, and load either methodology when needed. The same agent can move
@@ -42,8 +46,10 @@ resolve within that skill directory. Keep provider instructions out of the
 application Registry and the package-owned operating prompt. The modern MCP
 guidance catalog serves the three default `SKILL.md` files and their five
 referenced Markdown documents from the same files used by the local installer.
-Update the small hosted manifest in `synapse_mcp/guidance.py` when a selected
-reference changes, then run the skill and distribution validators.
+The hosted package manifest in `synapse_mcp/guidance.py` lists entry skills and
+optional methods. Hosted Markdown under each package's `references/` directory
+is served from the same source files used by distribution. Update the manifest
+when adding a package, then run the skill and distribution validators.
 
 ## Install and validate
 
@@ -74,8 +80,13 @@ mkdir -p .agents/skills
 cp -R "$SYNAPSE_SKILL_SOURCE"/. .agents/skills/
 ```
 
-Modern clients can discover the same text at `synapse://guidance/catalog` and
-read individual `synapse://guidance/skills/...` resources. MCP resource
+Modern clients can discover entry skills and optional method metadata at
+`synapse://guidance/catalog` and read selected
+`synapse://guidance/skills/<id>/SKILL.md` and
+`synapse://guidance/skills/<id>/references/<name>.md` resources. The catalog
+lists each concrete URI with a content digest and byte size; a relative link in
+a hosted Markdown body is resolved through this URI mapping, not automatically
+by the MCP client. MCP resource
 discovery does not install or activate Codex skills; local installation remains
 the supported skill-loading path.
 

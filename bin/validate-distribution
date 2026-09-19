@@ -16,8 +16,10 @@ import tarfile
 from tempfile import TemporaryDirectory
 import zipfile
 
-
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "MCPS" / "Synapse-MCP"))
+from synapse_mcp.guidance import GUIDANCE_PACKAGES, skills_dir
+
 PROMPT = ROOT / "MCPS" / "Synapse-MCP" / "synapse_mcp" / "operational_prompt.md"
 DEFAULT_SKILLS = (
     "operate-synapse",
@@ -194,6 +196,14 @@ def _required_archive_suffixes() -> tuple[str, ...]:
                     f"share/synapse-mcp/codex/skills/{profile}/{name}/agents/openai.yaml",
                 )
             )
+    for package in GUIDANCE_PACKAGES:
+        if package.kind != "method":
+            continue
+        source = skills_dir(package.profile) / package.source_path
+        for path in (source / "SKILL.md", *sorted((source / "references").glob("*.md"))):
+            values.append(
+                f"share/synapse-mcp/codex/skills/{package.profile}/{package.source_path}/{path.relative_to(source).as_posix()}"
+            )
     return tuple(values)
 
 
@@ -257,17 +267,18 @@ def _verify_install(python: str, target: Path, outside: Path, expected_prompt: s
     code = """
 import hashlib, sys
 from synapse_mcp.integrations.codex import validate_assets
-from synapse_mcp.guidance import default_skills_dir, guidance_catalog, guidance_documents, read_guidance
+from synapse_mcp.guidance import guidance_catalog, guidance_documents, read_guidance, skills_dir
 from synapse_mcp.state.migrations import MIGRATION_NAMES, migration_text
 from synapse_mcp.transport.stdio_server import read_main_prompt
 prompt = read_main_prompt()
 assert hashlib.sha256(prompt.encode()).hexdigest() == sys.argv[1]
 catalog = guidance_catalog()
-assert len(guidance_documents()) == 8
-assert default_skills_dir().is_relative_to(sys.argv[2])
+assert len(guidance_documents()) == 12
+assert skills_dir('default').is_relative_to(sys.argv[2])
+assert skills_dir('web-methods').is_relative_to(sys.argv[2])
 for document in guidance_documents():
     assert hashlib.sha256(read_guidance(document.uri).encode()).hexdigest() == document.sha256
-    assert read_guidance(document.uri) == (default_skills_dir() / document.skill / document.path).read_text()
+    assert read_guidance(document.uri) == (skills_dir(document.profile) / document.skill / document.path).read_text()
 assert 'synapse://guidance/skills/operate-synapse/SKILL.md' in catalog
 assert MIGRATION_NAMES[-1] == '0009_context_recovery_indexes.sql'
 assert 'idx_execution_runs_authority_recovery' in migration_text(MIGRATION_NAMES[-1])
@@ -358,7 +369,8 @@ async def verify_guidance():
         resource = await client.read_resource('synapse://prompt/main')
         assert prompt.messages[0].content.text == resource.contents[0].text
         catalog = json.loads((await client.read_resource('synapse://guidance/catalog')).contents[0].text)
-        assert len(catalog['documents']) == 8
+        assert len(catalog['documents']) == 12
+        assert len([item for item in catalog['packages'] if item['kind'] == 'method']) == 2
         ingest = next(tool for tool in tools.tools if tool.name == 'actions.run_passive')
         assert 'actionId' in ingest.input_schema['properties']
 asyncio.run(verify_guidance())
