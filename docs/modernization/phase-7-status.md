@@ -49,16 +49,22 @@ compatibility observations, not values to hardcode into application behavior.
   separate delta boundary. Protected contradiction rows are queried
   independently of ordinary entity pages, so warnings beyond a page cutoff
   cannot become a false zero.
-- F3 remains the 7R2.2 correctness repair for truthful compact-context
-  provenance and knowledge-state labels.
+- F3 is repaired at checkpoint 7R2.2. Compact entity/finding context now
+  separates knowledge state from generic lifecycle, preserving explicit
+  documented, inferred, reported, observed, and unknown distinctions plus
+  saved source and contribution producer attribution. Imported specs and
+  consumer submissions are not runtime-observed claims merely because their
+  entity-table lifecycle is `observed`; historical records without a positive
+  method signal remain unknown. Evidence links and available contrary evidence
+  remain visible without a parallel provenance store.
 - F6 adds the smallest typed, evidence-backed methodology contribution through
   the existing `contribution.v1`, candidate, evidence, workspace, and report
   paths. It does not create another submission API or source of truth.
 
 Small isolated installation, saved-data, and restart testing can begin now.
 Candidate identity is reliable for records created or curated after 7R1.1;
-historical duplicate diagnostics still require operator review. Complete
-provenance-dependent conclusions require 7R2.2.
-The exact next action is 7R2.2 in the
+historical duplicate diagnostics still require operator review. Typed
+method-produced analysis remains the 7R3 delivery boundary.
+The exact next action is 7R3.1 in the
 [checkpoint ledger](phase-7-checkpoints.md). The full serial scope and deferred
 boundaries are in the [Phase 7 plan](phase-7-plan.md).
