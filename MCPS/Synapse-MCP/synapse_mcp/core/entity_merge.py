@@ -31,10 +31,25 @@ _MERGE_UNION_FIELDS = {
     "sourceObservationRefs",
 }
 _MERGE_REPLACE_FIELDS = {"updatedAt", "lastSeenAt"}
+_ANALYSIS_REPLACE_FIELDS = {
+    "analysisConclusion", "knowledgeState", "reason", "confidence",
+    "methodRef", "modelLabel", "submissionAttribution", "subjectEntityId", "source",
+}
 SEVERITY_RANK = {"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
 
 
 def merge_entity_fields(merged: dict[str, Any], item: dict[str, Any]) -> None:
+    method_analysis = (
+        item.get("analysisConclusion") in {"proposed", "inconclusive", "coverage_gap"}
+        and isinstance(item.get("submissionAttribution"), dict)
+        and item["submissionAttribution"].get("source") == "contribution.v1"
+    )
+    if method_analysis:
+        # An omitted attribution belongs to the new analysis, not the older
+        # one. Validation and operator-review fields are intentionally absent.
+        for name in ("methodRef", "modelLabel", "subjectEntityId"):
+            if name not in item:
+                merged.pop(name, None)
     for name, value in item.items():
         if name in _MERGE_UNION_FIELDS:
             current = merged.get(name)
@@ -43,6 +58,8 @@ def merge_entity_fields(merged: dict[str, Any], item: dict[str, Any]) -> None:
         elif name in _MERGE_REPLACE_FIELDS:
             if value not in ("", None):
                 merged[name] = value
+        elif method_analysis and name in _ANALYSIS_REPLACE_FIELDS:
+            merged[name] = value
         elif name == "severity":
             # Severity only escalates automatically; operator-reviewed records
             # keep whatever the operator decided.

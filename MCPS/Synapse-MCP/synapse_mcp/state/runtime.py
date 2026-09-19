@@ -25,6 +25,7 @@ from synapse_mcp.core.execution_lifecycle import (
     verify_effect_validation_binding,
 )
 from synapse_mcp.core.entity_merge import merge_entity_fields
+from synapse_mcp.core.url_hygiene import canonical_url_identity, normalize_parameter_name
 
 from .backup import online_backup
 from .connections import StateConnection
@@ -1692,6 +1693,35 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                             "contribution_artifact_ref_invalid",
                             "artifactRefs contains an unknown workspace artifact ID.",
                             details={"field": "artifactRefs", "reference": linked_id},
+                        )
+                for subject in contribution.get("subjectRefs", ()):
+                    entity_id = str(subject["entityId"])
+                    found = connection.execute(
+                        "SELECT entity_type, payload_json FROM entities "
+                        "WHERE workspace_id=? AND target_id=? AND entity_id=?",
+                        (self.workspace_id, target_id_for_refs, entity_id),
+                    ).fetchone()
+                    if found is None or str(found[0]) not in {"endpoint", "parameter"}:
+                        raise StateIntegrityError(
+                            "contribution_subject_ref_invalid",
+                            "subject.entityId must identify a saved endpoint or parameter in this target.",
+                            details={"field": "entities.analyses.subject.entityId", "reference": entity_id},
+                        )
+                    saved_subject = _decode(found[1])
+                    matches = (
+                        canonical_url_identity(saved_subject.get("url")) == subject["canonicalUrl"]
+                        and str(saved_subject.get("method") or "GET").upper() == subject["method"]
+                    )
+                    if str(found[0]) == "parameter":
+                        matches = matches and (
+                            normalize_parameter_name(saved_subject.get("name")) == subject["parameter"]
+                            and str(saved_subject.get("location") or "query") == subject["location"]
+                        )
+                    if not matches:
+                        raise StateIntegrityError(
+                            "contribution_subject_ref_mismatch",
+                            "subject.entityId does not match the submitted surface coordinates.",
+                            details={"field": "entities.analyses.subject", "reference": entity_id},
                         )
             current = self._workspace_revision(connection)
             revision = current + 1

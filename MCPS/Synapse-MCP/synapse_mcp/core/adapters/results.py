@@ -252,11 +252,12 @@ class ContributionEnvelope(BaseModel):
 class ContributionAnalysisSubject(BaseModel):
     """Stable surface coordinates; no caller-authored execution or review state."""
 
+    entity_id: str | None = Field(default=None, min_length=1, max_length=128, pattern=r"^[A-Za-z0-9._:@/-]+$")
     url: str = Field(min_length=1, max_length=2048)
     method: Literal["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"] = "GET"
     parameter: str = Field(default="", max_length=160)
     location: Literal["query", "path", "body", "json", "form", "header", "cookie"] = "query"
-    model_config = ConfigDict(strict=True, extra="forbid")
+    model_config = ConfigDict(strict=True, extra="forbid", alias_generator=to_camel, populate_by_name=True)
 
 
 class ContributionMethodReference(BaseModel):

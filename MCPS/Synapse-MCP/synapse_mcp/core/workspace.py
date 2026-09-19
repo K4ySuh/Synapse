@@ -2718,6 +2718,8 @@ def _contribution_analysis_observation(analysis: ContributionAnalysis) -> dict[s
         "contraryEvidenceIds": list(analysis.contrary_evidence_ids),
         "source": "contribution.v1",
     })
+    if subject.entity_id:
+        item["subjectEntityId"] = subject.entity_id
     if analysis.method_ref:
         item["methodRef"] = analysis.method_ref.model_dump(mode="json")
     if analysis.model_label:
@@ -2859,6 +2861,17 @@ def _ingest_contribution_v1(
                 "producer": normalized_payload["producer"],
                 "evidenceRefs": envelope.evidence_refs,
                 "artifactRefs": envelope.artifact_refs,
+                "subjectRefs": [
+                    {
+                        "entityId": analysis.subject.entity_id,
+                        "canonicalUrl": canonical_url_identity(analysis.subject.url),
+                        "method": analysis.subject.method,
+                        "parameter": normalize_parameter_name(analysis.subject.parameter),
+                        "location": analysis.subject.location,
+                    }
+                    for analysis in envelope.entities.analyses
+                    if analysis.subject.entity_id
+                ] if isinstance(envelope, ContributionEnvelopeV11) else [],
             },
         )
     except (StateConflictError, StateIntegrityError) as exc:

@@ -92,6 +92,12 @@ The application contribution models publish strict 1.0 and typed-analysis
 normalizes 1.1 candidates and coverage gaps into the same observation
 collection before the receipt/evidence transaction; explicit validation and
 finding promotion remain separate actions.
+The receipt transaction also checks optional saved subject-entity IDs against
+their submitted surface coordinates and validates same-target supporting and
+contrary evidence. Shared entity merge replaces only analysis-owned fields on
+a later method contribution, retaining explicit validation and reportability
+state. The existing report target summary includes analysis coverage gaps
+among pending observations without a new report structure.
 `state/migration.py` owns
 read-only inventory, immutable snapshots, restartable/idempotent v1-to-v2
 stages, verification, guarded activation, and rollback-boundary enforcement.

@@ -143,6 +143,11 @@ gap analyses on the same Registry action and normalizes them into existing
 workspace observations. Its method digest, producer, and optional model label
 are attribution only; validation and finding review still require their
 existing explicit actions. Version 1.0 remains strict and unchanged.
+Version 1.1 subject entity references and supporting/contrary evidence are
+checked within the canonical receipt transaction; same-candidate updates keep
+recorded validation and reportability decisions. A fresh process can recover
+the analysis from workspace context and internal reports without a method
+package or a separate store.
 
 The reported `utf8_bytes_v1` counter measures the final canonical compact UTF-8
 facade envelope, not only its inner context result. Protected revision and

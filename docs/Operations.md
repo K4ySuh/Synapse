@@ -767,6 +767,12 @@ same action; version 1.0 remains strict. Method IDs, digests, producer, and
 model labels are attribution only. Use the existing candidate validation,
 finding-promotion/review, and work-item actions for their separate lifecycle
 decisions; an analysis submission cannot assert execution or approval.
+When supplying `entities.analyses[].subject.entityId`, use an existing
+same-target endpoint or parameter ID; the submitted URL/method (and parameter
+coordinates where applicable) must match it. Retry an uncertain 1.1 commit
+with the same request ID and payload. Review `context.query` and internal
+report pending observations after restart; validation and reportability
+decisions remain separate from method conclusions.
 
 For an activated SQLite-v2 workspace populated before the 6R1 ingestion fix
 (`6845e9f`), a later import of one entity could have attached that import's

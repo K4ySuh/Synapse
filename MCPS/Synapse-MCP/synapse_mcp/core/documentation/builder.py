@@ -304,6 +304,7 @@ def _target_report_summary(workspace_id: str, target: str, policy: Any) -> dict[
         and (
             str(item.get("type", "")).endswith("_candidate")
             or "candidate" in str(item.get("type", ""))
+            or item.get("type") == "analysis_coverage_gap"
             or item.get("operatorReviewed") is False
         )
     ]

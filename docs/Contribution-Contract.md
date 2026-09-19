@@ -36,7 +36,8 @@ It keeps the strict 1.0 endpoint and generic-observation fields and adds up to
 100 total records across `entities.endpoints`, `entities.observations`, and
 `entities.analyses`. Each analysis has a typed `kind` (`candidate` or
 `coverage_gap`), a concrete HTTP(S) `subject` (`url`, `method`, optional
-`parameter`/`location`), an explicit `knowledgeState` (`inferred` or
+`parameter`/`location`, and optional `entityId` for a previously saved
+endpoint/parameter), an explicit `knowledgeState` (`inferred` or
 `reported`), bounded `confidence` and `reason`, optional supporting/contrary
 evidence IDs, and optional `methodRef` (`id` plus `sha256:<64 hex>` content
 digest) and `modelLabel`. Candidate entries require a bounded
@@ -57,7 +58,11 @@ Supporting IDs link through the ordinary entity `evidenceIds`; contrary IDs
 stay separately labeled and must also name evidence in the envelope's
 same-target `evidenceRefs`. The submission itself creates canonical evidence
 and a receipt in the same workspace transaction. The subject URL must belong
-to the action target. `methodRef`, producer, and model label are attribution,
+to the action target. A supplied `subject.entityId` must resolve in the same
+workspace and target to an endpoint/parameter whose canonical URL and method
+match; parameter references also match name and location. This check and all
+supporting/contrary evidence checks happen inside the existing contribution
+transaction. `methodRef`, producer, and model label are attribution,
 not authenticated identity or authority; the consumer identity remains
 server-bound. `context.query` exposes the analysis conclusion, reason, candidate
 class, knowledge label, method attribution, and evidence references without a
@@ -67,9 +72,16 @@ explicit decision. `workspace.promote_observation_to_finding` and
 `workspace.mark_finding_reviewed` remain the only promotion/review path.
 
 Version 1.1 uses existing JSON payload columns and the contribution receipt
-table; no migration or second provenance store is required. The fuller
-cross-submission recovery and candidate-update guarantees are the separate
-7R3.2 checkpoint.
+table; no migration or second provenance store is required. A later analysis
+on the same stable candidate updates its analysis conclusion, reason,
+confidence, knowledge state, and latest method/producer attribution while
+unioning supporting and contrary evidence. It does not replace a recorded
+validation outcome, operator review, or reportability decision. The receipt
+returns the same canonical candidate row ID, updated count, and committed
+revision. An identical request-ID retry returns the original receipt without
+another mutation; a changed payload or target conflicts. Fresh clients can
+read the result through `context.query` and the existing internal report
+projection without the original method package being installed.
 
 `evidenceRefs` may name existing evidence for the same workspace and target;
 `artifactRefs` may name existing artifacts in that workspace. Both are checked

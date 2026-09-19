@@ -348,6 +348,11 @@ Candidate entries normalize into existing `test_candidate` observations;
 coverage gaps remain observations. Method and model labels are attribution,
 not execution or review authority. The strict 1.0 envelope is unchanged, and
 no migration or additional receipt store is needed.
+Referenced subject entities and supporting/contrary evidence are checked
+against the same workspace/target within that receipt transaction. Repeated
+method analysis updates analysis-owned fields on the stable candidate row but
+does not rewrite explicit validation, review, or reportability dispositions.
+Context and internal reports remain projections over the committed workspace.
 
 ADR-0005 fixes one database and artifact namespace per workspace, with
 credential secrets kept outside SQLite and protocol rollback separated from

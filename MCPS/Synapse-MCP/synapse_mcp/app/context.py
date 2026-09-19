@@ -393,6 +393,7 @@ def _attributes(payload: Mapping[str, Any]) -> dict[str, JsonValue]:
         "reason",
         "candidateFor",
         "analysisConclusion",
+        "subjectEntityId",
         "operatorReviewed",
         "analysisEligible",
         "isReportable",
