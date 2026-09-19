@@ -268,8 +268,8 @@ def _context_query_fingerprint(query: ContextQueryInput) -> str:
     value = {
         "workspaceId": query.workspace_id,
         "intent": query.intent,
-        "targets": sorted(query.targets),
-        "entityTypes": sorted(query.entity_types),
+        "targets": sorted({_target_host(item) for item in query.targets}),
+        "entityTypes": sorted({item.lower().removesuffix("s") for item in query.entity_types}),
         "sinceRevision": query.since_revision,
         "includeEvidenceSummaries": query.include_evidence_summaries,
         "workItemId": query.work_item_id,
@@ -511,7 +511,7 @@ class ContextCompiler:
         }
         continuation_sections = sorted({str(item["section"]) for item in snapshot.page_omissions}) if not pruned else []
         replay_cursor = query.cursor if not pruned else None
-        if not pruned and snapshot.page_omissions and not replay_cursor:
+        if not pruned and snapshot.store_version == "sqlite-v2" and not replay_cursor:
             replay_cursor = _encode_context_cursor(
                 query,
                 revision=snapshot.revision,
@@ -555,7 +555,7 @@ class ContextCompiler:
         target_index = snapshot.target_index or snapshot.targets
         by_name = {str(item.get("naturalKey") or ""): str(item.get("targetId") or "") for item in target_index}
         if requested:
-            names = sorted(dict.fromkeys(str(item) for item in requested))
+            names = sorted({_target_host(str(item)) for item in requested})
         else:
             names = sorted(name for name in by_name if name)
         ids = {by_name[name] for name in names if name in by_name and by_name[name]}
@@ -1135,6 +1135,18 @@ class ContextCompiler:
             minimum_required = measured
         if query.max_tokens < minimum_required:
             return build("budget_too_small")
+
+        # A replay cursor adds bytes only while this page is incomplete. Check
+        # the complete page before greedy packing so that cursor overhead on an
+        # intermediate candidate cannot falsely truncate a page that fits.
+        initial_included = {name: list(included[name]) for name in _SECTION_ORDER}
+        for name in _SECTION_ORDER:
+            included[name] = list(sections[name])
+        complete_page = build("complete" if not extra_omissions else "truncated")
+        if complete_page.budget.used <= query.max_tokens:
+            return complete_page
+        for name in _SECTION_ORDER:
+            included[name] = initial_included[name]
 
         stopped = False
         for name in _SECTION_ORDER:

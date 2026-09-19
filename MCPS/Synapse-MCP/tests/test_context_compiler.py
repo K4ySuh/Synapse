@@ -280,6 +280,21 @@ class ContextCompilerTests(unittest.TestCase):
         self.assertLessEqual(one_under.budget.used, exact - 1)
         self.assertEqual(one_under.budget.status, "truncated")
         self.assertTrue(one_under.omissions)
+        self.assertTrue(one_under.continuation.has_more)
+        self.assertTrue(one_under.continuation.next_cursor)
+        resumed = self._compiler(self.repository).compile(
+            ContextQueryInput(
+                workspace_id="context",
+                intent="next_step_planning",
+                targets=["context.example"],
+                max_tokens=exact + 1_000,
+                include_evidence_summaries=True,
+                cursor=one_under.continuation.next_cursor,
+            ),
+            trust=self.trust,
+        )
+        self.assertEqual(resumed.budget.status, "complete")
+        self.assertFalse(resumed.continuation.has_more)
 
     def test_empty_huge_unicode_evidence_and_many_contradictions_are_bounded(self) -> None:
         empty = self._activate("empty-context", hosts=[])
@@ -588,6 +603,36 @@ class ContextCompilerTests(unittest.TestCase):
         self.assertEqual(page_count, 2)
         self.assertEqual(len(recovered), len(set(recovered)))
         self.assertEqual(set(recovered), set(expected))
+
+        delta_query = {**base_query, "sinceRevision": starting_revision}
+        delta_recovered: list[str] = []
+        delta_cursor = None
+        while True:
+            query = dict(delta_query)
+            if delta_cursor:
+                query["cursor"] = delta_cursor
+            envelope = service.invoke("context.query", query, context=self.call_context)
+            self.assertEqual(envelope.outcome_kind, "success", envelope)
+            delta = ContextQueryResult.model_validate(envelope.result)
+            self.assertEqual(delta.base_revision, starting_revision)
+            delta_recovered.extend(
+                item.summary
+                for item in delta.confirmed_facts
+                if item.kind == "endpoint" and item.summary.startswith("https://context.example/paged/")
+            )
+            if not delta.continuation.has_more:
+                break
+            delta_cursor = delta.continuation.next_cursor
+        self.assertEqual(len(delta_recovered), len(set(delta_recovered)))
+        self.assertEqual(set(delta_recovered), set(expected))
+
+        normalized = service.invoke(
+            "context.query",
+            {**base_query, "targets": ["CONTEXT.EXAMPLE"], "entityTypes": ["ENDPOINTS"], "cursor": first_cursor},
+            context=self.call_context,
+        )
+        self.assertEqual(normalized.outcome_kind, "success")
+        self.assertEqual(ContextQueryResult.model_validate(normalized.result).targets, ["context.example"])
 
         mismatched = service.invoke(
             "context.query",
