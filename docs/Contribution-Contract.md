@@ -18,6 +18,14 @@ server's request binding. Neither producer labels nor entity data confer
 runtime observation or operator review status. Finding promotion remains an
 explicit review operation.
 
+Accepted entities keep the envelope producer and `contribution.v1` marker in
+canonical workspace payloads. Modern `context.query` projects those as
+`attributes.sourceAttribution` and labels the submitted statement
+`attributes.knowledgeState="reported"`, even when its generic storage
+`lifecycle` is `observed`. The optional endpoint `source` is a contributor
+label, not an observation credential. The 1.0 input schema and receipt are
+unchanged; method IDs and typed analysis fields remain outside this version.
+
 `evidenceRefs` may name existing evidence for the same workspace and target;
 `artifactRefs` may name existing artifacts in that workspace. Both are checked
 inside the ingestion transaction. An entity can link a referenced evidence ID

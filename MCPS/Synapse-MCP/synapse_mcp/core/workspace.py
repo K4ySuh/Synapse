@@ -2730,6 +2730,14 @@ def _ingest_contribution_v1(
     evidence_id = f"ev_{uuid4().hex}_contribution"
     for name, values in parsed_entities.items():
         normalized = _normalize_entities_for_workspace(wid, host, name, values)
+        for item in normalized:
+            # The envelope producer describes a submitted assertion, not a
+            # runtime observation. Keep this attribution with each canonical
+            # entity so context does not depend on a paged evidence scan.
+            item["submissionAttribution"] = {
+                "source": "contribution.v1",
+                "producer": envelope.producer.model_dump(mode="json"),
+            }
         collections[name], _created = _merge_entity_values([], normalized, evidence_id, materialize_keys=True)
     normalized_payload = envelope.model_dump(mode="json", by_alias=True, exclude_none=True)
     payload_fingerprint = hashlib.sha256(

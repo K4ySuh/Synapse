@@ -394,12 +394,48 @@ def _attributes(payload: Mapping[str, Any]) -> dict[str, JsonValue]:
         "analysisEligible",
         "isReportable",
     )
-    return {
+    attributes: dict[str, JsonValue] = {
         name: value
         for name in names
         if (value := payload.get(name)) is None or isinstance(value, (str, int, float, bool, list, dict))
         if name in payload
     }
+    source = payload.get("source")
+    source = source.strip() if isinstance(source, str) else ""
+    submission = payload.get("submissionAttribution")
+    submitted = isinstance(submission, Mapping) and submission.get("source") == "contribution.v1"
+    if submitted:
+        knowledge_state = "reported"
+    elif source == "spec_import":
+        knowledge_state = "documented"
+    elif payload.get("inferred") is True or payload.get("derived") is True:
+        knowledge_state = "inferred"
+    elif payload.get("observed") is True:
+        knowledge_state = "observed"
+    else:
+        # A generic entity lifecycle, evidence link, or caller-authored source
+        # does not establish how the statement's contents were learned.
+        knowledge_state = "unknown"
+    attributes["knowledgeState"] = knowledge_state
+    attribution: dict[str, JsonValue] = {}
+    if source:
+        attribution["source"] = source
+    if submitted:
+        attribution["submission"] = "contribution.v1"
+        producer = submission.get("producer")
+        if isinstance(producer, Mapping):
+            name, version = producer.get("name"), producer.get("version")
+            if isinstance(name, str) and isinstance(version, str):
+                attribution["producer"] = {"name": name, "version": version}
+    if attribution:
+        attributes["sourceAttribution"] = attribution
+    for name in ("inferred", "observed", "derived"):
+        if isinstance(payload.get(name), bool):
+            attributes[name] = payload[name]
+    contrary = payload.get("contraryEvidenceIds")
+    if isinstance(contrary, list):
+        attributes["contraryEvidenceReferences"] = sorted({ref for ref in contrary if isinstance(ref, str) and ref.strip()})
+    return attributes
 
 
 def _priority(payload: Mapping[str, Any]) -> int:

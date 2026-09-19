@@ -815,6 +815,14 @@ Every budget omission includes its section, count, reason, and continuation.
 Large evidence content is represented by `resourceLinks` and can be inspected
 only through the same trusted workspace, principal, and authority session.
 
+For saved entities, read `attributes.knowledgeState` and
+`attributes.sourceAttribution` separately from `lifecycle`. The latter is a
+storage/review state and can say `observed` for an imported spec route or a
+consumer submission. `documented`, `inferred`, `reported`, and `unknown` are
+not runtime-observed claims; only an explicit saved observation flag produces
+the `observed` knowledge label. Evidence references identify supporting
+artifacts, not independent proof that submitted content was seen in traffic.
+
 When `continuation.hasMore=true`, pass `continuation.nextCursor` with the same
 workspace and normalized query filters, including the same `sinceRevision` if
 the query is a delta. Do not advance `sinceRevision` to finish a repository

@@ -127,6 +127,18 @@ independently of ordinary entity pages. JSON-v1 supports full compilation but
 explicitly requires a refresh for every delta request because it has no
 transactional change log.
 
+Entity and finding items retain their storage `lifecycle` for compatibility;
+`attributes.knowledgeState` is the separate claim-method label. It is
+`documented` for imported specification records, `reported` for versioned
+consumer submissions, `inferred` for derived/inferred records, `observed` only
+when an explicit observation flag survives ingestion, and `unknown` otherwise.
+`attributes.sourceAttribution` carries the saved source label and, for
+contributions, the envelope producer plus `contribution.v1` identity. Saved
+`observed`/`inferred`/`derived` flags, evidence references, and available
+contrary-evidence IDs remain visible. An evidence link or entity-table
+`observed` lifecycle does not certify runtime observation; `confirmedFacts`
+is a retrieval grouping, not a direct-verification claim.
+
 The reported `utf8_bytes_v1` counter measures the final canonical compact UTF-8
 facade envelope, not only its inner context result. Protected revision and
 safety data are never omitted: undersized requests

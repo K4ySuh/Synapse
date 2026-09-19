@@ -119,6 +119,22 @@ class SavedDataIntegrationPilotTests(unittest.TestCase):
                         "https://api.example.test/health",
                     },
                 )
+                endpoints = {
+                    item["attributes"]["url"]: item
+                    for item in facts if item.get("kind") == "endpoint"
+                }
+                documented = endpoints["https://api.example.test/v1/items"]
+                reported = endpoints["https://api.example.test/health"]
+                self.assertEqual(documented["lifecycle"], "observed")
+                self.assertEqual(documented["attributes"]["knowledgeState"], "documented")
+                self.assertEqual(documented["attributes"]["sourceAttribution"], {"source": "spec_import"})
+                self.assertEqual(reported["lifecycle"], "observed")
+                self.assertEqual(reported["attributes"]["knowledgeState"], "reported")
+                self.assertEqual(reported["attributes"]["sourceAttribution"], {
+                    "source": "pilot-fixture",
+                    "submission": "contribution.v1",
+                    "producer": {"name": "pilot-fixture", "version": "1.0.0"},
+                })
                 recovered_evidence = {
                     evidence_id
                     for item in facts
@@ -127,12 +143,45 @@ class SavedDataIntegrationPilotTests(unittest.TestCase):
                 self.assertIn(import_evidence, recovered_evidence)
                 self.assertIn(receipt["evidenceIds"][0], recovered_evidence)
 
+                restarted = CompactFacadeService(
+                    resources=ResourceReferenceService(state_path=root / "restarted-resources.json")
+                ).invoke(
+                    "context.query",
+                    {
+                        "workspaceId": "pilot", "targets": ["api.example.test"],
+                        "entityTypes": ["endpoint"], "maxTokens": 30_000,
+                    },
+                    context=context,
+                )
+                self.assertEqual(restarted.outcome_kind, "success")
+                restarted_endpoints = {
+                    item["attributes"]["url"]: item
+                    for item in restarted.result["confirmedFacts"] if item.get("kind") == "endpoint"
+                }
+                self.assertEqual(
+                    restarted_endpoints["https://api.example.test/v1/items"]["attributes"]["knowledgeState"],
+                    "documented",
+                )
+                self.assertEqual(
+                    restarted_endpoints["https://api.example.test/health"]["attributes"]["knowledgeState"],
+                    "reported",
+                )
+                self.assertEqual(
+                    restarted_endpoints["https://api.example.test/health"]["attributes"]["sourceAttribution"]["producer"]["name"],
+                    "pilot-fixture",
+                )
+
                 report = documentation.build_report_context(
                     {"workspaceId": "pilot", "target": "api.example.test"}
                 )
                 target = report["report"]["targets"][0]
                 self.assertEqual(target["endpointCount"], 3)
                 self.assertEqual(target["parameterCount"], 2)
+                self.assertEqual(set(target), {
+                    "target", "scopeStatus", "serviceCount", "endpointCount", "parameterCount",
+                    "findingCount", "observationCount", "services", "technologies",
+                    "pendingObservations", "recentActions",
+                })
 
                 stored = workspace._activated_repository("pilot").collection(
                     "api.example.test", "endpoints"

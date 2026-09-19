@@ -253,6 +253,35 @@ class ContextCompilerTests(unittest.TestCase):
             )
         )
 
+    def test_knowledge_state_is_not_the_storage_lifecycle(self) -> None:
+        self.repository.replace_collection("context.example", "endpoints", (
+            {
+                "type": "endpoint", "key": "observed", "url": "https://context.example/observed",
+                "observed": True, "source": "traffic", "evidenceIds": ["evidence-context"],
+            },
+            {
+                "type": "endpoint", "key": "inferred", "url": "https://context.example/inferred",
+                "inferred": True, "derived": True, "observed": False,
+                "source": "js_analysis", "contraryEvidenceIds": ["evidence-contrary"],
+            },
+            {
+                "type": "endpoint", "key": "historical",
+                "url": "https://context.example/historical", "source": "old-import",
+            },
+        ))
+        result = self._query(100_000)
+        endpoints = {item.attributes["url"]: item for item in result.confirmed_facts if item.kind == "endpoint"}
+        observed = endpoints["https://context.example/observed"]
+        inferred = endpoints["https://context.example/inferred"]
+        historical = endpoints["https://context.example/historical"]
+        self.assertEqual(observed.attributes["knowledgeState"], "observed")
+        self.assertEqual(observed.evidence_references, ["evidence-context"])
+        self.assertEqual(inferred.attributes["knowledgeState"], "inferred")
+        self.assertEqual(inferred.attributes["contraryEvidenceReferences"], ["evidence-contrary"])
+        self.assertEqual(inferred.attributes["sourceAttribution"], {"source": "js_analysis"})
+        self.assertEqual(historical.lifecycle, "observed")
+        self.assertEqual(historical.attributes["knowledgeState"], "unknown")
+
     def test_historical_budgets_and_exact_boundary_have_complete_accounting(self) -> None:
         for budget in HISTORICAL_BUDGETS:
             with self.subTest(budget=budget):
