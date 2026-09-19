@@ -68,11 +68,21 @@ compatibility observations, not values to hardcode into application behavior.
   decisions; a fresh process recovers the result through context and internal
   report projections. Analysis cannot assert observation, execution, validation,
   or operator review. No second submission API or source of truth was added.
+- 7R4.1 adds a static hosted guidance package manifest with the existing three
+  entry skills and two optional web methods for authentication/session and
+  access-control selection. The modern MCP catalog advertises package and
+  document metadata without loading bodies; content-derived digests and bytes
+  come from one server-start snapshot. Wheel and sdist ship the same method
+  files. Local native method selection and the detailed method procedures are
+  later checkpoints.
 
 Small isolated installation, saved-data, and restart testing can begin now.
 Candidate identity is reliable for records created or curated after 7R1.1;
 historical duplicate diagnostics still require operator review. Typed
 method-produced analysis passed the 7R3.2 cross-submission, retry, and
-fresh-process recovery check. The exact next action is 7R4.1 in the
+fresh-process recovery check. Hosted catalog and wheel/sdist checks passed for
+7R4.1. The exact next action is 7R4.2 in the
 [checkpoint ledger](phase-7-checkpoints.md). The full serial scope and deferred
-boundaries are in the [Phase 7 plan](phase-7-plan.md).
+boundaries are in the [Phase 7 plan](phase-7-plan.md). A separate modernization
+documentation test still rejects the plan's pre-existing official Codex skill
+documentation hostname; it does not inspect the hosted catalog contract.
