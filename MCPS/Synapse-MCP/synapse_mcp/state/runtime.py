@@ -1761,12 +1761,19 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
                 submitted_items = items
                 if contribution is not None:
                     for item in submitted_items:
-                        for linked_id in item.get("evidenceIds") or []:
+                        for linked_id in item.get("evidenceIds") or ():
                             if linked_id != evidence_id and linked_id not in prior_refs:
                                 raise StateIntegrityError(
                                     "contribution_entity_evidence_invalid",
                                     "Entity evidenceIds must be listed in envelope evidenceRefs.",
                                     details={"field": f"entities.{name}.evidenceIds", "reference": linked_id},
+                                )
+                        for linked_id in item.get("contraryEvidenceIds") or ():
+                            if linked_id not in prior_refs:
+                                raise StateIntegrityError(
+                                    "contribution_entity_evidence_invalid",
+                                    "Entity contraryEvidenceIds must be listed in envelope evidenceRefs.",
+                                    details={"field": f"entities.{name}.contraryEvidenceIds", "reference": linked_id},
                                 )
                 count, entity_changes = self._upsert_collection_rows(
                     connection,
@@ -1794,7 +1801,7 @@ class ActivatedWorkspaceRepository(SQLiteWorkspaceRepository):
             )
             if contribution is not None:
                 receipt = {
-                    "schemaVersion": "1.0",
+                    "schemaVersion": str(contribution.get("schemaVersion") or "1.0"),
                     "submissionId": _stable_id("submission", self.workspace_id, principal_ref, request_id),
                     "workspaceId": self.workspace_id,
                     "target": target,

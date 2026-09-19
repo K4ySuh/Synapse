@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
@@ -15,6 +15,7 @@ from ..url_hygiene import canonical_url_identity, normalize_parameter_name, reda
 
 Confidence = Literal["low", "medium", "high"]
 Priority = Literal["info", "low", "medium", "high", "critical"]
+ContributionEvidenceId = Annotated[str, Field(min_length=1, max_length=160, pattern=r"^[A-Za-z0-9._:-]+$")]
 SophisticationTier = Literal["low", "medium", "high"]
 PretextStatus = Literal["draft", "approved"]
 AdapterMode = Literal[
@@ -248,8 +249,81 @@ class ContributionEnvelope(BaseModel):
         return self
 
 
+class ContributionAnalysisSubject(BaseModel):
+    """Stable surface coordinates; no caller-authored execution or review state."""
+
+    url: str = Field(min_length=1, max_length=2048)
+    method: Literal["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"] = "GET"
+    parameter: str = Field(default="", max_length=160)
+    location: Literal["query", "path", "body", "json", "form", "header", "cookie"] = "query"
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+
+class ContributionMethodReference(BaseModel):
+    id: str = Field(min_length=1, max_length=120, pattern=r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
+    digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+
+class ContributionAnalysis(BaseModel):
+    kind: Literal["candidate", "coverage_gap"]
+    subject: ContributionAnalysisSubject
+    candidate_class: str | None = Field(default=None, min_length=1, max_length=80, pattern=r"^[a-z][a-z0-9_]*$")
+    knowledge_state: Literal["inferred", "reported"]
+    confidence: Confidence
+    reason: str = Field(min_length=1, max_length=2000)
+    supporting_evidence_ids: list[ContributionEvidenceId] = Field(default_factory=list, max_length=32)
+    contrary_evidence_ids: list[ContributionEvidenceId] = Field(default_factory=list, max_length=32)
+    method_ref: ContributionMethodReference | None = None
+    model_label: str | None = Field(default=None, min_length=1, max_length=120)
+    inconclusive: bool = False
+    model_config = ConfigDict(strict=True, extra="forbid", alias_generator=to_camel, populate_by_name=True)
+
+    @model_validator(mode="after")
+    def check_kind(self) -> "ContributionAnalysis":
+        if self.kind == "candidate" and not self.candidate_class:
+            raise ValueError("candidateClass is required for a candidate")
+        if self.kind == "coverage_gap" and self.candidate_class is not None:
+            raise ValueError("candidateClass is not used for a coverage gap")
+        if set(self.supporting_evidence_ids) & set(self.contrary_evidence_ids):
+            raise ValueError("supporting and contrary evidence must be distinct")
+        return self
+
+
+class ContributionEntitiesV11(BaseModel):
+    endpoints: list[ContributionEndpoint] = Field(default_factory=list, max_length=100)
+    observations: list[ContributionObservation] = Field(default_factory=list, max_length=100)
+    analyses: list[ContributionAnalysis] = Field(default_factory=list, max_length=100)
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+
+class ContributionEnvelopeV11(BaseModel):
+    """Typed analysis extension on the same contribution.v1 action/source."""
+
+    schema_version: Literal["1.1"]
+    request_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
+    producer: ContributionProducer
+    source_timestamp: str | None = Field(default=None, max_length=40)
+    entities: ContributionEntitiesV11
+    evidence_refs: list[str] = Field(default_factory=list, max_length=32)
+    artifact_refs: list[str] = Field(default_factory=list, max_length=32)
+    model_config = ConfigDict(strict=True, extra="forbid", alias_generator=to_camel, populate_by_name=True)
+
+    @field_validator("source_timestamp")
+    @classmethod
+    def timestamp_has_timezone(cls, value: str | None) -> str | None:
+        return ContributionEnvelope.timestamp_has_timezone(value)
+
+    @model_validator(mode="after")
+    def require_entities(self) -> "ContributionEnvelopeV11":
+        count = len(self.entities.endpoints) + len(self.entities.observations) + len(self.entities.analyses)
+        if not 1 <= count <= 100:
+            raise ValueError("entities must contain 1 to 100 total records")
+        return self
+
+
 class ContributionReceipt(BaseModel):
-    schema_version: Literal["1.0"]
+    schema_version: Literal["1.0", "1.1"]
     submission_id: str
     workspace_id: str
     target: str

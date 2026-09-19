@@ -762,6 +762,11 @@ For independent consumers contributing saved facts, use the strict
 [`contribution.v1` contract](Contribution-Contract.md). It publishes its schema
 through `actions.describe`, returns an atomic receipt, and supports safe
 request-ID retries on activated SQLite-v2 workspaces.
+Version 1.1 adds typed candidate and coverage-gap analysis entries on that
+same action; version 1.0 remains strict. Method IDs, digests, producer, and
+model labels are attribution only. Use the existing candidate validation,
+finding-promotion/review, and work-item actions for their separate lifecycle
+decisions; an analysis submission cannot assert execution or approval.
 
 For an activated SQLite-v2 workspace populated before the 6R1 ingestion fix
 (`6845e9f`), a later import of one entity could have attached that import's

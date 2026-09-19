@@ -10,6 +10,7 @@ from typing import Any
 
 _MERGE_UNION_FIELDS = {
     "evidenceIds",
+    "contraryEvidenceIds",
     "missingEvidenceIds",
     "statusCodes",
     "cookieNames",

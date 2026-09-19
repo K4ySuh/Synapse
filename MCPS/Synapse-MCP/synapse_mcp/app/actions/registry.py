@@ -299,12 +299,18 @@ class ActionRegistry:
         input_schema = descriptor.input_model.model_json_schema(mode="validation", by_alias=True)
         output_schema = descriptor.output_model.model_json_schema(mode="validation", by_alias=True)
         if str(descriptor.id) == "workspace.ingest_data":
-            from synapse_mcp.core.adapters.results import ContributionEnvelope, ContributionReceipt
+            from synapse_mcp.core.adapters.results import (
+                ContributionEnvelope, ContributionEnvelopeV11, ContributionReceipt,
+            )
 
+            version_10 = ContributionEnvelope.model_json_schema(mode="validation", by_alias=True)
+            version_11 = ContributionEnvelopeV11.model_json_schema(mode="validation", by_alias=True)
             input_schema["x-synapse-contribution"] = {
                 "source": "contribution.v1",
                 "format": "json",
-                "rawDataSchema": ContributionEnvelope.model_json_schema(mode="validation", by_alias=True),
+                "rawDataSchema": version_10,
+                "acceptedVersions": ["1.0", "1.1"],
+                "rawDataSchemas": {"1.0": version_10, "1.1": version_11},
             }
             output_schema["x-synapse-contribution-receipt"] = ContributionReceipt.model_json_schema(
                 mode="validation", by_alias=True

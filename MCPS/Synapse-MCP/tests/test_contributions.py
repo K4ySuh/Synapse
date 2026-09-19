@@ -14,7 +14,7 @@ from helpers import isolated_state
 from synapse_mcp.app.actions import ActionRegistry, ActionRequest, ExecutionContext, PassThroughPolicyEvaluator, Success
 from synapse_mcp.app.actions import REGISTRY
 from synapse_mcp.app.facade import (
-    ActionCatalogService, ActionExecutionService, FacadeCallContext,
+    ActionCatalogService, ActionExecutionService, CompactFacadeService, FacadeCallContext,
     OperationHandleService, ResourceReferenceService,
 )
 from synapse_mcp.core import workspace
@@ -367,6 +367,119 @@ class ContributionTests(unittest.TestCase):
         self.assertEqual(contract["rawDataSchema"]["properties"]["schemaVersion"]["const"], "1.0")
         self.assertEqual(set(contract["rawDataSchema"]["$defs"]["ContributionEntities"]["properties"]),
                          {"endpoints", "observations"})
+        self.assertEqual(contract["acceptedVersions"], ["1.0", "1.1"])
+        extension = contract["rawDataSchemas"]["1.1"]
+        self.assertEqual(extension["properties"]["schemaVersion"]["const"], "1.1")
+        self.assertIn("analyses", extension["$defs"]["ContributionEntitiesV11"]["properties"])
+        self.assertEqual(
+            description.output_schema["x-synapse-contribution-receipt"]["properties"]["schemaVersion"]["enum"],
+            ["1.0", "1.1"],
+        )
+
+    def test_typed_analysis_extension_uses_canonical_observations(self) -> None:
+        with TemporaryDirectory() as tmp:
+            with isolated_state(Path(tmp), store_version="sqlite-v2"):
+                workspace.create_workspace("engagement", hosts=["example.test"])
+                registry = ActionRegistry(PassThroughPolicyEvaluator())
+                registry.register(REGISTRY.get("workspace.ingest_data"))
+                registry.freeze()
+                support = self._submit(registry, "consumer:a", _payload("analysis-support", "support"))
+                contrary = self._submit(registry, "consumer:a", _observation_payload("analysis-contrary"))
+                self.assertIsInstance(support, Success)
+                self.assertIsInstance(contrary, Success)
+                support_id = support.payload.model_dump(mode="json")["evidenceIds"][0]
+                contrary_id = contrary.payload.model_dump(mode="json")["evidenceIds"][0]
+                analysis = {
+                    "schemaVersion": "1.1",
+                    "requestId": "analysis-1",
+                    "producer": {"name": "method-fixture", "version": "1.0.0"},
+                    "sourceTimestamp": "2026-09-19T10:00:00Z",
+                    "evidenceRefs": [support_id, contrary_id],
+                    "entities": {"analyses": [
+                        {
+                            "kind": "candidate",
+                            "subject": {"url": "https://example.test/items", "method": "GET", "parameter": "id"},
+                            "candidateClass": "sqli",
+                            "knowledgeState": "inferred",
+                            "confidence": "medium",
+                            "reason": "A parameter shape merits validation.",
+                            "supportingEvidenceIds": [support_id],
+                            "contraryEvidenceIds": [contrary_id],
+                            "methodRef": {"id": "web.sqli.triage", "digest": "sha256:" + "a" * 64},
+                            "modelLabel": "fictional-model",
+                        },
+                        {
+                            "kind": "coverage_gap",
+                            "subject": {"url": "https://example.test/items", "method": "GET"},
+                            "knowledgeState": "reported",
+                            "confidence": "low",
+                            "reason": "No independent response evidence is available.",
+                            "inconclusive": True,
+                        },
+                    ]},
+                }
+                old_version = {**analysis, "schemaVersion": "1.0", "requestId": "old-reject"}
+                rejected = self._submit(registry, "consumer:a", json.dumps(old_version))
+                self.assertEqual(rejected.kind, "validation_failure")
+                self.assertIn("entities.analyses", rejected.message)
+
+                accepted = self._submit(registry, "consumer:a", json.dumps(analysis))
+                self.assertIsInstance(accepted, Success)
+                receipt = accepted.payload.model_dump(mode="json", exclude_none=True)
+                self.assertEqual(receipt["schemaVersion"], "1.1")
+                self.assertEqual(receipt["insertedCounts"]["observations"], 2)
+                self.assertEqual(len(receipt["canonicalRecordIds"]["observations"]), 2)
+                observations = workspace._activated_repository("engagement").collection("example.test", "observations")
+                candidate = next(item for item in observations if item["type"] == "test_candidate")
+                gap = next(item for item in observations if item["type"] == "analysis_coverage_gap")
+                self.assertIn("sqli", candidate["candidateFor"])
+                self.assertEqual(candidate["candidateDetails"]["sqli"]["validationStatus"], "proposed")
+                self.assertFalse(candidate.get("operatorReviewed", False))
+                self.assertEqual(candidate["methodRef"]["id"], "web.sqli.triage")
+                self.assertEqual(candidate["knowledgeState"], "inferred")
+                self.assertIn(support_id, candidate["evidenceIds"])
+                self.assertEqual(candidate["contraryEvidenceIds"], [contrary_id])
+                self.assertEqual(gap["analysisConclusion"], "inconclusive")
+                self.assertEqual(gap["knowledgeState"], "reported")
+                self.assertEqual(self._submit(registry, "consumer:a", json.dumps(analysis)).payload.model_dump(mode="json", exclude_none=True), receipt)
+
+                context = CompactFacadeService(
+                    resources=ResourceReferenceService(state_path=Path(tmp) / "resources.json")
+                ).invoke(
+                    "context.query",
+                    {"workspaceId": "engagement", "targets": ["example.test"], "maxTokens": 30_000},
+                    context=FacadeCallContext(
+                        principal_id="consumer:a", workspace_id="engagement",
+                        authority_session_id="analysis-session", execution_profile="observe",
+                    ),
+                )
+                self.assertEqual(context.outcome_kind, "success")
+                candidate_item = next(item for item in context.result["candidates"] if item["kind"] == "test_candidate")
+                self.assertEqual(candidate_item["attributes"]["knowledgeState"], "inferred")
+                self.assertIn(support_id, candidate_item["evidenceReferences"])
+                self.assertEqual(candidate_item["attributes"]["contraryEvidenceReferences"], [contrary_id])
+                self.assertEqual(candidate_item["attributes"]["candidateFor"], ["sqli"])
+                self.assertEqual(candidate_item["attributes"]["analysisConclusion"], "proposed")
+                self.assertEqual(candidate_item["attributes"]["reason"], "[sqli] A parameter shape merits validation.")
+                self.assertEqual(candidate_item["attributes"]["sourceAttribution"]["methodRef"]["id"], "web.sqli.triage")
+                self.assertEqual(candidate_item["attributes"]["sourceAttribution"]["modelLabel"], "fictional-model")
+                gap_item = next(item for item in context.result["coverageGaps"] if item["kind"] == "analysis_coverage_gap")
+                self.assertEqual(gap_item["attributes"]["knowledgeState"], "reported")
+                self.assertEqual(gap_item["attributes"]["analysisConclusion"], "inconclusive")
+
+                bad_state = json.loads(json.dumps(analysis))
+                bad_state["requestId"] = "analysis-bad-state"
+                bad_state["entities"]["analyses"][0]["knowledgeState"] = "observed"
+                self.assertEqual(self._submit(registry, "consumer:a", json.dumps(bad_state)).kind, "validation_failure")
+                bad_ref = json.loads(json.dumps(analysis))
+                bad_ref["requestId"] = "analysis-bad-ref"
+                bad_ref["entities"]["analyses"][0]["contraryEvidenceIds"] = ["ev_unlisted"]
+                self.assertIn("contribution_entity_evidence_invalid", self._submit(registry, "consumer:a", json.dumps(bad_ref)).message)
+                wrong_target = json.loads(json.dumps(analysis))
+                wrong_target["requestId"] = "analysis-wrong-target"
+                wrong_target["entities"]["analyses"][0]["subject"]["url"] = "https://other.example.test/items"
+                self.assertIn("in-target HTTP(S) URL", self._submit(registry, "consumer:a", json.dumps(wrong_target)).message)
+                self.assertEqual(workspace._activated_repository("engagement").revision(), receipt["committedRevision"])
 
     def test_json_v1_workspace_requires_explicit_activation(self) -> None:
         with TemporaryDirectory() as tmp:

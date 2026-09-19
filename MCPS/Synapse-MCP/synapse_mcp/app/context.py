@@ -390,6 +390,9 @@ def _attributes(payload: Mapping[str, Any]) -> dict[str, JsonValue]:
         "version",
         "status",
         "severity",
+        "reason",
+        "candidateFor",
+        "analysisConclusion",
         "operatorReviewed",
         "analysisEligible",
         "isReportable",
@@ -404,7 +407,10 @@ def _attributes(payload: Mapping[str, Any]) -> dict[str, JsonValue]:
     source = source.strip() if isinstance(source, str) else ""
     submission = payload.get("submissionAttribution")
     submitted = isinstance(submission, Mapping) and submission.get("source") == "contribution.v1"
-    if submitted:
+    explicit_submission_state = payload.get("knowledgeState")
+    if submitted and explicit_submission_state in {"inferred", "reported"}:
+        knowledge_state = explicit_submission_state
+    elif submitted:
         knowledge_state = "reported"
     elif source == "spec_import":
         knowledge_state = "documented"
@@ -427,6 +433,11 @@ def _attributes(payload: Mapping[str, Any]) -> dict[str, JsonValue]:
             name, version = producer.get("name"), producer.get("version")
             if isinstance(name, str) and isinstance(version, str):
                 attribution["producer"] = {"name": name, "version": version}
+        method_ref = payload.get("methodRef")
+        if isinstance(method_ref, Mapping) and isinstance(method_ref.get("id"), str) and isinstance(method_ref.get("digest"), str):
+            attribution["methodRef"] = {"id": method_ref["id"], "digest": method_ref["digest"]}
+        if isinstance(payload.get("modelLabel"), str):
+            attribution["modelLabel"] = payload["modelLabel"]
     if attribution:
         attributes["sourceAttribution"] = attribution
     for name in ("inferred", "observed", "derived"):

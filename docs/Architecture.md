@@ -343,6 +343,11 @@ entities, and revision commit together. Retries read the same receipt before
 any entity or evidence mutation, require both the stored normalized target and
 envelope fingerprint to match, and bundles preserve the receipt. Target binding
 does not change the receipt uniqueness key or the historical fingerprint.
+The version 1.1 envelope adds typed analysis entries on that same route.
+Candidate entries normalize into existing `test_candidate` observations;
+coverage gaps remain observations. Method and model labels are attribution,
+not execution or review authority. The strict 1.0 envelope is unchanged, and
+no migration or additional receipt store is needed.
 
 ADR-0005 fixes one database and artifact namespace per workspace, with
 credential secrets kept outside SQLite and protocol rollback separated from

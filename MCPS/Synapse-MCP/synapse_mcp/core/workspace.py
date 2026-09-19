@@ -19,7 +19,7 @@ from xml.etree import ElementTree
 
 from . import atomic_io, evidence, scope
 from .adapters.results import surface_candidate, surface_candidate_id
-from .adapters.results import ContributionEnvelope
+from .adapters.results import ContributionAnalysis, ContributionEnvelope, ContributionEnvelopeV11
 from .entity_merge import SEVERITY_RANK, merge_entity_fields
 from .errors import McpError
 from .paths import DATA_DIR, REPORTS_DIR as _CONFIGURED_REPORTS_DIR
@@ -2680,6 +2680,51 @@ def _ingest_data_v2(
     }
 
 
+def _contribution_analysis_observation(analysis: ContributionAnalysis) -> dict[str, Any]:
+    subject = analysis.subject
+    surface_id = surface_candidate_id(subject.method, subject.url, subject.location, subject.parameter)
+    if analysis.kind == "candidate":
+        item = surface_candidate(
+            vuln_class=str(analysis.candidate_class),
+            url=subject.url,
+            method=subject.method,
+            parameter=subject.parameter,
+            location=subject.location,
+            reason=analysis.reason,
+            confidence=analysis.confidence,
+            evidence_ids=analysis.supporting_evidence_ids,
+        )
+    else:
+        method_id = analysis.method_ref.id if analysis.method_ref else "unspecified"
+        gap_key = hashlib.sha256(f"{surface_id}|{method_id}".encode("utf-8")).hexdigest()[:20]
+        item = {
+            "type": "analysis_coverage_gap",
+            "key": f"analysis_coverage_gap:{gap_key}",
+            "value": subject.url,
+            "url": subject.url,
+            "method": subject.method,
+            "parameter": subject.parameter,
+            "location": subject.location,
+            "reason": analysis.reason,
+            "confidence": analysis.confidence,
+            "evidenceIds": list(analysis.supporting_evidence_ids),
+        }
+    item.update({
+        "knowledgeState": analysis.knowledge_state,
+        "analysisConclusion": (
+            "inconclusive" if analysis.inconclusive
+            else "proposed" if analysis.kind == "candidate" else "coverage_gap"
+        ),
+        "contraryEvidenceIds": list(analysis.contrary_evidence_ids),
+        "source": "contribution.v1",
+    })
+    if analysis.method_ref:
+        item["methodRef"] = analysis.method_ref.model_dump(mode="json")
+    if analysis.model_label:
+        item["modelLabel"] = analysis.model_label
+    return item
+
+
 def _ingest_contribution_v1(
     workspace_id: str | None,
     target: str,
@@ -2699,7 +2744,15 @@ def _ingest_contribution_v1(
     if len(raw_data.encode("utf-8")) > 262_144:
         raise McpError(-32602, "rawData exceeds the 256 KiB contribution limit.")
     try:
-        envelope = ContributionEnvelope.model_validate_json(raw_data)
+        raw_envelope = json.loads(raw_data)
+    except json.JSONDecodeError:
+        raw_envelope = None
+    version = raw_envelope.get("schemaVersion") if isinstance(raw_envelope, dict) else None
+    try:
+        envelope = (
+            ContributionEnvelopeV11.model_validate_json(raw_data)
+            if version == "1.1" else ContributionEnvelope.model_validate_json(raw_data)
+        )
     except ValidationError as exc:
         fields = [
             f"{'.'.join(str(part) for part in error['loc']) or 'rawData'} ({error['type']})"
@@ -2725,7 +2778,19 @@ def _ingest_contribution_v1(
             raise McpError(-32602, f"entities.endpoints.{index}.host must match target {host}.")
         if item.path and item.path != (parsed_url.path or "/"):
             raise McpError(-32602, f"entities.endpoints.{index}.path must match its URL path.")
+    if isinstance(envelope, ContributionEnvelopeV11):
+        for index, analysis in enumerate(envelope.entities.analyses):
+            url = analysis.subject.url
+            parsed_url = urlsplit(url)
+            if parsed_url.scheme not in {"http", "https"} or not parsed_url.hostname or normalize_target(url) != host:
+                raise McpError(-32602, f"entities.analyses.{index}.subject.url must be an in-target HTTP(S) URL.")
+    normalized_payload = envelope.model_dump(mode="json", by_alias=True, exclude_none=True)
     parsed_entities = envelope.entities.model_dump(mode="json", by_alias=True, exclude_none=True)
+    parsed_entities.pop("analyses", None)
+    if isinstance(envelope, ContributionEnvelopeV11):
+        parsed_entities["observations"].extend(
+            _contribution_analysis_observation(analysis) for analysis in envelope.entities.analyses
+        )
     collections: dict[str, list[dict[str, Any]]] = {}
     evidence_id = f"ev_{uuid4().hex}_contribution"
     for name, values in parsed_entities.items():
@@ -2739,7 +2804,6 @@ def _ingest_contribution_v1(
                 "producer": envelope.producer.model_dump(mode="json"),
             }
         collections[name], _created = _merge_entity_values([], normalized, evidence_id, materialize_keys=True)
-    normalized_payload = envelope.model_dump(mode="json", by_alias=True, exclude_none=True)
     payload_fingerprint = hashlib.sha256(
         json.dumps(normalized_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     ).hexdigest()
@@ -2790,6 +2854,7 @@ def _ingest_contribution_v1(
             contribution={
                 "principalId": principal_id,
                 "requestId": envelope.request_id,
+                "schemaVersion": envelope.schema_version,
                 "payloadFingerprint": payload_fingerprint,
                 "producer": normalized_payload["producer"],
                 "evidenceRefs": envelope.evidence_refs,

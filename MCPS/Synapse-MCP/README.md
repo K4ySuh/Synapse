@@ -138,6 +138,11 @@ contributions, the envelope producer plus `contribution.v1` identity. Saved
 contrary-evidence IDs remain visible. An evidence link or entity-table
 `observed` lifecycle does not certify runtime observation; `confirmedFacts`
 is a retrieval grouping, not a direct-verification claim.
+Version 1.1 of `contribution.v1` accepts narrowly typed candidate and coverage
+gap analyses on the same Registry action and normalizes them into existing
+workspace observations. Its method digest, producer, and optional model label
+are attribution only; validation and finding review still require their
+existing explicit actions. Version 1.0 remains strict and unchanged.
 
 The reported `utf8_bytes_v1` counter measures the final canonical compact UTF-8
 facade envelope, not only its inner context result. Protected revision and

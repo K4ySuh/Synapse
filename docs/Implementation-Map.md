@@ -87,6 +87,11 @@ continuation lookups; commits update only changed authority/lifecycle rows.
 Migration `0008` stores consumer-scoped versioned contribution receipts in the
 same transaction as canonical evidence and entities; bundle export/import
 preserves them.
+The application contribution models publish strict 1.0 and typed-analysis
+1.1 schemas through the existing Registry description. `core/workspace.py`
+normalizes 1.1 candidates and coverage gaps into the same observation
+collection before the receipt/evidence transaction; explicit validation and
+finding promotion remain separate actions.
 `state/migration.py` owns
 read-only inventory, immutable snapshots, restartable/idempotent v1-to-v2
 stages, verification, guarded activation, and rollback-boundary enforcement.

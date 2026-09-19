@@ -7,6 +7,9 @@ The application Registry publishes the exact envelope and receipt schemas in
 `inputSchema.x-synapse-contribution.rawDataSchema` and
 `outputSchema.x-synapse-contribution-receipt`. The frozen legacy input contract
 and its parser modes remain available; legacy calls cannot use this new mode.
+`rawDataSchema` remains the exact version 1.0 schema for existing consumers;
+`acceptedVersions` and `rawDataSchemas` additionally publish the 1.0 and 1.1
+schemas from the application models.
 
 Version 1.0 accepts up to 100 total `endpoints` and `observations` for one
 target in an existing, activated SQLite-v2 workspace. The entire envelope is
@@ -25,6 +28,48 @@ canonical workspace payloads. Modern `context.query` projects those as
 `lifecycle` is `observed`. The optional endpoint `source` is a contributor
 label, not an observation credential. The 1.0 input schema and receipt are
 unchanged; method IDs and typed analysis fields remain outside this version.
+
+## Version 1.1 typed analysis
+
+The same `workspace.ingest_data` action/source accepts `schemaVersion="1.1"`.
+It keeps the strict 1.0 endpoint and generic-observation fields and adds up to
+100 total records across `entities.endpoints`, `entities.observations`, and
+`entities.analyses`. Each analysis has a typed `kind` (`candidate` or
+`coverage_gap`), a concrete HTTP(S) `subject` (`url`, `method`, optional
+`parameter`/`location`), an explicit `knowledgeState` (`inferred` or
+`reported`), bounded `confidence` and `reason`, optional supporting/contrary
+evidence IDs, and optional `methodRef` (`id` plus `sha256:<64 hex>` content
+digest) and `modelLabel`. Candidate entries require a bounded
+`candidateClass`; coverage gaps cannot have one. `inconclusive=true` describes
+an analysis conclusion, not a validation result. No arbitrary analysis
+metadata, runtime-observed claim, execution outcome, or operator-review field
+is accepted.
+
+| Submitted record | Canonical destination | Lifecycle boundary |
+| --- | --- | --- |
+| `endpoints` | Existing endpoint collection | Saved surface, not a traffic observation |
+| `observations` | Existing generic observation collection | Existing 1.0 semantics |
+| `analyses` candidate | Existing `test_candidate` observation, keyed by the deterministic method/URL/location/parameter surface ID | `candidateFor` and proposed validation detail; explicit candidate validation and finding promotion remain separate actions |
+| `analyses` coverage gap | Existing `analysis_coverage_gap` observation | Gap context, never a finding or execution claim |
+| Work objective | Existing `tasks.control` work item if coordination is needed | A work item does not grant authority or promote a finding |
+
+Supporting IDs link through the ordinary entity `evidenceIds`; contrary IDs
+stay separately labeled and must also name evidence in the envelope's
+same-target `evidenceRefs`. The submission itself creates canonical evidence
+and a receipt in the same workspace transaction. The subject URL must belong
+to the action target. `methodRef`, producer, and model label are attribution,
+not authenticated identity or authority; the consumer identity remains
+server-bound. `context.query` exposes the analysis conclusion, reason, candidate
+class, knowledge label, method attribution, and evidence references without a
+new context operation. A candidate marked `inconclusive` still has proposed
+validation status until `workspace.record_candidate_validation` makes an
+explicit decision. `workspace.promote_observation_to_finding` and
+`workspace.mark_finding_reviewed` remain the only promotion/review path.
+
+Version 1.1 uses existing JSON payload columns and the contribution receipt
+table; no migration or second provenance store is required. The fuller
+cross-submission recovery and candidate-update guarantees are the separate
+7R3.2 checkpoint.
 
 `evidenceRefs` may name existing evidence for the same workspace and target;
 `artifactRefs` may name existing artifacts in that workspace. Both are checked
