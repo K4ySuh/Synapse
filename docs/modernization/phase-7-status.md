@@ -57,19 +57,22 @@ compatibility observations, not values to hardcode into application behavior.
   entity-table lifecycle is `observed`; historical records without a positive
   method signal remain unknown. Evidence links and available contrary evidence
   remain visible without a parallel provenance store.
-- F6 is in progress at checkpoint 7R3.1. The existing `contribution.v1`
+- F6 is repaired at checkpoint 7R3.2. The existing `contribution.v1`
   action/source now publishes a strict version 1.1 typed analysis extension
   alongside unchanged 1.0. Candidate and coverage-gap analyses normalize to
   canonical observations with stable surface identity, explicit inferred or
   reported state, supporting/contrary evidence references, and method/producer
-  attribution. They cannot assert observation, execution, validation, or
-  operator review. 7R3.2 remains the recovery and update-hardening checkpoint;
-  no second submission API or source of truth was added.
+  attribution. Optional saved subject IDs and evidence references are checked
+  against the existing workspace/target transaction boundary. Later analysis
+  updates the stable candidate without overwriting validation or reportability
+  decisions; a fresh process recovers the result through context and internal
+  report projections. Analysis cannot assert observation, execution, validation,
+  or operator review. No second submission API or source of truth was added.
 
 Small isolated installation, saved-data, and restart testing can begin now.
 Candidate identity is reliable for records created or curated after 7R1.1;
 historical duplicate diagnostics still require operator review. Typed
-method-produced analysis still needs the 7R3.2 cross-submission and restart
-recovery check. The exact next action is 7R3.2 in the
+method-produced analysis passed the 7R3.2 cross-submission, retry, and
+fresh-process recovery check. The exact next action is 7R4.1 in the
 [checkpoint ledger](phase-7-checkpoints.md). The full serial scope and deferred
 boundaries are in the [Phase 7 plan](phase-7-plan.md).
