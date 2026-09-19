@@ -41,8 +41,16 @@ compatibility observations, not values to hardcode into application behavior.
   unrelated relation rows. Existing entity-ID and natural-key indexes handle
   normal destination resolution, with a compatibility fallback for historical
   payload aliases; no migration or graph subsystem was added.
-- F2-F3 remain correctness repairs: usable bounded context continuation and
-  truthful compact-context provenance.
+- F2 is repaired at checkpoint 7R2.1. `context.query` now exposes an opaque
+  continuation cursor and structured metadata without adding an operation.
+  The cursor binds normalized filters and deterministic repository-source
+  positions to one workspace revision; changed filters fail typed, while a
+  changed revision requires an explicit refresh. `sinceRevision` remains a
+  separate delta boundary. Protected contradiction rows are queried
+  independently of ordinary entity pages, so warnings beyond a page cutoff
+  cannot become a false zero.
+- F3 remains the 7R2.2 correctness repair for truthful compact-context
+  provenance and knowledge-state labels.
 - F6 adds the smallest typed, evidence-backed methodology contribution through
   the existing `contribution.v1`, candidate, evidence, workspace, and report
   paths. It does not create another submission API or source of truth.
@@ -50,7 +58,7 @@ compatibility observations, not values to hardcode into application behavior.
 Small isolated installation, saved-data, and restart testing can begin now.
 Candidate identity is reliable for records created or curated after 7R1.1;
 historical duplicate diagnostics still require operator review. Complete
-larger-context recovery and provenance-dependent conclusions require 7R2.
-The exact next action is 7R2.1 in the
+provenance-dependent conclusions require 7R2.2.
+The exact next action is 7R2.2 in the
 [checkpoint ledger](phase-7-checkpoints.md). The full serial scope and deferred
 boundaries are in the [Phase 7 plan](phase-7-plan.md).
