@@ -9,15 +9,14 @@ metadata:
 
 # Authentication and session method
 
-Use this method for an authentication or session question within the main
-Synapse web methodology. Read the [selection notes](references/selection.md)
-for the evidence to gather and the point to return to the main method.
+Use this package for one bounded question about how authenticated state starts,
+persists, changes, recovers, or ends. Read the on-demand
+[method procedure](references/selection.md), which identifies the required
+context, alternative explanations, evidence test, canonical contribution, and
+stop or handoff conditions. It reuses the main web skill's shared comparison
+foundations.
 
-Recover the current workspace context and evidence references first. Keep
-observed behavior separate from an inference or a report from another source.
-Use live Synapse action descriptions before requesting any execution. Scope and
-server-held authority still govern active work.
-
-Contribute an evidence-backed candidate or coverage gap through the existing
-contribution route when the analysis is ready. Preserve contrary evidence and
-unknowns; do not promote a candidate to a finding from a single signal.
+Recover the current workspace revision and referenced evidence before analysis.
+Use live action descriptions for any execution or contribution contract. Keep
+reported or inferred conclusions separate from directly observed behavior;
+scope and server-held authority continue to govern active work.

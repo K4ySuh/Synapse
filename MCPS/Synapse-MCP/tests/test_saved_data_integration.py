@@ -8,6 +8,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from helpers import isolated_state
+from synapse_mcp import guidance
 from synapse_mcp.adapters.web import spec_import
 from synapse_mcp.app.actions import ActionRegistry, PassThroughPolicyEvaluator, REGISTRY
 from synapse_mcp.app.facade import (
@@ -95,6 +96,71 @@ class SavedDataIntegrationPilotTests(unittest.TestCase):
                 self.assertEqual(len(receipt["canonicalRecordIds"]["endpoints"]), 1)
                 self.assertEqual(len(receipt["evidenceIds"]), 1)
 
+                method_digests = {
+                    package["id"]: package["sha256"]
+                    for package in guidance.build_guidance_snapshot().packages
+                    if package["kind"] == "method"
+                }
+                method_analysis = {
+                    "schemaVersion": "1.1",
+                    "requestId": "pilot-methods-001",
+                    "producer": {"name": "pilot-fixture", "version": "1.0.0"},
+                    "evidenceRefs": receipt["evidenceIds"],
+                    "entities": {
+                        "analyses": [
+                            {
+                                "kind": "candidate",
+                                "subject": {
+                                    "entityId": receipt["canonicalRecordIds"]["endpoints"][0],
+                                    "url": "https://api.example.test/health",
+                                    "method": "GET",
+                                },
+                                "candidateClass": "auth_session",
+                                "knowledgeState": "inferred",
+                                "confidence": "low",
+                                "reason": "Saved response metadata leaves session expiry unresolved.",
+                                "supportingEvidenceIds": receipt["evidenceIds"],
+                                "methodRef": {
+                                    "id": "synapse-web-auth-session",
+                                    "digest": f"sha256:{method_digests['synapse-web-auth-session']}",
+                                },
+                            },
+                            {
+                                "kind": "coverage_gap",
+                                "subject": {
+                                    "entityId": receipt["canonicalRecordIds"]["endpoints"][0],
+                                    "url": "https://api.example.test/health",
+                                    "method": "GET",
+                                },
+                                "knowledgeState": "reported",
+                                "confidence": "low",
+                                "reason": "No second actor is available for an ownership comparison.",
+                                "inconclusive": True,
+                                "methodRef": {
+                                    "id": "synapse-web-access-control",
+                                    "digest": f"sha256:{method_digests['synapse-web-access-control']}",
+                                },
+                            },
+                        ]
+                    },
+                }
+                analyzed = service.run(
+                    operation="actions.run_passive",
+                    action_id="workspace.ingest_data",
+                    arguments={
+                        "workspaceId": "pilot",
+                        "target": "api.example.test",
+                        "source": "contribution.v1",
+                        "format": "json",
+                        "rawData": json.dumps(method_analysis),
+                    },
+                    context=context,
+                    passive_only=True,
+                )
+                self.assertEqual(analyzed.outcome_kind, "success")
+                self.assertEqual(analyzed.result["schemaVersion"], "1.1")
+                self.assertEqual(len(analyzed.result["canonicalRecordIds"]["observations"]), 2)
+
                 recovered = CompactFacadeService(resources=resources).invoke(
                     "context.query",
                     {
@@ -142,6 +208,28 @@ class SavedDataIntegrationPilotTests(unittest.TestCase):
                 }
                 self.assertIn(import_evidence, recovered_evidence)
                 self.assertIn(receipt["evidenceIds"][0], recovered_evidence)
+
+                recovered_analysis = CompactFacadeService(resources=resources).invoke(
+                    "context.query",
+                    {"workspaceId": "pilot", "targets": ["api.example.test"], "maxTokens": 30_000},
+                    context=context,
+                )
+                self.assertEqual(recovered_analysis.outcome_kind, "success")
+                candidate = next(
+                    item for item in recovered_analysis.result["candidates"]
+                    if "auth_session" in item["attributes"].get("candidateFor", [])
+                )
+                gap = next(
+                    item for item in recovered_analysis.result["coverageGaps"]
+                    if item["attributes"].get("sourceAttribution", {}).get("methodRef", {}).get("id")
+                    == "synapse-web-access-control"
+                )
+                self.assertEqual(
+                    candidate["attributes"]["sourceAttribution"]["methodRef"]["id"],
+                    "synapse-web-auth-session",
+                )
+                self.assertEqual(candidate["attributes"]["knowledgeState"], "inferred")
+                self.assertEqual(gap["attributes"]["analysisConclusion"], "inconclusive")
 
                 restarted = CompactFacadeService(
                     resources=ResourceReferenceService(state_path=root / "restarted-resources.json")

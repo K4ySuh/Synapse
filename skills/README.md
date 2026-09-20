@@ -24,10 +24,10 @@ profiles under [`codex/`](codex):
 - `development/` contains `synapse-developing`, which is repository guidance
   rather than an engagement skill.
 - `web-methods/` contains optional, separately retrieved web methods. The
-  initial authentication/session and access-control packages provide selection
-  and handoff guidance; their full procedures are scheduled for Phase 7R5.
-  They are not part of the three-skill default install. Copy either method
-  folder beside the default skills to make it available to Codex.
+  authentication/session and access-control packages provide focused selection,
+  analysis, evidence, contribution, and handoff procedures. They are not part
+  of the three-skill default install. Copy either method folder beside the
+  default skills to make it available to Codex.
 
 The default is one Codex agent. Start with `$operate-synapse`, do not spawn
 sub-agents, and load either methodology when needed. The same agent can move

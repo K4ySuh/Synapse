@@ -16,6 +16,7 @@ from synapse_mcp.integrations import codex
 
 ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_ROOT = ROOT / "skills" / "codex" / "default"
+WEB_METHOD_ROOT = ROOT / "skills" / "codex" / "web-methods"
 COMPAT_ROOT = ROOT / "skills" / "codex" / "multi-agent-compat"
 DEVELOPMENT_ROOT = ROOT / "skills" / "codex" / "development"
 
@@ -75,9 +76,9 @@ class SingleAgentDefaultTests(unittest.TestCase):
         cve = (DEFAULT_ROOT / "synapse-cve-intelligence" / "SKILL.md").read_text(encoding="utf-8")
         for phrase in (
             "Establish the engagement picture",
-            "Model the application",
+            "Select the current method",
             "Form and prioritize hypotheses",
-            "Validate within the envelope",
+            "Persist and converge",
             "$synapse-cve-intelligence",
         ):
             self.assertIn(phrase, web)
@@ -92,6 +93,30 @@ class SingleAgentDefaultTests(unittest.TestCase):
         self.assertIn("Do not execute, import, install, build", (
             DEFAULT_ROOT / "synapse-cve-intelligence" / "references" / "source-and-poc-analysis.md"
         ).read_text(encoding="utf-8"))
+
+    def test_main_web_method_routes_to_two_complete_optional_procedures(self) -> None:
+        web = (DEFAULT_ROOT / "synapse-web-pentesting" / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("Honor an explicit operator method choice", web)
+        self.assertIn("specific coverage gap", web)
+        for method in ("synapse-web-auth-session", "synapse-web-access-control"):
+            self.assertIn(f"${method}", web)
+            procedure = (WEB_METHOD_ROOT / method / "references" / "selection.md").read_text(
+                encoding="utf-8"
+            )
+            for heading in (
+                "## Select this method",
+                "## Required context",
+                "## Test alternative explanations",
+                "## Weigh evidence and unknowns",
+                "## Contribute canonically",
+                "## Stop or hand back",
+            ):
+                self.assertIn(heading, procedure)
+            self.assertIn(f"ID `{method}`", procedure)
+            self.assertIn("supporting and contrary evidence IDs", procedure)
+            self.assertIn("version 1.1", procedure)
+            self.assertIn("methodRef", procedure)
+            self.assertIn("receipt", procedure)
 
     def test_assets_are_selected_explicitly_and_application_stays_provider_neutral(self) -> None:
         self.assertEqual(codex.validate_assets(), [])
