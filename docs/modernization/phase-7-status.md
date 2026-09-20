@@ -73,15 +73,20 @@ compatibility observations, not values to hardcode into application behavior.
   access-control selection. The modern MCP catalog advertises package and
   document metadata without loading bodies; content-derived digests and bytes
   come from one server-start snapshot. Wheel and sdist ship the same method
-  files. Local native method selection and the detailed method procedures are
-  later checkpoints.
+  files.
+- 7R4.2 adds an optional native `web-methods` Codex asset profile. Operators
+  can copy either method beside the three default skills and invoke it by name,
+  or allow description-based selection. The profile and two `agents/openai.yaml`
+  files come from the same shipped assets as hosted guidance; wheel and sdist
+  checks verify both forms. No multi-agent mode or server behavior changed.
+  Detailed method procedures remain in 7R5.
 
 Small isolated installation, saved-data, and restart testing can begin now.
 Candidate identity is reliable for records created or curated after 7R1.1;
 historical duplicate diagnostics still require operator review. Typed
 method-produced analysis passed the 7R3.2 cross-submission, retry, and
-fresh-process recovery check. Hosted catalog and wheel/sdist checks passed for
-7R4.1. The exact next action is 7R4.2 in the
+fresh-process recovery check. Hosted, native asset, and wheel/sdist checks
+passed for 7R4. The exact next action is 7R5.1 in the
 [checkpoint ledger](phase-7-checkpoints.md). The full serial scope and deferred
 boundaries are in the [Phase 7 plan](phase-7-plan.md). A separate modernization
 documentation test still rejects the plan's pre-existing official Codex skill
