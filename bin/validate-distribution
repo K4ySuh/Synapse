@@ -38,6 +38,7 @@ MULTI_AGENT_COMPAT_SKILLS = (
 )
 SKILL_PROFILES = {
     "default": DEFAULT_SKILLS,
+    "web-methods": tuple(package.id for package in GUIDANCE_PACKAGES if package.kind == "method"),
     "multi-agent-compat": MULTI_AGENT_COMPAT_SKILLS,
     "development": ("synapse-developing",),
 }
@@ -200,7 +201,7 @@ def _required_archive_suffixes() -> tuple[str, ...]:
         if package.kind != "method":
             continue
         source = skills_dir(package.profile) / package.source_path
-        for path in (source / "SKILL.md", *sorted((source / "references").glob("*.md"))):
+        for path in sorted((source / "references").glob("*.md")):
             values.append(
                 f"share/synapse-mcp/codex/skills/{package.profile}/{package.source_path}/{path.relative_to(source).as_posix()}"
             )
@@ -266,7 +267,7 @@ def _verify_install(python: str, target: Path, outside: Path, expected_prompt: s
     expected_digest = hashlib.sha256(expected_prompt.encode()).hexdigest()
     code = """
 import hashlib, sys
-from synapse_mcp.integrations.codex import validate_assets
+from synapse_mcp.integrations.codex import codex_skills_dir, validate_assets
 from synapse_mcp.guidance import guidance_catalog, guidance_documents, read_guidance, skills_dir
 from synapse_mcp.state.migrations import MIGRATION_NAMES, migration_text
 from synapse_mcp.transport.stdio_server import read_main_prompt
@@ -276,6 +277,7 @@ catalog = guidance_catalog()
 assert len(guidance_documents()) == 12
 assert skills_dir('default').is_relative_to(sys.argv[2])
 assert skills_dir('web-methods').is_relative_to(sys.argv[2])
+assert codex_skills_dir('web-methods') == skills_dir('web-methods')
 for document in guidance_documents():
     assert hashlib.sha256(read_guidance(document.uri).encode()).hexdigest() == document.sha256
     assert read_guidance(document.uri) == (skills_dir(document.profile) / document.skill / document.path).read_text()
@@ -291,7 +293,7 @@ print(len(prompt.encode()))
         env=_installed_env(target, runtime_root),
     )
     installed_skills = target / "share" / "synapse-mcp" / "codex" / "skills"
-    for profile in ("default", "multi-agent-compat"):
+    for profile in ("default", "web-methods", "multi-agent-compat"):
         _run(
             [
                 python,
@@ -422,6 +424,7 @@ def main() -> int:
         print(f"operational prompt: {len(expected_prompt.encode())} bytes")
         print(
             "installed Codex assets: 3 default operating skills; "
+            f"{len(SKILL_PROFILES['web-methods'])} optional web methods; "
             "8 multi-agent compatibility skills; 1 development skill; 5 configs"
         )
         print("installed modern runtime starts: standard 174 actions (wheel and sdist); core-only 42 actions")

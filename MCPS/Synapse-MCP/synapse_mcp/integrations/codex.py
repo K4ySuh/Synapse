@@ -10,11 +10,11 @@ from pathlib import Path
 import re
 import sysconfig
 
-from synapse_mcp.guidance import default_skills_dir
+from synapse_mcp.guidance import GUIDANCE_PACKAGES, build_guidance_snapshot, default_skills_dir, skills_dir
 
 
 CONFIG_PROFILES = ("standard", "core-only", "modern-direct", "legacy", "multi-agent-compat")
-SKILL_PROFILES = ("default", "multi-agent-compat", "development")
+SKILL_PROFILES = ("default", "web-methods", "multi-agent-compat", "development")
 OPERATING_SKILLS = (
     "operate-synapse",
     "synapse-web-pentesting",
@@ -31,8 +31,10 @@ MULTI_AGENT_COMPAT_SKILLS = (
     "synapse-reporting",
 )
 DEVELOPMENT_SKILLS = ("synapse-developing",)
+WEB_METHOD_SKILLS = tuple(package.id for package in GUIDANCE_PACKAGES if package.kind == "method")
 PROFILE_SKILLS = {
     "default": OPERATING_SKILLS,
+    "web-methods": WEB_METHOD_SKILLS,
     "multi-agent-compat": MULTI_AGENT_COMPAT_SKILLS,
     "development": DEVELOPMENT_SKILLS,
 }
@@ -61,6 +63,11 @@ def codex_skills_dir(profile: str = "default") -> Path:
     if profile == "default":
         try:
             return default_skills_dir()
+        except FileNotFoundError as exc:
+            raise CodexAssetError(str(exc)) from exc
+    if profile == "web-methods":
+        try:
+            return skills_dir(profile)
         except FileNotFoundError as exc:
             raise CodexAssetError(str(exc)) from exc
     repository = _repository_root()
@@ -116,6 +123,19 @@ def validate_assets() -> list[str]:
                 if not linked.is_file():
                     failures.append(f"{skill}: missing reference {target}")
 
+    if "web-methods" in skill_roots:
+        try:
+            snapshot = build_guidance_snapshot()
+            method_root = skill_roots["web-methods"]
+            for document in snapshot.documents:
+                if document.profile != "web-methods":
+                    continue
+                source = method_root / document.skill / document.path
+                if not source.is_file() or source.read_bytes() != snapshot.bodies[document.uri]:
+                    failures.append(f"hosted/local method content differs: {document.uri}")
+        except (OSError, ValueError, UnicodeError) as exc:
+            failures.append(f"hosted method content is unavailable: {exc}")
+
     if configs is not None:
         for profile in CONFIG_PROFILES:
             path = configs / f"{profile}.toml"
@@ -156,6 +176,7 @@ def main() -> int:
             print(
                 "Codex distribution assets are current: "
                 f"{len(OPERATING_SKILLS)} default operating skills, "
+                f"{len(WEB_METHOD_SKILLS)} optional web methods, "
                 f"{len(MULTI_AGENT_COMPAT_SKILLS)} compatibility skills, "
                 f"{len(CONFIG_PROFILES)} configs"
             )

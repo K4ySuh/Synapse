@@ -966,7 +966,15 @@ a restart to change its advertised digest. Hosted method references use the
 concrete URIs listed in the catalog. These resources are read-only guidance;
 listing them does not activate Codex skills or mutate a workspace. Install the
 default three-skill profile locally when the Codex host should invoke those
-skills by name. Optional native method installation is scheduled for 7R4.2.
+skills by name. For a native optional method, locate
+`synapse-codex-assets --skills-profile web-methods` and copy the selected
+method folder beside the default skills. Use its `$method-name` for explicit
+invocation or its description for implicit selection. The shared Web Pentesting
+reference is the sibling
+`synapse-web-pentesting/references/auth-and-access-control.md` locally and the
+catalog URI
+`synapse://guidance/skills/synapse-web-pentesting/references/auth-and-access-control.md`
+when hosted. This profile does not enable multi-agent operation.
 The legacy server retains its existing
 `synapse-main`/`synapse://prompt/main` discovery shape.
 
@@ -1003,6 +1011,7 @@ are evaluated only against server-held grants; uncovered work blocks on
 
 ```sh
 bin/validate-codex-skills --check
+bin/validate-codex-skills --check --profile web-methods
 bin/validate-codex-skills --check --profile multi-agent-compat
 bin/validate-distribution
 ```

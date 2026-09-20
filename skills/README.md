@@ -26,7 +26,8 @@ profiles under [`codex/`](codex):
 - `web-methods/` contains optional, separately retrieved web methods. The
   initial authentication/session and access-control packages provide selection
   and handoff guidance; their full procedures are scheduled for Phase 7R5.
-  They are not part of the three-skill default install.
+  They are not part of the three-skill default install. Copy either method
+  folder beside the default skills to make it available to Codex.
 
 The default is one Codex agent. Start with `$operate-synapse`, do not spawn
 sub-agents, and load either methodology when needed. The same agent can move
@@ -58,6 +59,7 @@ Each skill contains `SKILL.md` plus `agents/openai.yaml` declaring the local
 
 ```sh
 bin/validate-codex-skills --check
+bin/validate-codex-skills --check --profile web-methods
 bin/validate-codex-skills --check --profile multi-agent-compat
 ```
 
@@ -65,6 +67,7 @@ After installing a wheel or sdist, locate the selected profile with:
 
 ```sh
 synapse-codex-assets --skills-dir
+synapse-codex-assets --skills-profile web-methods
 synapse-codex-assets --skills-profile multi-agent-compat
 synapse-codex-assets --skills-profile development
 synapse-codex-assets --verify
@@ -80,14 +83,27 @@ mkdir -p .agents/skills
 cp -R "$SYNAPSE_SKILL_SOURCE"/. .agents/skills/
 ```
 
+To install one optional method, run
+`synapse-codex-assets --skills-profile web-methods` and copy only its chosen
+method directory into the same `.agents/skills/` root. For example, copy
+`synapse-web-auth-session/` to `.agents/skills/synapse-web-auth-session/`.
+Invoke it explicitly with `$synapse-web-auth-session`, or let Codex select it
+when the task matches its frontmatter description. Installing a method does
+not select the multi-agent profile or alter Synapse server behavior. Each
+method's `agents/openai.yaml` declares the local `synapse` MCP dependency.
+
 Modern clients can discover entry skills and optional method metadata at
 `synapse://guidance/catalog` and read selected
 `synapse://guidance/skills/<id>/SKILL.md` and
 `synapse://guidance/skills/<id>/references/<name>.md` resources. The catalog
 lists each concrete URI with a content digest and byte size; a relative link in
 a hosted Markdown body is resolved through this URI mapping, not automatically
-by the MCP client. MCP resource
-discovery does not install or activate Codex skills; local installation remains
+by the MCP client. For the shared Web Pentesting reference, use the catalog's
+`synapse://guidance/skills/synapse-web-pentesting/references/auth-and-access-control.md`
+resource when hosted, or the sibling
+`synapse-web-pentesting/references/auth-and-access-control.md` file under the
+installed skill root. MCP resource discovery does not install or activate Codex
+skills; local installation remains
 the supported skill-loading path.
 
 Selecting `multi-agent-compat` requires both its skill directory and the

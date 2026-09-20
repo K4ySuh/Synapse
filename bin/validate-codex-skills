@@ -36,8 +36,12 @@ MULTI_AGENT_COMPAT_SKILLS = {
     "synapse-cve-validation": ("cve", "intelligence"),
     "synapse-reporting": ("reporting", "reporting"),
 }
+WEB_METHOD_SKILLS = {
+    package.id: ("method", "web") for package in GUIDANCE_PACKAGES if package.kind == "method"
+}
 PROFILE_SKILLS = {
     "default": DEFAULT_SKILLS,
+    "web-methods": WEB_METHOD_SKILLS,
     "multi-agent-compat": MULTI_AGENT_COMPAT_SKILLS,
 }
 OPERATIONAL_SKILLS = DEFAULT_SKILLS
@@ -187,7 +191,12 @@ def _validate_skill(name: str, expected_role: str, expected_pack: str, failures:
         if pattern.search(combined):
             failures.append(f"{name}: contradictory terminology ({reason})")
 
-    if name != "operate-synapse":
+    if PROFILE == "web-methods":
+        if "references/selection.md" not in body:
+            failures.append(f"{name}: missing on-demand selection reference")
+        if not re.search(r"allow_implicit_invocation:\s*true", interface):
+            failures.append(f"{name}: implicit selection is not enabled")
+    elif name != "operate-synapse":
         expected_invariants = "../operate-synapse/references/operational-invariants.md"
         if expected_invariants not in body:
             failures.append(f"{name}: shared operational invariants are not referenced")
@@ -258,15 +267,14 @@ def validate() -> list[str]:
     for name, (role, pack) in OPERATIONAL_SKILLS.items():
         _validate_skill(name, role, pack, failures)
 
-    expected_references = (
-        ["operational-invariants.md", "single-agent-workflow.md"]
-        if PROFILE == "default"
-        else ["operational-invariants.md", "specialist-workflow.md"]
-    )
+    expected_references = {
+        "default": ["operational-invariants.md", "single-agent-workflow.md"],
+        "multi-agent-compat": ["operational-invariants.md", "specialist-workflow.md"],
+    }.get(PROFILE, [])
     references = sorted(path.name for path in SHARED_REFERENCES.glob("*.md"))
-    if references != expected_references:
+    if PROFILE != "web-methods" and references != expected_references:
         failures.append(f"operate-synapse: shared reference inventory is stale: {references!r}")
-    if SHARED_REFERENCES.is_dir():
+    if PROFILE != "web-methods" and SHARED_REFERENCES.is_dir():
         shared_text = "\n".join(
             path.read_text(encoding="utf-8") for path in sorted(SHARED_REFERENCES.glob("*.md"))
         )
@@ -292,6 +300,23 @@ def validate() -> list[str]:
     if PROFILE == "default" and SKILL_ROOT.is_dir():
         _validate_default_topology(failures)
         _validate_hosted_methods(failures)
+    elif PROFILE == "web-methods" and SKILL_ROOT.is_dir():
+        for package in GUIDANCE_PACKAGES:
+            if package.kind != "method":
+                continue
+            selection = SKILL_ROOT / package.source_path / "references" / "selection.md"
+            if not selection.is_file():
+                failures.append(f"{package.id}: missing references/selection.md")
+                continue
+            text = selection.read_text(encoding="utf-8")
+            hosted = re.findall(r"synapse://guidance/skills/([a-z0-9-]+/references/[a-z0-9-]+\.md)", text)
+            if not hosted:
+                failures.append(f"{package.id}: missing hosted shared reference URI")
+            for relative in hosted:
+                if f"`{relative}`" not in text:
+                    failures.append(f"{package.id}: missing local shared reference path {relative}")
+                if not (SKILL_ROOT.parent / "default" / relative).is_file():
+                    failures.append(f"{package.id}: missing shared default reference {relative}")
     elif PROFILE == "multi-agent-compat" and (SKILL_ROOT / "operate-synapse" / "SKILL.md").is_file():
         router = (SKILL_ROOT / "operate-synapse" / "SKILL.md").read_text(encoding="utf-8")
         for name in OPERATIONAL_SKILLS:
@@ -329,7 +354,8 @@ def main() -> int:
         return 1
     print(
         f"Codex {PROFILE} operating skills are current: "
-        f"{len(OPERATIONAL_SKILLS)} skills, 2 shared references"
+        f"{len(OPERATIONAL_SKILLS)} skills"
+        + (", 2 shared references" if PROFILE != "web-methods" else ", on-demand references")
     )
     return 0
 

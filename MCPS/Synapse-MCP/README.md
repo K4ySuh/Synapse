@@ -198,7 +198,7 @@ coordinator/specialist tree is preserved under the explicit
 
 Wheel and sdist builds install identical default, hosted web-method,
 compatibility, development, and five config-profile assets. Use `synapse-codex-assets --skills-dir`,
-`--skills-profile multi-agent-compat|development`,
+`--skills-profile web-methods|multi-agent-compat|development`,
 `--config standard|core-only|modern-direct|legacy|multi-agent-compat`, or
 `--verify`. `bin/validate-distribution` performs the isolated archive
 build/install and standard/core cold-start gate. Modern MCP also serves
@@ -206,7 +206,9 @@ build/install and standard/core cold-start gate. Modern MCP also serves
 `synapse://guidance/catalog` with the three default skills and two optional
 web methods. The catalog lists document URIs, content versions, digests, and
 sizes without loading every body. Resource discovery alone does not activate
-a client skill; native optional method installation is a later checkpoint.
+a client skill. Copy an optional method folder from the `web-methods` profile
+beside the installed default skills to enable native name or description
+selection; this does not enable multi-agent operation.
 
 Use focused service tests for runtime changes. Completed-phase acceptance
 and benchmark runners are retired; they are not normal development gates.

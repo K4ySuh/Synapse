@@ -96,6 +96,7 @@ class SingleAgentDefaultTests(unittest.TestCase):
     def test_assets_are_selected_explicitly_and_application_stays_provider_neutral(self) -> None:
         self.assertEqual(codex.validate_assets(), [])
         self.assertEqual(codex.codex_skills_dir(), DEFAULT_ROOT)
+        self.assertEqual(codex.codex_skills_dir("web-methods"), ROOT / "skills" / "codex" / "web-methods")
         self.assertEqual(codex.codex_skills_dir("multi-agent-compat"), COMPAT_ROOT)
         compat_config = (codex.codex_config_dir() / "multi-agent-compat.toml").read_text(encoding="utf-8")
         self.assertIn("multi_agent = true", compat_config)
@@ -128,10 +129,21 @@ class SingleAgentDefaultTests(unittest.TestCase):
             stderr=subprocess.PIPE,
             check=False,
         )
+        methods = subprocess.run(
+            [sys.executable, "-c", code, "--skills-profile", "web-methods"],
+            cwd=ROOT,
+            env=environment,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
         self.assertEqual(default.returncode, 0, default.stderr)
         self.assertEqual(compatibility.returncode, 0, compatibility.stderr)
+        self.assertEqual(methods.returncode, 0, methods.stderr)
         self.assertEqual(Path(default.stdout.strip()), DEFAULT_ROOT)
         self.assertEqual(Path(compatibility.stdout.strip()), COMPAT_ROOT)
+        self.assertEqual(Path(methods.stdout.strip()), ROOT / "skills" / "codex" / "web-methods")
 
     def test_application_surfaces_and_registry_are_unchanged(self) -> None:
         self.assertEqual(len(REGISTRY.descriptors()), 174)

@@ -444,7 +444,10 @@ Pentesting and CVE Intelligence methodologies. One agent selects and uses those
 methods sequentially while workspace revision, execution, evidence, candidates,
 and gaps remain canonical. The Phase 5 coordinator/specialist tree is isolated
 under `skills/codex/multi-agent-compat/`, and repository development guidance
-is packaged separately. Profile selection never enters application, policy,
+is packaged separately. Optional web methods under
+`skills/codex/web-methods/` are independently selected local skills backed by
+the same files as the hosted guidance catalog. Profile selection never enters
+application, policy,
 state, executor, adapter, or transport logic.
 
 Work items are therefore a durable multi-consumer coordination ledger, not an

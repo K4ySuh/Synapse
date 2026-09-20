@@ -1,6 +1,10 @@
 ---
 name: synapse-web-access-control
 description: Select when the current web question compares actor, object, function, or property access across roles or ownership boundaries.
+metadata:
+  short-description: Analyze access-control comparisons
+  synapse-role: method
+  synapse-pack: web
 ---
 
 # Access-control method

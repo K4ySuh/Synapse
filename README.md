@@ -373,6 +373,8 @@ fails instead of printing a nonexistent interpreter.
 
 Install the default three-skill Codex profile returned by
 `synapse-codex-assets --skills-dir` and begin with `$operate-synapse`. The
+optional `--skills-profile web-methods` tree lets an operator copy selected
+method folders beside those entry skills. The
 separate `--skills-profile multi-agent-compat` tree and matching config are
 explicit opt-ins; they do not change Synapse server behavior.
 Runtime data stays under `SYNAPSE_ROOT/DATA` by default. Shodan API keys are

@@ -122,8 +122,13 @@ class DistributionTests(unittest.TestCase):
             codex.codex_skills_dir("multi-agent-compat").resolve(),
             (ROOT / "skills" / "codex" / "multi-agent-compat").resolve(),
         )
+        self.assertEqual(codex.codex_skills_dir("web-methods"), guidance.skills_dir("web-methods"))
         self.assertEqual(codex.codex_config_dir().resolve(), (ROOT / "config" / "codex").resolve())
         self.assertEqual(len(codex.OPERATING_SKILLS), 3)
+        self.assertEqual(
+            codex.WEB_METHOD_SKILLS,
+            tuple(package.id for package in guidance.GUIDANCE_PACKAGES if package.kind == "method"),
+        )
         self.assertEqual(len(codex.MULTI_AGENT_COMPAT_SKILLS), 8)
         self.assertEqual(codex.codex_skills_dir(), guidance.default_skills_dir())
         self.assertEqual(len(guidance.guidance_documents()), 12)
@@ -152,7 +157,7 @@ class DistributionTests(unittest.TestCase):
         self.assertEqual({item["id"] for item in catalog["packages"] if item["kind"] == "entry"}, set(codex.OPERATING_SKILLS))
         self.assertEqual(
             {item["id"] for item in catalog["packages"] if item["kind"] == "method"},
-            {"synapse-web-auth-session", "synapse-web-access-control"},
+            set(codex.WEB_METHOD_SKILLS),
         )
         for package in catalog["packages"]:
             self.assertEqual(package["version"], package["sha256"][:12])
@@ -183,6 +188,22 @@ class DistributionTests(unittest.TestCase):
                 next(item.sha256 for item in before.documents if item.uri == uri),
                 hashlib.sha256(before.read(uri).encode()).hexdigest(),
             )
+
+    def test_optional_method_profile_validates_local_and_hosted_references(self) -> None:
+        with TemporaryDirectory() as temporary:
+            profiles = Path(temporary) / "skills"
+            shutil.copytree(ROOT / "skills" / "codex" / "default", profiles / "default")
+            shutil.copytree(ROOT / "skills" / "codex" / "web-methods", profiles / "web-methods")
+            command = [
+                str(ROOT / "bin" / "validate-codex-skills"), "--check", "--profile", "web-methods",
+                "--skills-root", str(profiles / "web-methods"),
+            ]
+            result = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, check=False)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            (profiles / "web-methods" / codex.WEB_METHOD_SKILLS[0] / "agents" / "openai.yaml").unlink()
+            result = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, check=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("missing agents/openai.yaml", result.stderr)
 
     def test_generated_codex_profiles_select_standard_core_direct_and_legacy(self) -> None:
         script = ROOT / "bin" / "print-mcp-config"

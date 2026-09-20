@@ -493,12 +493,19 @@ Phase 6B adds the default `skills/codex/default/` profile:
   vulnerability and public-PoC intelligence, applicability, and bounded
   validation recommendations;
 - `skills/codex/development/` packages `synapse-developing` separately;
-- `bin/validate-codex-skills` validates either operating profile without
-  exposing compatibility routes in the default install;
+- `bin/validate-codex-skills` validates the default, optional web-method,
+  and compatibility operating profiles without exposing optional routes in
+  the default install;
 - `synapse_mcp/integrations/codex.py` and `pyproject.toml` locate/package all
-  three explicit profile roots while keeping default selection at three skills;
+  four explicit profile roots while keeping default selection at three skills;
 - service tests guard routing, methodology, distribution selection, and
   unchanged Registry and compact surfaces.
+
+Phase 7R4 adds `skills/codex/web-methods/` as an optional native profile.
+Its IDs come from the static hosted guidance manifest. Operators copy only a
+selected method folder beside the default three skills; `agents/openai.yaml`
+and frontmatter support explicit or description-based selection. The hosted
+catalog maps each Markdown reference to a concrete MCP resource URI.
 
 Phase 5E adds the separate package operational prompt and keeps root/nested
 repository policy out of runtime engagement guidance. Exact prompt bytes and

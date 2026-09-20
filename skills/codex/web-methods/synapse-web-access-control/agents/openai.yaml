@@ -1,0 +1,13 @@
+interface:
+  display_name: "Synapse Access Control"
+  short_description: "Analyze actor and resource authorization evidence"
+  default_prompt: "Use $synapse-web-access-control to analyze the selected authorization comparison from saved Synapse evidence."
+
+policy:
+  allow_implicit_invocation: true
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "synapse"
+      description: "Local Synapse MCP server for scoped context, evidence, and guarded execution."

@@ -1,6 +1,10 @@
 ---
 name: synapse-web-auth-session
 description: Select when the current web question concerns authentication or session behavior, including login transitions, cookies, tokens, logout, recovery, or CSRF evidence.
+metadata:
+  short-description: Analyze authentication and session evidence
+  synapse-role: method
+  synapse-pack: web
 ---
 
 # Authentication and session method
