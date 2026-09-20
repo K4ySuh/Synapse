@@ -34,14 +34,14 @@ GUIDANCE_PACKAGES = (
     GuidancePackage("operate-synapse", "entry", "Default single-agent operating workflow", "default", "operate-synapse"),
     GuidancePackage("synapse-web-pentesting", "entry", "Web assessment methodology", "default", "synapse-web-pentesting"),
     GuidancePackage("synapse-cve-intelligence", "entry", "Vulnerability intelligence methodology", "default", "synapse-cve-intelligence"),
-    GuidancePackage("synapse-web-auth-session", "method", "Select for authentication and session evidence, including token, cookie, and CSRF questions", "web-methods", "synapse-web-auth-session", "synapse-web-pentesting"),
-    GuidancePackage("synapse-web-access-control", "method", "Select for actor, object, function, and property authorization comparisons", "web-methods", "synapse-web-access-control", "synapse-web-pentesting"),
-    GuidancePackage("synapse-web-browser-input", "method", "Select for browser input, executable client contexts, and redirect decisions", "web-methods", "synapse-web-browser-input", "synapse-web-pentesting"),
-    GuidancePackage("synapse-web-server-input", "method", "Select for SQL, command, template, and SSI interpretation boundaries", "web-methods", "synapse-web-server-input", "synapse-web-pentesting"),
-    GuidancePackage("synapse-web-fetch-file-xml", "method", "Select for server-side fetch, file and path handling, archive, and XML boundaries", "web-methods", "synapse-web-fetch-file-xml", "synapse-web-pentesting"),
-    GuidancePackage("synapse-web-structured-data", "method", "Select for GraphQL and serialization or deserialization boundaries", "web-methods", "synapse-web-structured-data", "synapse-web-pentesting"),
-    GuidancePackage("synapse-web-configuration", "method", "Select for headers, CORS, cookies, TLS, and configuration evidence", "web-methods", "synapse-web-configuration", "synapse-web-pentesting"),
-    GuidancePackage("synapse-web-business-logic", "method", "Select for workflow, state, ordering, concurrency, and business-rule evidence", "web-methods", "synapse-web-business-logic", "synapse-web-pentesting"),
+    GuidancePackage("synapse-web-auth-session", "method", "Select from saved auth/session evidence; optional JWT and CSRF interpretation helpers", "web-methods", "synapse-web-auth-session", "synapse-web-pentesting"),
+    GuidancePackage("synapse-web-access-control", "method", "Select for actor/object authorization comparisons; optional object and matrix helpers", "web-methods", "synapse-web-access-control", "synapse-web-pentesting"),
+    GuidancePackage("synapse-web-browser-input", "method", "Select for browser input and redirect questions; optional XSS, redirect, and JS signal helpers", "web-methods", "synapse-web-browser-input", "synapse-web-pentesting"),
+    GuidancePackage("synapse-web-server-input", "method", "Select for SQL, command, template, or SSI questions; optional candidate and plan helpers", "web-methods", "synapse-web-server-input", "synapse-web-pentesting"),
+    GuidancePackage("synapse-web-fetch-file-xml", "method", "Select for fetch, file/path, or XML questions; optional SSRF, LFI, and XXE helpers", "web-methods", "synapse-web-fetch-file-xml", "synapse-web-pentesting"),
+    GuidancePackage("synapse-web-structured-data", "method", "Select for GraphQL or serialized-data questions; optional schema and marker helpers", "web-methods", "synapse-web-structured-data", "synapse-web-pentesting"),
+    GuidancePackage("synapse-web-configuration", "method", "Select for deployment, header, CORS, cookie, or TLS evidence; optional posture helpers", "web-methods", "synapse-web-configuration", "synapse-web-pentesting"),
+    GuidancePackage("synapse-web-business-logic", "method", "Select for workflow and state invariants from saved evidence; no dedicated heuristic helper", "web-methods", "synapse-web-business-logic", "synapse-web-pentesting"),
 )
 
 

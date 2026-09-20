@@ -11,6 +11,7 @@ import unittest
 
 from synapse_mcp.app.actions import REGISTRY
 from synapse_mcp.app.facade.projections import CompactProjection
+from synapse_mcp import guidance
 from synapse_mcp.integrations import codex
 
 
@@ -33,6 +34,26 @@ def _validator():
 
 
 class SingleAgentDefaultTests(unittest.TestCase):
+    def test_default_guidance_keeps_heuristic_helpers_optional(self) -> None:
+        prompt = (ROOT / "MCPS" / "Synapse-MCP" / "synapse_mcp" / "operational_prompt.md").read_text(
+            encoding="utf-8"
+        )
+        web = (DEFAULT_ROOT / "synapse-web-pentesting" / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("Do not batch-run analyzers", prompt)
+        self.assertIn("do not batch-run analyzers", web)
+        self.assertIn("automatically ingest candidates", prompt)
+        methods = {
+            package["id"]: package["description"]
+            for package in guidance.build_guidance_snapshot().packages
+            if package["kind"] == "method"
+        }
+        self.assertEqual(set(methods), set(codex.WEB_METHOD_SKILLS))
+        for method_id, description in methods.items():
+            self.assertTrue(
+                "optional" in description or "no dedicated heuristic helper" in description,
+                method_id,
+            )
+
     def test_default_profile_is_exactly_three_operating_skills(self) -> None:
         expected = {
             "operate-synapse",

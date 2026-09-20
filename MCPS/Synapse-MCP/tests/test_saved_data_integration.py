@@ -25,6 +25,102 @@ FIXTURE = Path(__file__).parent / "fixtures" / "integrations" / "saved-openapi.j
 
 
 class SavedDataIntegrationPilotTests(unittest.TestCase):
+    def test_saved_spec_reaches_method_contribution_without_heuristic_action(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with isolated_state(root, store_version="sqlite-v2"):
+                workspace.create_workspace("saved-only", hosts=["api.example.test"])
+                registry = ActionRegistry(PassThroughPolicyEvaluator())
+                registry.register(REGISTRY.get("workspace.ingest_data"))
+                registry.freeze()
+                self.assertEqual(
+                    {str(descriptor.id) for descriptor in registry.descriptors()},
+                    {"workspace.ingest_data"},
+                )
+                resources = ResourceReferenceService(state_path=root / "resources.json")
+                service = ActionExecutionService(
+                    registry=registry,
+                    resources=resources,
+                    operations=OperationHandleService(state_path=root / "operations.json"),
+                )
+                context = FacadeCallContext(
+                    principal_id="consumer:saved-only",
+                    workspace_id="saved-only",
+                    authority_session_id="session:saved-only",
+                    execution_profile="observe",
+                )
+                imported = spec_import.import_spec({
+                    "workspaceId": "saved-only",
+                    "target": "api.example.test",
+                    "rawData": FIXTURE.read_text(encoding="utf-8"),
+                    "ingest": True,
+                })
+                evidence_id = json.loads(imported)["ingestion"]["evidenceId"]
+                recovered = CompactFacadeService(resources=resources).invoke(
+                    "context.query",
+                    {"workspaceId": "saved-only", "targets": ["api.example.test"], "maxTokens": 30_000},
+                    context=context,
+                )
+                self.assertEqual(recovered.outcome_kind, "success")
+                endpoint = next(
+                    item for item in recovered.result["confirmedFacts"]
+                    if item.get("kind") == "endpoint"
+                    and item.get("attributes", {}).get("url") == "https://api.example.test/v1/items"
+                )
+                method = next(
+                    package for package in guidance.build_guidance_snapshot().packages
+                    if package["id"] == "synapse-web-access-control"
+                )
+                analysis = {
+                    "schemaVersion": "1.1",
+                    "requestId": "saved-only-access-question-001",
+                    "producer": {"name": "saved-data-fixture", "version": "1.0.0"},
+                    "evidenceRefs": [evidence_id],
+                    "entities": {"analyses": [{
+                        "kind": "coverage_gap",
+                        "subject": {
+                            "url": endpoint["attributes"]["url"],
+                            "method": "GET",
+                        },
+                        "knowledgeState": "inferred",
+                        "confidence": "low",
+                        "reason": "The saved specification has no second actor or ownership response.",
+                        "inconclusive": True,
+                        "supportingEvidenceIds": [evidence_id],
+                        "methodRef": {
+                            "id": method["id"],
+                            "digest": f"sha256:{method['sha256']}",
+                        },
+                    }]},
+                }
+                committed = service.run(
+                    operation="actions.run_passive",
+                    action_id="workspace.ingest_data",
+                    arguments={
+                        "workspaceId": "saved-only",
+                        "target": "api.example.test",
+                        "source": "contribution.v1",
+                        "format": "json",
+                        "rawData": json.dumps(analysis),
+                    },
+                    context=context,
+                    passive_only=True,
+                )
+                self.assertEqual(committed.outcome_kind, "success")
+                self.assertEqual(committed.result["schemaVersion"], "1.1")
+                self.assertEqual(len(committed.result["canonicalRecordIds"]["observations"]), 1)
+                latest = CompactFacadeService(resources=resources).invoke(
+                    "context.query",
+                    {"workspaceId": "saved-only", "targets": ["api.example.test"], "maxTokens": 30_000},
+                    context=context,
+                )
+                self.assertEqual(latest.outcome_kind, "success")
+                self.assertTrue(any(
+                    item["attributes"].get("sourceAttribution", {}).get("methodRef", {}).get("id")
+                    == "synapse-web-access-control"
+                    for item in latest.result["coverageGaps"]
+                ))
+
     def test_saved_spec_contribution_context_and_report_projection(self) -> None:
         raw_spec = FIXTURE.read_text(encoding="utf-8")
         with TemporaryDirectory() as temporary:

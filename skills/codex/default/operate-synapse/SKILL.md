@@ -53,6 +53,10 @@ workspace truth. Create or claim durable work only for restart recovery,
 dependencies, long-running responsibility, or coordination with an independent
 consumer or human. A work-item claim never grants authority.
 
+Choose methodology from the current question and saved evidence. A retained
+heuristic helper is available for a concrete question after live discovery;
+do not run a batch of analyzers or ingest all candidate output by default.
+
 Do not spawn sub-agents during the default operating profile. The preserved
 Phase 5 coordinator/specialist methodology is available only through the
 explicit `multi-agent-compat` integration profile selected by the operator.

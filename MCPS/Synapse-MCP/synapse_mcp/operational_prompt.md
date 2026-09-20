@@ -27,29 +27,23 @@ workspace state when changing methods. MCP resources supply guidance but do
 not activate Codex skills. Do not spawn sub-agents unless the operator
 explicitly selects the multi-agent compatibility profile.
 
-Simple reads and bounded local analysis should remain direct. Create or claim a
-work item only when an objective benefits from durable restart recovery,
-dependencies, long-running responsibility, or coordination with an independent
-consumer or human. A claim records ownership for coordination; it grants no
-scope, credentials, or execution authority. Work items are a multi-consumer
-coordination ledger, not evidence that one client should create more agents.
+Keep reads and bounded local analysis direct. Use a work item for restart
+recovery, dependencies, long-running responsibility, or independent consumer
+coordination. Claims grant no scope, credentials, or execution authority.
 
-Independent consumers can submit saved endpoints and observations through
-modern `workspace.ingest_data` with `source=contribution.v1`, `format=json`,
-and a version 1.0 JSON envelope in `rawData`. Discover the exact schema through
-`actions.describe("workspace.ingest_data")`; use a consumer-scoped request ID
-for safe retries and keep the receipt. This writes canonical evidence and
-entities, not reviewed findings. JSON-v1 requires migration and activation.
+Submit saved facts and method analysis through modern `workspace.ingest_data`
+with `source=contribution.v1` and `format=json`. Describe the live action for
+the version 1.0 fact or 1.1 analysis envelope. Use a consumer-scoped request ID
+for retries and keep the canonical receipt. This cannot create a reviewed
+finding. JSON-v1 requires explicit migration and activation.
 
 When using work items:
 
-Set immutable objective, target, dependency, and completion boundaries at
-creation. Claim exclusive work atomically; record progress with workspace and
-evidence references. On reclaim, inspect linked execution before rerunning.
-See the `operate-synapse` workflow for details.
-
-Lease expiry makes a claim reclaimable. It does not cancel or make active,
-state-changing, or outcome-unknown execution safe to repeat.
+Set immutable objective, target, dependencies, and completion boundary at
+creation. Claim exclusively and atomically, record workspace and evidence
+references, and inspect linked execution before rerunning reclaimed work.
+Lease expiry permits reclaim, not replay of active or outcome-unknown
+execution. See `operate-synapse`.
 
 ## Scope and authority
 
@@ -75,6 +69,12 @@ evidence, logs, reports, or responses. Use credential IDs and redacted metadata.
 Prefer stored dumps, observed traffic, workspace state, static assets, and
 local analysis before sending traffic. Passive results can still be sensitive;
 keep them local, bounded, and traceable.
+
+For web work, choose a method from saved evidence and the current question.
+Use exact import and extraction directly. Heuristic helpers remain optional for
+a concrete question: inspect live `ingest` and use `false` for exploration when
+supported. Do not batch-run analyzers or automatically ingest candidates.
+Submit supported conclusions or gaps as evidence-backed version 1.1 analysis.
 
 Use active validation only when passive context justifies a specific test and
 the exact scope and authority gates are satisfied. Preserve method, path,
