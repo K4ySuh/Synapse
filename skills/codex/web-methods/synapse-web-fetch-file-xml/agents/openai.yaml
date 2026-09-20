@@ -1,0 +1,13 @@
+interface:
+  display_name: "Synapse Fetch File XML"
+  short_description: "Analyze fetch, file, path, and XML evidence"
+  default_prompt: "Use $synapse-web-fetch-file-xml to analyze the selected fetch, file, path, archive, or XML question from saved Synapse evidence."
+
+policy:
+  allow_implicit_invocation: true
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "synapse"
+      description: "Local Synapse MCP server for scoped context, evidence, and guarded execution."

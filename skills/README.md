@@ -24,11 +24,11 @@ profiles under [`codex/`](codex):
 - `development/` contains `synapse-developing`, which is repository guidance
   rather than an engagement skill.
 - `web-methods/` contains optional, separately retrieved web methods. The
-  current authentication/session, access-control, browser-input, and
-  server-input packages provide focused family procedures over one shared
-  evidence, contribution, and handoff contract. They are not part of the
-  three-skill default install. Copy a selected method folder beside the default
-  skills to make it available to Codex.
+  current authentication/session, access-control, browser-input, server-input,
+  fetch/file/XML, and structured-data packages provide focused family
+  procedures over one shared evidence, contribution, and handoff contract.
+  They are not part of the three-skill default install. Copy a selected method
+  folder beside the default skills to make it available to Codex.
 
 The default is one Codex agent. Start with `$operate-synapse`, do not spawn
 sub-agents, and load either methodology when needed. The same agent can move
