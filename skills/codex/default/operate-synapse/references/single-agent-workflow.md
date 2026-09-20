@@ -40,6 +40,12 @@ When moving between `$synapse-web-pentesting` and
 
 This is one agent changing methods, not a delegation or handoff. Record a
 durable checkpoint only when it helps recovery or another independent consumer.
+Accepted methodology analysis records the selected package ID and digest in
+`methodRef`; keep that attribution and its contribution receipt across the
+transition. For explicit examples, restart recovery, and missing-package or
+digest-mismatch remedies, read the Web Pentesting
+`references/selection-and-resumption.md` guide from the installed default
+profile or hosted guidance catalog.
 
 ## Converge
 

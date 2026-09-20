@@ -11,6 +11,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from helpers import isolated_state
+from synapse_mcp import guidance
 from synapse_mcp.app.actions import (
     ActionRegistry, ActionRequest, ExecutionContext, PassThroughPolicyEvaluator, REGISTRY, Success,
 )
@@ -56,7 +57,172 @@ def _analysis(request_id: str, subject_id: str, *, conclusion: str, evidence_ref
     }
 
 
+def _method_analysis(
+    request_id: str,
+    subject_id: str,
+    evidence_id: str,
+    *,
+    candidate_class: str,
+    method_id: str,
+    method_digest: str,
+    reason: str,
+    url: str = "https://example.test/items",
+) -> dict:
+    return {
+        "schemaVersion": "1.1",
+        "requestId": request_id,
+        "producer": {"name": "transition-fixture", "version": "1.0.0"},
+        "evidenceRefs": [evidence_id],
+        "entities": {"analyses": [{
+            "kind": "candidate",
+            "subject": {
+                "entityId": subject_id,
+                "url": url,
+                "method": "GET",
+            },
+            "candidateClass": candidate_class,
+            "knowledgeState": "inferred",
+            "confidence": "medium",
+            "reason": reason,
+            "supportingEvidenceIds": [evidence_id],
+            "methodRef": {"id": method_id, "digest": f"sha256:{method_digest}"},
+        }]},
+    }
+
+
 class ContributionMethodRecoveryTests(unittest.TestCase):
+    def test_web_cve_web_method_refs_recover_after_process_restart(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with isolated_state(root, store_version="sqlite-v2"):
+                workspace.create_workspace("engagement", hosts=["example.test"])
+                registry = ActionRegistry(PassThroughPolicyEvaluator())
+                registry.register(REGISTRY.get("workspace.ingest_data"))
+                registry.freeze()
+
+                surface = _submit(registry, {
+                    "schemaVersion": "1.0",
+                    "requestId": "transition-surface",
+                    "producer": {"name": "transition-fixture", "version": "1.0.0"},
+                    "entities": {"endpoints": [{
+                        "url": "https://example.test/items",
+                        "method": "GET",
+                        "source": "saved-transition-fixture",
+                    }]},
+                })
+                cve_surface = _submit(registry, {
+                    "schemaVersion": "1.0",
+                    "requestId": "transition-component-evidence",
+                    "producer": {"name": "transition-fixture", "version": "1.0.0"},
+                    "entities": {"endpoints": [{
+                        "url": "https://example.test/component",
+                        "method": "GET",
+                        "source": "saved-transition-fixture",
+                    }]},
+                })
+                self.assertIsInstance(surface, Success)
+                self.assertIsInstance(cve_surface, Success)
+                surface_receipt = surface.payload.model_dump(mode="json")
+                cve_surface_receipt = cve_surface.payload.model_dump(mode="json")
+                subject_id = surface_receipt["canonicalRecordIds"]["endpoints"][0]
+                cve_subject_id = cve_surface_receipt["canonicalRecordIds"]["endpoints"][0]
+                evidence_id = surface_receipt["evidenceIds"][0]
+                cve_evidence_id = cve_surface_receipt["evidenceIds"][0]
+                digests = {
+                    package["id"]: package["sha256"]
+                    for package in guidance.build_guidance_snapshot().packages
+                }
+
+                web_first = _submit(registry, _method_analysis(
+                    "transition-web-first",
+                    subject_id,
+                    evidence_id,
+                    candidate_class="configuration",
+                    method_id="synapse-web-configuration",
+                    method_digest=digests["synapse-web-configuration"],
+                    reason="Saved version evidence requires an applicability check.",
+                ))
+                cve = _submit(registry, _method_analysis(
+                    "transition-cve",
+                    cve_subject_id,
+                    cve_evidence_id,
+                    candidate_class="cve_applicability",
+                    method_id="synapse-cve-intelligence",
+                    method_digest=digests["synapse-cve-intelligence"],
+                    reason="The affected feature is absent from the saved deployment evidence.",
+                    url="https://example.test/component",
+                ))
+                web_return = _submit(registry, _method_analysis(
+                    "transition-web-return",
+                    subject_id,
+                    evidence_id,
+                    candidate_class="configuration",
+                    method_id="synapse-web-configuration",
+                    method_digest=digests["synapse-web-configuration"],
+                    reason="CVE applicability is unsupported; continue the Web configuration question.",
+                ))
+                for result in (web_first, cve, web_return):
+                    self.assertIsInstance(result, Success)
+                first_receipt = web_first.payload.model_dump(mode="json")
+                cve_receipt = cve.payload.model_dump(mode="json")
+                return_receipt = web_return.payload.model_dump(mode="json")
+                self.assertEqual(
+                    first_receipt["canonicalRecordIds"]["observations"],
+                    return_receipt["canonicalRecordIds"]["observations"],
+                )
+                self.assertLess(first_receipt["committedRevision"], cve_receipt["committedRevision"])
+                self.assertLess(cve_receipt["committedRevision"], return_receipt["committedRevision"])
+
+                fresh_code = """
+import json
+from pathlib import Path
+from synapse_mcp.app.facade import CompactFacadeService, FacadeCallContext, ResourceReferenceService
+root = Path(__import__('os').environ['SYNAPSE_ROOT'])
+context = CompactFacadeService(resources=ResourceReferenceService(state_path=root / 'transition-resources.json')).invoke(
+    'context.query', {'workspaceId': 'engagement', 'targets': ['example.test'], 'maxTokens': 30000},
+    context=FacadeCallContext(principal_id='consumer:transition-fresh', workspace_id='engagement',
+                              authority_session_id='transition-fresh', execution_profile='observe'))
+assert context.outcome_kind == 'success', context.outcome_kind
+by_method = {
+    item['attributes']['sourceAttribution']['methodRef']['id']: item
+    for item in context.result['candidates']
+    if 'methodRef' in item.get('attributes', {}).get('sourceAttribution', {})
+}
+print(json.dumps({'byMethod': by_method, 'workItems': context.result['workItems']}))
+"""
+                environment = os.environ.copy()
+                environment.update({
+                    "SYNAPSE_ROOT": str(root),
+                    "SYNAPSE_DATA_DIR": str(root),
+                    "SYNAPSE_REPORTS_DIR": str(root / "reports"),
+                    "PYTHONPATH": str(Path(__file__).resolve().parents[1]),
+                })
+                fresh = subprocess.run(
+                    [sys.executable, "-c", fresh_code],
+                    cwd=root,
+                    env=environment,
+                    capture_output=True,
+                    text=True,
+                    timeout=20,
+                    check=False,
+                )
+                self.assertEqual(fresh.returncode, 0, fresh.stderr)
+                recovered = json.loads(fresh.stdout)
+                self.assertEqual(recovered["workItems"], [])
+                web = recovered["byMethod"]["synapse-web-configuration"]
+                recovered_cve = recovered["byMethod"]["synapse-cve-intelligence"]
+                self.assertEqual(
+                    web["attributes"]["sourceAttribution"]["methodRef"]["digest"],
+                    f"sha256:{digests['synapse-web-configuration']}",
+                )
+                self.assertIn("continue the Web configuration question", web["attributes"]["reason"])
+                self.assertEqual(
+                    recovered_cve["attributes"]["sourceAttribution"]["methodRef"]["digest"],
+                    f"sha256:{digests['synapse-cve-intelligence']}",
+                )
+                self.assertEqual(web["attributes"]["subjectEntityId"], subject_id)
+                self.assertEqual(recovered_cve["attributes"]["subjectEntityId"], cve_subject_id)
+
     def test_candidate_contrary_inconclusive_retry_and_process_restart(self) -> None:
         with TemporaryDirectory() as temporary:
             root = Path(temporary)

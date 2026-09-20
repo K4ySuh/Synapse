@@ -74,6 +74,9 @@ class SingleAgentDefaultTests(unittest.TestCase):
     def test_web_and_cve_methods_cover_sequential_operational_decisions(self) -> None:
         web = (DEFAULT_ROOT / "synapse-web-pentesting" / "SKILL.md").read_text(encoding="utf-8")
         cve = (DEFAULT_ROOT / "synapse-cve-intelligence" / "SKILL.md").read_text(encoding="utf-8")
+        selection = (
+            DEFAULT_ROOT / "synapse-web-pentesting" / "references" / "selection-and-resumption.md"
+        ).read_text(encoding="utf-8")
         for phrase in (
             "Establish the engagement picture",
             "Select the current method",
@@ -93,6 +96,23 @@ class SingleAgentDefaultTests(unittest.TestCase):
         self.assertIn("Do not execute, import, install, build", (
             DEFAULT_ROOT / "synapse-cve-intelligence" / "references" / "source-and-poc-analysis.md"
         ).read_text(encoding="utf-8"))
+        for heading in (
+            "## Short normal workflow",
+            "## Explicit selection examples",
+            "## Missing method remedy",
+            "## Digest mismatch remedy",
+        ):
+            self.assertIn(heading, selection)
+        for phrase in (
+            "Honor an explicit operator method choice",
+            "version 1.1 contribution route",
+            "Web assessment can select",
+            "Continue or create a work item only when durable",
+            "do not rewrite old contributions",
+        ):
+            self.assertIn(phrase, selection)
+        self.assertIn("methodRef", cve)
+        self.assertIn("selection-and-resumption.md", cve)
 
     def test_main_web_method_routes_to_complete_optional_procedures(self) -> None:
         web = (DEFAULT_ROOT / "synapse-web-pentesting" / "SKILL.md").read_text(encoding="utf-8")

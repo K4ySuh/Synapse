@@ -104,8 +104,12 @@ by the MCP client. For the shared Web Pentesting reference, use the catalog's
 `synapse://guidance/skills/synapse-web-pentesting/references/auth-and-access-control.md`
 resource when hosted, or the sibling
 `synapse-web-pentesting/references/auth-and-access-control.md` file under the
-installed skill root. MCP resource discovery does not install or activate Codex
-skills; local installation remains
+installed skill root. Selection, Web/CVE transition, restart, and package
+version remedies are hosted at
+`synapse://guidance/skills/synapse-web-pentesting/references/selection-and-resumption.md`
+and installed at
+`synapse-web-pentesting/references/selection-and-resumption.md`. MCP resource
+discovery does not install or activate Codex skills; local installation remains
 the supported skill-loading path.
 
 Selecting `multi-agent-compat` requires both its skill directory and the
