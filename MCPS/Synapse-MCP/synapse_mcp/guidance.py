@@ -40,6 +40,8 @@ GUIDANCE_PACKAGES = (
     GuidancePackage("synapse-web-server-input", "method", "Select for SQL, command, template, and SSI interpretation boundaries", "web-methods", "synapse-web-server-input", "synapse-web-pentesting"),
     GuidancePackage("synapse-web-fetch-file-xml", "method", "Select for server-side fetch, file and path handling, archive, and XML boundaries", "web-methods", "synapse-web-fetch-file-xml", "synapse-web-pentesting"),
     GuidancePackage("synapse-web-structured-data", "method", "Select for GraphQL and serialization or deserialization boundaries", "web-methods", "synapse-web-structured-data", "synapse-web-pentesting"),
+    GuidancePackage("synapse-web-configuration", "method", "Select for headers, CORS, cookies, TLS, and configuration evidence", "web-methods", "synapse-web-configuration", "synapse-web-pentesting"),
+    GuidancePackage("synapse-web-business-logic", "method", "Select for workflow, state, ordering, concurrency, and business-rule evidence", "web-methods", "synapse-web-business-logic", "synapse-web-pentesting"),
 )
 
 
