@@ -94,11 +94,28 @@ class SingleAgentDefaultTests(unittest.TestCase):
             DEFAULT_ROOT / "synapse-cve-intelligence" / "references" / "source-and-poc-analysis.md"
         ).read_text(encoding="utf-8"))
 
-    def test_main_web_method_routes_to_two_complete_optional_procedures(self) -> None:
+    def test_main_web_method_routes_to_complete_optional_procedures(self) -> None:
         web = (DEFAULT_ROOT / "synapse-web-pentesting" / "SKILL.md").read_text(encoding="utf-8")
+        contract = (
+            DEFAULT_ROOT / "synapse-web-pentesting" / "references" / "method-contract.md"
+        ).read_text(encoding="utf-8")
         self.assertIn("Honor an explicit operator method choice", web)
         self.assertIn("specific coverage gap", web)
-        for method in ("synapse-web-auth-session", "synapse-web-access-control"):
+        for heading in (
+            "## Recover and bound the question",
+            "## Use live capabilities",
+            "## Contribute to canonical workspace truth",
+            "## Stop and hand back",
+        ):
+            self.assertIn(heading, contract)
+        for phrase in (
+            "supporting and contrary evidence IDs",
+            "version 1.1",
+            "methodRef",
+            "receipt",
+        ):
+            self.assertIn(phrase, contract)
+        for method in codex.WEB_METHOD_SKILLS:
             self.assertIn(f"${method}", web)
             procedure = (WEB_METHOD_ROOT / method / "references" / "selection.md").read_text(
                 encoding="utf-8"
@@ -108,15 +125,12 @@ class SingleAgentDefaultTests(unittest.TestCase):
                 "## Required context",
                 "## Test alternative explanations",
                 "## Weigh evidence and unknowns",
-                "## Contribute canonically",
                 "## Stop or hand back",
             ):
                 self.assertIn(heading, procedure)
-            self.assertIn(f"ID `{method}`", procedure)
-            self.assertIn("supporting and contrary evidence IDs", procedure)
-            self.assertIn("version 1.1", procedure)
-            self.assertIn("methodRef", procedure)
-            self.assertIn("receipt", procedure)
+            self.assertIn("method ID", procedure)
+            self.assertIn(f"`{method}`", procedure)
+            self.assertIn("references/method-contract.md", procedure)
 
     def test_assets_are_selected_explicitly_and_application_stays_provider_neutral(self) -> None:
         self.assertEqual(codex.validate_assets(), [])

@@ -20,6 +20,11 @@ For native skills installed beside the default profile, open
 skill root. The catalog maps hosted URIs; relative Markdown paths do not resolve
 through MCP by themselves.
 
+Apply the common contribution and handoff contract at
+`synapse://guidance/skills/synapse-web-pentesting/references/method-contract.md`,
+or `synapse-web-pentesting/references/method-contract.md` in the native default
+skill tree.
+
 ## Required context
 
 Recover the workspace revision and target, then gather only what the comparison
@@ -82,30 +87,12 @@ property-level difference, alternate route or method, workflow precondition,
 bulk behavior, or missing telemetry. A negative pair covers only that actor,
 subject, operation, and state.
 
-## Contribute canonically
-
-Describe the live `workspace.ingest_data` action and its
-`x-synapse-contribution` contract. Submit a `contribution.v1` version 1.1
-analysis through the existing passive action route, using a stable subject and
-candidate class or a coverage gap. Include the inferred or reported knowledge
-state, confidence, reason, supporting and contrary evidence IDs, producer, and
-a `methodRef` with ID `synapse-web-access-control` and the package digest from
-the current guidance catalog. An inconclusive comparison or missing baseline
-remains inconclusive or a coverage gap.
-
-Use the returned canonical IDs, receipt, and committed revision. If the commit
-outcome is uncertain, retry the same request ID only with the identical target
-and payload. The contribution must not claim direct observation, execution
-success, validation outcome, operator review, or finding status. Those remain
-server-derived or explicit lifecycle decisions.
-
 ## Stop or hand back
 
-Stop after the bounded comparison has an evidence-backed conclusion, an
-inconclusive result, or a precise coverage gap and the result is committed.
-Also stop on scope or authority denial, approval-required or unknown execution
-outcome, unsafe state change, loss of either actor baseline, anti-automation
-boundary, or inability to observe the expected effect safely.
+Follow the common contribution and stop contract using method ID
+`synapse-web-access-control` and the current catalog digest. Also stop on loss
+of either actor baseline, an anti-automation boundary, or inability to observe
+the expected effect safely.
 
 Hand back to `$synapse-web-pentesting` with the subject, actor matrix,
 conclusion, evidence, contrary evidence, unknowns, receipt, revision, and next

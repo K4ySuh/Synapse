@@ -1,0 +1,13 @@
+interface:
+  display_name: "Synapse Server Input"
+  short_description: "Analyze server-side input handling evidence"
+  default_prompt: "Use $synapse-web-server-input to analyze the selected server-side input question from saved Synapse evidence."
+
+policy:
+  allow_implicit_invocation: true
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "synapse"
+      description: "Local Synapse MCP server for scoped context, evidence, and guarded execution."

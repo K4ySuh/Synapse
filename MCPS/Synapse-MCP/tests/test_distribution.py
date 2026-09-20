@@ -131,7 +131,13 @@ class DistributionTests(unittest.TestCase):
         )
         self.assertEqual(len(codex.MULTI_AGENT_COMPAT_SKILLS), 8)
         self.assertEqual(codex.codex_skills_dir(), guidance.default_skills_dir())
-        self.assertEqual(len(guidance.guidance_documents()), 12)
+        documents = guidance.guidance_documents()
+        self.assertEqual(len(documents), len({document.uri for document in documents}))
+        for method in codex.WEB_METHOD_SKILLS:
+            self.assertEqual(
+                {document.path for document in documents if document.skill == method},
+                {"SKILL.md", "references/selection.md"},
+            )
         for profile in codex.CONFIG_PROFILES:
             config = (codex.codex_config_dir() / f"{profile}.toml").read_text(encoding="utf-8")
             self.assertIn("[mcp_servers.synapse]", config)

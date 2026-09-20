@@ -36,6 +36,8 @@ GUIDANCE_PACKAGES = (
     GuidancePackage("synapse-cve-intelligence", "entry", "Vulnerability intelligence methodology", "default", "synapse-cve-intelligence"),
     GuidancePackage("synapse-web-auth-session", "method", "Select for authentication and session evidence, including token, cookie, and CSRF questions", "web-methods", "synapse-web-auth-session", "synapse-web-pentesting"),
     GuidancePackage("synapse-web-access-control", "method", "Select for actor, object, function, and property authorization comparisons", "web-methods", "synapse-web-access-control", "synapse-web-pentesting"),
+    GuidancePackage("synapse-web-browser-input", "method", "Select for browser input, executable client contexts, and redirect decisions", "web-methods", "synapse-web-browser-input", "synapse-web-pentesting"),
+    GuidancePackage("synapse-web-server-input", "method", "Select for SQL, command, template, and SSI interpretation boundaries", "web-methods", "synapse-web-server-input", "synapse-web-pentesting"),
 )
 
 

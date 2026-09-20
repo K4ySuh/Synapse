@@ -266,15 +266,17 @@ def _verify_install(python: str, target: Path, outside: Path, expected_prompt: s
     runtime_root.mkdir(parents=True, exist_ok=True)
     expected_digest = hashlib.sha256(expected_prompt.encode()).hexdigest()
     code = """
-import hashlib, sys
+import hashlib, json, sys
 from synapse_mcp.integrations.codex import codex_skills_dir, validate_assets
-from synapse_mcp.guidance import guidance_catalog, guidance_documents, read_guidance, skills_dir
+from synapse_mcp.guidance import GUIDANCE_PACKAGES, guidance_catalog, guidance_documents, read_guidance, skills_dir
 from synapse_mcp.state.migrations import MIGRATION_NAMES, migration_text
 from synapse_mcp.transport.stdio_server import read_main_prompt
 prompt = read_main_prompt()
 assert hashlib.sha256(prompt.encode()).hexdigest() == sys.argv[1]
 catalog = guidance_catalog()
-assert len(guidance_documents()) == 12
+documents = guidance_documents()
+assert len(documents) == len({document.uri for document in documents})
+assert len(json.loads(catalog)['packages']) == len(GUIDANCE_PACKAGES)
 assert skills_dir('default').is_relative_to(sys.argv[2])
 assert skills_dir('web-methods').is_relative_to(sys.argv[2])
 assert codex_skills_dir('web-methods') == skills_dir('web-methods')
@@ -347,6 +349,7 @@ from mcp import Client
 from synapse_mcp.app.actions import REGISTRY
 from synapse_mcp.app.facade.catalog import ActionCatalogService
 from synapse_mcp.app.facade.projections import SurfaceMode
+from synapse_mcp.guidance import GUIDANCE_PACKAGES
 from synapse_mcp.transport.modern.config import ModernAdapterConfig
 from synapse_mcp.transport.modern.server import build_runtime
 assert len(REGISTRY.descriptors()) == 174
@@ -371,8 +374,8 @@ async def verify_guidance():
         resource = await client.read_resource('synapse://prompt/main')
         assert prompt.messages[0].content.text == resource.contents[0].text
         catalog = json.loads((await client.read_resource('synapse://guidance/catalog')).contents[0].text)
-        assert len(catalog['documents']) == 12
-        assert len([item for item in catalog['packages'] if item['kind'] == 'method']) == 2
+        assert len(catalog['packages']) == len(GUIDANCE_PACKAGES)
+        assert len([item for item in catalog['packages'] if item['kind'] == 'method']) == len([package for package in GUIDANCE_PACKAGES if package.kind == 'method'])
         ingest = next(tool for tool in tools.tools if tool.name == 'actions.run_passive')
         assert 'actionId' in ingest.input_schema['properties']
 asyncio.run(verify_guidance())

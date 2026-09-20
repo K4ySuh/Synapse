@@ -31,6 +31,7 @@ from synapse_mcp.app.facade.contracts import FacadeCallContext, FacadeEnvelope, 
 from synapse_mcp.app.facade.projections import SurfaceMode
 from synapse_mcp.core import paths, workspace
 from synapse_mcp.guidance import (
+    GUIDANCE_PACKAGES,
     GUIDANCE_CATALOG_URI,
     MAIN_PROMPT_URI,
     guidance_documents,
@@ -536,8 +537,11 @@ class ModernPersistenceAndResourceTests(ModernAdapterFixture, unittest.IsolatedA
 
             catalog_result = await client.read_resource(GUIDANCE_CATALOG_URI)
             catalog = json.loads(catalog_result.contents[0].text)
-            self.assertEqual(len(catalog["documents"]), 12)
-            self.assertEqual(len([item for item in catalog["packages"] if item["kind"] == "method"]), 2)
+            self.assertEqual(len(catalog["documents"]), len(guidance_documents()))
+            self.assertEqual(
+                len([item for item in catalog["packages"] if item["kind"] == "method"]),
+                len([package for package in GUIDANCE_PACKAGES if package.kind == "method"]),
+            )
             for document in catalog["documents"]:
                 content = await client.read_resource(document["uri"])
                 body = content.contents[0].text
