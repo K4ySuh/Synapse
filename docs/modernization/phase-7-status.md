@@ -114,6 +114,19 @@ compatibility observations, not values to hardcode into application behavior.
   model label, knowledge state, contrary evidence, and coverage-gap conclusion.
   No migration, rollback engine, discovery-ranking change, or client comparison
   was added.
+- 7R7.2 has a bounded but unfinished
+  [six-case client comparison](phase-7-client-comparison.md). Codex CLI 0.154.0
+  with Daybreak Blue/High analyzed all six fictional cases on both routes and
+  the selected method covered all 220 C5 endpoints without a material
+  conclusion, coverage, or evidence-attribution regression. The retained
+  helper persisted five unnecessary confirmed findings in C3/C6; the method
+  route avoided those conclusions. The method route did not persist its four
+  useful C1/C4/C5/C6 results because of a too-low grant risk ceiling, one
+  strict outer-contract error followed by idempotency conflict, and a grant
+  that expired during an interrupted interval. Its required live restart was
+  therefore not run. The 120-call/350,000 non-cached-token budget stopped at
+  83 calls and 328,700 tokens because a fresh session's observed baseline
+  exceeded the 21,300-token remainder. The checkpoint remains pending.
 
 Candidate identity is reliable for records created or curated after 7R1.1;
 historical duplicate diagnostics still require operator review. The default
@@ -129,7 +142,20 @@ establish that the earlier environment-sensitive behavior is universally
 resolved; independent repository resource, archive, installed-content/digest,
 skill/reference, runtime-construction, and negotiation checks also pass.
 
+No discovery-ranking change is justified by the comparison. For the tested
+configuration family, retain the explicit helper as an operational fallback
+until the method contribution path completes; this does not reverse the
+method-first documentation for other families. Default installation remains
+the three skills returned by `synapse-codex-assets --skills-dir`. Optional
+methods remain separately copied from `--skills-profile web-methods`; removing
+one optional folder leaves canonical state and historical attribution readable.
+
 The [checkpoint ledger](phase-7-checkpoints.md) records the exact results. The
 full serial scope and deferred boundaries are in the
-[Phase 7 plan](phase-7-plan.md). The exact next action is 7R7.2, the bounded
-saved-case client comparison; no client comparison was started in 7R7.1.
+[Phase 7 plan](phase-7-plan.md). The exact next action remains 7R7.2: declare a
+new bounded continuation, preflight a long-enough low-risk grant and fresh
+idempotency keys, persist only unfinished C1/C4/C5/C6 method outputs, then run
+one fresh C6 restart recovery. Do not repeat the completed helper cases. After
+that, Beta testing order is fresh setup, supplied-data import, context
+traversal, method contribution, restart/second consumer, report and bundle
+recovery, then separately authorized real integration testing.

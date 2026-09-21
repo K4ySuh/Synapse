@@ -14,6 +14,7 @@ development instructions.
 - [Current Phase 7 status](phase-7-status.md)
 - [Phase 7 implementation plan](phase-7-plan.md)
 - [Phase 7 checkpoint ledger](phase-7-checkpoints.md)
+- [Phase 7 bounded client comparison](phase-7-client-comparison.md)
 - [Operations and recovery](../Operations.md)
 
 The frozen baseline and Stage A checkpoint remain only because inventory and
