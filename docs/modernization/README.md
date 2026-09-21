@@ -63,14 +63,14 @@ clients or builds.
 
 ## Phase 7 selectable-method roadmap
 
-Phase 7 starts from reviewed Beta commit `8134673a` and proceeds serially from
-correctness repairs through bounded ingestion/context, typed methodology
-contributions, selectable method content, retained compatibility, and a small
-client comparison. The [status](phase-7-status.md) records the current limits,
+Phase 7 is complete from reviewed Beta commit `8134673a`: correctness repairs,
+bounded ingestion/context, typed methodology contributions, selectable method
+content, retained compatibility, and the small client comparison all have
+recorded results. The [status](phase-7-status.md) records the current limits,
 the [plan](phase-7-plan.md) fixes scope and dependencies, and the
-[checkpoint ledger](phase-7-checkpoints.md) identifies the next executable
-action. Phase 6 results remain historical evidence; its retired gates are not
-restored.
+[checkpoint ledger](phase-7-checkpoints.md) hands off the next executable work
+to ordered Beta testing. Phase 6 results remain historical evidence; its
+retired gates are not restored.
 
 ## Architecture decisions
 

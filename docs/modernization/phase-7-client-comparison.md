@@ -27,6 +27,14 @@ cases C4-C6, and one fresh selected-method client/server process that recovers
 C6. Raw client event logs and temporary workspaces stay under the gitignored
 `DATA/` runtime tree and are not release artifacts.
 
+The first budget ended before selected-method persistence and restart. Before
+resuming, the continuation fixed a separate **36 MCP-call or 180,000
+non-cached-input-plus-output-token** ceiling: at most 24 calls for recovery and
+the four unfinished writes, and 12 for a fresh C6 restart. A denied read-only
+preflight, one malformed pre-dispatch envelope, a four-call contract-exact
+write session, and the restart used 26 calls and 134,430 budgeted tokens. No
+original helper case or selected-method analysis was repeated.
+
 ## Fixed fictional cases and scoring oracle
 
 | Case | Saved evidence and question | Expected supported conclusion | Expected unsupported conclusion / required restraint |
@@ -51,13 +59,15 @@ not count.
 
 ## Results
 
-The live comparison is **unfinished at the fixed usage boundary**. It is useful
-evidence, but it is not a 7R7.2 pass. Both routes analyzed all six cases and
-the selected method traversed all 220 C5 endpoints. The selected route made no
-material analysis-accuracy or coverage regression: both routes stated all six
-expected conclusions, made no unsupported impact claim, and attributed every
-case to its correct canonical evidence ID. Persistence and restart did regress,
-however, so fewer noisy findings is not treated as success.
+The live comparison and its separately budgeted continuation now satisfy
+7R7.2. Both routes analyzed all six cases and the selected method traversed all
+220 C5 endpoints. Both routes stated all six expected conclusions, made no
+unsupported impact claim, and attributed every case to its correct canonical
+evidence ID. The initial selected-method run ended before persistence; the
+continuation committed the four useful C1/C4/C5/C6 analyses and a fresh
+client/server process recovered C6 with its evidence, limitation, method ID,
+and digest. The helper's five unnecessary findings remain an observed noise
+difference, not a universal superiority claim.
 
 | Measure | Retained helper | Selected method |
 | --- | ---: | ---: |
@@ -65,9 +75,9 @@ however, so fewer noisy findings is not treated as success.
 | Unsupported impact conclusions in client summaries | 0 | 0 |
 | Correct case evidence attribution | 6/6 | 6/6 |
 | Analysis omissions | 0 | 0 |
-| Durable relevant findings/analyses | 3 | 0 |
+| Durable relevant findings/analyses in the initial run | 3 | 0 |
 | Durable unnecessary findings/analyses | 5 | 0 |
-| Required durable outputs omitted | 0 | 4 (C1, C4, C5, C6) |
+| Required durable outputs omitted at the initial stop | 0 | 4 (C1, C4, C5, C6) |
 | MCP calls | 26 scored + 10 failed setup calls | 47 |
 | Non-success MCP calls | 2 scored + 3 failed setup calls | 6 |
 | Operator corrections | 1 | 3 |
@@ -89,20 +99,32 @@ The selected method correctly treated C2 as benign, C3 as inapplicable to the
 stated browser-policy question, C4 as an evidence gap, C5 as a missing `Secure`
 attribute without observed cleartext transport, and C6 as weak CSP syntax
 without an injection path or execution evidence. It also recovered the C5
-account response after bounded pagination. None of its four useful C1/C4/C5/C6
-outputs committed. C1 first met an under-scoped risk ceiling, then a strict
-v1.1 rejection for a caller-added legacy `metadata` field, then an idempotency
-fingerprint conflict when that field was removed but the key was reused. The
-C4-C6 session occurred after a user-interrupted interval and its two-hour grant
-had expired. The fixed budget had 21,300 non-cached tokens left, below every
-observed fresh-session baseline, so the required live restart was not started.
+account response after bounded pagination. The initial run committed none of
+its four useful outputs: C1 encountered a risk ceiling, forbidden legacy outer
+metadata, and then an idempotency conflict; the C4-C6 grant expired during an
+interrupted interval.
 
-This configuration-family result retains the explicit helper as the practical
-fallback. It does not reverse the method-first default for other families or
-justify a modern discovery-ranking change. A later bounded continuation must
-preflight authority lifetime/risk, use contract-exact outer arguments and a
-fresh idempotency key, persist only the unfinished C1/C4/C5/C6 results, and run
-one fresh restart recovery. It must not repeat the completed helper cases.
+The continuation installed a six-hour low-risk grant limited to `jobs.list`
+and `workspace.ingest_data`. One denied `jobs.list` preflight exposed an
+under-scoped first grant. The corrected recovery session then spent 18 calls,
+including unnecessary repeated guidance reads, before sending a version 1.1
+body with legacy field names; strict validation rejected it before dispatch.
+A four-call contract-exact session used fresh request and idempotency identities
+and committed C1, C4, C5, and C6 at revisions 47, 54, 61, and 68. Their receipts
+are `submission-6fc5d2efab16b4547bafa3a7`,
+`submission-fc1c911f6690623588664c1f`,
+`submission-71137afde93dfbf03bf41b5c`, and
+`submission-d0ece89b00a3ab1f6a007a6b`. A fresh process used three read-only
+calls to recover C6 and made no contribution.
+
+The continuation used 853,690 input tokens, including 731,743 cached, 12,483
+output tokens, 6,846 reasoning-output tokens, and 134,430 budgeted non-cached
+input plus output. Across both declared budgets, the exercise used 109 MCP
+calls and 463,130 budgeted tokens; budgets remain separate because the first
+one had already stopped. The explicit helper remains a practical fallback for
+this configuration family during broader Beta testing because the selected
+route required corrections even though it ultimately persisted cleaner output.
+No discovery-ranking change is justified.
 
 ## Exact client and byte record
 
@@ -142,7 +164,8 @@ outer contribution contract; the final idempotency conflict was left
 unfinished. No other case or route was repeated. These successive concrete C1
 failures used 25 repeat/setup calls rather than the planned 12-call reserve;
 every session cap and the fixed 120-call total still held. This allocation
-deviation is another reason the checkpoint remains pending.
+deviation explains the initial stop and remains a recorded efficiency
+limitation; the separately bounded continuation resolves the acceptance gap.
 
 ## Deterministic validation and restart boundary
 
@@ -156,10 +179,10 @@ relation-write paths, and two selected-method attribution/restart scenarios.
 The restart tests use fresh Python processes and recover method ID, digest,
 supporting/contrary evidence, uncertainty, and stable candidate identity.
 
-That deterministic pass is not substituted for the missing live C6 restart.
-A concrete restart example after the unfinished contribution succeeds is:
+The deterministic pass supplements rather than substitutes for the completed
+live C6 restart. The exercised restart sequence was:
 
-1. Record the returned receipt, committed revision, subject, evidence ID, and
+1. Record the returned receipt, revision 68, subject, evidence ID, and
    `synapse-web-configuration` digest.
 2. Exit the client and server.
 3. Start a fresh `modern-compact` client/server process and call
@@ -186,9 +209,8 @@ labels are useful, review its output against route context, and avoid blanket
 ingestion. No state migration, action removal, legacy-fixture rewrite, or
 discovery-ranking rollback is required.
 
-The next Beta action is the bounded persistence/restart continuation described
-above. After that passes, testing order is: fresh setup; supplied-data import;
-context traversal; method selection and contribution; restart and second
-consumer; report and bundle recovery; then separately authorized real
-integration testing. Phase 7 remains open until the persistence/restart
-continuation completes within its newly declared budget.
+The next action is Beta testing in this order: fresh setup; supplied-data
+import; context traversal; method selection and contribution; restart and
+second consumer; report and bundle recovery; then separately authorized real
+integration testing. Phase 7 is complete; do not open another modernization
+phase to perform that testing.

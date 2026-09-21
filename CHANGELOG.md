@@ -372,12 +372,12 @@ durable dispatch and continuation truth.
   compare the retained configuration helper with the selected configuration
   method under one recorded Codex/Daybreak/High budget. Both routes covered the
   cases and attributed evidence correctly, including a 220-endpoint inventory,
-  while the helper persisted five unnecessary findings. The selected route's
-  useful contributions and live restart remain pending after narrow authority,
-  strict contribution, idempotency, and grant-expiry failures reached the
-  bounded stopping point. The explicit helper is retained for this family; no
-  discovery ranking, Registry, wire, state, or frozen compatibility contract
-  changed.
+  while the helper persisted five unnecessary findings. A separately bounded
+  continuation committed the selected route's four useful analyses and a fresh
+  client/server process recovered C6 evidence, limitations, method ID, and
+  digest without another write. The explicit helper remains a practical Beta
+  fallback because the selected route needed corrections; no discovery
+  ranking, Registry, wire, state, or frozen compatibility contract changed.
 
 - **Phase 7R7.1 installed-release validation.** The documented setup now starts
   with `modern-compact` and lists browser, scanner, SQLite fallback, and live
