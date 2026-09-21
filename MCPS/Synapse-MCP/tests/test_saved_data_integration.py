@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from helpers import isolated_state
 from synapse_mcp import guidance
@@ -19,12 +20,70 @@ from synapse_mcp.app.facade import (
     ResourceReferenceService,
 )
 from synapse_mcp.core import documentation, saved_spec_import, workspace
+from synapse_mcp.transport import stdio_server  # noqa: F401 - binds retained Registry executors
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "integrations" / "saved-openapi.json"
 
 
 class SavedDataIntegrationPilotTests(unittest.TestCase):
+    def test_explicit_retained_helper_uses_registry_and_canonical_state(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with isolated_state(root, store_version="sqlite-v2"):
+                workspace.create_workspace("helper", hosts=["api.example.test"])
+                workspace.ingest_data(
+                    "helper",
+                    "api.example.test",
+                    "adapter_result",
+                    "saved_surface",
+                    "json",
+                    json.dumps({
+                        "entities": {"endpoints": [{
+                            "url": "https://api.example.test/graphql",
+                            "path": "/graphql",
+                            "method": "POST",
+                        }]},
+                    }),
+                )
+                service = ActionExecutionService(
+                    registry=REGISTRY,
+                    resources=ResourceReferenceService(state_path=root / "resources.json"),
+                    operations=OperationHandleService(state_path=root / "operations.json"),
+                )
+                context = FacadeCallContext(
+                    principal_id="consumer:explicit-helper",
+                    workspace_id="helper",
+                    authority_session_id="session:explicit-helper",
+                    execution_profile="legacy",
+                )
+                with patch.object(REGISTRY, "execute", wraps=REGISTRY.execute) as execute:
+                    result = service.run(
+                        operation="actions.run_passive",
+                        action_id="graphql.analyze_workspace",
+                        arguments={
+                            "workspaceId": "helper",
+                            "target": "api.example.test",
+                            "ingest": True,
+                        },
+                        context=context,
+                        passive_only=True,
+                    )
+                self.assertEqual(result.outcome_kind, "success")
+                execute.assert_called_once()
+                self.assertEqual(execute.call_args.args[0], "graphql.analyze_workspace")
+                self.assertEqual(result.result["candidateCount"], 1)
+                evidence_id = result.result["ingestion"]["evidenceId"]
+                observations = workspace._activated_repository("helper").collection(
+                    "api.example.test", "observations"
+                )
+                candidate = next(
+                    item for item in observations
+                    if item.get("type") == "introspection_candidate"
+                )
+                self.assertIn(evidence_id, candidate["evidenceIds"])
+                self.assertTrue((root / "workspaces" / "helper" / "state-v2" / "state.sqlite3").is_file())
+
     def test_saved_spec_reaches_method_contribution_without_heuristic_action(self) -> None:
         with TemporaryDirectory() as temporary:
             root = Path(temporary)

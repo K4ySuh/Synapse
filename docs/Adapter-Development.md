@@ -1,14 +1,38 @@
 # Adapter Development
 
-Synapse adapters are modular assessment components that plug into the local
-workspace, evidence, scope, credential, action, and finding lifecycle. They
-should transform assessment signals into structured operational knowledge that
-operators and AI agents can reason over.
+Synapse adapters are modular integrations with the local workspace, evidence,
+scope, credential, action, and finding lifecycle. New integrations should
+provide deterministic input/output contracts, parsers, extraction,
+normalization, and bounded executors where needed. Store source and evidence
+references so an operator or client can interpret the result later.
 
 Adapters may perform passive analysis, generate test plans, build constrained
 commands, run approved active profiles, ingest external tool output, or create
 candidate findings. They must not turn Synapse into an autonomous exploitation
 loop.
+
+## Deterministic integrations and methodology
+
+Start with the concrete data or execution boundary. A saved-data parser should
+identify what the source actually states and keep documented, inferred, and
+observed facts distinct. An executor should own its bounded side effects,
+result parsing, evidence, and recovery. Use the canonical Action Registry for
+every executable action; preserve its scope and server-held authority checks.
+
+Replaceable methodology content owns interpretation: which question to ask,
+how to weigh supporting and contrary evidence, when a signal warrants a test,
+and when to stop. The default web route is the main Web Pentesting skill plus
+one relevant optional method selected from saved evidence and the current
+question. Accepted conclusions enter the existing `contribution.v1` version
+1.1 route. The [7R6 operation transition map](modernization/phase-7-operation-transition-map.md)
+classifies retained helpers by operation. They remain available for an
+explicit question, but new integrations need no blanket heuristic analyzer or
+automatic candidate-ingestion step.
+
+Method packages are client guidance. Their selection is separate from startup
+capability-pack selection. Selecting or removing a package does not grant authority, disable
+the web pack, change Registry action availability, or remove saved workspace
+data. Do not add a second action catalog or method-specific execution tool.
 
 ## Adapter Categories
 
@@ -191,7 +215,8 @@ freezes. A standalone `AdapterRegistry` can provide metadata/discovery inside a
 custom integration, but it does not expose an MCP action or bypass the Action
 Registry.
 
-At minimum, implement:
+Implement the operations the integration actually needs. For example, an
+optional passive helper can implement:
 
 ```python
 class ExampleAdapter(SynapseAdapter):
@@ -243,10 +268,11 @@ External/custom loading must preserve the same discovery model exposed by
 Each adapter should include focused tests for:
 
 - metadata validation and registry discovery
-- passive candidate detection
+- deterministic parsing/extraction and provenance, when supplied
+- passive candidate detection, if the adapter offers interpretation
 - workspace-native result serialization
-- workspace ingestion and observation creation
-- planner output structure
+- workspace ingestion and observation creation, when results are persisted
+- planner output structure, if the adapter generates plans
 - exact scope plus legacy/modern authority gates, if active
 - workspace-owned scope behavior, if the adapter accepts `workspaceId`
 - redaction of credentials and secret-bearing headers, if active

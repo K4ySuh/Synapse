@@ -36,6 +36,7 @@ ALLOWED_HOSTS = {
     "127.0.0.1",
     "localhost",
     "developers.openai.com",
+    "learn.chatgpt.com",
     "modelcontextprotocol.io",
     "github.com",
     "pypi.org",

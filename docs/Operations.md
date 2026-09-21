@@ -958,7 +958,7 @@ with `$operate-synapse`. It contains exactly three operating skills:
   public-PoC intelligence, applicability, and bounded validation planning.
 
 Modern MCP also lists `synapse://guidance/catalog`. The catalog identifies the
-three default entry skills and two optional web-method packages. It returns
+three default entry skills and eight optional web-method packages. It returns
 selection metadata, document URIs, content-derived versions, SHA-256 digests,
 and sizes without loading every body. Each document has a 64 KiB limit;
 selected bytes are frozen when the modern server starts, so file edits require
@@ -977,6 +977,18 @@ catalog URI
 when hosted. This profile does not enable multi-agent operation.
 The legacy server retains its existing
 `synapse-main`/`synapse://prompt/main` discovery shape.
+
+The default web route starts with saved workspace evidence and the current
+question. Load the main Web Pentesting methodology, then one relevant optional
+method when its decision boundary is reached. Deterministic imports and
+extraction can supply facts directly. Retained heuristic analyzers remain
+available through live capability search and action descriptions for a
+specific question; do not run them as a batch or automatically ingest all
+candidates. See the [operation transition map](modernization/phase-7-operation-transition-map.md)
+for the operation-level roles. A method package selects guidance. Capability
+packs and Authority Grants remain separate server controls. Removing an optional package leaves
+canonical workspace data and historical method attribution readable; reinstall
+or read its hosted resource when a new conclusion requires that method.
 
 The `standard` config example records Daybreak Blue with High reasoning as an
 operator-selected preference when provisioned. Select it in the Codex client;

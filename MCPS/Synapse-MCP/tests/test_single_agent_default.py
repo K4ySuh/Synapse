@@ -9,8 +9,8 @@ import subprocess
 import sys
 import unittest
 
-from synapse_mcp.app.actions import REGISTRY
-from synapse_mcp.app.facade.projections import CompactProjection
+from synapse_mcp.app.actions import CAPABILITY_PACKS, REGISTRY
+from synapse_mcp.app.facade.projections import CompactProjection, DirectProjection
 from synapse_mcp import guidance
 from synapse_mcp.integrations import codex
 
@@ -228,6 +228,40 @@ class SingleAgentDefaultTests(unittest.TestCase):
     def test_application_surfaces_and_registry_are_unchanged(self) -> None:
         self.assertEqual(len(REGISTRY.descriptors()), 174)
         self.assertEqual(len(CompactProjection().operations()), 11)
+        self.assertEqual(
+            tuple(operation.name for operation in DirectProjection().operations()),
+            tuple(str(descriptor.id) for descriptor in REGISTRY.descriptors()),
+        )
+
+    def test_method_selection_does_not_select_packs_or_authority(self) -> None:
+        method_ids = {
+            package.id for package in guidance.GUIDANCE_PACKAGES
+            if package.kind == "method"
+        }
+        pack_ids = {str(manifest.id) for manifest in CAPABILITY_PACKS.manifests}
+        self.assertEqual(pack_ids, {"core", "web", "infra", "reporting", "purple", "intelligence"})
+        self.assertTrue(method_ids.isdisjoint(pack_ids))
+        self.assertEqual(CAPABILITY_PACKS.pack("web").action_ids, tuple(
+            action_id for action_id, owner in CAPABILITY_PACKS.action_owners
+            if owner == "web"
+        ))
+        self.assertIn("graphql.analyze_workspace", CAPABILITY_PACKS.pack("web").action_ids)
+        self.assertNotIn("authority", " ".join(method_ids))
+
+    def test_adapter_guide_documents_replaceable_interpretation_boundary(self) -> None:
+        adapter_guide = (ROOT / "docs" / "Adapter-Development.md").read_text(encoding="utf-8")
+        operations = (ROOT / "docs" / "Operations.md").read_text(encoding="utf-8")
+        for phrase in (
+            "deterministic input/output contracts, parsers, extraction",
+            "Replaceable methodology content owns interpretation",
+            "selection is separate from startup",
+            "does not grant authority",
+        ):
+            self.assertIn(phrase, adapter_guide)
+        self.assertIn("The default web route starts with saved workspace evidence", operations)
+        self.assertIn("A method package selects guidance.", operations)
+        self.assertIn("packs and Authority Grants remain separate server controls", operations)
+        self.assertIn("Removing an optional package leaves", operations)
 
 
 if __name__ == "__main__":

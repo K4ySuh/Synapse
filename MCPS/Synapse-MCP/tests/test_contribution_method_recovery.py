@@ -9,12 +9,14 @@ import subprocess
 import sys
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from helpers import isolated_state
 from synapse_mcp import guidance
 from synapse_mcp.app.actions import (
     ActionRegistry, ActionRequest, ExecutionContext, PassThroughPolicyEvaluator, REGISTRY, Success,
 )
+from synapse_mcp.app.facade import CompactFacadeService, FacadeCallContext, ResourceReferenceService
 from synapse_mcp.core import documentation, saved_spec_import, workspace
 
 
@@ -91,6 +93,73 @@ def _method_analysis(
 
 
 class ContributionMethodRecoveryTests(unittest.TestCase):
+    def test_saved_method_result_survives_optional_package_removal(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with isolated_state(root, store_version="sqlite-v2"):
+                workspace.create_workspace("engagement", hosts=["example.test"])
+                registry = ActionRegistry(PassThroughPolicyEvaluator())
+                registry.register(REGISTRY.get("workspace.ingest_data"))
+                registry.freeze()
+                surface = _submit(registry, {
+                    "schemaVersion": "1.0",
+                    "requestId": "package-removal-surface",
+                    "producer": {"name": "package-removal-fixture", "version": "1.0.0"},
+                    "entities": {"endpoints": [{
+                        "url": "https://example.test/items",
+                        "method": "GET",
+                    }]},
+                })
+                self.assertIsInstance(surface, Success)
+                receipt = surface.payload.model_dump(mode="json")
+                package = next(
+                    item for item in guidance.build_guidance_snapshot().packages
+                    if item["id"] == "synapse-web-access-control"
+                )
+                analysis = _submit(registry, _method_analysis(
+                    "package-removal-analysis",
+                    receipt["canonicalRecordIds"]["endpoints"][0],
+                    receipt["evidenceIds"][0],
+                    candidate_class="access_control",
+                    method_id=package["id"],
+                    method_digest=package["sha256"],
+                    reason="Saved ownership evidence requires a second actor comparison.",
+                ))
+                self.assertIsInstance(analysis, Success)
+
+                retained_packages = tuple(
+                    item for item in guidance.GUIDANCE_PACKAGES
+                    if item.id != "synapse-web-access-control"
+                )
+                with patch.object(guidance, "GUIDANCE_PACKAGES", retained_packages):
+                    self.assertNotIn(
+                        "synapse-web-access-control",
+                        {item["id"] for item in guidance.build_guidance_snapshot().packages},
+                    )
+                    context = CompactFacadeService(
+                        resources=ResourceReferenceService(state_path=root / "rollback-resources.json")
+                    ).invoke(
+                        "context.query",
+                        {"workspaceId": "engagement", "targets": ["example.test"], "maxTokens": 30_000},
+                        context=FacadeCallContext(
+                            principal_id="consumer:package-rollback",
+                            workspace_id="engagement",
+                            authority_session_id="session:package-rollback",
+                            execution_profile="observe",
+                        ),
+                    )
+                self.assertEqual(context.outcome_kind, "success")
+                recovered = next(
+                    item for item in context.result["candidates"]
+                    if item.get("attributes", {}).get("sourceAttribution", {}).get("methodRef", {}).get("id")
+                    == "synapse-web-access-control"
+                )
+                self.assertEqual(
+                    recovered["attributes"]["sourceAttribution"]["methodRef"]["digest"],
+                    f"sha256:{package['sha256']}",
+                )
+                self.assertIn("second actor comparison", recovered["attributes"]["reason"])
+
     def test_web_cve_web_method_refs_recover_after_process_restart(self) -> None:
         with TemporaryDirectory() as temporary:
             root = Path(temporary)

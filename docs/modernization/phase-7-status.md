@@ -91,6 +91,14 @@ compatibility observations, not values to hardcode into application behavior.
   heuristic helpers explicit and optional, and avoids bulk candidate ingestion.
   A saved-spec regression reaches a canonical method contribution with no
   heuristic action available.
+- 7R6.2 preserves the 174-action Registry, exact legacy projection,
+  `modern-direct`, and eleven-operation `modern-compact` surface. Explicitly
+  selected retained helpers still cross the Registry and write canonical
+  evidence/state; removing an optional method package does not prevent context
+  recovery of saved data or its historical method attribution. Method packages
+  remain separate from capability-pack startup and server-held authority.
+  There is no concrete discovery-ranking requirement yet, so any additive
+  preference is deferred to the bounded 7R7 client exercise.
 
 Candidate identity is reliable for records created or curated after 7R1.1;
 historical duplicate diagnostics still require operator review. The default

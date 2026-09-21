@@ -195,3 +195,9 @@ capability-pack ownership, or change whether an action is reachable. Preserve
 legacy and modern action identities. Use live `capabilities.search` and
 `actions.describe` before a concrete helper call; this map does not prescribe
 arguments or a sequence of calls.
+
+No current test or operator record demonstrates that modern discovery ranking
+must change for this transition. Ranking changes are therefore deferred to the
+bounded 7R7 client exercise. If that exercise supplies concrete evidence, use
+only an additive preference with an explicit override; do not hide actions,
+change pack selection, or rewrite frozen legacy descriptions and fixtures.
