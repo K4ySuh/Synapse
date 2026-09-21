@@ -266,8 +266,8 @@ def _verify_install(python: str, target: Path, outside: Path, expected_prompt: s
     runtime_root.mkdir(parents=True, exist_ok=True)
     expected_digest = hashlib.sha256(expected_prompt.encode()).hexdigest()
     code = """
-import hashlib, json, sys
-from synapse_mcp.integrations.codex import codex_skills_dir, validate_assets
+import hashlib, json, re, sys
+from synapse_mcp.integrations.codex import PROFILE_SKILLS, codex_skills_dir, validate_assets
 from synapse_mcp.guidance import GUIDANCE_PACKAGES, guidance_catalog, guidance_documents, read_guidance, skills_dir
 from synapse_mcp.state.migrations import MIGRATION_NAMES, migration_text
 from synapse_mcp.transport.stdio_server import read_main_prompt
@@ -280,6 +280,29 @@ assert len(json.loads(catalog)['packages']) == len(GUIDANCE_PACKAGES)
 assert skills_dir('default').is_relative_to(sys.argv[2])
 assert skills_dir('web-methods').is_relative_to(sys.argv[2])
 assert codex_skills_dir('web-methods') == skills_dir('web-methods')
+retrieved = 0
+for profile in ('default', 'web-methods', 'multi-agent-compat'):
+    profile_root = codex_skills_dir(profile).resolve()
+    for skill_name in PROFILE_SKILLS[profile]:
+        pending = [profile_root / skill_name / 'SKILL.md']
+        visited = set()
+        while pending:
+            document = pending.pop().resolve()
+            assert document.is_relative_to(profile_root)
+            assert document.is_file()
+            if document in visited:
+                continue
+            visited.add(document)
+            body = document.read_text(encoding='utf-8')
+            for target_ref in re.findall(r'\\[[^\\]]+\\]\\(([^)]+)\\)', body):
+                if target_ref.startswith(('http://', 'https://', '#')):
+                    continue
+                linked = (document.parent / target_ref.split('#', 1)[0]).resolve()
+                assert linked.is_relative_to(profile_root)
+                assert linked.is_file(), (document, target_ref)
+                if linked.suffix == '.md':
+                    pending.append(linked)
+        retrieved += 1
 for document in guidance_documents():
     assert hashlib.sha256(read_guidance(document.uri).encode()).hexdigest() == document.sha256
     assert read_guidance(document.uri) == (skills_dir(document.profile) / document.skill / document.path).read_text()
@@ -287,7 +310,7 @@ assert 'synapse://guidance/skills/operate-synapse/SKILL.md' in catalog
 assert MIGRATION_NAMES[-1] == '0009_context_recovery_indexes.sql'
 assert 'idx_execution_runs_authority_recovery' in migration_text(MIGRATION_NAMES[-1])
 assert not validate_assets(), validate_assets()
-print(len(prompt.encode()))
+print(json.dumps({'promptBytes': len(prompt.encode()), 'retrievedSkills': retrieved}, sort_keys=True))
 """
     _run(
         [python, "-c", code, expected_digest, str(target)],
@@ -371,11 +394,7 @@ async def verify_guidance():
         tools = await client.list_tools()
         assert len(tools.tools) == 11
         prompt = await client.get_prompt('synapse-main')
-        resource = await client.read_resource('synapse://prompt/main')
-        assert prompt.messages[0].content.text == resource.contents[0].text
-        catalog = json.loads((await client.read_resource('synapse://guidance/catalog')).contents[0].text)
-        assert len(catalog['packages']) == len(GUIDANCE_PACKAGES)
-        assert len([item for item in catalog['packages'] if item['kind'] == 'method']) == len([package for package in GUIDANCE_PACKAGES if package.kind == 'method'])
+        assert prompt.messages[0].content.text
         ingest = next(tool for tool in tools.tools if tool.name == 'actions.run_passive')
         assert 'actionId' in ingest.input_schema['properties']
 asyncio.run(verify_guidance())

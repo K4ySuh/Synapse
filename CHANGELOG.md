@@ -368,6 +368,19 @@ durable dispatch and continuation truth.
 
 ### Changed
 
+- **Phase 7R7.1 installed-release validation.** The documented setup now starts
+  with `modern-compact` and lists browser, scanner, SQLite fallback, and live
+  Burp dependencies only for workflows that need them; frozen legacy is
+  labeled rollback compatibility. Wheel and sdist validation retrieves every
+  selected default, optional web-method, and compatibility skill from each
+  installed artifact and resolves its Markdown references outside the checkout.
+  Current-state bundle/import/backup coverage now includes v1.1 contribution
+  receipts, method attribution, and analysis metadata. Direct HTTP startup
+  readiness is deadline-bounded and reports subprocess errors. Generated
+  modern compact/direct fixtures now record the intentional 7R2 cursor and 7R3
+  contribution-v1.1 contracts; legacy fixtures and action identity/order remain
+  unchanged.
+
 - **Current documentation and skill alignment.** Primary guides now describe
   `modern-compact` as the Codex default, separate frozen legacy confirmation
   from modern server-held authority, distinguish SQLite-v2 from retained

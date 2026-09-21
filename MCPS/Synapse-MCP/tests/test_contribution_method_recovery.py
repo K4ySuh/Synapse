@@ -263,6 +263,7 @@ print(json.dumps({'byMethod': by_method, 'workItems': context.result['workItems'
                 environment.update({
                     "SYNAPSE_ROOT": str(root),
                     "SYNAPSE_DATA_DIR": str(root),
+                    "SYNAPSE_DUMP_DIR": str(root / "workspaces"),
                     "SYNAPSE_REPORTS_DIR": str(root / "reports"),
                     "PYTHONPATH": str(Path(__file__).resolve().parents[1]),
                 })
@@ -442,6 +443,7 @@ print(json.dumps({'candidate': candidate, 'gap': gap, 'documented': documented, 
                 environment = os.environ.copy()
                 environment.update({
                     "SYNAPSE_ROOT": str(root), "SYNAPSE_DATA_DIR": str(root),
+                    "SYNAPSE_DUMP_DIR": str(root / "workspaces"),
                     "SYNAPSE_REPORTS_DIR": str(root / "reports"),
                     "PYTHONPATH": str(Path(__file__).resolve().parents[1]),
                 })

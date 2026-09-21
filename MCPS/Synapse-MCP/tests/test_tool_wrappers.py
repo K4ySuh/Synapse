@@ -136,7 +136,7 @@ class ToolWrapperTests(unittest.TestCase):
                 os.chdir(old_cwd)
 
         self.assertIn("Synapse is a local-first MCP control plane", prompt)
-        self.assertIn("Lease expiry makes a claim reclaimable", prompt)
+        self.assertIn("Lease expiry permits reclaim", prompt)
         self.assertNotIn("repository-development", prompt)
 
     def test_implementation_map_documents_every_registered_adapter(self) -> None:

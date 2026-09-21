@@ -4,29 +4,50 @@ This guide covers the normal local workflow for the current Synapse runtime.
 
 ## Python Environment
 
-Use a repository-local virtual environment for Synapse. This keeps MCP runtime
-dependencies, Playwright, Selenium, and browser driver paths away from distro
-Python packages:
+Use a repository-local virtual environment for Synapse. The first setup route
+is the standard eleven-operation `modern-compact` profile:
 
 ```bash
 cd /path/to/Synapse
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install -U pip
-python -m pip install -e '.[browser,modern,state-v2]'
-python -m playwright install chromium
+python -m pip install -e '.[modern]'
+bin/check-state-v2-readiness
+bin/check-setup --modern
+bin/print-mcp-config --standard
 ```
+
+Install the `state-v2` extra only when the readiness probe reports that the
+selected Python's linked SQLite is below the required floor. The generated
+standard config starts `modern-compact`; complete its private identity binding
+and request-state keyring paths before use.
+
+Optional dependencies are workflow-specific:
+
+- Saved-data import, context, contribution, and internal reporting need the
+  base package plus `modern`; they need no browser or scanner binary.
+- A maintained SQLite fallback needs `.[state-v2]` only when the linked stdlib
+  SQLite is too old.
+- Local Playwright browser authentication needs `.[browser]` and
+  `python -m playwright install chromium`; Selenium Remote uses the same extra
+  but no local browser download.
+- Command-backed discovery needs only the selected binary: `sqlmap`, `ffuf`,
+  `nmap`, or `nuclei`. Live Burp state separately needs Java, Burp Suite, its
+  MCP extension, and the proxy launcher.
 
 The Synapse launcher reads `SYNAPSE_PYTHON` from `config/synapse.env`; otherwise
 it uses the active console `VIRTUAL_ENV`, then
 `$SYNAPSE_ROOT/.venv/bin/python` when present. It fails closed when none is
-runnable. MCP clients should launch:
+runnable. The frozen legacy rollback-compatibility launcher is:
 
 ```text
 MCPS/Synapse-MCP/bin/synapse-mcp
 ```
 
-The installed `synapse-mcp` package console script can start the server too.
+The installed `synapse-mcp` package console script provides the same legacy
+rollback profile. The default installed launcher is `synapse-mcp-modern` with
+`--surface modern-compact`.
 Repository and installed launches serve the same package-owned
 `synapse_mcp/operational_prompt.md`; the root `AGENTS.md` and nested files are
 repository-development policy, not runtime engagement guidance. Set
@@ -36,12 +57,12 @@ The modern server exposes the prompt both as `synapse-main` in `prompts/list`
 and as `synapse://prompt/main` in `resources/list`. Its short initialization
 instructions point clients to those entry points.
 
-Do not point the MCP client directly at system `python3` for Synapse when
-browser authentication is needed. System package builds of Playwright can be
+Do not point the MCP client directly at system `python3` when browser
+authentication is selected. System package builds of Playwright can be
 incomplete or use mismatched Node driver paths; the venv install is the
-supported path for browser auth.
+supported path for that optional workflow.
 
-Verify browser support:
+When browser authentication is selected, verify browser support:
 
 ```bash
 . .venv/bin/activate

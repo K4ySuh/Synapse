@@ -13,6 +13,7 @@ import subprocess
 import sys
 from tempfile import TemporaryDirectory
 import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -272,7 +273,9 @@ class ModernDiscoveryTests(ModernAdapterFixture, unittest.IsolatedAsyncioTestCas
             observed_versions: set[str] = set()
             modern_names: list[str] = []
             for mode, version in protocol_client_cases():
-                with patch("mcp.client.session.LATEST_HANDSHAKE_VERSION", version):
+                with self.subTest(surface=surface.value, mode=mode, version=version), patch(
+                    "mcp.client.session.LATEST_HANDSHAKE_VERSION", version
+                ):
                     async with Client(runtime.server, mode=mode) as client:
                         discovered = await client.list_tools()
                         observed_versions.add(str(client.protocol_version))
@@ -1202,13 +1205,21 @@ class ModernWireTransportTests(ModernAdapterFixture, unittest.IsolatedAsyncioTes
                 str(port),
             ],
             env=self._environment(),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
         )
         try:
             url = f"http://127.0.0.1:{port}/mcp"
             last_error: Exception | None = None
-            for _ in range(100):
+            readiness_deadline = time.monotonic() + 5.0
+            while time.monotonic() < readiness_deadline:
+                if process.poll() is not None:
+                    startup_output, _ = process.communicate(timeout=1)
+                    self.fail(
+                        "production direct HTTP exited before readiness "
+                        f"with status {process.returncode}:\n{startup_output}"
+                    )
                 try:
                     async with httpx2.AsyncClient(
                         headers={"Authorization": f"Bearer {TEST_TOKEN}"},
@@ -1221,10 +1232,14 @@ class ModernWireTransportTests(ModernAdapterFixture, unittest.IsolatedAsyncioTes
                     last_error = exc
                     await asyncio.sleep(0.02)
             else:
-                self.fail(f"production direct HTTP did not become ready: {last_error}")
+                self.fail(
+                    "production direct HTTP did not become ready within 5.0 seconds: "
+                    f"{last_error}"
+                )
         finally:
-            process.terminate()
-            process.wait(timeout=10)
+            if process.poll() is None:
+                process.terminate()
+                process.wait(timeout=10)
 
 
 if __name__ == "__main__":

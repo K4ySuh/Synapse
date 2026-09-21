@@ -13,12 +13,15 @@ MCP client
 |       `-- java -jar mcp-proxy.jar --sse-url $MCP_SSE_URL
 |           `-- PortSwigger Burp MCP extension
 |
-`-- stdio: synapse
+|-- default stdio: synapse (`modern-compact`, eleven operations)
+|   `-- $SYNAPSE_PYTHON -m synapse_mcp.transport.modern --surface modern-compact
+|       |-- official SDK resources and prompt
+|       |-- compact facade over the canonical Registry
+|       `-- server-held identity, scope, and authority
+|
+`-- rollback compatibility: synapse legacy (174 frozen tools)
     `-- MCPS/Synapse-MCP/bin/synapse-mcp
         `-- $SYNAPSE_PYTHON -m synapse_mcp.transport.stdio_server
-            |-- resources and prompt
-            |-- workspace and core state modules
-            `-- guarded analysis and recon adapters
 ```
 
 Burp stays as the optional live application-state boundary. Synapse owns local
@@ -59,9 +62,15 @@ and `SYNAPSE_DUMP_DIR` must resolve under `SYNAPSE_DATA_DIR`, so normal
 operations do not create stray runtime `DATA/` trees from an MCP client's
 working directory.
 
-`bin/check-setup` validates required Synapse prerequisites, confirms the
-Synapse MCP starts, reports optional Burp MCP readiness as warnings, and prints
-client config. `bin/print-mcp-config` prints standard modern compact Codex config
+The minimum default installation is the base package plus the `modern` extra;
+the `state-v2` extra is needed only when the selected Python's linked SQLite is
+below the readiness floor. Browsers, scanner binaries, Java, and Burp are
+optional dependencies of their respective browser-auth, command-adapter, and
+live-Burp workflows, not requirements for saved-data/context/report work.
+
+`bin/check-setup --modern` validates the default `modern-compact` prerequisites,
+and `bin/check-setup` reports both modern readiness and frozen legacy rollback
+compatibility plus optional Burp/scanner warnings. `bin/print-mcp-config` prints standard modern compact Codex config
 without running the checks; `--core-only`, `--modern-direct`, and `--legacy`
 select the other documented profiles, and an enabled Burp block is emitted only
 when the optional launcher is present. Installed artifacts expose equivalent
@@ -70,7 +79,7 @@ templates and skills through `synapse-codex-assets`.
 SQLite runtimes through the transport-independent `synapse_mcp/state/readiness.py`
 contract and fails below SQLite 3.51.3. `synapse_mcp/state/` now also owns
 repository contracts and selection, JSON-v1 compatibility adapters, verified
-SQLite connection/transaction helpers, migrations `0001` through `0008`, workspace
+SQLite connection/transaction helpers, migrations `0001` through `0009`, workspace
 and task revisions, the activated transactional runtime repository, bounded WAL
 checkpoint/status and online backup, and the workspace-local SHA-256 artifact
 store. `state/runtime.py` owns activated workspace, entity/relation, evidence,
@@ -87,6 +96,9 @@ continuation lookups; commits update only changed authority/lifecycle rows.
 Migration `0008` stores consumer-scoped versioned contribution receipts in the
 same transaction as canonical evidence and entities; bundle export/import
 preserves them.
+Migration `0009` indexes execution-run authority recovery and the newest
+execution-result lookup used by restart context; it is installed through the
+ordinary verified migration sequence and does not activate JSON-v1 workspaces.
 The application contribution models publish strict 1.0 and typed-analysis
 1.1 schemas through the existing Registry description. `core/workspace.py`
 normalizes 1.1 candidates and coverage gaps into the same observation

@@ -467,6 +467,70 @@ class ContributionTests(unittest.TestCase):
                 self.assertEqual(gap_item["attributes"]["knowledgeState"], "reported")
                 self.assertEqual(gap_item["attributes"]["analysisConclusion"], "inconclusive")
 
+                repository = workspace._activated_repository("engagement")
+                bundle = Path(tmp) / "analysis-bundle"
+                StateBundleService(Path(tmp)).export("engagement", bundle)
+                imported_root = Path(tmp) / "analysis-imported"
+                StateBundleService(imported_root).import_bundle(bundle)
+                imported = ActivatedWorkspaceRepository(
+                    "engagement", imported_root / "workspaces" / "engagement"
+                )
+                with imported.connection_factory.connect() as connection:
+                    imported_receipt = connection.execute(
+                        "SELECT receipt_json FROM contribution_receipts "
+                        "WHERE workspace_id=? AND request_id=? AND principal_ref=?",
+                        ("engagement", "analysis-1", receipt["consumerRef"]),
+                    ).fetchone()
+                self.assertEqual(json.loads(imported_receipt[0]), receipt)
+                imported_observations = imported.collection("example.test", "observations")
+                imported_candidate = next(
+                    item for item in imported_observations if item["type"] == "test_candidate"
+                )
+                imported_gap = next(
+                    item for item in imported_observations if item["type"] == "analysis_coverage_gap"
+                )
+                self.assertEqual(
+                    imported_candidate["methodRef"],
+                    analysis["entities"]["analyses"][0]["methodRef"],
+                )
+                self.assertEqual(imported_candidate["modelLabel"], "fictional-model")
+                self.assertEqual(imported_candidate["knowledgeState"], "inferred")
+                self.assertEqual(imported_candidate["contraryEvidenceIds"], [contrary_id])
+                self.assertEqual(imported_gap["analysisConclusion"], "inconclusive")
+                self.assertEqual(imported_gap["knowledgeState"], "reported")
+
+                backup = repository.backup_to(Path(tmp) / "analysis-backup.sqlite3")
+                with sqlite3.connect(backup) as connection:
+                    backed_up_receipt = connection.execute(
+                        "SELECT receipt_json FROM contribution_receipts "
+                        "WHERE workspace_id=? AND request_id=? AND principal_ref=?",
+                        ("engagement", "analysis-1", receipt["consumerRef"]),
+                    ).fetchone()
+                    backed_up_observations = [
+                        json.loads(row[0])
+                        for row in connection.execute(
+                            "SELECT payload_json FROM entities "
+                            "WHERE workspace_id=? AND entity_type=?",
+                            ("engagement", "observation"),
+                        )
+                    ]
+                self.assertEqual(json.loads(backed_up_receipt[0]), receipt)
+                backed_up_candidate = next(
+                    item for item in backed_up_observations if item["type"] == "test_candidate"
+                )
+                backed_up_gap = next(
+                    item for item in backed_up_observations if item["type"] == "analysis_coverage_gap"
+                )
+                self.assertEqual(
+                    backed_up_candidate["methodRef"],
+                    analysis["entities"]["analyses"][0]["methodRef"],
+                )
+                self.assertEqual(backed_up_candidate["modelLabel"], "fictional-model")
+                self.assertEqual(backed_up_candidate["knowledgeState"], "inferred")
+                self.assertEqual(backed_up_candidate["contraryEvidenceIds"], [contrary_id])
+                self.assertEqual(backed_up_gap["analysisConclusion"], "inconclusive")
+                self.assertEqual(backed_up_gap["knowledgeState"], "reported")
+
                 bad_state = json.loads(json.dumps(analysis))
                 bad_state["requestId"] = "analysis-bad-state"
                 bad_state["entities"]["analyses"][0]["knowledgeState"] = "observed"

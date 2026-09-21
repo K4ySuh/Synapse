@@ -99,12 +99,37 @@ compatibility observations, not values to hardcode into application behavior.
   remain separate from capability-pack startup and server-held authority.
   There is no concrete discovery-ranking requirement yet, so any additive
   preference is deferred to the bounded 7R7 client exercise.
+- 7R7.1 validates the installed release boundary. One wheel and one sdist were
+  each installed outside the checkout; both resolved all 3 default, 8 optional
+  web-method, and 8 compatibility skills and their local references. Installed
+  standard and core-only runtimes constructed with 174 and 42 selected actions.
+  The focused 7R1–7R3 set passed 250 tests. The one 830-test core run reported
+  three test-environment/stale-assertion failures, all of which passed together
+  in one isolated rerun. The one 17-test modern run reported one stale generated
+  schema error; the isolated ten-case negotiation rerun passed after updating
+  only the intentional 7R2 compact cursor and 7R3 direct contribution-v1.1
+  schemas. Frozen legacy fixtures remain unchanged, modern-direct retains all
+  174 ordered actions, and modern-compact remains eleven operations. Backup,
+  export, and import now explicitly preserve the v1.1 receipt, method digest,
+  model label, knowledge state, contrary evidence, and coverage-gap conclusion.
+  No migration, rollback engine, discovery-ranking change, or client comparison
+  was added.
 
 Candidate identity is reliable for records created or curated after 7R1.1;
 historical duplicate diagnostics still require operator review. The default
 route is saved evidence, one current method question, and an evidence-backed
-canonical contribution. The [checkpoint ledger](phase-7-checkpoints.md)
-records focused checks and the exact 7R6.2 action. The full serial scope and
-deferred boundaries are in the [Phase 7 plan](phase-7-plan.md). The current
-Python 3.14 official SDK synchronous-resource stall remains a runtime-smoke
-limit; the 7R6.1 archive/install guidance checks pass independently.
+canonical contribution. The documented setup begins with the standard
+`modern-compact` profile and keeps browsers, scanner binaries, Java/Burp, and
+the maintained SQLite fallback workflow-specific.
+
+The Python 3.14 official-SDK synchronous resource-read stall recorded at 7R5.3
+did not reproduce in the bounded 7R7.1 attempt: the previously failing prompt
+and guidance resource test completed in 0.121 seconds. That single pass does not
+establish that the earlier environment-sensitive behavior is universally
+resolved; independent repository resource, archive, installed-content/digest,
+skill/reference, runtime-construction, and negotiation checks also pass.
+
+The [checkpoint ledger](phase-7-checkpoints.md) records the exact results. The
+full serial scope and deferred boundaries are in the
+[Phase 7 plan](phase-7-plan.md). The exact next action is 7R7.2, the bounded
+saved-case client comparison; no client comparison was started in 7R7.1.
