@@ -16,16 +16,16 @@ not gates to rerun for each Phase 7 checkpoint.
 | 7R4 | Complete | 7R4.1 `987a567`; 7R4.2 `a190e1b` | 7R5.1 |
 | 7R5 | Complete | 7R5.1 `ca32158`; 7R5.2 `b2f1259` + `b9b026a` + `4629982`; 7R5.3 `d95c043` | 7R6.1 |
 | 7R6 | Complete | 7R6.1 `7e0b6b4`; 7R6.2 `c67df23` | 7R7.1 |
-| 7R7 | In progress | 7R7.1 `af16cbc`; 7R7.2 comparison recorded, persistence/restart pending | 7R7.2 continuation |
+| 7R7 | Complete | 7R7.1 `af16cbc`; 7R7.2 initial record `87f42a0` + completion `c86c263` | Beta testing |
 
 ## Latest checkpoint record
 
 ```yaml
 task: 7R7
 checkpoint: 7R7.2
-status: pending
+status: complete
 review_base: 8134673a386ad00eed786d3d3ba841f00fcb28de
-implementation_commit: null
+implementation_commit: c86c263
 branch: Beta
 changed_files:
   - CHANGELOG.md
@@ -36,11 +36,11 @@ changed_files:
   - docs/modernization/phase-7-status.md
 contract_changes:
   - No application, Registry, authority, storage, migration, protocol, generated schema, capability-pack, JSON-v1, legacy, or discovery-ranking contract changed.
-  - The comparison record fixes six fictional cases, a 120-call or 350000 non-cached-token budget, matched helper/method sessions, and one required restart; runtime logs and workspaces remain gitignored under DATA.
+  - The comparison record fixes six fictional cases, an initial 120-call or 350000 non-cached-token budget, a separate 36-call or 180000-token continuation, matched helper/method sessions, and one required restart; runtime logs and workspaces remain gitignored under DATA.
   - Both routes stated all six expected conclusions with correct case evidence and no unsupported impact claim. The selected method traversed all 220 C5 endpoints and made no material analysis-accuracy or coverage regression.
-  - The retained helper persisted eight confirmed findings, five unnecessary for the fixed C3/C6 questions. The selected method persisted none: four useful C1/C4/C5/C6 outputs are omitted because authority/contract/idempotency failures consumed the bounded run.
-  - The explicit configuration helper remains the operational fallback for this family. The method-first default for other families, all 174 actions, modern-direct, eleven-operation modern-compact, and frozen legacy fixtures remain unchanged.
-  - No live selected-method restart result exists. Two deterministic fresh-process regressions still prove method ID/digest, evidence, uncertainty, and candidate identity recovery; they are not substituted for the missing client result.
+  - The retained helper persisted eight confirmed findings, five unnecessary for the fixed C3/C6 questions. The continuation persisted the four useful selected-method C1/C4/C5/C6 outputs at revisions 47, 54, 61, and 68 with exact evidence and method attribution.
+  - A fresh live client/server process recovered the C6 conclusion, evidence, limitation, method ID, and digest in three read-only calls without recreating the contribution.
+  - The explicit configuration helper remains a practical fallback during broader Beta testing because the selected route needed corrections. The method-first default for other families, all 174 actions, modern-direct, eleven-operation modern-compact, and frozen legacy fixtures remain unchanged.
 checks:
   - command: seven bounded codex exec sessions over the fixed phase7-helper and phase7-method SQLite-v2 workspaces
     result: >-
@@ -50,6 +50,15 @@ checks:
       2577869 input tokens including 2279172 cached, 30003 output tokens,
       16460 reasoning-output tokens, and 328700 budgeted non-cached input plus
       output; exact route scores and digests are in phase-7-client-comparison.md
+  - command: four bounded codex exec continuation sessions over phase7-method, including one fresh client/server restart
+    result: >-
+      pass after two pre-dispatch corrections; 26 MCP calls, 853690 input tokens
+      including 731743 cached, 12483 output tokens, 6846 reasoning-output
+      tokens, and 134430 budgeted non-cached input plus output. One denied
+      jobs.list preflight and one malformed contribution envelope made no state
+      change. Four contract-exact writes returned distinct receipts and
+      revisions 47/54/61/68; a fresh process recovered C6 in three read-only
+      calls with no contribution.
   - command: >-
       PATH="$PWD/.venv/bin:$PATH" PYTHONPATH=MCPS/Synapse-MCP:MCPS/Synapse-MCP/tests
       .venv/bin/python -m unittest
@@ -73,43 +82,35 @@ checks:
     result: pass; the three corrected selectors passed in 0.230 seconds
   - command: sqlite3 -readonly comparison workspace inspection
     result: >-
-      helper workspace contains exactly eight confirmed findings with correct
-      C1/C3/C5/C6 evidence; method workspace contains 225 seeded endpoints,
-      zero contribution receipts, zero findings, and zero method-attributed
-      analyses
+      before the continuation, the helper workspace contained exactly eight
+      confirmed findings with correct C1/C3/C5/C6 evidence and the method
+      workspace contained 225 seeded endpoints with no contributions. Live MCP
+      receipts and restart context now verify four method-attributed analyses.
   - command: PATH="$PWD/.venv/bin:$PATH" PYTHONPATH=MCPS/Synapse-MCP:MCPS/Synapse-MCP/tests .venv/bin/python -m unittest test_modernization_docs test_documentation -q
     result: pass; 44 modernization and primary documentation tests
   - command: git diff --check
     result: pass; final tracked documentation diff has no whitespace errors
 skipped_checks: >-
-  The selected-method live C6 restart, second consumer, report/bundle recovery,
-  full core, full modern, distribution, skill validators, inventory generators,
-  and active integration testing were not run. 7R7.1 already recorded the
-  release suites and installed artifacts; retired completed-phase gates remain
-  retired. No target traffic, browser authentication, credential use, scanner,
-  third-party API, or unauthorized action ran.
+  A distinct second consumer, report/bundle recovery, full core, full modern,
+  distribution, skill validators, inventory generators, and active integration
+  testing were not rerun. 7R7.1 already recorded the release suites and
+  installed artifacts; retired completed-phase gates remain retired. No target
+  traffic, browser authentication, credential use, scanner, third-party API,
+  or unauthorized action ran.
 known_issue: >-
-  The live comparison does not meet 7R7.2 persistence/restart acceptance. C1
-  analysis was accurate but its contribution encountered a low risk ceiling,
-  a forbidden legacy metadata field, then an idempotency fingerprint conflict.
-  C4-C6 analyses were accurate, including complete C5 traversal, but the grant
-  expired during an interrupted interval before their contribution. With only
-  21300 budgeted tokens left, no fresh model session or C6 restart was started.
-  The selected route used more calls and operator corrections than the helper;
-  its five-finding noise reduction cannot be called a success until useful
-  output persists and recovers. Historical pre-7R1.1 duplicate candidates
-  still require operator review.
-next_checkpoint: 7R7.2
+  The selected route needed one authority correction and one contribution-
+  envelope correction in the continuation, after the initial run's earlier
+  authority, contract, idempotency, and expiry failures. The helper therefore
+  remains a practical fallback for this configuration family during broader
+  Beta testing. Historical pre-7R1.1 duplicate candidates still require
+  operator review.
+next_checkpoint: Beta testing
 next_action: >-
-  Declare a new bounded continuation; preflight a low-risk grant whose lifetime
-  covers the run; use contract-exact outer workspace.ingest_data arguments and
-  fresh idempotency keys; persist only unfinished C1, C4, C5, and C6 selected-
-  method analyses; then start one fresh client/server process and recover C6
-  evidence, limitations, method ID, and digest. Do not repeat completed helper
-  cases, alter discovery ranking, restore retired gates, or start another
-  modernization phase. After this passes, follow the documented Beta testing
-  order through setup, import, context, method contribution, restart/consumer,
+  Follow the documented Beta order through fresh setup, supplied-data import,
+  context traversal, method contribution, restart/second consumer,
   report/bundle recovery, and separately authorized real integration testing.
+  Do not repeat completed helper cases, alter discovery ranking, restore
+  retired gates, or start another modernization phase.
 dirty_worktree: >-
   Before 7R7.2, only the pre-existing untracked review and source-plan documents
   remained: Synapse-Beta-Final-Review-2026-09-17.md and
