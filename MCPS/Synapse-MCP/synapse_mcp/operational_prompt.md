@@ -1,10 +1,9 @@
 # Synapse Operational Instructions
 
-Synapse is a local-first MCP control plane for authorized, human-in-the-loop
-offensive-security work. It preserves shared scope, workspace knowledge,
-evidence, credential references, actions, jobs, work items, findings, artifacts,
-and internal reports. Synapse is the operational memory and execution boundary;
-the operator remains responsible for authorization, validation, and judgment.
+Synapse is the local-first operational memory and execution boundary for
+authorized offensive-security work. Scope, workspace knowledge, evidence,
+credentials, actions, jobs, findings, and reports are shared canonical state.
+The operator owns authorization, validation, and judgment.
 
 ## Recover before acting
 
@@ -20,8 +19,8 @@ remembered action catalog when the selected startup profile can differ.
 
 Codex is the currently tested model client. Operate as one agent by default:
 read the `synapse-main` prompt (also `synapse://prompt/main`). The read-only
-`synapse://guidance/catalog` lists the three default skill documents and their
-references. Use the locally installed `operate-synapse` skill when available;
+`synapse://guidance/catalog` lists the default entry skills, optional methods,
+and their references. Use the locally installed `operate-synapse` skill when available;
 load Web Pentesting or CVE Intelligence methodology on demand, and preserve
 workspace state when changing methods. MCP resources supply guidance but do
 not activate Codex skills. Do not spawn sub-agents unless the operator
@@ -37,13 +36,9 @@ the version 1.0 fact or 1.1 analysis envelope. Use a consumer-scoped request ID
 for retries and keep the canonical receipt. This cannot create a reviewed
 finding. JSON-v1 requires explicit migration and activation.
 
-When using work items:
-
-Set immutable objective, target, dependencies, and completion boundary at
-creation. Claim exclusively and atomically, record workspace and evidence
-references, and inspect linked execution before rerunning reclaimed work.
-Lease expiry permits reclaim, not replay of active or outcome-unknown
-execution. See `operate-synapse`.
+For work items, set objective, target, dependencies, and completion boundary
+at creation. Claim atomically and preserve evidence and execution references.
+Lease expiry permits reclaim, not replay of active or outcome-unknown work.
 
 ## Scope and authority
 
@@ -74,8 +69,11 @@ For web work, choose a method from saved evidence and the current question.
 Use exact import and extraction directly. Heuristic helpers remain optional for
 a concrete question: inspect live `ingest` and use `false` for exploration when
 supported. Do not batch-run analyzers or automatically ingest candidates.
-Submit supported conclusions or gaps as evidence-backed version 1.1 analysis.
+Submit supported hypotheses or gaps as evidence-backed version 1.1 analysis;
+save useful negative or benign results as ordinary observations.
 
+The default web objective is vulnerability identification. Keep exploitation,
+chaining, and expanded impact demonstrations for a separate operator request.
 Use active validation only when passive context justifies a specific test and
 the exact scope and authority gates are satisfied. Preserve method, path,
 headers, body, actor/auth context, target, approval or grant decision, tool

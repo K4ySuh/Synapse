@@ -1,0 +1,42 @@
+[
+  {
+    "requested": 1500,
+    "status": "budget_too_small",
+    "usedBytes": 1899,
+    "minimumRequired": 1892,
+    "count": 0,
+    "repeatedItems": true,
+    "sameCursor": true,
+    "nextCount": 0
+  },
+  {
+    "requested": 6000,
+    "status": "truncated",
+    "usedBytes": 5891,
+    "minimumRequired": 1892,
+    "count": 10,
+    "repeatedItems": true,
+    "sameCursor": true,
+    "nextCount": 10
+  },
+  {
+    "requested": 20000,
+    "status": "truncated",
+    "usedBytes": 19893,
+    "minimumRequired": 1893,
+    "count": 45,
+    "repeatedItems": true,
+    "sameCursor": true,
+    "nextCount": 45
+  },
+  {
+    "requested": 100000,
+    "status": "truncated",
+    "usedBytes": 81807,
+    "minimumRequired": 1894,
+    "count": 200,
+    "repeatedItems": false,
+    "sameCursor": false,
+    "nextCount": 5
+  }
+]

@@ -7,6 +7,10 @@ agent across context changes or restarts.
 
 1. Identify the operator-selected workspace and exact authorized target.
 2. Query the smallest revision-aware context that preserves the objective.
+   Inspect budget status and omissions before interpreting an empty result.
+   Keep page cursors separate from revision watermarks. If continuation repeats
+   a page with `budget_exhausted`, increase its budget as directed instead of
+   looping on the same cursor; do not advance `sinceRevision` past omitted data.
 3. Inspect active, approval-pending, incomplete, or outcome-unknown jobs,
    operations, and work-execution attempts before planning new effects.
 4. Inspect relevant durable work. Continue an applicable item or stay direct;

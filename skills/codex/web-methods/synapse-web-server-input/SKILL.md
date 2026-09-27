@@ -1,6 +1,6 @@
 ---
 name: synapse-web-server-input
-description: Select when the current web question concerns SQL, command, template, or SSI interpretation of server-side input.
+description: Identify SQL injection (SQLi), command injection, server-side template injection (SSTI), or SSI hypotheses using evidence and controlled comparisons. Select for input crossing a server interpreter boundary; use the shared identification-only method contract.
 metadata:
   short-description: Analyze server-side input handling evidence
   synapse-role: method

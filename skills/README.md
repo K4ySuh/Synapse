@@ -44,15 +44,25 @@ connected clients; their claims and role labels never grant authority.
 
 Keep method selection and short recovery guidance in `operate-synapse`; put
 detailed Web and CVE methodology in the respective on-demand skills and their
-local `references/` files. Relative Markdown links in each `SKILL.md` must
-resolve within that skill directory. Keep provider instructions out of the
+local `references/` files. Relative Markdown links must resolve within the
+shipped skill tree; the three default entry skills share the operating
+references through their sibling directories. Keep provider instructions out of the
 application Registry and the package-owned operating prompt. The modern MCP
-guidance catalog serves the three default `SKILL.md` files and their five
-referenced Markdown documents from the same files used by the local installer.
+guidance catalog serves the default entry skills, optional method packages,
+and their referenced Markdown from the same files used by the local installer.
 The hosted package manifest in `synapse_mcp/guidance.py` lists entry skills and
 optional methods. Hosted Markdown under each package's `references/` directory
 is served from the same source files used by distribution. Update the manifest
 when adding a package, then run the skill and distribution validators.
+
+The default Web method identifies vulnerabilities and records evidence-backed
+candidates, useful negative results, and coverage gaps. Exploitation is a
+separate operator objective. Keep the common outcome/contribution contract in
+the main Web references and family questions in the optional methods; do not
+copy the whole methodology or payload catalogs into every package. A new skill
+is warranted by a distinct reusable decision boundary, not by each checklist
+step. Preserve deterministic parsers, execution integrations, and canonical
+identity/evidence/storage while letting the agent choose the test methodology.
 
 ## Install and validate
 
