@@ -1,0 +1,322 @@
+{
+  "multi_class": {
+    "same_canonical_id": true,
+    "stored": [
+      {
+        "analysisConclusion": "inconclusive",
+        "candidateDetails": {
+          "sqli": {
+            "confidence": "low",
+            "priority": "low",
+            "priorityScore": 0,
+            "reasons": [
+              "Server signal remains inconclusive"
+            ],
+            "validationStatus": "proposed"
+          },
+          "xss": {
+            "confidence": "high",
+            "priority": "low",
+            "priorityScore": 0,
+            "reasons": [
+              "Browser-specific signal"
+            ],
+            "validationStatus": "proposed"
+          }
+        },
+        "candidateFor": [
+          "xss",
+          "sqli"
+        ],
+        "candidateId": "tc_get_https-a.example.test-search_query_q",
+        "confidence": "low",
+        "contraryEvidenceIds": [],
+        "evidenceIds": [
+          "ev_763ca5b9fd4546a290758f86938ab963_contribution",
+          "ev_d3504cfda8c446608c867b46f2cddd59_contribution"
+        ],
+        "firstSeenAt": "2026-09-27T12:25:19Z",
+        "isReportable": true,
+        "key": "test_candidate:tc_get_https-a.example.test-search_query_q",
+        "knowledgeState": "inferred",
+        "lastSeenAt": "2026-09-27T12:25:19Z",
+        "location": "query",
+        "method": "GET",
+        "methodRef": {
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "id": "synapse-web-server-input"
+        },
+        "parameter": "q",
+        "priority": "low",
+        "priorityScore": 0,
+        "reason": "[sqli] Server signal remains inconclusive",
+        "reasons": [
+          "[xss] Browser-specific signal",
+          "[sqli] Server signal remains inconclusive"
+        ],
+        "source": "contribution.v1",
+        "submissionAttribution": {
+          "producer": {
+            "name": "review-fixture",
+            "version": "1"
+          },
+          "source": "contribution.v1"
+        },
+        "tags": [
+          "test-candidate",
+          "xss",
+          "sqli"
+        ],
+        "type": "test_candidate",
+        "url": "https://a.example.test/search",
+        "value": "https://a.example.test/search"
+      }
+    ],
+    "context": [
+      {
+        "itemId": "entity-d0b027214a3228c2b5548d47",
+        "kind": "test_candidate",
+        "target": "a.example.test",
+        "summary": "https://a.example.test/search",
+        "lifecycle": "observed",
+        "confidence": "low",
+        "priority": 0,
+        "evidenceReferences": [
+          "ev_763ca5b9fd4546a290758f86938ab963_contribution",
+          "ev_d3504cfda8c446608c867b46f2cddd59_contribution"
+        ],
+        "changedRevision": 3,
+        "attributes": {
+          "method": "GET",
+          "url": "https://a.example.test/search",
+          "reason": "[sqli] Server signal remains inconclusive",
+          "candidateFor": [
+            "xss",
+            "sqli"
+          ],
+          "analysisConclusion": "inconclusive",
+          "isReportable": true,
+          "knowledgeState": "inferred",
+          "sourceAttribution": {
+            "source": "contribution.v1",
+            "submission": "contribution.v1",
+            "producer": {
+              "name": "review-fixture",
+              "version": "1"
+            },
+            "methodRef": {
+              "id": "synapse-web-server-input",
+              "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          },
+          "contraryEvidenceReferences": []
+        }
+      }
+    ]
+  },
+  "same_class_update": {
+    "analysisConclusion": "inconclusive",
+    "candidateDetails": {
+      "sqli": {
+        "confidence": "low",
+        "priority": "low",
+        "priorityScore": 0,
+        "reasons": [
+          "Server signal remains inconclusive"
+        ],
+        "validationStatus": "proposed"
+      },
+      "xss": {
+        "confidence": "high",
+        "priority": "low",
+        "priorityScore": 0,
+        "reasons": [
+          "Browser-specific signal"
+        ],
+        "validationStatus": "proposed"
+      }
+    },
+    "candidateFor": [
+      "xss",
+      "sqli"
+    ],
+    "candidateId": "tc_get_https-a.example.test-search_query_q",
+    "confidence": "low",
+    "contraryEvidenceIds": [],
+    "evidenceIds": [
+      "ev_4a54e3d754204fab91265dcf34779290_contribution",
+      "ev_763ca5b9fd4546a290758f86938ab963_contribution",
+      "ev_d3504cfda8c446608c867b46f2cddd59_contribution"
+    ],
+    "firstSeenAt": "2026-09-27T12:25:19Z",
+    "isReportable": true,
+    "key": "test_candidate:tc_get_https-a.example.test-search_query_q",
+    "knowledgeState": "inferred",
+    "lastSeenAt": "2026-09-27T12:25:19Z",
+    "location": "query",
+    "method": "GET",
+    "methodRef": {
+      "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "id": "synapse-web-browser-input"
+    },
+    "parameter": "q",
+    "priority": "low",
+    "priorityScore": 0,
+    "reason": "[xss] Browser signal now inconclusive",
+    "reasons": [
+      "[xss] Browser-specific signal",
+      "[sqli] Server signal remains inconclusive",
+      "[xss] Browser signal now inconclusive"
+    ],
+    "source": "contribution.v1",
+    "submissionAttribution": {
+      "producer": {
+        "name": "review-fixture",
+        "version": "1"
+      },
+      "source": "contribution.v1"
+    },
+    "tags": [
+      "test-candidate",
+      "xss",
+      "sqli"
+    ],
+    "type": "test_candidate",
+    "url": "https://a.example.test/search",
+    "value": "https://a.example.test/search"
+  },
+  "partial_refutation_context": [
+    {
+      "itemId": "entity-d0b027214a3228c2b5548d47",
+      "kind": "test_candidate",
+      "target": "a.example.test",
+      "summary": "https://a.example.test/search",
+      "lifecycle": "observed",
+      "confidence": "low",
+      "priority": 0,
+      "evidenceReferences": [
+        "ev_4a54e3d754204fab91265dcf34779290_contribution",
+        "ev_763ca5b9fd4546a290758f86938ab963_contribution",
+        "ev_d3504cfda8c446608c867b46f2cddd59_contribution"
+      ],
+      "changedRevision": 5,
+      "attributes": {
+        "method": "GET",
+        "url": "https://a.example.test/search",
+        "reason": "[xss] Browser signal now inconclusive",
+        "candidateFor": [
+          "sqli"
+        ],
+        "analysisConclusion": "inconclusive",
+        "isReportable": true,
+        "knowledgeState": "inferred",
+        "sourceAttribution": {
+          "source": "contribution.v1",
+          "submission": "contribution.v1",
+          "producer": {
+            "name": "review-fixture",
+            "version": "1"
+          },
+          "methodRef": {
+            "id": "synapse-web-browser-input",
+            "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        "contraryEvidenceReferences": []
+      }
+    }
+  ],
+  "surface_collision": {
+    "same_canonical_id": true,
+    "stored": [
+      {
+        "analysisConclusion": "proposed",
+        "candidateDetails": {
+          "xss": {
+            "confidence": "medium",
+            "priority": "low",
+            "priorityScore": 0,
+            "reasons": [
+              "Nested route signal"
+            ],
+            "validationStatus": "proposed"
+          }
+        },
+        "candidateFor": [
+          "xss"
+        ],
+        "candidateId": "tc_get_https-a.example.test-a-b_query_q",
+        "confidence": "medium",
+        "contraryEvidenceIds": [],
+        "evidenceIds": [
+          "ev_12fd3e0a220f47a48fe97dd0d38f8c34_contribution",
+          "ev_b919ce032a9d4ae797ea6b9c4639f622_contribution"
+        ],
+        "firstSeenAt": "2026-09-27T12:25:19Z",
+        "isReportable": true,
+        "key": "test_candidate:tc_get_https-a.example.test-a-b_query_q",
+        "knowledgeState": "inferred",
+        "lastSeenAt": "2026-09-27T12:25:19Z",
+        "location": "query",
+        "method": "GET",
+        "methodRef": {
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "id": "synapse-web-browser-input"
+        },
+        "parameter": "q",
+        "priority": "low",
+        "priorityScore": 0,
+        "reason": "[xss] Hyphen route signal",
+        "reasons": [
+          "[xss] Nested route signal",
+          "[xss] Hyphen route signal"
+        ],
+        "source": "contribution.v1",
+        "submissionAttribution": {
+          "producer": {
+            "name": "review-fixture",
+            "version": "1"
+          },
+          "source": "contribution.v1"
+        },
+        "tags": [
+          "test-candidate",
+          "xss"
+        ],
+        "type": "test_candidate",
+        "url": "https://a.example.test/a/b",
+        "value": "https://a.example.test/a/b"
+      }
+    ]
+  },
+  "paging": {
+    "default_first_count": 0,
+    "default_second_count": 0,
+    "same_items": true,
+    "cursor_repeats": true,
+    "omissions": [
+      {
+        "section": "confirmedFacts",
+        "reason": "repository_page",
+        "count": 1,
+        "continuation": "Use continuation.nextCursor with the same query filters; do not advance sinceRevision."
+      },
+      {
+        "section": "confirmedFacts",
+        "reason": "budget_exhausted",
+        "count": 200,
+        "continuation": "Increase maxTokens and repeat this page with continuation.nextCursor; do not advance sinceRevision."
+      },
+      {
+        "section": "resourceLinks",
+        "reason": "budget_exhausted",
+        "count": 1,
+        "continuation": "Increase maxTokens and repeat this page with continuation.nextCursor; do not advance sinceRevision."
+      }
+    ],
+    "larger_budget_count": 200,
+    "larger_budget_tokens": 81807,
+    "final_page_count": 5,
+    "complete": true
+  }
+}

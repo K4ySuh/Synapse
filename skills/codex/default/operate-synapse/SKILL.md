@@ -9,7 +9,9 @@ metadata:
 
 # Operate Synapse
 
-Use Synapse workspace state—not conversation memory—as operational truth. Read
+Use Synapse workspace state—not conversation memory—as operational truth. Load
+the connected server's `synapse-main` prompt or `synapse://prompt/main` once if
+it is not already in context. Read
 [operational invariants](references/operational-invariants.md) before acting and
 follow the [single-agent workflow](references/single-agent-workflow.md) through
 recovery, execution, skill transitions, restarts, and convergence.
@@ -26,7 +28,7 @@ smallest useful mode:
   narrate a short linear task.
 - Load `$synapse-web-pentesting` for bootstrap, perimeter and application
   mapping, JavaScript, authentication, access-control, vulnerability
-  hypotheses, bounded active validation, or web-assessment convergence.
+  hypotheses, bounded identification checks, or web-assessment convergence.
 - Load `$synapse-cve-intelligence` for product/version/CPE normalization,
   CVE/NVD/KEV/vendor and public-PoC research, applicability analysis, or
   bounded validation recommendations.
@@ -44,8 +46,9 @@ engagement workspace.
 Use `capabilities.search` to find currently selected, available actions by
 intent, capability pack, target, task suitability, effects, and risk. Use
 `actions.describe` before execution when exact inputs, effects, authority, or
-availability matter. Never substitute a copied action catalog or remembered
-schema for the live Registry.
+availability matter. Reuse descriptions already read from this unchanged
+server/schema version. Never substitute a copied action catalog or remembered
+schema from another version for the live Registry.
 
 For direct work, query bounded context, perform the smallest safe operation,
 persist useful facts, evidence, negative results, and gaps, then converge from

@@ -12,6 +12,11 @@ committed history for the project. The format is loosely based on
 
 ## [Unreleased]
 
+- Clarify the default web skills as identification-first, with optional family
+  guidance, explicit negative-result handling, version 1.1 schema selection,
+  package-digest attribution, and contribution retry recovery. Exploitation
+  remains a separate operator objective. No runtime or action schema changed.
+
 Post-demo Beta workflow hardening. This set keeps large authorized workspaces
 complete while bounding control-plane responses, candidate review, and report
 generation; it also tightens passive candidate semantics across the web and CVE

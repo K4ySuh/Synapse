@@ -1,6 +1,6 @@
 ---
 name: synapse-web-browser-input
-description: Select when the current web question concerns browser input reaching executable markup or script contexts, client navigation, or redirect decisions.
+description: Identify reflected, stored, or DOM XSS hypotheses and unsafe redirect behavior from browser input, source-to-sink paths, and context-specific evidence. Select for executable markup/script contexts, client navigation, or redirect decisions; use the shared identification-only method contract.
 metadata:
   short-description: Analyze browser input and redirect evidence
   synapse-role: method
